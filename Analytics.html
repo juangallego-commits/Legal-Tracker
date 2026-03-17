@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analytics · Legal Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<?!= include('Styles') ?>
+<style>
+.hero-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:28px}
+.hero-chart{min-height:380px}.hero-chart .card-body{padding:28px;min-height:340px}
+.metric-row{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin-bottom:28px}
+.metric{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center;transition:border-color .3s,transform .2s}
+.metric:hover{border-color:var(--border-light);transform:translateY(-2px)}
+.metric-value{font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;letter-spacing:-1.5px;line-height:1}
+.metric-label{font-size:11px;color:var(--text-dim);margin-top:8px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.detail-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:28px}
+.td-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:border-color .3s}
+.td-card:hover{border-color:var(--border-light)}
+.td-header{padding:20px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px}
+.td-avatar{width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:#fff;flex-shrink:0}
+.td-name{font-weight:700;font-size:16px}.td-sub{font-size:12px;color:var(--text-muted);margin-top:2px}
+.td-body{padding:20px 22px}.td-chart{height:180px;margin-bottom:16px}
+.td-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.td-stat{text-align:center;padding:10px;background:var(--surface2);border-radius:var(--radius-sm)}
+.td-stat-val{font-size:20px;font-weight:800;font-family:'JetBrains Mono',monospace}
+.td-stat-lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+.sla-gauges{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.gauge-card{background:var(--surface2);border-radius:var(--radius);padding:24px;text-align:center}
+.gauge-wrap{position:relative;width:120px;height:120px;margin:0 auto 16px}
+.gauge-label{font-size:14px;font-weight:600}.gauge-sub{font-size:12px;color:var(--text-muted);margin-top:4px}
+.flow-bar{display:flex;height:40px;border-radius:10px;overflow:hidden;margin:20px 0}
+.flow-seg{display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff}
+.flow-legend{display:flex;gap:20px;justify-content:center;flex-wrap:wrap}
+.flow-legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted)}
+.flow-dot{width:10px;height:10px;border-radius:50%}
+@media(max-width:1024px){.hero-grid{grid-template-columns:1fr}.metric-row{grid-template-columns:repeat(3,1fr)}.detail-grid{grid-template-columns:1fr}}
+@media(max-width:640px){.metric-row{grid-template-columns:repeat(2,1fr)}.sla-gauges{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="ambient"></div>
+<div class="app">
+  <div class="topbar animate-in">
+    <div class="topbar-brand">
+      <div class="topbar-logo" style="background:linear-gradient(135deg,#A78BFA,#7C3AED);">📊</div>
+      <h1>Analytics <span>· Legal Tracker</span></h1>
+    </div>
+    <div class="topbar-meta">
+      <a class="nav-link" id="linkDashboard">Tracker</a>
+      <a class="nav-link active" href="#">Analytics</a>
+      <div class="topbar-pill live" id="pillSemana">—</div>
+      <button class="btn-refresh" onclick="location.reload()" title="Recargar">↻</button>
+    </div>
+  </div>
+  <div class="metric-row">
+    <div class="metric animate-in delay-1"><div class="metric-value" style="color:var(--teal)" id="mTotal">0</div><div class="metric-label">Total activas</div></div>
+    <div class="metric animate-in delay-1"><div class="metric-value" style="color:var(--red)" id="mAlta">0</div><div class="metric-label">Alta prioridad</div></div>
+    <div class="metric animate-in delay-2"><div class="metric-value" style="color:var(--blue)" id="mCurso">0</div><div class="metric-label">En curso</div></div>
+    <div class="metric animate-in delay-2"><div class="metric-value" style="color:var(--yellow)" id="mBloq">0</div><div class="metric-label">Bloqueadas</div></div>
+    <div class="metric animate-in delay-3"><div class="metric-value" style="color:var(--green)" id="mDone">0</div><div class="metric-label">Completadas</div></div>
+    <div class="metric animate-in delay-3"><div class="metric-value" style="color:var(--purple)" id="mHist">0</div><div class="metric-label">Historial total</div></div>
+  </div>
+  <div class="card animate-in delay-4" style="margin-bottom:28px"><div class="card-header"><span class="card-title">Pipeline de tareas</span><span class="card-badge" id="flowBadge">—</span></div><div class="card-body"><div class="flow-bar" id="flowBar"></div><div class="flow-legend"><div class="flow-legend-item"><div class="flow-dot" style="background:#64748B"></div>Pendiente</div><div class="flow-legend-item"><div class="flow-dot" style="background:#60A5FA"></div>En curso</div><div class="flow-legend-item"><div class="flow-dot" style="background:#FBBF24"></div>Bloqueado</div><div class="flow-legend-item"><div class="flow-dot" style="background:#34D399"></div>Listo</div></div></div></div>
+  <div class="hero-grid">
+    <div class="card hero-chart animate-in delay-5"><div class="card-header"><span class="card-title">Distribución por prioridad</span></div><div class="card-body"><canvas id="chartPriority"></canvas></div></div>
+    <div class="card hero-chart animate-in delay-5"><div class="card-header"><span class="card-title">Carga por responsable</span></div><div class="card-body"><canvas id="chartTeamLoad"></canvas></div></div>
+  </div>
+  <div class="card animate-in delay-6" style="margin-bottom:28px"><div class="card-header"><span class="card-title">Cumplimiento de SLA</span><span class="card-badge">Plazo máximo de respuesta</span></div><div class="card-body"><div class="sla-gauges"><div class="gauge-card"><div class="gauge-wrap"><canvas id="gaugeOnTime"></canvas></div><div class="gauge-label" style="color:var(--green)">En tiempo</div><div class="gauge-sub" id="slaOnTimeN">—</div></div><div class="gauge-card"><div class="gauge-wrap"><canvas id="gaugeAtRisk"></canvas></div><div class="gauge-label" style="color:var(--yellow)">En riesgo</div><div class="gauge-sub" id="slaAtRiskN">—</div></div><div class="gauge-card"><div class="gauge-wrap"><canvas id="gaugeOverdue"></canvas></div><div class="gauge-label" style="color:var(--red)">Vencidas</div><div class="gauge-sub" id="slaOverdueN">—</div></div></div></div></div>
+  <div class="card animate-in delay-6" style="margin-bottom:28px"><div class="card-header"><span class="card-title">Estado por responsable</span></div><div class="card-body" style="min-height:320px"><canvas id="chartTeamStatus"></canvas></div></div>
+  <div class="detail-grid" id="detailGrid"></div>
+  <div class="card animate-in delay-7" style="margin-bottom:28px"><div class="card-header"><span class="card-title">Distribución de deadlines</span></div><div class="card-body" style="min-height:280px"><canvas id="chartDeadlines"></canvas></div></div>
+  <div class="footer">⚖ Legal Team · RappiPlus Colombia · Analytics v2.1<br><span style="font-size:11px;margin-top:4px;display:inline-block" id="footerGen"></span></div>
+</div>
+<script>
+var DATA={tasks:[],historial:[],kpi:{total:0,alta:0,media:0,baja:0,pendiente:0,enCurso:0,bloqueado:0,listo:0},sla:{onTime:0,atRisk:0,overdue:0},team:[],semana:'—',generated:'',config:{}};
+if(!DATA.tasks)DATA.tasks=[];if(!DATA.historial)DATA.historial=[];
+if(!DATA.kpi)DATA.kpi={total:0,alta:0,media:0,baja:0,pendiente:0,enCurso:0,bloqueado:0,listo:0};
+if(!DATA.sla)DATA.sla={onTime:0,atRisk:0,overdue:0};
+if(!DATA.team)DATA.team=[];if(!DATA.semana)DATA.semana='—';if(!DATA.generated)DATA.generated='';
+var CS=['#A78BFA','#22D3EE','#FF6B35','#F472B6','#34D399','#60A5FA'];
+var CG=['linear-gradient(135deg,#A78BFA,#7C3AED)','linear-gradient(135deg,#22D3EE,#0891B2)','linear-gradient(135deg,#FF6B35,#E85D26)','linear-gradient(135deg,#F472B6,#DB2777)','linear-gradient(135deg,#34D399,#059669)'];
+try{document.getElementById('linkDashboard').href=window.location.href.split('?')[0]}catch(e){}
+try{Chart.defaults.color='#8892B0';Chart.defaults.font.family="'DM Sans',sans-serif";Chart.defaults.font.size=12}catch(e){}
+
+function init(){var d=DATA,k=d.kpi||{};
+try{document.getElementById('pillSemana').textContent=d.semana||'—'}catch(e){}
+try{document.getElementById('footerGen').textContent='Datos: '+(d.generated||'')}catch(e){}
+av('mTotal',k.total);av('mAlta',k.alta);av('mCurso',k.enCurso);av('mBloq',k.bloqueado);av('mDone',k.listo);av('mHist',d.historial?d.historial.length:0);
+try{rFlow(k)}catch(e){console.error('F',e)}
+try{rPrio(k)}catch(e){console.error('P',e)}
+try{rTL(d.team)}catch(e){console.error('TL',e)}
+try{rSLA(d.sla,k)}catch(e){console.error('S',e)}
+try{rTS(d.team)}catch(e){console.error('TS',e)}
+try{rDC(d.team)}catch(e){console.error('DC',e)}
+try{rDL(d.tasks)}catch(e){console.error('DL',e)}}
+
+function av(id,n){var el=document.getElementById(id);if(!el)return;n=n||0;var s=performance.now();(function t(now){var p=Math.min((now-s)/900,1);el.textContent=Math.round((1-Math.pow(1-p,3))*n);if(p<1)requestAnimationFrame(t)})(performance.now())}
+
+function rFlow(k){var t=k.total||1,b=document.getElementById('flowBar');if(!b)return;
+try{document.getElementById('flowBadge').textContent=(k.total||0)+' tareas'}catch(e){}
+var ss=[{n:k.pendiente||0,c:'#64748B'},{n:k.enCurso||0,c:'#60A5FA'},{n:k.bloqueado||0,c:'#FBBF24'},{n:k.listo||0,c:'#34D399'}];
+var h='';ss.forEach(function(s){if(s.n>0)h+='<div class="flow-seg" style="width:'+Math.max(s.n/t*100,8)+'%;background:'+s.c+'">'+s.n+'</div>'});
+b.innerHTML=h||'<div style="text-align:center;padding:10px;color:var(--text-dim)">Sin tareas</div>'}
+
+function rPrio(k){var x=document.getElementById('chartPriority');if(!x)return;var t=k.total||0;
+var cp={id:'ct',afterDraw:function(ch){var c=ch.ctx;c.save();c.font="800 36px 'JetBrains Mono',monospace";c.fillStyle='#E8ECF4';c.textAlign='center';c.textBaseline='middle';c.fillText(t,ch.width/2,ch.height/2-8);c.font="500 12px 'DM Sans',sans-serif";c.fillStyle='#8892B0';c.fillText('tareas',ch.width/2,ch.height/2+18);c.restore()}};
+new Chart(x,{type:'doughnut',data:{labels:['Alta','Media','Baja'],datasets:[{data:[k.alta||0,k.media||0,k.baja||0],backgroundColor:['#F87171','#FBBF24','#34D399'],borderColor:'#141926',borderWidth:4,hoverOffset:12}]},options:{responsive:true,maintainAspectRatio:true,cutout:'72%',plugins:{legend:{position:'bottom',labels:{padding:20,usePointStyle:true,pointStyle:'circle',font:{size:13}}},tooltip:{backgroundColor:'#1C2237',borderColor:'#2A3352',borderWidth:1,padding:14,cornerRadius:10,callbacks:{label:function(c){return' '+c.label+': '+c.parsed+' ('+(t>0?Math.round(c.parsed/t*100):0)+'%)'}}}},animation:{animateRotate:true,duration:1400}},plugins:[cp]})}
+
+function rTL(team){var x=document.getElementById('chartTeamLoad');if(!x||!team||!team.length)return;
+new Chart(x,{type:'bar',data:{labels:team.map(function(t){return t.name||''}),datasets:[{label:'Alta',data:team.map(function(t){return t.alta||0}),backgroundColor:'#F87171',borderRadius:6,barPercentage:.5,categoryPercentage:.7},{label:'Media',data:team.map(function(t){return t.media||0}),backgroundColor:'#FBBF24',borderRadius:6,barPercentage:.5,categoryPercentage:.7},{label:'Baja',data:team.map(function(t){return t.baja||0}),backgroundColor:'#34D399',borderRadius:6,barPercentage:.5,categoryPercentage:.7}]},options:{responsive:true,maintainAspectRatio:true,indexAxis:'y',scales:{x:{stacked:true,grid:{color:'rgba(42,51,82,.5)',drawBorder:false},ticks:{stepSize:2},title:{display:true,text:'Tareas',color:'#5A6588'}},y:{stacked:true,grid:{display:false},ticks:{font:{size:13,weight:600}}}},plugins:{legend:{position:'top',align:'end',labels:{padding:20,usePointStyle:true,pointStyle:'circle',font:{size:13}}},tooltip:{backgroundColor:'#1C2237',borderColor:'#2A3352',borderWidth:1,padding:14,cornerRadius:10}},animation:{duration:1200}}})}
+
+function rSLA(sla,kpi){sla=sla||{onTime:0,atRisk:0,overdue:0};var ac=Math.max((kpi.total||0)-(kpi.listo||0),0);
+var items=[{id:'gaugeOnTime',n:sla.onTime||0,co:'#34D399',bg:'rgba(52,211,153,.15)',li:'slaOnTimeN'},{id:'gaugeAtRisk',n:sla.atRisk||0,co:'#FBBF24',bg:'rgba(251,191,36,.15)',li:'slaAtRiskN'},{id:'gaugeOverdue',n:sla.overdue||0,co:'#F87171',bg:'rgba(248,113,113,.15)',li:'slaOverdueN'}];
+items.forEach(function(g){var el=document.getElementById(g.id);if(!el)return;
+var pct=ac>0?g.n/ac:0,pr=Math.round(pct*100);
+try{document.getElementById(g.li).textContent=g.n+' de '+ac+' activas'}catch(e){}
+var cp={id:'cp'+g.id,afterDraw:function(ch){var c=ch.ctx;c.save();c.font="800 28px 'JetBrains Mono',monospace";c.fillStyle=g.co;c.textAlign='center';c.textBaseline='middle';c.fillText(pr+'%',ch.width/2,ch.height/2);c.restore()}};
+new Chart(el,{type:'doughnut',data:{datasets:[{data:[g.n,Math.max(ac-g.n,0)],backgroundColor:[g.co,g.bg],borderWidth:0}]},options:{responsive:true,cutout:'78%',plugins:{legend:{display:false},tooltip:{enabled:false}},animation:{animateRotate:true,duration:1400}},plugins:[cp]})})}
+
+function rTS(team){var x=document.getElementById('chartTeamStatus');if(!x||!team||!team.length)return;
+new Chart(x,{type:'bar',data:{labels:team.map(function(t){return t.name||''}),datasets:[{label:'Pendiente',data:team.map(function(t){return t.pendiente||0}),backgroundColor:'#64748B',borderRadius:4,barPercentage:.55},{label:'En curso',data:team.map(function(t){return t.enCurso||0}),backgroundColor:'#60A5FA',borderRadius:4,barPercentage:.55},{label:'Bloqueado',data:team.map(function(t){return t.bloqueado||0}),backgroundColor:'#FBBF24',borderRadius:4,barPercentage:.55},{label:'Listo',data:team.map(function(t){return t.listo||0}),backgroundColor:'#34D399',borderRadius:4,barPercentage:.55}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{stacked:true,grid:{display:false},ticks:{font:{size:13,weight:600}}},y:{stacked:true,grid:{color:'rgba(42,51,82,.5)',drawBorder:false},ticks:{stepSize:2},title:{display:true,text:'Tareas',color:'#5A6588'}}},plugins:{legend:{position:'top',align:'center',labels:{padding:20,usePointStyle:true,pointStyle:'circle',font:{size:12}}},tooltip:{backgroundColor:'#1C2237',borderColor:'#2A3352',borderWidth:1,padding:14,cornerRadius:10}},animation:{duration:1200}}})}
+
+function rDC(team){var g=document.getElementById('detailGrid');if(!g||!team||!team.length)return;
+g.innerHTML=team.map(function(t,i){var gr=CG[i%CG.length];return'<div class="td-card animate-in delay-'+(6+i)+'"><div class="td-header"><div class="td-avatar" style="background:'+gr+'">'+(t.initials||'?')+'</div><div><div class="td-name">'+(t.name||'')+'</div><div class="td-sub">'+(t.total||0)+' tareas</div></div></div><div class="td-body"><div class="td-chart"><canvas id="pc'+i+'"></canvas></div><div class="td-stats"><div class="td-stat"><div class="td-stat-val" style="color:var(--red)">'+(t.alta||0)+'</div><div class="td-stat-lbl">Alta</div></div><div class="td-stat"><div class="td-stat-val" style="color:var(--yellow)">'+(t.media||0)+'</div><div class="td-stat-lbl">Media</div></div><div class="td-stat"><div class="td-stat-val" style="color:var(--blue)">'+(t.enCurso||0)+'</div><div class="td-stat-lbl">En curso</div></div><div class="td-stat"><div class="td-stat-val" style="color:var(--green)">'+(t.pctDone||0)+'%</div><div class="td-stat-lbl">Completado</div></div></div></div></div>'}).join('');
+team.forEach(function(t,i){var el=document.getElementById('pc'+i);if(!el)return;
+try{new Chart(el,{type:'polarArea',data:{labels:['Pend','Curso','Bloq','Listo'],datasets:[{data:[t.pendiente||0,t.enCurso||0,t.bloqueado||0,t.listo||0],backgroundColor:['rgba(100,116,139,.6)','rgba(96,165,250,.6)','rgba(251,191,36,.6)','rgba(52,211,153,.6)'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,scales:{r:{display:false}},plugins:{legend:{display:false},tooltip:{backgroundColor:'#1C2237',borderColor:'#2A3352',borderWidth:1,padding:10,cornerRadius:8}},animation:{animateRotate:true,duration:1000}}})}catch(e){}})}
+
+function rDL(tasks){var x=document.getElementById('chartDeadlines');if(!x||!tasks||!tasks.length)return;
+var b={};tasks.forEach(function(t){var d=(t.deadline||'Sin definir')+'';b[d]=(b[d]||0)+1});
+var s=Object.entries(b).sort(function(a,c){return c[1]-a[1]});if(!s.length)return;
+new Chart(x,{type:'bar',data:{labels:s.map(function(v){return v[0]}),datasets:[{data:s.map(function(v){return v[1]}),backgroundColor:s.map(function(_,i){return CS[i%CS.length]}),borderRadius:8,barPercentage:.6,maxBarThickness:60}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{grid:{display:false},ticks:{font:{size:12,weight:500}}},y:{grid:{color:'rgba(42,51,82,.5)',drawBorder:false},ticks:{stepSize:1},title:{display:true,text:'Tareas',color:'#5A6588'}}},plugins:{legend:{display:false},tooltip:{backgroundColor:'#1C2237',borderColor:'#2A3352',borderWidth:1,padding:12,cornerRadius:8}},animation:{duration:1000}}})}
+
+document.addEventListener('DOMContentLoaded',function(){
+  google.script.run.withSuccessHandler(function(d){
+    DATA=d;init();
+  }).withFailureHandler(function(e){
+    document.body.innerHTML='<h1 style="color:white;padding:40px;">Error: '+e.message+'</h1>';
+  }).getTrackerData();
+});
+</script>
+</body>
+</html>
