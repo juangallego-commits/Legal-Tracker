@@ -58,7 +58,13 @@ function getTrackerData() {
       if(t.priority==='Alta')s.alta++;if(t.priority==='Media')s.media++;if(t.priority==='Baja')s.baja++;
     }
   });
-
+// Count completed tasks from historial toward project stats
+  histTasks.forEach(function(t) {
+    var pid = t.proyectoId;
+    if (pid && projMap[pid]) {
+      var s = projMap[pid].taskStats; s.total++; s.listo++;
+    }
+  });
   // Auto-calculate project status (if not manually forced)
   projects.forEach(function(p) {
     if (p.statusForced) return; // manually set, don't override
@@ -140,7 +146,7 @@ function readProjects(ss) {
       id: row[0], nombre: row[1]||'', pais: (row[2]||'').toString().trim(),
       lider: (row[3]||'').toString().trim(), responsable: (row[4]||'').toString().trim(),
       deadline: row[5]||'', priority: row[6]||'Media',
-      status: row[7]||'Activo', statusForced: (row[7]||'').toString().trim() !== '',
+      status: row[7]||'Activo', statusForced: (row[7]||'').toString().trim() === 'Cancelado',
       descripcion: row[8]||'', notas: row[9]||'',
       creado: row[10]? Utilities.formatDate(new Date(row[10]),'America/Bogota','dd/MM/yyyy'):'',
       semana: row[11]||'',
@@ -274,3 +280,10 @@ function getCurrentWeekLabel(){var now=new Date(),mon=new Date(now);mon.setDate(
 // ════════════════════════════════════════════════════════════════
 function handleCloseTask(params){var ss=SpreadsheetApp.openById(SHEET_ID),ws=ss.getSheetByName(SHEET_ACTIVO);var lr=ws.getLastRow();if(lr<4)return ContentService.createTextOutput(JSON.stringify({success:false,message:'No hay tareas activas'})).setMimeType(ContentService.MimeType.JSON);var lc=Math.min(ws.getLastColumn(),TASK_COLS);var data=ws.getRange(4,1,lr-3,lc).getValues();var st=(params.task_name||params.message_text||'').toLowerCase();var bm=-1,bs=0;for(var i=0;i<data.length;i++){var n=(data[i][1]||'').toLowerCase();if(!n)continue;var w=st.split(/\s+/),sc=0;w.forEach(function(x){if(x.length>2&&n.indexOf(x)>=0)sc++});if(sc>bs){bs=sc;bm=i}}if(bm>=0&&bs>=1){var row=bm+4,tn=data[bm][1],tid=data[bm][0];ws.getRange(row,7).setValue('Listo');ws.getRange(row,10).setValue(new Date());moveToHistorial(ss,ws,row);return ContentService.createTextOutput(JSON.stringify({success:true,message:'Tarea #'+tid+' "'+tn+'" marcada como Listo y movida a Historial'})).setMimeType(ContentService.MimeType.JSON)}return ContentService.createTextOutput(JSON.stringify({success:false,message:'No encontré una tarea que coincida'})).setMimeType(ContentService.MimeType.JSON)}
 function handleBlockTask(params){var ss=SpreadsheetApp.openById(SHEET_ID),ws=ss.getSheetByName(SHEET_ACTIVO);var lr=ws.getLastRow();if(lr<4)return ContentService.createTextOutput(JSON.stringify({success:false,message:'No hay tareas activas'})).setMimeType(ContentService.MimeType.JSON);var lc=Math.min(ws.getLastColumn(),TASK_COLS);var data=ws.getRange(4,1,lr-3,lc).getValues();var st=(params.task_name||'').toLowerCase();var bm=-1,bs=0;for(var i=0;i<data.length;i++){var n=(data[i][1]||'').toLowerCase();if(!n)continue;var w=st.split(/\s+/),sc=0;w.forEach(function(x){if(x.length>2&&n.indexOf(x)>=0)sc++});if(sc>bs){bs=sc;bm=i}}if(bm>=0&&bs>=1){var row=bm+4,tn=data[bm][1],tid=data[bm][0];ws.getRange(row,7).setValue('Bloqueado');var on=ws.getRange(row,11).getValue()||'';ws.getRange(row,11).setValue((on?on+' | ':'')+'⛔ '+(params.reason||'')+' ('+(params.slack_user||'')+', '+new Date().toLocaleDateString('es-CO')+')');return ContentService.createTextOutput(JSON.stringify({success:true,message:'Tarea bloqueada: #'+tid+' "'+tn+'"'})).setMimeType(ContentService.MimeType.JSON)}return ContentService.createTextOutput(JSON.stringify({success:false,message:'No encontré una tarea que coincida'})).setMimeType(ContentService.MimeType.JSON)}
+function testData() {
+  var d = getTrackerData();
+  Logger.log('Tasks: ' + d.tasks.length);
+  Logger.log('Equipos: ' + d.equipos.length);
+  Logger.log('Projects: ' + d.projects.length);
+  Logger.log('Team: ' + d.team.length);
+}
