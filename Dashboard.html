@@ -370,10 +370,8 @@ function openEdit(id){var t=D.tasks.find(function(x){return x.id==id});if(!t)ret
 function closeEdit(){$('editOv').classList.remove('show');EDIT_ID=null}
 function saveEdit(){if(!EDIT_ID)return;var fields={nombre:$('eNom').value,resp:$('eResp').value,priority:$('ePrio').value,status:$('eStat').value,proyectoId:$('eProj').value,pais:$('ePais').value,deadline:$('eDl').value,acc:$('eAcc').value,notas:$('eNot').value};
   if(fields.status==='Listo'){closeEdit();confirm_('¿Marcar como Listo? Se moverá al Historial.',function(){batchU(EDIT_ID,fields)});return}batchU(EDIT_ID,fields);closeEdit()}
-function batchU(id,fields){toast('Guardando...','info');var keys=Object.keys(fields),i=0;function next(){if(i>=keys.length){toast('✅ Actualizado','success');reload();return}var k=keys[i];i++;
-  // Map proyectoId to proyecto column
-  var fName=k==='proyectoId'?'proyecto':k;
-  google.script.run.withSuccessHandler(next).withFailureHandler(function(e){toast('Error: '+e.message,'error')}).updateTaskField(id,fName,fields[k])}next()}
+
+function batchU(id,fields){toast('Guardando...','info');var keys=Object.keys(fields);keys.sort(function(a,b){return a==='status'?1:b==='status'?-1:0});var i=0;function next(){if(i>=keys.length){toast('✅ Actualizado','success');reload();return}var k=keys[i];i++;var fName=k==='proyectoId'?'proyecto':k;google.script.run.withSuccessHandler(next).withFailureHandler(function(e){toast('Error: '+e.message,'error')}).updateTaskField(id,fName,fields[k])}next()}
 
 // ═══ CONFIRM ═══
 function confirm_(txt,fn){$('confTxt').textContent=txt;$('confOv').classList.add('show');$('confBtn').onclick=function(){closeCf();fn()}}
