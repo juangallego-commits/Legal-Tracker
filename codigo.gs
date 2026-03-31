@@ -13,7 +13,7 @@ const SHEET_PROYECTOS = 'Proyectos';
 // Tasks: 14 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder
 const TASK_COLS = 14;
 // Projects: 12 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana
-const PROJ_COLS = 12;
+const PROJ_COLS = 13;
 
 const STATUS_ORDER = {'Bloqueado':0,'En curso':1,'Pendiente':2,'En revisión':3,'Listo':4};
 const PRIO_ORDER   = {'Alta':0,'Media':1,'Baja':2};
@@ -150,6 +150,7 @@ function readProjects(ss) {
       descripcion: row[8]||'', notas: row[9]||'',
       creado: row[10]? Utilities.formatDate(new Date(row[10]),'America/Bogota','dd/MM/yyyy'):'',
       semana: row[11]||'',
+      participantes: (row[12]||'').toString().split(',').map(function(s){return s.trim()}).filter(Boolean),
       pctDone: 0, tasks: [], taskStats: {}
     });
   });
@@ -173,7 +174,7 @@ function addProject(obj) {
   ws.appendRow([
     newId, obj.nombre||'', pais, lider, obj.responsable||'',
     obj.deadline||'', obj.priority||'Media', obj.status||'Activo',
-    obj.descripcion||'', obj.notas||'', new Date(), getCurrentWeekLabel()
+    obj.descripcion||'', obj.notas||'', new Date(), getCurrentWeekLabel(), obj.participantes||''
   ]);
   return {success:true, id:newId, nombre:obj.nombre||''};
 }
@@ -185,7 +186,7 @@ function updateProjectField(projId, field, value) {
   var lastRow = ws.getLastRow();
   if (lastRow < 2) return {success:false, error:'No projects'};
   var data = ws.getRange(2, 1, lastRow - 1, Math.min(ws.getLastColumn(), PROJ_COLS)).getValues();
-  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10};
+  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13};
   var col = fieldMap[field];
   if (!col) return {success:false, error:'Invalid field: '+field};
   for (var i = 0; i < data.length; i++) {
