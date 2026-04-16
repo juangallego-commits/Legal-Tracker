@@ -11,7 +11,7 @@
 // ════════════════════════════════════════════════════════════════
 
 // ── CONFIG ───────────────────────────────────────────────────────
-const SLACK_BOT_TOKEN  = XXX // Bot User OAuth Token
+const SLACK_BOT_TOKEN  = 'xoxb-92908122144-10789304062193-H3jSus0NBnaXQbYj3tUZf9TZ';   // Bot User OAuth Token
 const SLACK_LOG_SHEET  = 'Slack Log';
 
 // Emojis que disparan acciones
