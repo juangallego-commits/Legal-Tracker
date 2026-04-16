@@ -11,9 +11,9 @@ const SHEET_EQUIPOS   = 'Equipos';
 const SHEET_PROYECTOS = 'Proyectos';
 
 // Tasks: 14 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder
-const TASK_COLS = 14;
+const TASK_COLS = 16;
 // Projects: 12 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana
-const PROJ_COLS = 13;
+const PROJ_COLS = 15;
 
 const STATUS_ORDER = {'Bloqueado':0,'En curso':1,'Pendiente':2,'En revisión':3,'Listo':4};
 const PRIO_ORDER   = {'Alta':0,'Media':1,'Baja':2};
@@ -145,12 +145,15 @@ function readProjects(ss) {
     projects.push({
       id: row[0], nombre: row[1]||'', pais: (row[2]||'').toString().trim(),
       lider: (row[3]||'').toString().trim(), responsable: (row[4]||'').toString().trim(),
-      deadline: row[5]||'', priority: row[6]||'Media',
+      deadline: row[5]?(row[5] instanceof Date?Utilities.formatDate(row[5],'America/Bogota','dd/MM/yyyy'):row[5].toString()):'',
+      deadlineISO: row[5]?(row[5] instanceof Date?Utilities.formatDate(row[5],'America/Bogota','yyyy-MM-dd'):''):'', priority: row[6]||'Media',
       status: row[7]||'Activo', statusForced: (row[7]||'').toString().trim() === 'Cancelado',
       descripcion: row[8]||'', notas: row[9]||'',
       creado: row[10]? Utilities.formatDate(new Date(row[10]),'America/Bogota','dd/MM/yyyy'):'',
       semana: row[11]||'',
       participantes: (row[12]||'').toString().split(',').map(function(s){return s.trim()}).filter(Boolean),
+      tipoTrabajo: (row[13]||'').toString().trim(),
+      riesgo: (row[14]||'').toString().trim(),
       pctDone: 0, tasks: [], taskStats: {}
     });
   });
@@ -174,7 +177,8 @@ function addProject(obj) {
   ws.appendRow([
     newId, obj.nombre||'', pais, lider, obj.responsable||'',
     obj.deadline||'', obj.priority||'Media', obj.status||'Activo',
-    obj.descripcion||'', obj.notas||'', new Date(), getCurrentWeekLabel(), obj.participantes||''
+    obj.descripcion||'', obj.notas||'', new Date(), getCurrentWeekLabel(), obj.participantes||'',
+    obj.tipoTrabajo||'', obj.riesgo||''
   ]);
   return {success:true, id:newId, nombre:obj.nombre||''};
 }
@@ -212,7 +216,8 @@ function readTasks(ws) {
     var proyVal = (row[11]||'').toString().trim();
     tasks.push({
       id:row[0], nombre:row[1]||'', resp:row[2]||'', acc:row[3]||'',
-      deadline:row[4]||'', priority:row[5]||'Media', status:row[6]||'Pendiente',
+      deadline:row[4]?(row[4] instanceof Date?Utilities.formatDate(row[4],'America/Bogota','dd/MM/yyyy'):row[4].toString()):'',
+      deadlineISO:row[4]?(row[4] instanceof Date?Utilities.formatDate(row[4],'America/Bogota','yyyy-MM-dd'):''):'', priority:row[5]||'Media', status:row[6]||'Pendiente',
       semana:row[7]||'',
       creado:row[8]?Utilities.formatDate(new Date(row[8]),'America/Bogota','dd/MM/yyyy'):'',
       creadoRaw:row[8]?new Date(row[8]).toISOString():null,
@@ -221,7 +226,9 @@ function readTasks(ws) {
       proyectoId: isNaN(parseInt(proyVal)) ? '' : parseInt(proyVal),
       proyecto: proyVal, // keep raw for backward compat
       pais:(row[12]||'').toString().trim(),
-      lider:(row[13]||'').toString().trim()
+      lider:(row[13]||'').toString().trim(),
+      tipoTrabajo:(row[14]||'').toString().trim(),
+      riesgo:(row[15]||'').toString().trim()
     });
   });
   tasks.sort(function(a,b){return (PRIO_ORDER[a.priority]||1)-(PRIO_ORDER[b.priority]||1)||(STATUS_ORDER[a.status]||2)-(STATUS_ORDER[b.status]||2)});
@@ -239,7 +246,8 @@ function addTask(taskObj) {
     newId, taskObj.nombre||'', taskObj.resp||'', taskObj.acc||'',
     taskObj.deadline||'', taskObj.priority||'Media', taskObj.status||'Pendiente',
     taskObj.semana||getCurrentWeekLabel(), new Date(), '', taskObj.notas||'',
-    taskObj.proyectoId||taskObj.proyecto||'', pais, lider
+    taskObj.proyectoId||taskObj.proyecto||'', pais, lider,
+    taskObj.tipoTrabajo||'', taskObj.riesgo||''
   ]);
   return {success:true, id:newId};
 }
@@ -249,7 +257,7 @@ function updateTaskField(taskId, field, value) {
   var lastRow=ws.getLastRow();if(lastRow<4)return{success:false,error:'No tasks'};
   var lastCol=Math.min(ws.getLastColumn(),TASK_COLS);
   var data=ws.getRange(4,1,lastRow-3,lastCol).getValues();
-  var fieldMap={'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14};
+  var fieldMap={'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16};
   var col=fieldMap[field];if(!col)return{success:false,error:'Invalid field: '+field};
   for(var i=0;i<data.length;i++){
     if(data[i][0]==taskId){
