@@ -11,7 +11,10 @@
 // ════════════════════════════════════════════════════════════════
 
 // ── CONFIG ───────────────────────────────────────────────────────
-const SLACK_BOT_TOKEN  = 'xoxb-92908122144-10789304062193-H3jSus0NBnaXQbYj3tUZf9TZ';   // Bot User OAuth Token
+// Bot User OAuth Token — almacenado en Script Properties (no hardcodear aquí)
+// Setup: Apps Script Editor → ⚙ Project Settings → Script Properties → Add:
+//   Key: SLACK_BOT_TOKEN   Value: xoxb-tu-token-aqui
+const SLACK_BOT_TOKEN  = PropertiesService.getScriptProperties().getProperty('SLACK_BOT_TOKEN') || '';
 const SLACK_LOG_SHEET  = 'Slack Log';
 
 // Emojis que disparan acciones

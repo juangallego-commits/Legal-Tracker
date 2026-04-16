@@ -355,7 +355,7 @@ function rTable(tasks){var tb=$('tBody');if(!tb)return;if(!tasks.length){tb.inne
   // Get project name map
   if(SORT.col){var sc=SORT.col,sa=SORT.asc;tasks=tasks.slice().sort(function(a,b){if(sc==='priority')return((PRIO_ORDER[a.priority]||1)-(PRIO_ORDER[b.priority]||1))*(sa?1:-1);if(sc==='status')return((STATUS_ORDER[a.status]||2)-(STATUS_ORDER[b.status]||2))*(sa?1:-1);if(sc==='deadline'){var da=pd(a.deadline),db=pd(b.deadline);if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return(da-db)*(sa?1:-1)}var va=(a[sc]||'').toString().toLowerCase(),vb=(b[sc]||'').toString().toLowerCase();return va<vb?(sa?-1:1):va>vb?(sa?1:-1):0})}
   var pMap={};if(D.projects)D.projects.forEach(function(p){pMap[p.id]=p.nombre});
-  tb.innerHTML=tasks.map(function(t){var pb={'Alta':'b-alta','Media':'b-media','Baja':'b-baja'}[t.priority]||'b-media';var pi={'Alta':'🔴','Media':'🟡','Baja':'🟢'}[t.priority]||'🟡';var sb={'Pendiente':'b-pendiente','En curso':'b-curso','En revisión':'b-revision','Bloqueado':'b-bloqueado','Listo':'b-listo'}[t.status]||'b-pendiente';var dl='<span class="dl-none">—</span>';if(t.deadline){var cls='dl-ok',dd=pd(t.deadline);if(dd){var diff=Math.ceil((dd-new Date())/864e5);if(diff<0)cls='dl-over';else if(diff<=2)cls='dl-warn'}dl='<span class="dl-badge '+cls+'">'+esc(t.deadline)+(diff<0?' ⚠':'')+'</span>'}
+  tb.innerHTML=tasks.map(function(t){var pb={'Alta':'b-alta','Media':'b-media','Baja':'b-baja'}[t.priority]||'b-media';var pi={'Alta':'🔴','Media':'🟡','Baja':'🟢'}[t.priority]||'🟡';var sb={'Pendiente':'b-pendiente','En curso':'b-curso','En revisión':'b-revision','Bloqueado':'b-bloqueado','Listo':'b-listo'}[t.status]||'b-pendiente';var dl='<span class="dl-none">—</span>';if(t.deadline){var cls='dl-ok',diff=null,dd=pd(t.deadline);if(dd){diff=Math.ceil((dd-new Date())/864e5);if(diff<0)cls='dl-over';else if(diff<=2)cls='dl-warn'}dl='<span class="dl-badge '+cls+'">'+esc(t.deadline)+(diff!==null&&diff<0?' ⚠':'')+'</span>'}
     var projName=t.proyectoId&&pMap[t.proyectoId]?pMap[t.proyectoId]:(t.proyecto||'—');
     var rc={'Legal alto':'b-riesgo-legal','Reputacional':'b-riesgo-reput','Operativo':'b-riesgo-oper'}[t.riesgo]||'';
     return '<tr><td class="col-id">'+t.id+'</td><td class="col-nombre" onclick="openEdit('+t.id+')">'+esc(t.nombre)+'</td><td><span style="color:var(--purple);font-size:12px">'+esc(projName)+'</span></td><td class="col-resp">'+esc(t.resp)+'</td><td><span class="badge '+pb+'" onclick="showPM(event,'+t.id+')">'+pi+' '+t.priority+'</span></td><td><span class="badge '+sb+'" onclick="showSM(event,'+t.id+')">'+t.status+'</span></td><td>'+dl+'</td><td>'+(t.tipoTrabajo?'<span class="b-tt">'+esc(t.tipoTrabajo)+'</span>':'—')+'</td><td>'+(t.riesgo?'<span class="b-tt '+rc+'">'+esc(t.riesgo)+'</span>':'—')+'</td><td class="col-acc">'+esc(t.acc||'')+'</td><td><button class="btn-icon" onclick="showTM(event,'+t.id+')">⋮</button></td></tr>'}).join('')}
@@ -519,12 +519,19 @@ function rMisTareas(){
   if(!CURRENT_USER)return;
   var myTasks=D.tasks.filter(function(t){return t.resp===CURRENT_USER});
   var myDone=(D.historial||[]).filter(function(t){return t.resp===CURRENT_USER});
-  var alta=myTasks.filter(function(t){return t.priority==='Alta'}).length;
-  var bloq=myTasks.filter(function(t){return t.status==='Bloqueado'}).length;
+  // Calcular atraso (tareas vencidas por SLA)
+  var now=new Date(),slaLimits={'Alta':2,'Media':5,'Baja':7};
+  var atraso=myTasks.filter(function(t){if(t.status==='Listo'||!t.creadoRaw)return false;var created=new Date(t.creadoRaw),bizDays=0,cur=new Date(created);while(cur<now){cur.setDate(cur.getDate()+1);var d=cur.getDay();if(d!==0&&d!==6)bizDays++}return bizDays>(slaLimits[t.priority]||5)}).length;
+  // Cerradas esta semana
+  var semLabel=D.semana||'';
+  var cerradasSemana=myDone.filter(function(t){return t.semana===semLabel}).length;
+  // % on time
+  var totalDone=myDone.length;
+  var onTimePct=totalDone>0?Math.round((totalDone-atraso)/totalDone*100):100;
   $('mt-total').textContent=myTasks.length;
-  $('mt-alta').textContent=alta;
-  $('mt-bloq').textContent=bloq;
-  $('mt-done').textContent=myDone.length;
+  $('mt-atraso').textContent=atraso;
+  $('mt-semana').textContent=cerradasSemana;
+  $('mt-ontime').textContent=onTimePct+'%';
   $('mtTitle').textContent='Mis tareas activas — '+CURRENT_USER+' ('+myTasks.length+')';
   var pMap={};if(D.projects)D.projects.forEach(function(p){pMap[p.id]=p.nombre});
   var tb=$('mtBody');if(!tb)return;

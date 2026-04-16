@@ -190,7 +190,7 @@ function updateProjectField(projId, field, value) {
   var lastRow = ws.getLastRow();
   if (lastRow < 2) return {success:false, error:'No projects'};
   var data = ws.getRange(2, 1, lastRow - 1, Math.min(ws.getLastColumn(), PROJ_COLS)).getValues();
-  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13};
+  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
   var col = fieldMap[field];
   if (!col) return {success:false, error:'Invalid field: '+field};
   for (var i = 0; i < data.length; i++) {
