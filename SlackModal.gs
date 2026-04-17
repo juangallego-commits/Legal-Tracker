@@ -85,9 +85,18 @@ function processEvent(body) {
     quickCloseTask(channel, ts, text, userId);
 
   } else if (emoji === EMOJI_BLOCK) {
-    // ⛔ → Mandar mensaje efímero con botón "Bloquear con razón"
+    // ⛔ → Buscar candidatos; si hay ambigüedad, pedir al usuario que elija antes del modal
     const text = fetchMessageText(channel, ts);
-    sendBlockPrompt(userId, channel, ts, text);
+    const match = findTaskCandidates(text);
+    if (match.confidence === 'none' || match.candidates.length === 0) {
+      sendBlockPrompt(userId, channel, ts, text); // flujo legacy: modal genérico
+    } else if (match.confidence === 'high') {
+      // 1 candidato claro → abrir modal directo con su ID
+      sendBlockPromptForTask(userId, channel, ts, match.candidates[0]);
+    } else {
+      // Varios candidatos → pedir que elija
+      sendConfirmPrompt(userId, channel, ts, 'block', match.candidates);
+    }
   }
 }
 
@@ -117,6 +126,38 @@ function sendCreatePrompt(userId, channel, ts, prefillText) {
             style     : 'primary',
             text      : { type: 'plain_text', text: '📝 Abrir formulario' },
             value     : JSON.stringify({ channel: channel, ts: ts, text: prefillText })
+          },
+          {
+            type      : 'button',
+            action_id : 'dismiss_prompt',
+            text      : { type: 'plain_text', text: '✕ Cancelar' },
+            value     : 'dismiss'
+          }
+        ]
+      }
+    ]
+  });
+}
+
+// Ephemeral específica cuando ya sabemos qué tarea bloquear (alta confianza o confirmada).
+// Lleva el taskId al modal para que no vuelva a hacer fuzzy match.
+function sendBlockPromptForTask(userId, channel, ts, candidate) {
+  callSlackAPI('chat.postEphemeral', {
+    channel : channel,
+    user    : userId,
+    text    : '¿Bloquear tarea #' + candidate.id + '?',
+    blocks  : [
+      { type: 'section', text: { type: 'mrkdwn', text: '*⛔ Bloquear tarea*\n> #' + candidate.id + ' ' + truncate(candidate.nombre, 80) } },
+      {
+        type       : 'actions',
+        block_id   : 'block_prompt',
+        elements   : [
+          {
+            type      : 'button',
+            action_id : 'open_block_modal',
+            style     : 'danger',
+            text      : { type: 'plain_text', text: '⛔ Agregar razón y bloquear' },
+            value     : JSON.stringify({ channel: channel, ts: ts, text: candidate.nombre, taskId: candidate.id })
           },
           {
             type      : 'button',
@@ -182,7 +223,21 @@ function handleInteraction(payload) {
 
     if (action.action_id === 'open_block_modal') {
       const meta = JSON.parse(action.value);
-      openBlockModal(payload.trigger_id, meta.channel, meta.ts, meta.text);
+      openBlockModal(payload.trigger_id, meta.channel, meta.ts, meta.text, meta.taskId);
+    }
+
+    // Confirmación de cierre: botón con action_id = 'confirm_close_<taskId>'
+    if (action.action_id && action.action_id.indexOf('confirm_close_') === 0) {
+      const meta = JSON.parse(action.value);
+      const result = closeTaskById(meta.taskId, payload.user.id);
+      postThreadReply(meta.channel, meta.ts, result.success ? '✅ ' + result.message : '❌ ' + result.message);
+      logSlackEvent({ action: 'close', task_name: meta.nombre, slack_user: payload.user.id, result: result.success ? 'OK #' + meta.taskId : 'FAILED' });
+    }
+
+    // Confirmación de bloqueo: botón con action_id = 'confirm_block_<taskId>' → abre modal con task ya identificada
+    if (action.action_id && action.action_id.indexOf('confirm_block_') === 0) {
+      const meta = JSON.parse(action.value);
+      sendBlockPromptForTask(payload.user.id, meta.channel, meta.ts, {id: meta.taskId, nombre: meta.nombre});
     }
 
     // dismiss: no hacer nada, el mensaje efímero desaparece solo
@@ -290,11 +345,11 @@ function openCreateModal(triggerId, channel, ts, prefillText) {
 // ════════════════════════════════════════════════════════════════
 // MODALS — BLOQUEAR TAREA
 // ════════════════════════════════════════════════════════════════
-function openBlockModal(triggerId, channel, ts, prefillText) {
+function openBlockModal(triggerId, channel, ts, prefillText, taskId) {
   const modal = {
     type             : 'modal',
     callback_id      : 'block_task_modal',
-    private_metadata : JSON.stringify({ channel: channel, ts: ts, text: prefillText }),
+    private_metadata : JSON.stringify({ channel: channel, ts: ts, text: prefillText, taskId: taskId || null }),
     title  : { type: 'plain_text', text: '⛔ Bloquear tarea' },
     submit : { type: 'plain_text', text: 'Confirmar bloqueo' },
     close  : { type: 'plain_text', text: 'Cancelar' },
@@ -378,21 +433,28 @@ function submitBlockTask(payload) {
     const meta   = JSON.parse(payload.view.private_metadata);
     const reason = vals.reason.value.value;
     const text   = meta.text || '';
+    const slackUser = payload.user.name || payload.user.id;
 
-    // Reutilizar handleBlockTask que ya existe en Codigo.gs
-    const resultRaw = handleBlockTask({
-      task_name  : text,
-      reason     : reason,
-      slack_user : payload.user.name || payload.user.id
-    });
-    const resultObj = JSON.parse(resultRaw.getContent());
+    let resultObj;
+    if (meta.taskId) {
+      // Tarea ya identificada (vino de match de alta confianza o confirmada por el usuario)
+      resultObj = blockTaskById(meta.taskId, reason, slackUser);
+    } else {
+      // Fuzzy match con nuevo umbral
+      const match = findTaskCandidates(text);
+      if (match.confidence === 'high') {
+        resultObj = blockTaskById(match.candidates[0].id, reason, slackUser);
+      } else {
+        resultObj = { success: false, message: 'No encontré una tarea que coincida con seguridad' };
+      }
+    }
 
     const msg = resultObj.success
-      ? '⛔ *Tarea bloqueada:* ' + resultObj.message.replace('Tarea bloqueada: ', '') + '\n📝 Razón: ' + reason
-      : '❌ No encontré la tarea en el tracker.\nBúscala en el dashboard y cámbiala manualmente.';
+      ? '⛔ *' + resultObj.message + '*\n📝 Razón: ' + reason
+      : '❌ ' + resultObj.message + '.\nBúscala en el dashboard y cámbiala manualmente.';
 
     postThreadReply(meta.channel, meta.ts, msg);
-    logSlackEvent({ action: 'block', task_name: text, slack_user: payload.user.id, result: resultObj.success ? 'OK' : 'NOT_FOUND' });
+    logSlackEvent({ action: 'block', task_name: text, slack_user: payload.user.id, result: resultObj.success ? 'OK #' + resultObj.id : 'NOT_FOUND' });
 
     return jsonResponse({ response_action: 'clear' });
 
@@ -406,25 +468,63 @@ function submitBlockTask(payload) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// CIERRE DIRECTO ✅ — sin formulario, fuzzy match en el sheet
+// CIERRE ✅ — alta confianza: cierra directo. Baja: pide confirmación.
 // ════════════════════════════════════════════════════════════════
 function quickCloseTask(channel, ts, messageText, userId) {
   if (!messageText) return;
 
-  // Reutilizar handleCloseTask que ya existe en Codigo.gs
-  const resultRaw = handleCloseTask({
-    task_name    : messageText,
-    message_text : messageText,
-    slack_user   : userId
+  const match = findTaskCandidates(messageText);
+
+  if (match.confidence === 'none' || match.candidates.length === 0) {
+    postThreadReply(channel, ts,
+      '❌ No encontré ninguna tarea que coincida con este mensaje.\n' +
+      'Ciérrala manualmente desde el dashboard.');
+    logSlackEvent({ action: 'close', task_name: messageText, slack_user: userId, result: 'NOT_FOUND' });
+    return;
+  }
+
+  // Alta confianza: cerrar directo
+  if (match.confidence === 'high') {
+    const result = closeTaskById(match.candidates[0].id, userId);
+    postThreadReply(channel, ts, result.success ? '✅ ' + result.message : '❌ ' + result.message);
+    logSlackEvent({ action: 'close', task_name: messageText, slack_user: userId, result: result.success ? 'OK #' + result.id : 'FAILED' });
+    return;
+  }
+
+  // Baja confianza: pedir confirmación con top candidatos (ephemeral)
+  sendConfirmPrompt(userId, channel, ts, 'close', match.candidates);
+  logSlackEvent({ action: 'close', task_name: messageText, slack_user: userId, result: 'LOW_CONFIDENCE_ASKING' });
+}
+
+// Ephemeral con botones para que el usuario elija cuál tarea cerrar/bloquear.
+function sendConfirmPrompt(userId, channel, ts, actionType, candidates) {
+  const title = actionType === 'close' ? '✅ ¿Cuál tarea quieres cerrar?' : '⛔ ¿Cuál tarea quieres bloquear?';
+  const actionPrefix = actionType === 'close' ? 'confirm_close_' : 'confirm_block_';
+
+  const buttons = candidates.map(function(c) {
+    return {
+      type      : 'button',
+      action_id : actionPrefix + c.id,
+      text      : { type: 'plain_text', text: '#' + c.id + ' ' + truncate(c.nombre, 40) },
+      value     : JSON.stringify({ taskId: c.id, nombre: c.nombre, channel: channel, ts: ts })
+    };
   });
-  const obj = JSON.parse(resultRaw.getContent());
+  buttons.push({
+    type      : 'button',
+    action_id : 'dismiss_prompt',
+    text      : { type: 'plain_text', text: '✕ Ninguna' },
+    value     : 'dismiss'
+  });
 
-  const msg = obj.success
-    ? '✅ ' + obj.message
-    : '❌ No encontré esa tarea en el tracker.\nPuede que el texto del mensaje no coincida con el nombre exacto. Ciérrala manualmente desde el dashboard.';
-
-  postThreadReply(channel, ts, msg);
-  logSlackEvent({ action: 'close', task_name: messageText, slack_user: userId, result: obj.success ? 'OK' : 'NOT_FOUND' });
+  callSlackAPI('chat.postEphemeral', {
+    channel : channel,
+    user    : userId,
+    text    : title,
+    blocks  : [
+      { type: 'section', text: { type: 'mrkdwn', text: '*' + title + '*\nEncontré varias tareas parecidas. Elige la correcta:' } },
+      { type: 'actions', block_id: actionPrefix + 'prompt', elements: buttons }
+    ]
+  });
 }
 
 // ════════════════════════════════════════════════════════════════

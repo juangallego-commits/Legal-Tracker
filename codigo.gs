@@ -67,13 +67,16 @@ function getTrackerData() {
   });
   // Auto-calculate project status (if not manually forced)
   projects.forEach(function(p) {
-    if (p.statusForced) return; // manually set, don't override
     var s = p.taskStats;
-    if (s.total === 0) { /* keep current */ }
-    else if (s.listo === s.total) p.status = 'Completado';
-    else if (s.bloqueado > 0 && s.enCurso === 0 && s.pendiente === 0 && s.enRevision === 0) p.status = 'En pausa';
-    else p.status = 'Activo';
     p.pctDone = s.total > 0 ? Math.round(s.listo / s.total * 100) : 0;
+    // Si el usuario puso un status manual, respetarlo SALVO 'Cancelado' (siempre respetado)
+    // y salvo que todas las tareas estén listas (entonces sí auto-promover a Completado).
+    if (p.status === 'Cancelado') return;
+    if (s.total > 0 && s.listo === s.total) { p.status = 'Completado'; return; }
+    if (p.statusForced) return; // otros estados manuales (En pausa, Completado sin tareas) se respetan
+    if (s.total === 0) return; // sin tareas, no tocar
+    if (s.bloqueado > 0 && s.enCurso === 0 && s.pendiente === 0 && s.enRevision === 0) p.status = 'En pausa';
+    else p.status = 'Activo';
   });
 
   // ── KPIs ────────────────────────────────────────────────────
@@ -147,7 +150,9 @@ function readProjects(ss) {
       lider: (row[3]||'').toString().trim(), responsable: (row[4]||'').toString().trim(),
       deadline: row[5]?(row[5] instanceof Date?Utilities.formatDate(row[5],'America/Bogota','dd/MM/yyyy'):row[5].toString()):'',
       deadlineISO: row[5]?(row[5] instanceof Date?Utilities.formatDate(row[5],'America/Bogota','yyyy-MM-dd'):''):'', priority: row[6]||'Media',
-      status: row[7]||'Activo', statusForced: (row[7]||'').toString().trim() === 'Cancelado',
+      status: row[7]||'Activo',
+      // Cualquier estado distinto del default 'Activo' se considera puesto manualmente y se respeta.
+      statusForced: (function(){ var s=(row[7]||'').toString().trim(); return s!=='' && s!=='Activo'; })(),
       descripcion: row[8]||'', notas: row[9]||'',
       creado: row[10]? Utilities.formatDate(new Date(row[10]),'America/Bogota','dd/MM/yyyy'):'',
       semana: row[11]||'',
@@ -170,7 +175,12 @@ function addProject(obj) {
     ws.setTabColor('#FF4940');
   }
   var lastRow = ws.getLastRow();
-  var newId = lastRow >= 2 ? ws.getRange(lastRow, 1).getValue() + 1 : 1;
+  // max(IDs existentes) + 1 — resiste borrados y mantiene IDs únicos.
+  var newId = 1;
+  if (lastRow >= 2) {
+    var ids = ws.getRange(2, 1, lastRow - 1, 1).getValues();
+    ids.forEach(function(r){ var v = parseInt(r[0]); if (!isNaN(v) && v >= newId) newId = v + 1; });
+  }
   var equipos = readEquipos(ss);
   var pais  = obj.pais || getCountryForMember(obj.responsable, equipos);
   var lider = obj.lider || getLeaderForCountry(pais, equipos);
@@ -237,8 +247,7 @@ function readTasks(ws) {
 
 function addTask(taskObj) {
   var ss=SpreadsheetApp.openById(SHEET_ID),ws=ss.getSheetByName(SHEET_ACTIVO);
-  var lastRow=ws.getLastRow();
-  var newId=lastRow>=4?ws.getRange(lastRow,1).getValue()+1:1;
+  var newId=nextTaskId(ss);
   var equipos=readEquipos(ss);
   var pais =taskObj.pais ||getCountryForMember(taskObj.resp,equipos);
   var lider=taskObj.lider||getLeaderForCountry(pais,equipos);
@@ -280,15 +289,105 @@ function getCountryForMember(name,eq){if(!name)return '';for(var i=0;i<eq.length
 function getLeaderForCountry(code,eq){for(var i=0;i<eq.length;i++){if(eq[i].code===code)return eq[i].leader}return ''}
 function readConfig(ss){var ws=ss.getSheetByName(SHEET_CONFIG);if(!ws)return {};var lr=ws.getLastRow();if(lr<3)return {};var data=ws.getRange(3,1,lr-2,2).getValues(),c={};data.forEach(function(r){if(r[0])c[r[0]]=r[1]});return c}
 function countBizDays(start,end){var count=0,cur=new Date(start);while(cur<end){cur.setDate(cur.getDate()+1);var d=cur.getDay();if(d!==0&&d!==6)count++}return count}
-function moveToHistorial(ss,wsA,row){var wsH=ss.getSheetByName(SHEET_HISTORIAL);var lc=Math.min(wsA.getLastColumn(),TASK_COLS);var rd=wsA.getRange(row,1,1,lc).getValues()[0];while(rd.length<TASK_COLS)rd.push('');var hl=wsH.getLastRow();var nid=hl>=4?wsH.getRange(hl,1).getValue()+1:1;rd[0]=nid;wsH.appendRow(rd);wsA.deleteRow(row);renumberTasks(wsA)}
-function renumberTasks(ws){var lr=ws.getLastRow();if(lr<4)return;for(var i=4;i<=lr;i++)ws.getRange(i,1).setValue(i-3)}
+// Mueve una tarea al Historial preservando su ID original.
+// Ya NO renumera las tareas restantes: los IDs son persistentes (pueden quedar huecos 1,3,7,...).
+function moveToHistorial(ss, wsA, row) {
+  var wsH = ss.getSheetByName(SHEET_HISTORIAL);
+  var lc = Math.min(wsA.getLastColumn(), TASK_COLS);
+  var rd = wsA.getRange(row, 1, 1, lc).getValues()[0];
+  while (rd.length < TASK_COLS) rd.push('');
+  // Preserva el ID original — NO reasignar. Así las referencias (notas, Slack, humanas) siguen válidas.
+  wsH.appendRow(rd);
+  wsA.deleteRow(row);
+}
+
+// Calcula el próximo ID único entre activos + historial (evita colisiones tras mover tareas).
+function nextTaskId(ss) {
+  var maxId = 0;
+  ['Tracking Activo','Historial'].forEach(function(name){
+    var ws = ss.getSheetByName(name); if (!ws) return;
+    var lr = ws.getLastRow(); if (lr < 4) return;
+    var ids = ws.getRange(4, 1, lr - 3, 1).getValues();
+    ids.forEach(function(r){ var v = parseInt(r[0]); if (!isNaN(v) && v > maxId) maxId = v; });
+  });
+  return maxId + 1;
+}
 function getCurrentWeekLabel(){var now=new Date(),mon=new Date(now);mon.setDate(now.getDate()-(now.getDay()===0?6:now.getDay()-1));var fri=new Date(mon);fri.setDate(mon.getDate()+4);var m=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];return mon.getDate()+'-'+fri.getDate()+' '+m[fri.getMonth()]+' '+fri.getFullYear()}
 
 // ════════════════════════════════════════════════════════════════
 // SLACK HELPERS
 // ════════════════════════════════════════════════════════════════
-function handleCloseTask(params){var ss=SpreadsheetApp.openById(SHEET_ID),ws=ss.getSheetByName(SHEET_ACTIVO);var lr=ws.getLastRow();if(lr<4)return ContentService.createTextOutput(JSON.stringify({success:false,message:'No hay tareas activas'})).setMimeType(ContentService.MimeType.JSON);var lc=Math.min(ws.getLastColumn(),TASK_COLS);var data=ws.getRange(4,1,lr-3,lc).getValues();var st=(params.task_name||params.message_text||'').toLowerCase();var bm=-1,bs=0;for(var i=0;i<data.length;i++){var n=(data[i][1]||'').toLowerCase();if(!n)continue;var w=st.split(/\s+/),sc=0;w.forEach(function(x){if(x.length>2&&n.indexOf(x)>=0)sc++});if(sc>bs){bs=sc;bm=i}}if(bm>=0&&bs>=1){var row=bm+4,tn=data[bm][1],tid=data[bm][0];ws.getRange(row,7).setValue('Listo');ws.getRange(row,10).setValue(new Date());moveToHistorial(ss,ws,row);return ContentService.createTextOutput(JSON.stringify({success:true,message:'Tarea #'+tid+' "'+tn+'" marcada como Listo y movida a Historial'})).setMimeType(ContentService.MimeType.JSON)}return ContentService.createTextOutput(JSON.stringify({success:false,message:'No encontré una tarea que coincida'})).setMimeType(ContentService.MimeType.JSON)}
-function handleBlockTask(params){var ss=SpreadsheetApp.openById(SHEET_ID),ws=ss.getSheetByName(SHEET_ACTIVO);var lr=ws.getLastRow();if(lr<4)return ContentService.createTextOutput(JSON.stringify({success:false,message:'No hay tareas activas'})).setMimeType(ContentService.MimeType.JSON);var lc=Math.min(ws.getLastColumn(),TASK_COLS);var data=ws.getRange(4,1,lr-3,lc).getValues();var st=(params.task_name||'').toLowerCase();var bm=-1,bs=0;for(var i=0;i<data.length;i++){var n=(data[i][1]||'').toLowerCase();if(!n)continue;var w=st.split(/\s+/),sc=0;w.forEach(function(x){if(x.length>2&&n.indexOf(x)>=0)sc++});if(sc>bs){bs=sc;bm=i}}if(bm>=0&&bs>=1){var row=bm+4,tn=data[bm][1],tid=data[bm][0];ws.getRange(row,7).setValue('Bloqueado');var on=ws.getRange(row,11).getValue()||'';ws.getRange(row,11).setValue((on?on+' | ':'')+'⛔ '+(params.reason||'')+' ('+(params.slack_user||'')+', '+new Date().toLocaleDateString('es-CO')+')');return ContentService.createTextOutput(JSON.stringify({success:true,message:'Tarea bloqueada: #'+tid+' "'+tn+'"'})).setMimeType(ContentService.MimeType.JSON)}return ContentService.createTextOutput(JSON.stringify({success:false,message:'No encontré una tarea que coincida'})).setMimeType(ContentService.MimeType.JSON)}
+// ── Busca candidatos por fuzzy match. Retorna top 3 ordenados por score.
+// Cada candidato: {id, nombre, row, score, ratio, confidence: 'high'|'low'|'none'}
+// high: ≥3 matches y ratio ≥0.5   low: ≥1 match   none: sin coincidencia útil
+function findTaskCandidates(text) {
+  var ss = SpreadsheetApp.openById(SHEET_ID), ws = ss.getSheetByName(SHEET_ACTIVO);
+  var lr = ws.getLastRow();
+  if (lr < 4) return {candidates: [], confidence: 'none'};
+  var lc = Math.min(ws.getLastColumn(), TASK_COLS);
+  var data = ws.getRange(4, 1, lr - 3, lc).getValues();
+  var st = (text || '').toLowerCase();
+  var words = st.split(/\s+/).filter(function(w){return w.length > 2});
+  if (words.length === 0) return {candidates: [], confidence: 'none'};
+
+  var scored = [];
+  for (var i = 0; i < data.length; i++) {
+    var n = (data[i][1] || '').toLowerCase(); if (!n) continue;
+    var nameWords = n.split(/\s+/).filter(function(w){return w.length > 2});
+    if (nameWords.length === 0) continue;
+    var sc = 0;
+    words.forEach(function(x){ if (n.indexOf(x) >= 0) sc++; });
+    if (sc === 0) continue;
+    // ratio: matches / (palabras relevantes del nombre) — penaliza matches triviales en nombres largos
+    var ratio = sc / Math.max(nameWords.length, 1);
+    scored.push({id: data[i][0], nombre: data[i][1], row: i + 4, score: sc, ratio: ratio});
+  }
+  scored.sort(function(a, b){ return (b.score - a.score) || (b.ratio - a.ratio); });
+  var top = scored.slice(0, 3);
+  var confidence = 'none';
+  if (top.length > 0) {
+    var best = top[0];
+    if (best.score >= 3 && best.ratio >= 0.5) confidence = 'high';
+    else if (best.score >= 1) confidence = 'low';
+  }
+  return {candidates: top, confidence: confidence};
+}
+
+// Cierra una tarea por ID directamente (sin fuzzy match). Usado tras confirmación.
+function closeTaskById(taskId, slackUser) {
+  var ss = SpreadsheetApp.openById(SHEET_ID), ws = ss.getSheetByName(SHEET_ACTIVO);
+  var lr = ws.getLastRow(); if (lr < 4) return {success: false, message: 'No hay tareas'};
+  var data = ws.getRange(4, 1, lr - 3, 1).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][0] == taskId) {
+      var row = i + 4;
+      var tn = ws.getRange(row, 2).getValue();
+      ws.getRange(row, 7).setValue('Listo');
+      ws.getRange(row, 10).setValue(new Date());
+      moveToHistorial(ss, ws, row);
+      return {success: true, id: taskId, nombre: tn, message: 'Tarea #' + taskId + ' "' + tn + '" cerrada y movida a Historial'};
+    }
+  }
+  return {success: false, message: 'Tarea #' + taskId + ' no encontrada'};
+}
+
+// Bloquea una tarea por ID directamente.
+function blockTaskById(taskId, reason, slackUser) {
+  var ss = SpreadsheetApp.openById(SHEET_ID), ws = ss.getSheetByName(SHEET_ACTIVO);
+  var lr = ws.getLastRow(); if (lr < 4) return {success: false, message: 'No hay tareas'};
+  var data = ws.getRange(4, 1, lr - 3, 1).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][0] == taskId) {
+      var row = i + 4;
+      var tn = ws.getRange(row, 2).getValue();
+      ws.getRange(row, 7).setValue('Bloqueado');
+      var on = ws.getRange(row, 11).getValue() || '';
+      ws.getRange(row, 11).setValue((on ? on + ' | ' : '') + '⛔ ' + (reason || '') + ' (' + (slackUser || '') + ', ' + new Date().toLocaleDateString('es-CO') + ')');
+      return {success: true, id: taskId, nombre: tn, message: 'Tarea bloqueada: #' + taskId + ' "' + tn + '"'};
+    }
+  }
+  return {success: false, message: 'Tarea #' + taskId + ' no encontrada'};
+}
 function testData() {
   var d = getTrackerData();
   Logger.log('Tasks: ' + d.tasks.length);
