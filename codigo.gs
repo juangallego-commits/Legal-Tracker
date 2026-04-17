@@ -10,14 +10,20 @@ const SHEET_CONFIG    = 'Config';
 const SHEET_EQUIPOS   = 'Equipos';
 const SHEET_PROYECTOS = 'Proyectos';
 
-// Tasks: 14 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder
+// Tasks: 16 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder,TipoTrabajo,Riesgo
 const TASK_COLS = 16;
-// Projects: 12 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana
+// Projects: 15 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana,Participantes,TipoTrabajo,Riesgo
 const PROJ_COLS = 15;
 
 const STATUS_ORDER = {'Bloqueado':0,'En curso':1,'Pendiente':2,'En revisión':3,'Listo':4};
 const PRIO_ORDER   = {'Alta':0,'Media':1,'Baja':2};
 const PROJ_STATUSES = ['Activo','En pausa','Completado','Cancelado'];
+
+// ── CACHE ───────────────────────────────────────────────────────
+// Cacheamos el snapshot completo por 30s. Cualquier escritura llama a invalidateCache().
+const CACHE_KEY = 'tracker_data_v1';
+const CACHE_TTL_SEC = 30;
+function invalidateCache() { try { CacheService.getScriptCache().remove(CACHE_KEY); } catch(e) {} }
 
 // ── WEB APP ─────────────────────────────────────────────────────
 function doGet(e) {
@@ -33,6 +39,19 @@ function include(f){return HtmlService.createHtmlOutputFromFile(f).getContent()}
 // GET ALL DATA
 // ════════════════════════════════════════════════════════════════
 function getTrackerData() {
+  // Cache check — hits dentro de CACHE_TTL_SEC devuelven sin tocar el Sheet.
+  try {
+    var cache = CacheService.getScriptCache();
+    var cached = cache.get(CACHE_KEY);
+    if (cached) return JSON.parse(cached);
+  } catch(e) { /* si el cache falla, seguimos y leemos del Sheet */ }
+  var result = _buildTrackerData();
+  // CacheService tiene límite de 100KB por key — si se excede, put() lanza y lo ignoramos.
+  try { CacheService.getScriptCache().put(CACHE_KEY, JSON.stringify(result), CACHE_TTL_SEC); } catch(e) {}
+  return result;
+}
+
+function _buildTrackerData() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var activeTasks = readTasks(ss.getSheetByName(SHEET_ACTIVO));
   var histTasks   = readTasks(ss.getSheetByName(SHEET_HISTORIAL));
@@ -166,6 +185,7 @@ function readProjects(ss) {
 }
 
 function addProject(obj) {
+  invalidateCache();
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var ws = ss.getSheetByName(SHEET_PROYECTOS);
   if (!ws) {
@@ -194,6 +214,7 @@ function addProject(obj) {
 }
 
 function updateProjectField(projId, field, value) {
+  invalidateCache();
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var ws = ss.getSheetByName(SHEET_PROYECTOS);
   if (!ws) return {success:false, error:'No projects sheet'};
@@ -246,6 +267,7 @@ function readTasks(ws) {
 }
 
 function addTask(taskObj) {
+  invalidateCache();
   var ss=SpreadsheetApp.openById(SHEET_ID),ws=ss.getSheetByName(SHEET_ACTIVO);
   var newId=nextTaskId(ss);
   var equipos=readEquipos(ss);
@@ -262,6 +284,7 @@ function addTask(taskObj) {
 }
 
 function updateTaskField(taskId, field, value) {
+  invalidateCache();
   var ss=SpreadsheetApp.openById(SHEET_ID),ws=ss.getSheetByName(SHEET_ACTIVO);
   var lastRow=ws.getLastRow();if(lastRow<4)return{success:false,error:'No tasks'};
   var lastCol=Math.min(ws.getLastColumn(),TASK_COLS);
@@ -278,6 +301,40 @@ function updateTaskField(taskId, field, value) {
   return{success:false,error:'Task #'+taskId+' not found'};
 }
 function updateTaskStatus(taskId,newStatus){return updateTaskField(taskId,'status',newStatus)}
+
+// Batch update: aplica varios campos en una sola llamada.
+// Si `status` es 'Listo', se aplica al final y dispara el move a Historial (los demás campos ya quedaron escritos).
+function updateTaskFields(taskId, fields) {
+  invalidateCache();
+  if (!fields || typeof fields !== 'object') return {success:false, error:'Invalid fields'};
+  var ss = SpreadsheetApp.openById(SHEET_ID), ws = ss.getSheetByName(SHEET_ACTIVO);
+  var lastRow = ws.getLastRow(); if (lastRow < 4) return {success:false, error:'No tasks'};
+  var lastCol = Math.min(ws.getLastColumn(), TASK_COLS);
+  var data = ws.getRange(4, 1, lastRow - 3, lastCol).getValues();
+  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16};
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][0] == taskId) {
+      var row = i + 4;
+      // 1) Aplicar todos los campos menos status
+      Object.keys(fields).forEach(function(k) {
+        if (k === 'status') return;
+        var col = fieldMap[k];
+        if (col) ws.getRange(row, col).setValue(fields[k]);
+      });
+      // 2) Status al final (puede disparar move a Historial)
+      if (fields.status !== undefined) {
+        ws.getRange(row, 7).setValue(fields.status);
+        if (fields.status === 'Listo') {
+          ws.getRange(row, 10).setValue(new Date());
+          moveToHistorial(ss, ws, row);
+          return {success:true, moved:true, message:'Tarea movida a Historial'};
+        }
+      }
+      return {success:true};
+    }
+  }
+  return {success:false, error:'Task #' + taskId + ' not found'};
+}
 
 // ════════════════════════════════════════════════════════════════
 // EQUIPOS / CONFIG / HELPERS
@@ -355,6 +412,7 @@ function findTaskCandidates(text) {
 
 // Cierra una tarea por ID directamente (sin fuzzy match). Usado tras confirmación.
 function closeTaskById(taskId, slackUser) {
+  invalidateCache();
   var ss = SpreadsheetApp.openById(SHEET_ID), ws = ss.getSheetByName(SHEET_ACTIVO);
   var lr = ws.getLastRow(); if (lr < 4) return {success: false, message: 'No hay tareas'};
   var data = ws.getRange(4, 1, lr - 3, 1).getValues();
@@ -373,6 +431,7 @@ function closeTaskById(taskId, slackUser) {
 
 // Bloquea una tarea por ID directamente.
 function blockTaskById(taskId, reason, slackUser) {
+  invalidateCache();
   var ss = SpreadsheetApp.openById(SHEET_ID), ws = ss.getSheetByName(SHEET_ACTIVO);
   var lr = ws.getLastRow(); if (lr < 4) return {success: false, message: 'No hay tareas'};
   var data = ws.getRange(4, 1, lr - 3, 1).getValues();
