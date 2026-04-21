@@ -26,13 +26,16 @@ const AVC = [
 // ════════════════════════════════════════════════════════════════
 // 2 · STATE
 // ════════════════════════════════════════════════════════════════
-// Data inyectada por el template en Dashboard.html antes del include.
+// Data y usuario inyectados por el template en Dashboard.html antes del include.
+// __USER__ viene resuelto por doGet() contra la allowlist de la hoja Equipos;
+// si el visitante no está autorizado, ni siquiera se renderiza este script.
 var D = (typeof window !== 'undefined' && window.__DATA__) ? window.__DATA__ : {};
-var F = {country:'ALL',status:'ALL',project:'ALL',search:'',resp:'ALL',projStatus:'ALL'};
-var SORT = {col:null,asc:true};
+var USER = (typeof window !== 'undefined' && window.__USER__) ? window.__USER__ : null;
+var F = { country:'ALL', status:'ALL', project:'ALL', search:'', resp:'ALL', projStatus:'ALL' };
+var SORT = { col: null, asc: true };
 var CH = {};
 var EDIT_ID = null;
-var CURRENT_USER = null;
+var CURRENT_USER = USER ? USER.name : null;
 var AVC_MAP = {};
 
 Chart.defaults.color = '#9099B0';
@@ -250,8 +253,8 @@ function fPSt(s) {
   rProjects();
 }
 
-// Toggle del filtro "Mis tareas". Si no hay CURRENT_USER, pide el nombre
-// por prompt y lo persiste en memoria para próximas interacciones.
+// Toggle del filtro "Mis tareas". CURRENT_USER siempre está definido
+// (viene resuelto del server via SSO + allowlist).
 function toggleMyTasks() {
   var btn = $('myTasksBtn');
   if (F._myTasks) {
@@ -261,16 +264,9 @@ function toggleMyTasks() {
     $('sInput').value = '';
     F.search = '';
   } else {
-    var name = CURRENT_USER;
-    if (!name) {
-      name = prompt('Escribe tu nombre (como aparece en el tracker):');
-      if (!name) return;
-      name = name.trim();
-      if (!name) return;
-      CURRENT_USER = name;
-    }
+    if (!CURRENT_USER) { toast('Sesión no identificada', 'error'); return; }
     F._myTasks = true;
-    F.resp = name;
+    F.resp = CURRENT_USER;
     btn.classList.add('active');
   }
   render();
@@ -1067,55 +1063,27 @@ function reload() {
     .withSuccessHandler(function(d){ D = d; render(); })
     .getTrackerData();
 }
-// ═══ LOGIN ═══
-function initLogin() {
-  var saved = sessionStorage.getItem('lt_user');
-  var overlay = $('loginOverlay');
-  var sel = $('loginSelect');
-  var members = getAllMembers();
-  members.forEach(function(m) {
-    var o = document.createElement('option');
-    o.value = m; o.textContent = m;
-    sel.appendChild(o);
-  });
-  if (saved && members.indexOf(saved) >= 0) { setUser(saved); return; }
-  overlay.classList.remove('hidden');
-}
-
-function doLogin(){
-  var v=$('loginSelect').value;
-  if(!v)return;
-  sessionStorage.setItem('lt_user',v);
-  setUser(v);
-}
-
-function doLogout(){
-  if(!confirm('¿Cambiar de usuario?'))return;
-  sessionStorage.removeItem('lt_user');
-  location.reload();
-}
-
-function setUser(name) {
-  CURRENT_USER = name;
-  $('loginOverlay').classList.add('hidden');
-
-  // User chip (avatar + nombre corto)
+// ═══ USER SESSION ═══
+// Con SSO de Google no hay login form: el server ya resolvió al visitante
+// contra la allowlist en doGet() y lo inyectó como window.__USER__. Este
+// helper solo muestra el chip con avatar+nombre y precarga el responsable
+// en los formularios de creación.
+function mountUserChip() {
+  if (!CURRENT_USER) return;
   var chip = $('userChip'), av = $('userChipAv'), nm = $('userChipName');
-  if (chip) {
-    chip.style.display = 'flex';
-    nm.textContent = name.split(' ').slice(0, 2).join(' ');
-    var initials = name.split(' ').slice(0, 2).map(function(w){ return w[0]; }).join('').toUpperCase();
-    av.textContent = initials;
-    av.style.background = AVC[name.length % AVC.length] || 'var(--rappi)';
-  }
+  if (!chip) return;
+  chip.style.display = 'flex';
+  nm.textContent = CURRENT_USER.split(' ').slice(0, 2).join(' ');
+  var initials = CURRENT_USER.split(' ').slice(0, 2)
+    .map(function(w){ return w[0]; }).join('').toUpperCase();
+  av.textContent = initials;
+  av.style.background = AVC[CURRENT_USER.length % AVC.length] || 'var(--rappi)';
 
   // Pre-fill responsable en formularios de creación
   var fResp = $('fResp');
-  if (fResp) fResp.value = name;
-  var countryCode = mc(name);
+  if (fResp) fResp.value = CURRENT_USER;
+  var countryCode = (USER && USER.code) || mc(CURRENT_USER);
   if (countryCode && $('fPais')) $('fPais').value = countryCode;
-
-  render();
 }
 
 // ═══ MIS TAREAS ═══
@@ -1346,6 +1314,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Tags inputs
   _tagsAccHandle  = initTagsInput('fAccTags', 'fAcc', null);
   _tagsPartHandle = initTagsInput('pPartTags', 'pPart', members);
-  initLogin();
+  mountUserChip();
+  render();
 }, true);
 </script>

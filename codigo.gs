@@ -26,14 +26,113 @@ const CACHE_TTL_SEC = 30;
 function invalidateCache() { try { CacheService.getScriptCache().remove(CACHE_KEY); } catch(e) {} }
 
 // ── WEB APP ─────────────────────────────────────────────────────
+// doGet valida que el visitante esté en la allowlist de la hoja Equipos antes de
+// renderizar el dashboard. La allowlist combina leaderEmail + emails de cada equipo.
+// Requisitos de deployment:
+//   - Execute as: Me (owner)
+//   - Who has access: Anyone within <dominio> (o Anyone with Google account)
+// Así Session.getActiveUser().getEmail() retorna el email verificado del visitante.
 function doGet(e) {
   var page = e && e.parameter && e.parameter.page;
-  if (page === 'api') return ContentService.createTextOutput(JSON.stringify(getTrackerData())).setMimeType(ContentService.MimeType.JSON);
+
+  // Endpoint /api?page=api sigue abierto para scripts internos (cambia si necesitas
+  // protegerlo también; típicamente se restringe con execute-as y acceso limitado).
+  if (page === 'api') {
+    return ContentService.createTextOutput(JSON.stringify(getTrackerData()))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 1) Autenticación: resolver el usuario visitante contra la allowlist
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var equipos = readEquipos(ss);
+  var authResult = resolveVisitor(equipos);
+
+  if (!authResult.ok) {
+    return renderAccessDenied(authResult);
+  }
+
+  // 2) Render normal, con el usuario ya resuelto
   var html = HtmlService.createTemplateFromFile('Dashboard');
   html.data = JSON.stringify(getTrackerData());
-  return html.evaluate().setTitle('Legal Tracker · Rappi').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL).addMetaTag('viewport','width=device-width, initial-scale=1');
+  html.currentUser = JSON.stringify({
+    email: authResult.email,
+    name:  authResult.user.name,
+    code:  authResult.user.code,
+    isLeader: !!authResult.user.isLeader
+  });
+  return html.evaluate()
+    .setTitle('Legal Tracker · Rappi')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .addMetaTag('viewport','width=device-width, initial-scale=1');
 }
-function include(f){return HtmlService.createHtmlOutputFromFile(f).getContent()}
+
+function include(f){ return HtmlService.createHtmlOutputFromFile(f).getContent(); }
+
+// ── AUTH HELPERS ────────────────────────────────────────────────
+// Arma un mapa (email lowercase) → {name, code, isLeader} a partir de la hoja Equipos.
+// - leaderEmail se mapea a leader
+// - emails[i] se asume paralelo a members[i] (mismo orden)
+function buildEmailAllowlist(equipos) {
+  var map = {};
+  equipos.forEach(function(eq) {
+    if (eq.leaderEmail) {
+      map[eq.leaderEmail.toString().toLowerCase().trim()] = { name: eq.leader, code: eq.code, isLeader: true };
+    }
+    for (var i = 0; i < (eq.members || []).length; i++) {
+      var email = (eq.emails || [])[i];
+      if (email) {
+        map[email.toString().toLowerCase().trim()] = { name: eq.members[i], code: eq.code, isLeader: false };
+      }
+    }
+  });
+  return map;
+}
+
+// Retorna {ok:true, email, user} si el visitante tiene acceso; caso contrario
+// {ok:false, reason, email} para mostrar el motivo en la página de denegado.
+function resolveVisitor(equipos) {
+  var email = '';
+  try { email = (Session.getActiveUser().getEmail() || '').toLowerCase().trim(); } catch(e) {}
+  if (!email) {
+    return { ok: false, reason: 'no_session',
+      message: 'No pudimos identificar tu cuenta. Asegúrate de estar logueado en Google con tu correo corporativo.' };
+  }
+  var allow = buildEmailAllowlist(equipos);
+  var user = allow[email];
+  if (!user) {
+    return { ok: false, reason: 'not_allowlisted', email: email,
+      message: 'Tu correo (' + email + ') no está registrado en el tracker. Pide a tu líder de equipo que lo agregue en la hoja "Equipos".' };
+  }
+  return { ok: true, email: email, user: user };
+}
+
+// Renderiza una página simple de "acceso denegado" con el mismo look del tracker.
+function renderAccessDenied(authResult) {
+  var safeMsg = (authResult.message || 'Acceso denegado').replace(/</g, '&lt;');
+  var body = ''
+    + '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>Legal Tracker · Sin acceso</title>'
+    + '<style>'
+    +   'body{background:#0C0E14;color:#F0F2F8;font-family:system-ui,sans-serif;'
+    +        'margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}'
+    +   '.box{max-width:420px;background:#151820;border:1px solid rgba(255,255,255,.08);'
+    +        'border-radius:16px;padding:40px;text-align:center}'
+    +   '.logo{width:56px;height:56px;border-radius:16px;background:#FF4940;display:flex;'
+    +         'align-items:center;justify-content:center;font-size:26px;margin:0 auto 20px}'
+    +   'h1{font-size:20px;font-weight:800;margin:0 0 12px}'
+    +   'p{color:#9099B0;font-size:13px;line-height:1.55;margin:0}'
+    +   '.email{font-family:ui-monospace,monospace;color:#FFB938;word-break:break-all}'
+    + '</style></head><body>'
+    + '<div class="box">'
+    +   '<div class="logo">🔒</div>'
+    +   '<h1>Sin acceso al Legal Tracker</h1>'
+    +   '<p>' + safeMsg + '</p>'
+    + '</div></body></html>';
+  return HtmlService.createHtmlOutput(body)
+    .setTitle('Legal Tracker · Sin acceso')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
 
 // ════════════════════════════════════════════════════════════════
 // GET ALL DATA

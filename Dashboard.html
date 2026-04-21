@@ -11,15 +11,6 @@
 </head>
 <body>
 <div class="ambient"></div>
-<div class="login-overlay" id="loginOverlay">
-  <div class="login-box">
-    <div class="login-logo">⚖</div>
-    <h2>Legal Tracker · Rappi</h2>
-    <p>¿Quién eres? Selecciona tu nombre para continuar</p>
-    <select class="login-select" id="loginSelect"><option value="">Seleccionar...</option></select>
-    <button class="login-btn" onclick="doLogin()">Entrar →</button>
-  </div>
-</div>
 <div class="app">
 
 <!-- TOPBAR -->
@@ -35,7 +26,7 @@
 <button class="nav-tab" onclick="go('nueva')">+ Crear</button>
     </div>
     <div class="ov-badge" id="ovBadge">⚠ <span id="ovN">0</span> vencidas</div>
-    <div class="user-chip" id="userChip" onclick="doLogout()" title="Cambiar usuario" style="display:none">
+    <div class="user-chip" id="userChip" title="Sesión activa (cierra sesión de Google para cambiar de usuario)" style="display:none">
   <div class="user-chip-av" id="userChipAv" style="background:var(--rappi)"></div>
   <span id="userChipName"></span>
 </div>
@@ -211,7 +202,10 @@
 <div class="dd-overlay" id="ddO" onclick="closeDD()"></div><div class="dd-menu" id="ddM"></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script>window.__DATA__ = <?!= data ?>;</script>
+<script>
+  window.__DATA__ = <?!= data ?>;
+  window.__USER__ = <?!= currentUser ?>;
+</script>
 <?!= include("Dashboard.js") ?>
 </body>
 </html>
