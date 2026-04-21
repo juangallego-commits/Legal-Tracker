@@ -273,11 +273,15 @@ function addTask(taskObj) {
   var equipos=readEquipos(ss);
   var pais =taskObj.pais ||getCountryForMember(taskObj.resp,equipos);
   var lider=taskObj.lider||getLeaderForCountry(pais,equipos);
+  // Normalizar proyectoId a entero; si no es válido, celda vacía.
+  var pid = taskObj.proyectoId || taskObj.proyecto || '';
+  var pidNum = parseInt(pid, 10);
+  var pidCell = isNaN(pidNum) ? '' : pidNum;
   ws.appendRow([
     newId, taskObj.nombre||'', taskObj.resp||'', taskObj.acc||'',
     taskObj.deadline||'', taskObj.priority||'Media', taskObj.status||'Pendiente',
     taskObj.semana||getCurrentWeekLabel(), new Date(), '', taskObj.notas||'',
-    taskObj.proyectoId||taskObj.proyecto||'', pais, lider,
+    pidCell, pais, lider,
     taskObj.tipoTrabajo||'', taskObj.riesgo||''
   ]);
   return {success:true, id:newId};
@@ -291,6 +295,8 @@ function updateTaskField(taskId, field, value) {
   var data=ws.getRange(4,1,lastRow-3,lastCol).getValues();
   var fieldMap={'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16};
   var col=fieldMap[field];if(!col)return{success:false,error:'Invalid field: '+field};
+  // Normalizar proyectoId a entero (o vacío)
+  if(field==='proyectoId'||field==='proyecto'){var n=parseInt(value,10);value=isNaN(n)?'':n}
   for(var i=0;i<data.length;i++){
     if(data[i][0]==taskId){
       var row=i+4;ws.getRange(row,col).setValue(value);
@@ -319,7 +325,11 @@ function updateTaskFields(taskId, fields) {
       Object.keys(fields).forEach(function(k) {
         if (k === 'status') return;
         var col = fieldMap[k];
-        if (col) ws.getRange(row, col).setValue(fields[k]);
+        if (!col) return;
+        var v = fields[k];
+        // Normalizar proyectoId a entero (o vacío) — el HTML siempre envía string
+        if (k === 'proyectoId' || k === 'proyecto') { var n = parseInt(v, 10); v = isNaN(n) ? '' : n; }
+        ws.getRange(row, col).setValue(v);
       });
       // 2) Status al final (puede disparar move a Historial)
       if (fields.status !== undefined) {
