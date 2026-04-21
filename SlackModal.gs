@@ -532,6 +532,11 @@ function sendConfirmPrompt(userId, channel, ts, actionType, candidates) {
 // ════════════════════════════════════════════════════════════════
 
 function callSlackAPI(method, body) {
+  if (!SLACK_BOT_TOKEN) {
+    const errMsg = 'SLACK_BOT_TOKEN no configurado en Script Properties (Apps Script → ⚙ Project Settings → Script Properties).';
+    logSlackError('Slack API / ' + method, { message: errMsg, stack: '' });
+    return { ok: false, error: errMsg };
+  }
   const resp = UrlFetchApp.fetch('https://slack.com/api/' + method, {
     method         : 'post',
     contentType    : 'application/json; charset=utf-8',

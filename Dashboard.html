@@ -417,8 +417,8 @@ function onS(){F.search=$('sInput').value;render()}
 function tSort(col){if(SORT.col===col)SORT.asc=!SORT.asc;else{SORT.col=col;SORT.asc=true}rTable(ft())}
 function fR(name){F.resp=F.resp===name?'ALL':name;rRChips();rTable(ft())}
 function fPSt(s){F.projStatus=s;document.querySelectorAll('#projFBar .fbtn').forEach(function(b){b.classList.toggle('active',b.textContent.trim()===(s==='ALL'?'Todos':s))});rProjects()}
-function toggleMyTasks(){var btn=$('myTasksBtn');if(F._myTasks){F._myTasks=false;F.resp='ALL';btn.classList.remove('active');$('sInput').value='';F.search=''}else{var name=CURRENT_USER;if(!name){name=prompt('Escribe tu nombre (como aparece en el tracker):');if(!name)return;name=name.trim()}F._myTasks=true;F.resp=name;btn.classList.add('active')}render()}
-function rRChips(){var c=$('rChips');if(!c)return;var team=fTeam().filter(function(t){return t.total>0});c.innerHTML='<span class="filter-label">Resp:</span>'+team.map(function(t){return '<button class="pchip'+(F.resp===t.name?' active':'')+'" onclick="fR(\''+esc(t.name)+'\')">'+esc(t.name.split(' ').slice(0,2).join(' '))+'</button>'}).join('')}
+function toggleMyTasks(){var btn=$('myTasksBtn');if(F._myTasks){F._myTasks=false;F.resp='ALL';btn.classList.remove('active');$('sInput').value='';F.search=''}else{var name=CURRENT_USER;if(!name){name=prompt('Escribe tu nombre (como aparece en el tracker):');if(!name)return;name=name.trim();if(!name)return;CURRENT_USER=name}F._myTasks=true;F.resp=name;btn.classList.add('active')}render()}
+function rRChips(){var c=$('rChips');if(!c)return;var team=fTeam().filter(function(t){return t.total>0});c.innerHTML='<span class="filter-label">Resp:</span>'+team.map(function(t){return '<button class="pchip'+(F.resp===t.name?' active':'')+'" onclick="fR(\''+escJs(t.name)+'\')">'+esc(t.name.split(' ').slice(0,2).join(' '))+'</button>'}).join('')}
 function fTeamCard(name){if(F.resp===name){F.resp='ALL'}else{F.resp=name}render();document.querySelector('.table-wrap').scrollIntoView({behavior:'smooth',block:'start'})}
 // ═══ BUILD ═══
 function buildUI() {
@@ -478,7 +478,7 @@ function rLoad(team){var c=$('cLoad');if(!c)return;if(CH.l)CH.l.destroy();var la
 
 // ═══ TEAM ═══
 function rTeam(team){var g=$('tGrid');if(!g)return;var at=team.filter(function(t){return t.total>0});if(!at.length){g.innerHTML='';return}
-  g.innerHTML=at.map(function(t,i){var bg=AVC[i%AVC.length],s='';if(t.alta>0)s+='<span class="tcard-stat" style="background:var(--red-dim);color:var(--red)">'+t.alta+' alta</span>';if(t.enCurso>0)s+='<span class="tcard-stat" style="background:var(--blue-dim);color:var(--blue)">'+t.enCurso+' curso</span>';if(t.bloqueado>0)s+='<span class="tcard-stat" style="background:var(--yellow-dim);color:var(--yellow)">'+t.bloqueado+' bloq</span>';if(t.enRevision>0)s+='<span class="tcard-stat" style="background:var(--purple-dim);color:var(--purple)">'+t.enRevision+' rev</span>';if(t.pendiente>0)s+='<span class="tcard-stat" style="background:var(--surface3);color:var(--text-muted)">'+t.pendiente+' pend</span>';return '<div class="tcard'+(F.resp===t.name?' tcard-sel':'')+'" style="cursor:pointer" onclick="fTeamCard(\''+esc(t.name)+'\')"><div class="tcard-top"><div class="tcard-av" style="background:'+bg+'">'+t.initials+'</div><div><div class="tcard-name">'+t.name.split(' ').slice(0,2).join(' ')+'</div><div class="tcard-sub">'+(t.country||'')+' · '+t.total+'</div></div></div><div class="tcard-stats">'+s+'</div></div>'}).join('')}
+  g.innerHTML=at.map(function(t,i){var bg=AVC[i%AVC.length],s='';if(t.alta>0)s+='<span class="tcard-stat" style="background:var(--red-dim);color:var(--red)">'+t.alta+' alta</span>';if(t.enCurso>0)s+='<span class="tcard-stat" style="background:var(--blue-dim);color:var(--blue)">'+t.enCurso+' curso</span>';if(t.bloqueado>0)s+='<span class="tcard-stat" style="background:var(--yellow-dim);color:var(--yellow)">'+t.bloqueado+' bloq</span>';if(t.enRevision>0)s+='<span class="tcard-stat" style="background:var(--purple-dim);color:var(--purple)">'+t.enRevision+' rev</span>';if(t.pendiente>0)s+='<span class="tcard-stat" style="background:var(--surface3);color:var(--text-muted)">'+t.pendiente+' pend</span>';return '<div class="tcard'+(F.resp===t.name?' tcard-sel':'')+'" style="cursor:pointer" onclick="fTeamCard(\''+escJs(t.name)+'\')"><div class="tcard-top"><div class="tcard-av" style="background:'+bg+'">'+t.initials+'</div><div><div class="tcard-name">'+esc(t.name.split(' ').slice(0,2).join(' '))+'</div><div class="tcard-sub">'+esc(t.country||'')+' · '+t.total+'</div></div></div><div class="tcard-stats">'+s+'</div></div>'}).join('')}
 
 // ═══ TABLE ═══
 function rTable(tasks){var tb=$('tBody');if(!tb)return;if(!tasks.length){tb.innerHTML='<tr><td colspan="9"><div class="empty"><div class="empty-icon">📋</div>No hay tareas</div></td></tr>';return}
@@ -502,11 +502,11 @@ function rTable(tasks){var tb=$('tBody');if(!tb)return;if(!tasks.length){tb.inne
       '<td><button class="btn-icon" onclick="showTM(event,' + t.id + ')">⋮</button></td>' +
     '</tr>';
   }).join('');
+  ['nombre','resp','priority','status','deadline'].forEach(function(c){var el=$('sI_'+c);if(el)el.textContent=SORT.col===c?(SORT.asc?'▲':'▼'):''});
 }
-    ['nombre','resp','priority','status','deadline'].forEach(function(c){var el=$('sI_'+c);if(el)el.textContent=SORT.col===c?(SORT.asc?'▲':'▼'):''});
 
 function rPChips(){var c=$('pChips');if(!c)return;var pMap={};ft().forEach(function(t){var pn=taskProjectName(t)||'Sin proyecto';if(!pMap[pn])pMap[pn]=0;pMap[pn]++});var keys=Object.keys(pMap).filter(function(k){return k!=='Sin proyecto'});if(!keys.length){c.innerHTML='';return}
-  c.innerHTML='<span class="filter-label">Proyecto:</span>'+keys.map(function(k){return '<button class="pchip'+(F.project===k?' active':'')+'" onclick="fPr(\''+esc(k)+'\')">'+esc(k)+' ('+pMap[k]+')</button>'}).join('')}
+  c.innerHTML='<span class="filter-label">Proyecto:</span>'+keys.map(function(k){return '<button class="pchip'+(F.project===k?' active':'')+'" onclick="fPr(\''+escJs(k)+'\')">'+esc(k)+' ('+pMap[k]+')</button>'}).join('')}
 
 // ═══ PROJECTS ═══
 function rProjects(){var g=$('projGrid');if(!g)return;
@@ -550,7 +550,7 @@ function rProjects(){var g=$('projGrid');if(!g)return;
   }).join('');
 }
 
-function togglePTasks(btn){var tasks=btn.nextElementSibling;var open=tasks.classList.toggle('open');btn.querySelector('.arrow').style.transform=open?'rotate(90deg)':'rotate(0)'}
+function togglePTasks(btn){var tasks=btn.nextElementSibling;if(!tasks)return;var open=tasks.classList.toggle('open');var arrow=btn.querySelector('.arrow');if(arrow)arrow.style.transform=open?'rotate(90deg)':'rotate(0)'}
 
 // ═══ HISTORIAL ═══
 function rHist(){var hist=fHist();$('hBadge').textContent=hist.length+' completadas';var tb=$('hBody');if(!tb)return;if(!hist.length){tb.innerHTML='<tr><td colspan="7"><div class="empty"><div class="empty-icon">✅</div>Sin completadas</div></td></tr>';return}
@@ -661,7 +661,23 @@ function cfUp(id,f,v){closeDD();confirm_('¿Marcar como Listo? Se moverá al His
 // ═══ HELPERS ═══
 function $(id){return document.getElementById(id)}
 function esc(s){if(!s)return '';var d=document.createElement('div');d.textContent=s;return d.innerHTML}
-function pd(s){if(!s)return null;var d=new Date(s);if(!isNaN(d.getTime()))return d;var p=s.split('/');if(p.length===3){d=new Date(p[2],p[1]-1,p[0]);if(!isNaN(d.getTime()))return d}return null}
+// Escape seguro para insertar un string como literal JS dentro de un atributo HTML
+// (ej: onclick="foo('...')"). Cubre quotes, backslashes, saltos de línea y chars HTML.
+function escJs(s){if(s==null)return '';return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/</g,'\\x3c').replace(/>/g,'\\x3e').replace(/&/g,'\\x26')}
+function pd(s){
+  if(!s)return null;
+  s=String(s).trim();
+  // 1) DD/MM/YYYY (formato local) — probar primero para evitar ambigüedad con MM/DD/YYYY del parser nativo
+  var p=s.split('/');
+  if(p.length===3){var dd=parseInt(p[0],10),mm=parseInt(p[1],10),yy=parseInt(p[2],10);if(!isNaN(dd)&&!isNaN(mm)&&!isNaN(yy)){var d=new Date(yy,mm-1,dd);if(!isNaN(d.getTime()))return d}}
+  // 2) ISO YYYY-MM-DD — construir local (no UTC) para evitar desfase de zona horaria
+  var iso=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(iso){var d2=new Date(parseInt(iso[1],10),parseInt(iso[2],10)-1,parseInt(iso[3],10));if(!isNaN(d2.getTime()))return d2}
+  // 3) Fallback: parser nativo
+  var d3=new Date(s);
+  if(!isNaN(d3.getTime()))return d3;
+  return null;
+}
 function toast(m,t){var e=$('toast');e.textContent=m;e.className='toast toast-'+(t||'info')+' show';clearTimeout(e._t);e._t=setTimeout(function(){e.classList.remove('show')},3000)}
 function fm(id,t,c){var e=$(id);e.textContent=t;e.className='form-msg msg-'+(c||'info')}
 function reload(){google.script.run.withSuccessHandler(function(d){D=d;render()}).getTrackerData()}
@@ -710,14 +726,22 @@ function rMisTareas(){
   if(!CURRENT_USER)return;
   var myTasks=D.tasks.filter(function(t){return t.resp===CURRENT_USER});
   var myDone=(D.historial||[]).filter(function(t){return t.resp===CURRENT_USER});
-  // Calcular atraso (tareas vencidas por SLA)
+  // Calcular atraso (tareas activas vencidas por SLA)
   var atraso = myTasks.filter(taskOverdueBySLA).length;
   // Cerradas esta semana
   var semLabel=D.semana||'';
   var cerradasSemana=myDone.filter(function(t){return t.semana===semLabel}).length;
-  // % on time
+  // % on time: tareas cerradas cuyo (cerrado - creado) no excedió el SLA de su prioridad
   var totalDone=myDone.length;
-  var onTimePct=totalDone>0?Math.round((totalDone-atraso)/totalDone*100):100;
+  var lateDone=myDone.filter(function(t){
+    if(!t.creado||!t.cerrado)return false;
+    var c=pd(t.creado),f=pd(t.cerrado);
+    if(!c||!f)return false;
+    var biz=0,cur=new Date(c);
+    while(cur<f){cur.setDate(cur.getDate()+1);var dy=cur.getDay();if(dy!==0&&dy!==6)biz++}
+    return biz>(SLA_LIMITS[t.priority]||5);
+  }).length;
+  var onTimePct=totalDone>0?Math.round((totalDone-lateDone)/totalDone*100):100;
   $('mt-total').textContent=myTasks.length;
   $('mt-atraso').textContent=atraso;
   $('mt-semana').textContent=cerradasSemana;
@@ -753,7 +777,7 @@ function initTagsInput(containerId, hiddenId, suggestions){
   input.onkeydown=function(e){if((e.key==='Enter'||e.key===',')&&this.value.trim()){e.preventDefault();var v=this.value.trim().replace(/,$/,'');if(v&&tags.indexOf(v)<0)tags.push(v);this.value='';refresh()}else if(e.key==='Backspace'&&!this.value&&tags.length){tags.pop();refresh()}};
   container.appendChild(input);
   // Sugerencias
-  if(suggestions){input.onkeyup=function(){var v=this.value.toLowerCase();if(v.length<2)return;var match=suggestions.filter(function(s){return s.toLowerCase().indexOf(v)>=0&&tags.indexOf(s)<0});if(match.length){var dd=$('ddM'),overlay=$('ddO');var h='<div class="dd-label">Sugerencias</div>'+match.slice(0,5).map(function(m){return '<div class="dd-item" onclick="addTag(\''+containerId+'\',\''+esc(m)+'\')">'+esc(m)+'</div>'}).join('');dd.innerHTML=h;dd.style.display='block';overlay.style.display='block';var r=input.getBoundingClientRect();dd.style.top=(r.bottom+4)+'px';dd.style.left=r.left+'px'}}}
+  if(suggestions){input.onkeyup=function(){var v=this.value.toLowerCase();if(v.length<2)return;var match=suggestions.filter(function(s){return s.toLowerCase().indexOf(v)>=0&&tags.indexOf(s)<0});if(match.length){var dd=$('ddM'),overlay=$('ddO');var h='<div class="dd-label">Sugerencias</div>'+match.slice(0,5).map(function(m){return '<div class="dd-item" onclick="addTag(\''+escJs(containerId)+'\',\''+escJs(m)+'\')">'+esc(m)+'</div>'}).join('');dd.innerHTML=h;dd.style.display='block';overlay.style.display='block';var r=input.getBoundingClientRect();dd.style.top=(r.bottom+4)+'px';dd.style.left=r.left+'px'}}}
   return {add:function(v){if(v&&tags.indexOf(v)<0){tags.push(v);refresh()}},get:function(){return tags},clear:function(){tags=[];refresh()}};
 }
 
