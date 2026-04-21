@@ -39,7 +39,7 @@
   <div class="user-chip-av" id="userChipAv" style="background:var(--rappi)"></div>
   <span id="userChipName"></span>
 </div>
-<button class="btn-ref" onclick="location.reload()">↻</button>
+<button class="btn-ref" onclick="location.reload()" aria-label="Recargar datos" title="Recargar">↻</button>
   </div>
 </div>
 
@@ -59,7 +59,26 @@
   <div class="team-grid anim d3" id="tGrid"></div>
   <div class="card anim d4">
     <div class="filter-bar" id="fBar"><span class="filter-label">Estado:</span><button class="fbtn active" onclick="fSt('ALL')">Todos</button><button class="fbtn" onclick="fSt('Pendiente')">Pendiente</button><button class="fbtn" onclick="fSt('En curso')">En curso</button><button class="fbtn" onclick="fSt('En revisión')">En revisión</button><button class="fbtn" onclick="fSt('Bloqueado')">Bloqueado</button><span id="rChips" style="margin-left:12px;display:flex;gap:4px;flex-wrap:wrap"></span><span id="pChips" style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap"></span></div>
-    <div class="table-wrap"><table><thead><tr><th class="col-id">#</th><th style="cursor:pointer" onclick="tSort('nombre')">Tarea <span id="sI_nombre"></span></th><th>Proyecto</th><th style="cursor:pointer" onclick="tSort('resp')">Resp. <span id="sI_resp"></span></th><th style="cursor:pointer" onclick="tSort('priority')">Prioridad <span id="sI_priority"></span></th><th style="cursor:pointer" onclick="tSort('status')">Estado <span id="sI_status"></span></th><th style="cursor:pointer" onclick="tSort('deadline')">Deadline <span id="sI_deadline"></span></th><th>Tipo</th><th>Riesgo</th><th>Accionable</th><th style="width:36px"></th></tr></thead><tbody id="tBody"></tbody></table></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col" class="col-id">#</th>
+            <th scope="col" style="cursor:pointer" onclick="tSort('nombre')">Tarea <span id="sI_nombre"></span></th>
+            <th scope="col">Proyecto</th>
+            <th scope="col" style="cursor:pointer" onclick="tSort('resp')">Resp. <span id="sI_resp"></span></th>
+            <th scope="col" style="cursor:pointer" onclick="tSort('priority')">Prioridad <span id="sI_priority"></span></th>
+            <th scope="col" style="cursor:pointer" onclick="tSort('status')">Estado <span id="sI_status"></span></th>
+            <th scope="col" style="cursor:pointer" onclick="tSort('deadline')">Deadline <span id="sI_deadline"></span></th>
+            <th scope="col">Tipo</th>
+            <th scope="col">Riesgo</th>
+            <th scope="col">Accionable</th>
+            <th scope="col" style="width:36px" aria-label="Acciones"></th>
+          </tr>
+        </thead>
+        <tbody id="tBody"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -80,7 +99,22 @@
 
 <!-- ═══ VIEW: HISTORIAL ═══ -->
 <div class="view" id="vHistorial">
-  <div class="card anim d2"><div class="card-header"><span class="card-title">Tareas completadas</span><span class="card-badge" id="hBadge">0</span></div><div class="table-wrap"><table><thead><tr><th class="col-id">#</th><th>Tarea</th><th>Proyecto</th><th>Resp.</th><th>Prioridad</th><th>Creada</th><th>Cerrada</th></tr></thead><tbody id="hBody"></tbody></table></div></div>
+  <div class="card anim d2"><div class="card-header"><span class="card-title">Tareas completadas</span><span class="card-badge" id="hBadge">0</span></div><div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col" class="col-id">#</th>
+          <th scope="col">Tarea</th>
+          <th scope="col">Proyecto</th>
+          <th scope="col">Resp.</th>
+          <th scope="col">Prioridad</th>
+          <th scope="col">Creada</th>
+          <th scope="col">Cerrada</th>
+        </tr>
+      </thead>
+      <tbody id="hBody"></tbody>
+    </table>
+  </div></div>
 </div>
 <!-- ═══ VIEW: MIS TAREAS ═══ -->
 <div class="view" id="vMistareas">
@@ -92,7 +126,23 @@
   </div>
   <div class="card anim d3" id="mtCard">
     <div class="mt-section-title" id="mtTitle">Mis tareas activas</div>
-    <div class="table-wrap"><table><thead><tr><th class="col-id">#</th><th>Tarea</th><th>Proyecto</th><th>Prioridad</th><th>Estado</th><th>Deadline</th><th>Accionable</th><th style="width:36px"></th></tr></thead><tbody id="mtBody"></tbody></table></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col" class="col-id">#</th>
+            <th scope="col">Tarea</th>
+            <th scope="col">Proyecto</th>
+            <th scope="col">Prioridad</th>
+            <th scope="col">Estado</th>
+            <th scope="col">Deadline</th>
+            <th scope="col">Accionable</th>
+            <th scope="col" style="width:36px" aria-label="Acciones"></th>
+          </tr>
+        </thead>
+        <tbody id="mtBody"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 <!-- ═══ VIEW: CREAR ═══ -->
@@ -155,11 +205,11 @@
 </div>
 
 <!-- EDIT MODAL -->
-<div class="modal-overlay" id="editOv" onclick="if(event.target===this)closeEdit()"><div class="modal"><div class="modal-header"><h2 id="editT">Editar</h2><button class="modal-close" onclick="closeEdit()">✕</button></div><div class="modal-body" id="editB"></div><div class="modal-footer"><button class="btn-secondary" onclick="closeEdit()">Cancelar</button><button class="btn-submit btn-sm" onclick="saveEdit()">Guardar</button></div></div></div>
+<div class="modal-overlay" id="editOv" onclick="if(event.target===this)closeEdit()"><div class="modal"><div class="modal-header"><h2 id="editT">Editar</h2><button class="modal-close" onclick="closeEdit()" aria-label="Cerrar">✕</button></div><div class="modal-body" id="editB"></div><div class="modal-footer"><button class="btn-secondary" onclick="closeEdit()">Cancelar</button><button class="btn-submit btn-sm" onclick="saveEdit()">Guardar</button></div></div></div>
 <!-- CONFIRM -->
-<div class="modal-overlay" id="confOv" onclick="if(event.target===this)closeCf()"><div class="modal" style="max-width:400px"><div class="modal-header"><h2>Confirmar</h2><button class="modal-close" onclick="closeCf()">✕</button></div><div class="modal-body"><p id="confTxt" style="font-size:14px;color:var(--text-muted)"></p></div><div class="modal-footer"><button class="btn-secondary" onclick="closeCf()">Cancelar</button><button class="btn-submit btn-sm" id="confBtn">Confirmar</button></div></div></div>
+<div class="modal-overlay" id="confOv" onclick="if(event.target===this)closeCf()"><div class="modal" style="max-width:400px"><div class="modal-header"><h2>Confirmar</h2><button class="modal-close" onclick="closeCf()" aria-label="Cerrar">✕</button></div><div class="modal-body"><p id="confTxt" style="font-size:14px;color:var(--text-muted)"></p></div><div class="modal-footer"><button class="btn-secondary" onclick="closeCf()">Cancelar</button><button class="btn-submit btn-sm" id="confBtn">Confirmar</button></div></div></div>
 <div class="dd-overlay" id="ddO" onclick="closeDD()"></div><div class="dd-menu" id="ddM"></div>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>window.__DATA__ = <?!= data ?>;</script>
 <?!= include("Dashboard.js") ?>
