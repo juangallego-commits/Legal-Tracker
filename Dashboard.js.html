@@ -112,33 +112,169 @@ function taskOverdueBySLA(t) {
 // 4 · MAIN RENDER ORCHESTRATOR
 // ════════════════════════════════════════════════════════════════
 
-function render(){var tasks=ft(),team=fTeam();
-  var lastDone=(D.historial&&D.historial.length>0)?(' · Última: '+D.historial[0].nombre.substring(0,25)):'';$('metaInfo').textContent='Sem. '+(D.semana||'')+' · Act. '+(D.generated||'')+lastDone;
-  $('totalB').textContent=tasks.length+' tareas';
-  $('pillAll').textContent='🌐 Todos ('+D.tasks.length+')';
-  $('tabTracker').textContent='Tracker ('+D.tasks.length+')';
-  $('tabHistorial').textContent='Historial ('+(D.historial||[]).length+')';
-  $('tabProyectos').textContent='Proyectos ('+(D.projects||[]).length+')';
-  var ov=D.sla?D.sla.overdue:0;$('ovBadge').classList.toggle('show',ov>0);$('ovN').textContent=ov;
-  rDonut(tasks);rLoad(team);rTeam(team);rTable(tasks);rPChips();rRChips();rAnalytics(tasks,team);rHist();rProjects();
+function render() {
+  var tasks = ft(), team = fTeam();
+  var lastDone = (D.historial && D.historial.length > 0)
+    ? (' · Última: ' + D.historial[0].nombre.substring(0, 25))
+    : '';
+  $('metaInfo').textContent = 'Sem. ' + (D.semana || '') + ' · Act. ' + (D.generated || '') + lastDone;
+  $('totalB').textContent     = tasks.length + ' tareas';
+  $('pillAll').textContent    = '🌐 Todos (' + D.tasks.length + ')';
+  $('tabTracker').textContent = 'Tracker (' + D.tasks.length + ')';
+  $('tabHistorial').textContent = 'Historial (' + (D.historial || []).length + ')';
+  $('tabProyectos').textContent = 'Proyectos (' + (D.projects || []).length + ')';
+  var ov = D.sla ? D.sla.overdue : 0;
+  $('ovBadge').classList.toggle('show', ov > 0);
+  $('ovN').textContent = ov;
+  rDonut(tasks);
+  rLoad(team);
+  rTeam(team);
+  rTable(tasks);
+  rPChips();
+  rRChips();
+  rAnalytics(tasks, team);
+  rHist();
+  rProjects();
 }
 
 // ═══ FILTER ═══
-function taskProjectName(t){if(t.proyectoId&&D.projects){var pp=D.projects.find(function(p){return p.id==t.proyectoId});if(pp)return pp.nombre}return t.proyecto||''}
-function ft(){return D.tasks.filter(function(t){if(F.country!=='ALL'){var c=t.pais||mc(t.resp);if(c!==F.country)return false}if(F.status!=='ALL'&&t.status!==F.status)return false;if(F.project!=='ALL'){if(taskProjectName(t)!==F.project)return false}if(F.resp!=='ALL'&&t.resp!==F.resp)return false;if(F.search){var s=F.search.toLowerCase();var pn=taskProjectName(t);if((t.nombre||'').toLowerCase().indexOf(s)<0&&(t.acc||'').toLowerCase().indexOf(s)<0&&(t.resp||'').toLowerCase().indexOf(s)<0&&(pn||'').toLowerCase().indexOf(s)<0&&(t.notas||'').toLowerCase().indexOf(s)<0)return false}return true})}
-function fTeam(){if(F.country==='ALL')return D.team;return D.team.filter(function(t){return t.country===F.country})}
-function fHist(){return(D.historial||[]).filter(function(t){if(F.country!=='ALL'){var c=t.pais||mc(t.resp);if(c!==F.country)return false}if(F.search){var s=F.search.toLowerCase();var pn='';if(t.proyectoId&&D.projects){var pp=D.projects.find(function(p){return p.id==t.proyectoId});if(pp)pn=pp.nombre}if((t.nombre||'').toLowerCase().indexOf(s)<0&&(pn||'').toLowerCase().indexOf(s)<0)return false}return true})}
-function mc(n){if(!n||!D.equipos)return '';for(var i=0;i<D.equipos.length;i++){var e=D.equipos[i];if(e.leader===n)return e.code;if(e.members&&e.members.indexOf(n)>=0)return e.code}return ''}
-function fC(c){F.country=c;F.resp='ALL';document.querySelectorAll('.cpill').forEach(function(b){b.classList.toggle('active',b.dataset.country===c)});render()}
-function fSt(s){F.status=s;document.querySelectorAll('#fBar .fbtn').forEach(function(b){b.classList.toggle('active',b.textContent.trim()===(s==='ALL'?'Todos':s))});rTable(ft())}
-function fPr(p){F.project=F.project===p?'ALL':p;rPChips();rTable(ft())}
+function taskProjectName(t) {
+  if (t.proyectoId && D.projects) {
+    var pp = D.projects.find(function(p){ return p.id == t.proyectoId; });
+    if (pp) return pp.nombre;
+  }
+  return t.proyecto || '';
+}
+
+// Filtro principal de tareas: combina country, status, project, resp y búsqueda.
+function ft() {
+  return D.tasks.filter(function(t) {
+    if (F.country !== 'ALL') {
+      var c = t.pais || mc(t.resp);
+      if (c !== F.country) return false;
+    }
+    if (F.status !== 'ALL' && t.status !== F.status) return false;
+    if (F.project !== 'ALL' && taskProjectName(t) !== F.project) return false;
+    if (F.resp !== 'ALL' && t.resp !== F.resp) return false;
+    if (F.search) {
+      var s = F.search.toLowerCase();
+      var pn = taskProjectName(t);
+      if ((t.nombre || '').toLowerCase().indexOf(s) < 0 &&
+          (t.acc    || '').toLowerCase().indexOf(s) < 0 &&
+          (t.resp   || '').toLowerCase().indexOf(s) < 0 &&
+          (pn       || '').toLowerCase().indexOf(s) < 0 &&
+          (t.notas  || '').toLowerCase().indexOf(s) < 0) return false;
+    }
+    return true;
+  });
+}
+
+function fTeam() {
+  if (F.country === 'ALL') return D.team;
+  return D.team.filter(function(t){ return t.country === F.country; });
+}
+
+function fHist() {
+  return (D.historial || []).filter(function(t) {
+    if (F.country !== 'ALL') {
+      var c = t.pais || mc(t.resp);
+      if (c !== F.country) return false;
+    }
+    if (F.search) {
+      var s = F.search.toLowerCase();
+      var pn = '';
+      if (t.proyectoId && D.projects) {
+        var pp = D.projects.find(function(p){ return p.id == t.proyectoId; });
+        if (pp) pn = pp.nombre;
+      }
+      if ((t.nombre || '').toLowerCase().indexOf(s) < 0 &&
+          (pn || '').toLowerCase().indexOf(s) < 0) return false;
+    }
+    return true;
+  });
+}
+
+// Retorna el código de país al que pertenece un miembro (leader o member).
+function mc(n) {
+  if (!n || !D.equipos) return '';
+  for (var i = 0; i < D.equipos.length; i++) {
+    var e = D.equipos[i];
+    if (e.leader === n) return e.code;
+    if (e.members && e.members.indexOf(n) >= 0) return e.code;
+  }
+  return '';
+}
+
+function fC(c) {
+  F.country = c;
+  F.resp = 'ALL';
+  document.querySelectorAll('.cpill').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.country === c);
+  });
+  render();
+}
+
+function fSt(s) {
+  F.status = s;
+  document.querySelectorAll('#fBar .fbtn').forEach(function(b) {
+    b.classList.toggle('active', b.textContent.trim() === (s === 'ALL' ? 'Todos' : s));
+  });
+  rTable(ft());
+}
+
+function fPr(p) {
+  F.project = F.project === p ? 'ALL' : p;
+  rPChips();
+  rTable(ft());
+}
 // Buscador con debounce 200ms — evita recomputar render() en cada keystroke.
 var _searchDebounced = debounce(function() { F.search = $('sInput').value; render(); }, 200);
 function onS(){ _searchDebounced(); }
-function tSort(col){if(SORT.col===col)SORT.asc=!SORT.asc;else{SORT.col=col;SORT.asc=true}rTable(ft())}
-function fR(name){F.resp=F.resp===name?'ALL':name;rRChips();rTable(ft())}
-function fPSt(s){F.projStatus=s;document.querySelectorAll('#projFBar .fbtn').forEach(function(b){b.classList.toggle('active',b.textContent.trim()===(s==='ALL'?'Todos':s))});rProjects()}
-function toggleMyTasks(){var btn=$('myTasksBtn');if(F._myTasks){F._myTasks=false;F.resp='ALL';btn.classList.remove('active');$('sInput').value='';F.search=''}else{var name=CURRENT_USER;if(!name){name=prompt('Escribe tu nombre (como aparece en el tracker):');if(!name)return;name=name.trim();if(!name)return;CURRENT_USER=name}F._myTasks=true;F.resp=name;btn.classList.add('active')}render()}
+function tSort(col) {
+  if (SORT.col === col) SORT.asc = !SORT.asc;
+  else { SORT.col = col; SORT.asc = true; }
+  rTable(ft());
+}
+
+function fR(name) {
+  F.resp = F.resp === name ? 'ALL' : name;
+  rRChips();
+  rTable(ft());
+}
+
+function fPSt(s) {
+  F.projStatus = s;
+  document.querySelectorAll('#projFBar .fbtn').forEach(function(b) {
+    b.classList.toggle('active', b.textContent.trim() === (s === 'ALL' ? 'Todos' : s));
+  });
+  rProjects();
+}
+
+// Toggle del filtro "Mis tareas". Si no hay CURRENT_USER, pide el nombre
+// por prompt y lo persiste en memoria para próximas interacciones.
+function toggleMyTasks() {
+  var btn = $('myTasksBtn');
+  if (F._myTasks) {
+    F._myTasks = false;
+    F.resp = 'ALL';
+    btn.classList.remove('active');
+    $('sInput').value = '';
+    F.search = '';
+  } else {
+    var name = CURRENT_USER;
+    if (!name) {
+      name = prompt('Escribe tu nombre (como aparece en el tracker):');
+      if (!name) return;
+      name = name.trim();
+      if (!name) return;
+      CURRENT_USER = name;
+    }
+    F._myTasks = true;
+    F.resp = name;
+    btn.classList.add('active');
+  }
+  render();
+}
 function rRChips() {
   var c = $('rChips');
   if (!c) return;
@@ -149,7 +285,12 @@ function rRChips() {
       + esc(t.name.split(' ').slice(0, 2).join(' ')) + '</button>';
   }).join('');
 }
-function fTeamCard(name){if(F.resp===name){F.resp='ALL'}else{F.resp=name}render();document.querySelector('.table-wrap').scrollIntoView({behavior:'smooth',block:'start'})}
+function fTeamCard(name) {
+  F.resp = F.resp === name ? 'ALL' : name;
+  render();
+  var target = document.querySelector('.table-wrap');
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 // ═══ BUILD ═══
 function buildUI() {
   // Country pills + country dropdowns
@@ -198,16 +339,111 @@ function buildUI() {
 }
 
 // ═══ CHARTS ═══
-function rDonut(tasks){var c=$('cPrio');if(!c)return;if(CH.p)CH.p.destroy();var a=0,m=0,b=0;tasks.forEach(function(t){if(t.priority==='Alta')a++;else if(t.priority==='Media')m++;else b++});var n=tasks.length;
-  CH.p=new Chart(c,{type:'doughnut',data:{labels:['Alta','Media','Baja'],datasets:[{data:[a,m,b],backgroundColor:['#FF5C5C','#FFB938','#2DD4A0'],borderColor:'#151820',borderWidth:4,hoverOffset:10}]},options:{responsive:true,maintainAspectRatio:true,cutout:'74%',plugins:{legend:{position:'bottom',labels:{padding:18,usePointStyle:true,pointStyle:'circle',font:{size:12,weight:600}}},tooltip:{backgroundColor:'#1C2030',padding:12,cornerRadius:10}},animation:{duration:900}},plugins:[{id:'ct',afterDraw:function(ch){var x=ch.ctx;x.save();x.font="800 32px 'JetBrains Mono',monospace";x.fillStyle='#F0F2F8';x.textAlign='center';x.textBaseline='middle';x.fillText(n,ch.width/2,ch.height/2-8);x.font="600 11px 'Nunito Sans',sans-serif";x.fillStyle='#9099B0';x.fillText('tareas',ch.width/2,ch.height/2+16);x.restore()}}]})}
+// Donut de distribución por prioridad. Anota el total de tareas en el centro.
+function rDonut(tasks) {
+  var c = $('cPrio');
+  if (!c) return;
+  if (CH.p) CH.p.destroy();
+  var a = 0, m = 0, b = 0;
+  tasks.forEach(function(t) {
+    if (t.priority === 'Alta') a++;
+    else if (t.priority === 'Media') m++;
+    else b++;
+  });
+  var n = tasks.length;
+  CH.p = new Chart(c, {
+    type: 'doughnut',
+    data: {
+      labels: ['Alta', 'Media', 'Baja'],
+      datasets: [{
+        data: [a, m, b],
+        backgroundColor: ['#FF5C5C', '#FFB938', '#2DD4A0'],
+        borderColor: '#151820', borderWidth: 4, hoverOffset: 10
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true, cutout: '74%',
+      plugins: {
+        legend: { position: 'bottom', labels: { padding: 18, usePointStyle: true, pointStyle: 'circle', font: { size: 12, weight: 600 } } },
+        tooltip: { backgroundColor: '#1C2030', padding: 12, cornerRadius: 10 }
+      },
+      animation: { duration: 900 }
+    },
+    plugins: [{
+      id: 'ct',
+      afterDraw: function(ch) {
+        var x = ch.ctx;
+        x.save();
+        x.font = "800 32px 'JetBrains Mono',monospace";
+        x.fillStyle = '#F0F2F8';
+        x.textAlign = 'center'; x.textBaseline = 'middle';
+        x.fillText(n, ch.width / 2, ch.height / 2 - 8);
+        x.font = "600 11px 'Nunito Sans',sans-serif";
+        x.fillStyle = '#9099B0';
+        x.fillText('tareas', ch.width / 2, ch.height / 2 + 16);
+        x.restore();
+      }
+    }]
+  });
+}
 
-function rLoad(team){var c=$('cLoad');if(!c)return;if(CH.l)CH.l.destroy();var labels,dA,dM,dB;
-  if(F.country!=='ALL'){$('loadT').textContent='Carga por persona';labels=team.map(function(t){return t.name.split(' ').slice(0,2).join(' ')});dA=team.map(function(t){return t.alta});dM=team.map(function(t){return t.media});dB=team.map(function(t){return t.baja})}
-  else{$('loadT').textContent='Carga por equipo';var cd={};team.forEach(function(t){var cc=t.country||'?';if(!cd[cc])cd[cc]={a:0,m:0,b:0};cd[cc].a+=t.alta;cd[cc].m+=t.media;cd[cc].b+=t.baja});var k=Object.keys(cd).sort();labels=k;dA=k.map(function(x){return cd[x].a});dM=k.map(function(x){return cd[x].m});dB=k.map(function(x){return cd[x].b})}
-  CH.l=new Chart(c,{type:'bar',data:{labels:labels,datasets:[{label:'Alta',data:dA,backgroundColor:'#FF5C5C',borderRadius:6,barPercentage:.5,categoryPercentage:.7},{label:'Media',data:dM,backgroundColor:'#FFB938',borderRadius:6,barPercentage:.5,categoryPercentage:.7},{label:'Baja',data:dB,backgroundColor:'#2DD4A0',borderRadius:6,barPercentage:.5,categoryPercentage:.7}]},options:{responsive:true,maintainAspectRatio:true,indexAxis:'y',scales:{x:{stacked:true,grid:{color:'rgba(255,255,255,.04)'},ticks:{stepSize:2}},y:{stacked:true,grid:{display:false},ticks:{font:{size:12,weight:700}}}},plugins:{legend:{position:'top',align:'end',labels:{padding:14,usePointStyle:true,pointStyle:'circle',font:{size:11,weight:600}}},tooltip:{backgroundColor:'#1C2030',padding:12,cornerRadius:10}},animation:{duration:700}}})}
+// Barra horizontal de carga: por persona si hay country filter, por equipo si no.
+function rLoad(team) {
+  var c = $('cLoad');
+  if (!c) return;
+  if (CH.l) CH.l.destroy();
+  var labels, dA, dM, dB;
+  if (F.country !== 'ALL') {
+    $('loadT').textContent = 'Carga por persona';
+    labels = team.map(function(t){ return t.name.split(' ').slice(0, 2).join(' '); });
+    dA = team.map(function(t){ return t.alta; });
+    dM = team.map(function(t){ return t.media; });
+    dB = team.map(function(t){ return t.baja; });
+  } else {
+    $('loadT').textContent = 'Carga por equipo';
+    var cd = {};
+    team.forEach(function(t) {
+      var cc = t.country || '?';
+      if (!cd[cc]) cd[cc] = { a: 0, m: 0, b: 0 };
+      cd[cc].a += t.alta; cd[cc].m += t.media; cd[cc].b += t.baja;
+    });
+    var k = Object.keys(cd).sort();
+    labels = k;
+    dA = k.map(function(x){ return cd[x].a; });
+    dM = k.map(function(x){ return cd[x].m; });
+    dB = k.map(function(x){ return cd[x].b; });
+  }
+  CH.l = new Chart(c, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Alta',  data: dA, backgroundColor: '#FF5C5C', borderRadius: 6, barPercentage: .5, categoryPercentage: .7 },
+        { label: 'Media', data: dM, backgroundColor: '#FFB938', borderRadius: 6, barPercentage: .5, categoryPercentage: .7 },
+        { label: 'Baja',  data: dB, backgroundColor: '#2DD4A0', borderRadius: 6, barPercentage: .5, categoryPercentage: .7 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true, indexAxis: 'y',
+      scales: {
+        x: { stacked: true, grid: { color: 'rgba(255,255,255,.04)' }, ticks: { stepSize: 2 } },
+        y: { stacked: true, grid: { display: false }, ticks: { font: { size: 12, weight: 700 } } }
+      },
+      plugins: {
+        legend: { position: 'top', align: 'end', labels: { padding: 14, usePointStyle: true, pointStyle: 'circle', font: { size: 11, weight: 600 } } },
+        tooltip: { backgroundColor: '#1C2030', padding: 12, cornerRadius: 10 }
+      },
+      animation: { duration: 700 }
+    }
+  });
+}
 
 // ═══ TEAM ═══
-function rTeam(team){var g=$('tGrid');if(!g)return;var at=team.filter(function(t){return t.total>0});if(!at.length){g.innerHTML='';return}
+function rTeam(team) {
+  var g = $('tGrid');
+  if (!g) return;
+  var at = team.filter(function(t){ return t.total > 0; });
+  if (!at.length) { g.innerHTML = ''; return; }
   g.innerHTML = at.map(function(t, i) {
     var bg = AVC[i % AVC.length];
     var s = '';
@@ -231,10 +467,37 @@ function rTeam(team){var g=$('tGrid');if(!g)return;var at=team.filter(function(t
 }
 
 // ═══ TABLE ═══
-function rTable(tasks){var tb=$('tBody');if(!tb)return;if(!tasks.length){tb.innerHTML='<tr><td colspan="9"><div class="empty"><div class="empty-icon">📋</div>No hay tareas</div></td></tr>';return}
-  // Get project name map
-  if(SORT.col){var sc=SORT.col,sa=SORT.asc;tasks=tasks.slice().sort(function(a,b){if(sc==='priority')return((PRIO_ORDER[a.priority]||1)-(PRIO_ORDER[b.priority]||1))*(sa?1:-1);if(sc==='status')return((STATUS_ORDER[a.status]||2)-(STATUS_ORDER[b.status]||2))*(sa?1:-1);if(sc==='deadline'){var da=pd(a.deadline),db=pd(b.deadline);if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return(da-db)*(sa?1:-1)}var va=(a[sc]||'').toString().toLowerCase(),vb=(b[sc]||'').toString().toLowerCase();return va<vb?(sa?-1:1):va>vb?(sa?1:-1):0})}
-  var pMap={};if(D.projects)D.projects.forEach(function(p){pMap[p.id]=p.nombre});
+function rTable(tasks) {
+  var tb = $('tBody');
+  if (!tb) return;
+  if (!tasks.length) {
+    tb.innerHTML = '<tr><td colspan="11"><div class="empty"><div class="empty-icon">📋</div>No hay tareas</div></td></tr>';
+    return;
+  }
+  // Ordenamiento por columna clickeable (SORT.col)
+  if (SORT.col) {
+    var sc = SORT.col, sa = SORT.asc;
+    tasks = tasks.slice().sort(function(a, b) {
+      if (sc === 'priority') {
+        return ((PRIO_ORDER[a.priority] || 1) - (PRIO_ORDER[b.priority] || 1)) * (sa ? 1 : -1);
+      }
+      if (sc === 'status') {
+        return ((STATUS_ORDER[a.status] || 2) - (STATUS_ORDER[b.status] || 2)) * (sa ? 1 : -1);
+      }
+      if (sc === 'deadline') {
+        var da = pd(a.deadline), db = pd(b.deadline);
+        if (!da && !db) return 0;
+        if (!da) return 1;
+        if (!db) return -1;
+        return (da - db) * (sa ? 1 : -1);
+      }
+      var va = (a[sc] || '').toString().toLowerCase();
+      var vb = (b[sc] || '').toString().toLowerCase();
+      return va < vb ? (sa ? -1 : 1) : va > vb ? (sa ? 1 : -1) : 0;
+    });
+  }
+  var pMap = {};
+  if (D.projects) D.projects.forEach(function(p){ pMap[p.id] = p.nombre; });
   tb.innerHTML = tasks.map(function(t) {
     var dl = renderDeadlineBadge(t.deadline);
     var projName = t.proyectoId && pMap[t.proyectoId] ? pMap[t.proyectoId] : (t.proyecto || '—');
@@ -274,52 +537,106 @@ function rPChips() {
 }
 
 // ═══ PROJECTS ═══
-function rProjects(){var g=$('projGrid');if(!g)return;
-  var projs=(D.projects||[]).filter(function(p){
-    if(F.country!=='ALL'&&p.pais!==F.country)return false;
-    if(F.projStatus!=='ALL'&&p.status!==F.projStatus)return false;if(F.search){var s=F.search.toLowerCase();if((p.nombre||'').toLowerCase().indexOf(s)<0&&(p.descripcion||'').toLowerCase().indexOf(s)<0)return false}
+function rProjects() {
+  var g = $('projGrid');
+  if (!g) return;
+
+  var projs = (D.projects || []).filter(function(p) {
+    if (F.country !== 'ALL' && p.pais !== F.country) return false;
+    if (F.projStatus !== 'ALL' && p.status !== F.projStatus) return false;
+    if (F.search) {
+      var s = F.search.toLowerCase();
+      if ((p.nombre || '').toLowerCase().indexOf(s) < 0 &&
+          (p.descripcion || '').toLowerCase().indexOf(s) < 0) return false;
+    }
     return true;
   });
-  if(!projs.length){g.innerHTML='<div class="empty"><div class="empty-icon">📁</div>No hay proyectos'+(F.country!=='ALL'?' en '+F.country:'')+'</div>';return}
 
-  g.innerHTML=projs.map(function(p,idx){
-    var ts=p.taskStats||{total:0,listo:0,pendiente:0,enCurso:0,enRevision:0,bloqueado:0};
-    var pct=ts.total>0?Math.round(ts.listo/ts.total*100):0;
-    var pColor=pct>=100?'var(--green)':pct>=50?'var(--blue)':'var(--rappi)';
-    var prioBadge = '<span class="badge ' + (BADGE_PRIO[p.priority] || 'b-media') + '" style="font-size:10px;padding:2px 8px;cursor:default">' + (EMOJI_PRIO[p.priority] || '🟡') + ' ' + p.priority + '</span>';
+  if (!projs.length) {
+    g.innerHTML = '<div class="empty"><div class="empty-icon">📁</div>No hay proyectos'
+      + (F.country !== 'ALL' ? ' en ' + F.country : '') + '</div>';
+    return;
+  }
+
+  g.innerHTML = projs.map(function(p) {
+    var ts = p.taskStats || { total: 0, listo: 0, pendiente: 0, enCurso: 0, enRevision: 0, bloqueado: 0 };
+    var pct = ts.total > 0 ? Math.round(ts.listo / ts.total * 100) : 0;
+    var pColor = pct >= 100 ? 'var(--green)' : pct >= 50 ? 'var(--blue)' : 'var(--rappi)';
+
+    var prioBadge = '<span class="badge ' + (BADGE_PRIO[p.priority] || 'b-media')
+      + '" style="font-size:10px;padding:2px 8px;cursor:default">'
+      + (EMOJI_PRIO[p.priority] || '🟡') + ' ' + esc(p.priority || '') + '</span>';
     var statusBadge = renderProjStatusBadge(p.status);
 
-    var stats='';
-    if(ts.pendiente>0)stats+='<span class="pcard-stat" style="background:var(--surface3);color:var(--text-muted)">'+ts.pendiente+' pend</span>';
-    if(ts.enCurso>0)stats+='<span class="pcard-stat" style="background:var(--blue-dim);color:var(--blue)">'+ts.enCurso+' curso</span>';
-    if(ts.enRevision>0)stats+='<span class="pcard-stat" style="background:var(--purple-dim);color:var(--purple)">'+ts.enRevision+' rev</span>';
-    if(ts.bloqueado>0)stats+='<span class="pcard-stat" style="background:var(--yellow-dim);color:var(--yellow)">'+ts.bloqueado+' bloq</span>';
-    if(ts.listo>0)stats+='<span class="pcard-stat" style="background:var(--green-dim);color:var(--green)">'+ts.listo+' listo</span>';
+    var stats = '';
+    if (ts.pendiente > 0)  stats += '<span class="pcard-stat" style="background:var(--surface3);color:var(--text-muted)">' + ts.pendiente + ' pend</span>';
+    if (ts.enCurso > 0)    stats += '<span class="pcard-stat" style="background:var(--blue-dim);color:var(--blue)">' + ts.enCurso + ' curso</span>';
+    if (ts.enRevision > 0) stats += '<span class="pcard-stat" style="background:var(--purple-dim);color:var(--purple)">' + ts.enRevision + ' rev</span>';
+    if (ts.bloqueado > 0)  stats += '<span class="pcard-stat" style="background:var(--yellow-dim);color:var(--yellow)">' + ts.bloqueado + ' bloq</span>';
+    if (ts.listo > 0)      stats += '<span class="pcard-stat" style="background:var(--green-dim);color:var(--green)">' + ts.listo + ' listo</span>';
 
-    // Task list
+    // Lista de tareas del proyecto (colapsada por defecto)
     var taskRows = (p.tasks || []).map(function(t) {
-      return '<div class="pcard-task"><span class="pcard-task-id">#' + t.id + '</span><span class="pcard-task-name">' + esc(t.nombre) + '</span>' + renderStatusBadge(t.status, null, true) + '</div>';
+      return '<div class="pcard-task">'
+        + '<span class="pcard-task-id">#' + t.id + '</span>'
+        + '<span class="pcard-task-name">' + esc(t.nombre) + '</span>'
+        + renderStatusBadge(t.status, null, true)
+        + '</div>';
     }).join('');
 
-    return '<div class="pcard">'+
-      '<div class="pcard-top">'+
-        '<div class="pcard-meta">' + prioBadge + statusBadge + (p.pais ? '<span style="font-size:11px;color:var(--text-dim);font-weight:700">' + p.pais + '</span>' : '') + '</div>' +
-        '<div class="pcard-name">'+esc(p.nombre)+'</div>'+
-        (p.descripcion?'<div class="pcard-desc">'+esc(p.descripcion)+'</div>':'')+
-        '<div class="pcard-info">'+(p.responsable?'<span>👤 '+esc(p.responsable.split(' ').slice(0,2).join(' '))+'</span>':'')+((p.participantes&&p.participantes.length>0)?'<span>👥 +'+p.participantes.length+'</span>':'')+(p.deadline?'<span>📅 '+esc(p.deadline)+'</span>':'')+'<span>📋 '+ts.total+' tareas</span></div>'+
-        '<div class="pcard-progress"><div class="pbar-track"><div class="pbar-fill" style="width:'+pct+'%;background:'+pColor+'"></div></div><div class="pbar-label"><span>'+pct+'% completado</span><span>'+ts.listo+'/'+ts.total+'</span></div></div>'+
-      '</div>'+
-      (stats?'<div class="pcard-stats">'+stats+'</div>':'')+
-      (ts.total>0?'<button class="pcard-toggle" data-act="toggle-ptasks"><span class="arrow">▶</span> Ver tareas ('+ts.total+')</button><div class="pcard-tasks" id="pt'+p.id+'">'+taskRows+'</div>':'')+
-    '</div>';
+    var info = '<div class="pcard-info">'
+      + (p.responsable ? '<span>👤 ' + esc(p.responsable.split(' ').slice(0, 2).join(' ')) + '</span>' : '')
+      + (p.participantes && p.participantes.length > 0 ? '<span>👥 +' + p.participantes.length + '</span>' : '')
+      + (p.deadline ? '<span>📅 ' + esc(p.deadline) + '</span>' : '')
+      + '<span>📋 ' + ts.total + ' tareas</span>'
+      + '</div>';
+
+    var progress = '<div class="pcard-progress">'
+      + '<div class="pbar-track"><div class="pbar-fill" style="width:' + pct + '%;background:' + pColor + '"></div></div>'
+      + '<div class="pbar-label"><span>' + pct + '% completado</span><span>' + ts.listo + '/' + ts.total + '</span></div>'
+      + '</div>';
+
+    var countryTag = p.pais
+      ? '<span style="font-size:11px;color:var(--text-dim);font-weight:700">' + esc(p.pais) + '</span>'
+      : '';
+
+    return '<div class="pcard">'
+      + '<div class="pcard-top">'
+      +   '<div class="pcard-meta">' + prioBadge + statusBadge + countryTag + '</div>'
+      +   '<div class="pcard-name">' + esc(p.nombre) + '</div>'
+      +   (p.descripcion ? '<div class="pcard-desc">' + esc(p.descripcion) + '</div>' : '')
+      +   info
+      +   progress
+      + '</div>'
+      + (stats ? '<div class="pcard-stats">' + stats + '</div>' : '')
+      + (ts.total > 0
+          ? '<button class="pcard-toggle" data-act="toggle-ptasks"><span class="arrow">▶</span> Ver tareas (' + ts.total + ')</button>'
+            + '<div class="pcard-tasks" id="pt' + p.id + '">' + taskRows + '</div>'
+          : '')
+      + '</div>';
   }).join('');
 }
 
-function togglePTasks(btn){var tasks=btn.nextElementSibling;if(!tasks)return;var open=tasks.classList.toggle('open');var arrow=btn.querySelector('.arrow');if(arrow)arrow.style.transform=open?'rotate(90deg)':'rotate(0)'}
+function togglePTasks(btn) {
+  var tasks = btn.nextElementSibling;
+  if (!tasks) return;
+  var open = tasks.classList.toggle('open');
+  var arrow = btn.querySelector('.arrow');
+  if (arrow) arrow.style.transform = open ? 'rotate(90deg)' : 'rotate(0)';
+}
 
 // ═══ HISTORIAL ═══
-function rHist(){var hist=fHist();$('hBadge').textContent=hist.length+' completadas';var tb=$('hBody');if(!tb)return;if(!hist.length){tb.innerHTML='<tr><td colspan="7"><div class="empty"><div class="empty-icon">✅</div>Sin completadas</div></td></tr>';return}
-  var pMap={};if(D.projects)D.projects.forEach(function(p){pMap[p.id]=p.nombre});
+function rHist() {
+  var hist = fHist();
+  $('hBadge').textContent = hist.length + ' completadas';
+  var tb = $('hBody');
+  if (!tb) return;
+  if (!hist.length) {
+    tb.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">✅</div>Sin completadas</div></td></tr>';
+    return;
+  }
+  var pMap = {};
+  if (D.projects) D.projects.forEach(function(p){ pMap[p.id] = p.nombre; });
   tb.innerHTML = hist.map(function(t) {
     var pn = t.proyectoId && pMap[t.proyectoId] ? pMap[t.proyectoId] : (t.proyecto || '—');
     return '<tr>' +
@@ -335,25 +652,164 @@ function rHist(){var hist=fHist();$('hBadge').textContent=hist.length+' completa
 }
 
 // ═══ ANALYTICS ═══
-function rAnalytics(tasks,team){$('slaOn').textContent=D.sla?D.sla.onTime:0;$('slaRk').textContent=D.sla?D.sla.atRisk:0;$('slaOv').textContent=D.sla?D.sla.overdue:0;
-  var c1=$('cPrioA');if(c1){if(CH.pa)CH.pa.destroy();var a=0,m=0,b=0;tasks.forEach(function(t){if(t.priority==='Alta')a++;else if(t.priority==='Media')m++;else b++});CH.pa=new Chart(c1,{type:'doughnut',data:{labels:['Alta','Media','Baja'],datasets:[{data:[a,m,b],backgroundColor:['#FF5C5C','#FFB938','#2DD4A0'],borderColor:'#151820',borderWidth:4}]},options:{responsive:true,cutout:'70%',plugins:{legend:{position:'bottom',labels:{padding:16,usePointStyle:true}}}}})}
-  var c2=$('cStatA');if(c2&&team.length){if(CH.sa)CH.sa.destroy();CH.sa=new Chart(c2,{type:'bar',data:{labels:team.map(function(t){return t.name.split(' ').slice(0,2).join(' ')}),datasets:[{label:'Pend.',data:team.map(function(t){return t.pendiente}),backgroundColor:'#64748B',borderRadius:4,barPercentage:.5},{label:'Curso',data:team.map(function(t){return t.enCurso}),backgroundColor:'#5B9BFF',borderRadius:4,barPercentage:.5},{label:'Rev.',data:team.map(function(t){return t.enRevision}),backgroundColor:'#A78BFA',borderRadius:4,barPercentage:.5},{label:'Bloq.',data:team.map(function(t){return t.bloqueado}),backgroundColor:'#FFB938',borderRadius:4,barPercentage:.5}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{stacked:true,grid:{display:false},ticks:{font:{size:11,weight:700}}},y:{stacked:true,grid:{color:'rgba(255,255,255,.04)'},ticks:{stepSize:2}}},plugins:{legend:{position:'top',labels:{padding:12,usePointStyle:true,font:{size:11}}}}}})}
+function rAnalytics(tasks, team) {
+  $('slaOn').textContent = D.sla ? D.sla.onTime : 0;
+  $('slaRk').textContent = D.sla ? D.sla.atRisk : 0;
+  $('slaOv').textContent = D.sla ? D.sla.overdue : 0;
+
+  // Donut por prioridad (versión analytics, sin anotación central)
+  var c1 = $('cPrioA');
+  if (c1) {
+    if (CH.pa) CH.pa.destroy();
+    var a = 0, m = 0, b = 0;
+    tasks.forEach(function(t) {
+      if (t.priority === 'Alta') a++;
+      else if (t.priority === 'Media') m++;
+      else b++;
+    });
+    CH.pa = new Chart(c1, {
+      type: 'doughnut',
+      data: {
+        labels: ['Alta', 'Media', 'Baja'],
+        datasets: [{
+          data: [a, m, b],
+          backgroundColor: ['#FF5C5C', '#FFB938', '#2DD4A0'],
+          borderColor: '#151820', borderWidth: 4
+        }]
+      },
+      options: {
+        responsive: true, cutout: '70%',
+        plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true } } }
+      }
+    });
+  }
+
+  // Barra apilada de estado por responsable
+  var c2 = $('cStatA');
+  if (c2 && team.length) {
+    if (CH.sa) CH.sa.destroy();
+    CH.sa = new Chart(c2, {
+      type: 'bar',
+      data: {
+        labels: team.map(function(t){ return t.name.split(' ').slice(0, 2).join(' '); }),
+        datasets: [
+          { label: 'Pend.', data: team.map(function(t){ return t.pendiente; }),  backgroundColor: '#64748B', borderRadius: 4, barPercentage: .5 },
+          { label: 'Curso', data: team.map(function(t){ return t.enCurso; }),    backgroundColor: '#5B9BFF', borderRadius: 4, barPercentage: .5 },
+          { label: 'Rev.',  data: team.map(function(t){ return t.enRevision; }), backgroundColor: '#A78BFA', borderRadius: 4, barPercentage: .5 },
+          { label: 'Bloq.', data: team.map(function(t){ return t.bloqueado; }),  backgroundColor: '#FFB938', borderRadius: 4, barPercentage: .5 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11, weight: 700 } } },
+          y: { stacked: true, grid: { color: 'rgba(255,255,255,.04)' }, ticks: { stepSize: 2 } }
+        },
+        plugins: { legend: { position: 'top', labels: { padding: 12, usePointStyle: true, font: { size: 11 } } } }
+      }
+    });
+  }
 }
 
 // ═══ VIEWS ═══
-function go(v){var views=['tracker','proyectos','analytics','historial','mistareas','nueva'];views.forEach(function(x){var e=$('v'+x.charAt(0).toUpperCase()+x.slice(1));if(e)e.classList.toggle('active',x===v)});document.querySelectorAll('.nav-tab').forEach(function(b,i){b.classList.toggle('active',views[i]===v)});if(v==='analytics')rAnalytics(ft(),fTeam());if(v==='historial')rHist();if(v==='proyectos')rProjects();if(v==='mistareas')rMisTareas()}
-function goSub(v){['newTask','newProj'].forEach(function(x){var e=$('sv'+x.charAt(0).toUpperCase()+x.slice(1));if(e)e.classList.toggle('active',x===v)});document.querySelectorAll('.sub-tab').forEach(function(b,i){b.classList.toggle('active',['newTask','newProj'][i]===v)})}
+var VIEWS = ['tracker','proyectos','analytics','historial','mistareas','nueva'];
+
+function go(v) {
+  VIEWS.forEach(function(x) {
+    var e = $('v' + x.charAt(0).toUpperCase() + x.slice(1));
+    if (e) e.classList.toggle('active', x === v);
+  });
+  document.querySelectorAll('.nav-tab').forEach(function(b, i) {
+    b.classList.toggle('active', VIEWS[i] === v);
+  });
+  if (v === 'analytics') rAnalytics(ft(), fTeam());
+  if (v === 'historial') rHist();
+  if (v === 'proyectos') rProjects();
+  if (v === 'mistareas') rMisTareas();
+}
+
+function goSub(v) {
+  var subs = ['newTask', 'newProj'];
+  subs.forEach(function(x) {
+    var e = $('sv' + x.charAt(0).toUpperCase() + x.slice(1));
+    if (e) e.classList.toggle('active', x === v);
+  });
+  document.querySelectorAll('.sub-tab').forEach(function(b, i) {
+    b.classList.toggle('active', subs[i] === v);
+  });
+}
 
 // ═══ SUBMIT TASK ═══
-function submitTask(){var n=$('fNom').value.trim(),r=$('fResp').value;if(!n)return fm('fMsg','Nombre requerido','error');if(!r)return fm('fMsg','Responsable requerido','error');$('btnT').disabled=true;fm('fMsg','Guardando...','info');
-  google.script.run.withSuccessHandler(function(res){$('btnT').disabled=false;if(res.success){fm('fMsg','✅ Tarea #'+res.id+' creada','success');toast('Tarea #'+res.id+' creada','success');['fNom','fNot'].forEach(function(id){$(id).value=''});$('fDl').value='';if(_tagsAccHandle)_tagsAccHandle.clear();reload()}else fm('fMsg','Error: '+(res.error||''),'error')}).withFailureHandler(function(e){$('btnT').disabled=false;fm('fMsg','Error: '+e.message,'error')}).addTask({nombre:n,proyectoId:$('fProj').value||'',pais:$('fPais').value,resp:r,lider:$('fLider').value,deadline:$('fDl').value||'',priority:$('fPrio').value,acc:$('fAcc').value.trim(),notas:$('fNot').value.trim(),tipoTrabajo:$('fTipo').value,riesgo:$('fRiesgo').value})}
+function submitTask() {
+  var n = $('fNom').value.trim(), r = $('fResp').value;
+  if (!n) return fm('fMsg', 'Nombre requerido', 'error');
+  if (!r) return fm('fMsg', 'Responsable requerido', 'error');
+  $('btnT').disabled = true;
+  fm('fMsg', 'Guardando...', 'info');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      $('btnT').disabled = false;
+      if (res.success) {
+        fm('fMsg', '✅ Tarea #' + res.id + ' creada', 'success');
+        toast('Tarea #' + res.id + ' creada', 'success');
+        ['fNom', 'fNot'].forEach(function(id){ $(id).value = ''; });
+        $('fDl').value = '';
+        if (_tagsAccHandle) _tagsAccHandle.clear();
+        reload();
+      } else {
+        fm('fMsg', 'Error: ' + (res.error || ''), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      $('btnT').disabled = false;
+      fm('fMsg', 'Error: ' + e.message, 'error');
+    })
+    .addTask({
+      nombre: n, proyectoId: $('fProj').value || '', pais: $('fPais').value,
+      resp: r, lider: $('fLider').value, deadline: $('fDl').value || '',
+      priority: $('fPrio').value, acc: $('fAcc').value.trim(),
+      notas: $('fNot').value.trim(),
+      tipoTrabajo: $('fTipo').value, riesgo: $('fRiesgo').value
+    });
+}
 
 // ═══ SUBMIT PROJECT ═══
-function submitProj(){var n=$('pNom').value.trim();if(!n)return fm('pMsg','Nombre requerido','error');$('btnP').disabled=true;fm('pMsg','Guardando...','info');
-  google.script.run.withSuccessHandler(function(res){$('btnP').disabled=false;if(res.success){fm('pMsg','✅ Proyecto #'+res.id+' creado','success');toast('Proyecto "'+res.nombre+'" creado','success');['pNom','pDesc','pNot'].forEach(function(id){$(id).value=''});$('pDl').value='';if(_tagsPartHandle)_tagsPartHandle.clear();reload();
-    // Add to task form dropdown
-    var o=document.createElement('option');o.value=res.id;o.textContent=res.nombre;$('fProj').appendChild(o);
-  }else fm('pMsg','Error: '+(res.error||''),'error')}).withFailureHandler(function(e){$('btnP').disabled=false;fm('pMsg','Error: '+e.message,'error')}).addProject({nombre:n,descripcion:$('pDesc').value.trim(),pais:$('pPais').value,responsable:$('pResp').value,lider:$('pLider').value,deadline:$('pDl').value||'',priority:$('pPrio').value,notas:$('pNot').value.trim(),participantes:$('pPart').value,tipoTrabajo:$('pTipo').value,riesgo:$('pRiesgo').value})}
+function submitProj() {
+  var n = $('pNom').value.trim();
+  if (!n) return fm('pMsg', 'Nombre requerido', 'error');
+  $('btnP').disabled = true;
+  fm('pMsg', 'Guardando...', 'info');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      $('btnP').disabled = false;
+      if (res.success) {
+        fm('pMsg', '✅ Proyecto #' + res.id + ' creado', 'success');
+        toast('Proyecto "' + res.nombre + '" creado', 'success');
+        ['pNom', 'pDesc', 'pNot'].forEach(function(id){ $(id).value = ''; });
+        $('pDl').value = '';
+        if (_tagsPartHandle) _tagsPartHandle.clear();
+        reload();
+        // Añadir el nuevo proyecto al dropdown del formulario de tareas
+        var o = document.createElement('option');
+        o.value = res.id; o.textContent = res.nombre;
+        $('fProj').appendChild(o);
+      } else {
+        fm('pMsg', 'Error: ' + (res.error || ''), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      $('btnP').disabled = false;
+      fm('pMsg', 'Error: ' + e.message, 'error');
+    })
+    .addProject({
+      nombre: n, descripcion: $('pDesc').value.trim(),
+      pais: $('pPais').value, responsable: $('pResp').value,
+      lider: $('pLider').value, deadline: $('pDl').value || '',
+      priority: $('pPrio').value, notas: $('pNot').value.trim(),
+      participantes: $('pPart').value,
+      tipoTrabajo: $('pTipo').value, riesgo: $('pRiesgo').value
+    });
+}
 
 // ═══ EDIT MODAL ═══
 // Helper: build <option> tags. items can be array of strings or [{value,label}].
@@ -404,15 +860,53 @@ function openEdit(id) {
     '</div>';
   $('editOv').classList.add('show');
 }
-function closeEdit(){$('editOv').classList.remove('show');EDIT_ID=null}
-function saveEdit(){if(!EDIT_ID)return;var fields={nombre:$('eNom').value,resp:$('eResp').value,priority:$('ePrio').value,status:$('eStat').value,proyectoId:$('eProj').value,pais:$('ePais').value,deadline:$('eDl').value,acc:$('eAcc').value,notas:$('eNot').value,tipoTrabajo:$('eTipo').value,riesgo:$('eRiesgo').value};
-  if(fields.status==='Listo'){closeEdit();confirm_('¿Marcar como Listo? Se moverá al Historial.',function(){batchU(EDIT_ID,fields)});return}batchU(EDIT_ID,fields);closeEdit()}
+function closeEdit() {
+  $('editOv').classList.remove('show');
+  EDIT_ID = null;
+}
 
-function batchU(id,fields){toast('Guardando...','info');google.script.run.withSuccessHandler(function(r){if(r&&r.success){toast(r.moved?'✅ Movida a Historial':'✅ Actualizado','success');reload()}else{toast('Error: '+((r&&r.error)||''),'error')}}).withFailureHandler(function(e){toast('Error: '+e.message,'error')}).updateTaskFields(id,fields)}
+function saveEdit() {
+  if (!EDIT_ID) return;
+  var fields = {
+    nombre: $('eNom').value, resp: $('eResp').value,
+    priority: $('ePrio').value, status: $('eStat').value,
+    proyectoId: $('eProj').value, pais: $('ePais').value,
+    deadline: $('eDl').value, acc: $('eAcc').value,
+    notas: $('eNot').value,
+    tipoTrabajo: $('eTipo').value, riesgo: $('eRiesgo').value
+  };
+  if (fields.status === 'Listo') {
+    closeEdit();
+    confirm_('¿Marcar como Listo? Se moverá al Historial.', function(){ batchU(EDIT_ID, fields); });
+    return;
+  }
+  batchU(EDIT_ID, fields);
+  closeEdit();
+}
+
+// Batch update: aplica múltiples campos en una sola llamada al backend.
+function batchU(id, fields) {
+  toast('Guardando...', 'info');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) {
+        toast(r.moved ? '✅ Movida a Historial' : '✅ Actualizado', 'success');
+        reload();
+      } else {
+        toast('Error: ' + ((r && r.error) || ''), 'error');
+      }
+    })
+    .withFailureHandler(function(e){ toast('Error: ' + e.message, 'error'); })
+    .updateTaskFields(id, fields);
+}
 
 // ═══ CONFIRM ═══
-function confirm_(txt,fn){$('confTxt').textContent=txt;$('confOv').classList.add('show');$('confBtn').onclick=function(){closeCf();fn()}}
-function closeCf(){$('confOv').classList.remove('show')}
+function confirm_(txt, fn) {
+  $('confTxt').textContent = txt;
+  $('confOv').classList.add('show');
+  $('confBtn').onclick = function(){ closeCf(); fn(); };
+}
+function closeCf() { $('confOv').classList.remove('show'); }
 
 // ═══ DROPDOWNS ═══
 // Helper: build a dropdown item using data-act (event delegation)
@@ -478,33 +972,101 @@ function openDD(anchor, html) {
   m.style.top = top + 'px';
   m.style.left = left + 'px';
 }
-function closeDD(){$('ddM').style.display='none';$('ddO').style.display='none'}
-function uf(id,f,v){closeDD();toast('Actualizando...','info');google.script.run.withSuccessHandler(function(r){if(r.success){toast(r.moved?'✅ Movida a Historial':'✅ OK','success');reload()}else toast('Error: '+(r.error||''),'error')}).withFailureHandler(function(e){toast('Error: '+e.message,'error')}).updateTaskField(id,f,v)}
-function cfUp(id,f,v){closeDD();confirm_('¿Marcar como Listo? Se moverá al Historial.',function(){uf(id,f,v)})}
+function closeDD() {
+  $('ddM').style.display = 'none';
+  $('ddO').style.display = 'none';
+}
+
+// Update single field del tarea (dropdown menu items).
+function uf(id, f, v) {
+  closeDD();
+  toast('Actualizando...', 'info');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r.success) {
+        toast(r.moved ? '✅ Movida a Historial' : '✅ OK', 'success');
+        reload();
+      } else {
+        toast('Error: ' + (r.error || ''), 'error');
+      }
+    })
+    .withFailureHandler(function(e){ toast('Error: ' + e.message, 'error'); })
+    .updateTaskField(id, f, v);
+}
+
+// Confirmed update: se usa para transiciones destructivas (marcar Listo).
+function cfUp(id, f, v) {
+  closeDD();
+  confirm_('¿Marcar como Listo? Se moverá al Historial.', function(){ uf(id, f, v); });
+}
 
 // ═══ HELPERS ═══
-function $(id){return document.getElementById(id)}
-function esc(s){if(!s)return '';var d=document.createElement('div');d.textContent=s;return d.innerHTML}
-// Escape seguro para insertar un string como literal JS dentro de un atributo HTML
-// (ej: onclick="foo('...')"). Cubre quotes, backslashes, saltos de línea y chars HTML.
-function escJs(s){if(s==null)return '';return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/</g,'\\x3c').replace(/>/g,'\\x3e').replace(/&/g,'\\x26')}
-function pd(s){
-  if(!s)return null;
-  s=String(s).trim();
-  // 1) DD/MM/YYYY (formato local) — probar primero para evitar ambigüedad con MM/DD/YYYY del parser nativo
-  var p=s.split('/');
-  if(p.length===3){var dd=parseInt(p[0],10),mm=parseInt(p[1],10),yy=parseInt(p[2],10);if(!isNaN(dd)&&!isNaN(mm)&&!isNaN(yy)){var d=new Date(yy,mm-1,dd);if(!isNaN(d.getTime()))return d}}
-  // 2) ISO YYYY-MM-DD — construir local (no UTC) para evitar desfase de zona horaria
-  var iso=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if(iso){var d2=new Date(parseInt(iso[1],10),parseInt(iso[2],10)-1,parseInt(iso[3],10));if(!isNaN(d2.getTime()))return d2}
+function $(id){ return document.getElementById(id); }
+
+// Escapa contenido para insertar en innerHTML (HTML entity encoding).
+function esc(s) {
+  if (!s) return '';
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// NOTA: escJs ya no se usa (reemplazado por event delegation con data-act).
+// Se conserva por si algún hotfix futuro lo necesita.
+function escJs(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n').replace(/\r/g, '\\r')
+    .replace(/</g, '\\x3c').replace(/>/g, '\\x3e').replace(/&/g, '\\x26');
+}
+// Parser de fechas robusto: DD/MM/YYYY primero (formato local), luego ISO local,
+// luego parser nativo. Evita ambigüedad MM/DD vs DD/MM y desfases de zona horaria.
+function pd(s) {
+  if (!s) return null;
+  s = String(s).trim();
+
+  // 1) DD/MM/YYYY — probar primero para evitar MM/DD/YYYY del parser nativo
+  var p = s.split('/');
+  if (p.length === 3) {
+    var dd = parseInt(p[0], 10), mm = parseInt(p[1], 10), yy = parseInt(p[2], 10);
+    if (!isNaN(dd) && !isNaN(mm) && !isNaN(yy)) {
+      var d = new Date(yy, mm - 1, dd);
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+
+  // 2) ISO YYYY-MM-DD — construir local (no UTC) para evitar desfase TZ
+  var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    var d2 = new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10));
+    if (!isNaN(d2.getTime())) return d2;
+  }
+
   // 3) Fallback: parser nativo
-  var d3=new Date(s);
-  if(!isNaN(d3.getTime()))return d3;
+  var d3 = new Date(s);
+  if (!isNaN(d3.getTime())) return d3;
   return null;
 }
-function toast(m,t){var e=$('toast');e.textContent=m;e.className='toast toast-'+(t||'info')+' show';clearTimeout(e._t);e._t=setTimeout(function(){e.classList.remove('show')},3000)}
-function fm(id,t,c){var e=$(id);e.textContent=t;e.className='form-msg msg-'+(c||'info')}
-function reload(){google.script.run.withSuccessHandler(function(d){D=d;render()}).getTrackerData()}
+function toast(msg, type) {
+  var e = $('toast');
+  e.textContent = msg;
+  e.className = 'toast toast-' + (type || 'info') + ' show';
+  clearTimeout(e._t);
+  e._t = setTimeout(function(){ e.classList.remove('show'); }, 3000);
+}
+
+function fm(id, text, cls) {
+  var e = $(id);
+  e.textContent = text;
+  e.className = 'form-msg msg-' + (cls || 'info');
+}
+
+function reload() {
+  google.script.run
+    .withSuccessHandler(function(d){ D = d; render(); })
+    .getTrackerData();
+}
 // ═══ LOGIN ═══
 function initLogin() {
   var saved = sessionStorage.getItem('lt_user');
@@ -533,48 +1095,77 @@ function doLogout(){
   location.reload();
 }
 
-function setUser(name){
-  CURRENT_USER=name;
+function setUser(name) {
+  CURRENT_USER = name;
   $('loginOverlay').classList.add('hidden');
-  // Chip
-  var chip=$('userChip'),av=$('userChipAv'),nm=$('userChipName');
-  if(chip){chip.style.display='flex';nm.textContent=name.split(' ').slice(0,2).join(' ');var initials=name.split(' ').slice(0,2).map(function(w){return w[0]}).join('').toUpperCase();av.textContent=initials;av.style.background=AVC[name.length%AVC.length]||'var(--rappi)'}
-  // Pre-fill responsable en formularios
-  var fResp=$('fResp');if(fResp)fResp.value=name;
-  var triggered=mc(name);if(triggered&&$('fPais'))$('fPais').value=triggered;
+
+  // User chip (avatar + nombre corto)
+  var chip = $('userChip'), av = $('userChipAv'), nm = $('userChipName');
+  if (chip) {
+    chip.style.display = 'flex';
+    nm.textContent = name.split(' ').slice(0, 2).join(' ');
+    var initials = name.split(' ').slice(0, 2).map(function(w){ return w[0]; }).join('').toUpperCase();
+    av.textContent = initials;
+    av.style.background = AVC[name.length % AVC.length] || 'var(--rappi)';
+  }
+
+  // Pre-fill responsable en formularios de creación
+  var fResp = $('fResp');
+  if (fResp) fResp.value = name;
+  var countryCode = mc(name);
+  if (countryCode && $('fPais')) $('fPais').value = countryCode;
+
   render();
 }
 
 // ═══ MIS TAREAS ═══
-function rMisTareas(){
-  if(!CURRENT_USER)return;
-  var myTasks=D.tasks.filter(function(t){return t.resp===CURRENT_USER});
-  var myDone=(D.historial||[]).filter(function(t){return t.resp===CURRENT_USER});
-  // Calcular atraso (tareas activas vencidas por SLA)
+function rMisTareas() {
+  if (!CURRENT_USER) return;
+  var myTasks = D.tasks.filter(function(t){ return t.resp === CURRENT_USER; });
+  var myDone  = (D.historial || []).filter(function(t){ return t.resp === CURRENT_USER; });
+
+  // Atraso: tareas activas vencidas por SLA (no counts cerradas)
   var atraso = myTasks.filter(taskOverdueBySLA).length;
-  // Cerradas esta semana
-  var semLabel=D.semana||'';
-  var cerradasSemana=myDone.filter(function(t){return t.semana===semLabel}).length;
-  // % on time: tareas cerradas cuyo (cerrado - creado) no excedió el SLA de su prioridad
-  var totalDone=myDone.length;
-  var lateDone=myDone.filter(function(t){
-    if(!t.creado||!t.cerrado)return false;
-    var c=pd(t.creado),f=pd(t.cerrado);
-    if(!c||!f)return false;
-    var biz=0,cur=new Date(c);
-    while(cur<f){cur.setDate(cur.getDate()+1);var dy=cur.getDay();if(dy!==0&&dy!==6)biz++}
-    return biz>(SLA_LIMITS[t.priority]||5);
+
+  // Cerradas esta semana (label textual del tracker)
+  var semLabel = D.semana || '';
+  var cerradasSemana = myDone.filter(function(t){ return t.semana === semLabel; }).length;
+
+  // % on-time: de las tareas cerradas, cuáles cumplieron su SLA en días hábiles.
+  // Mide (cerrado - creado) en días hábiles y compara con SLA_LIMITS[priority].
+  var totalDone = myDone.length;
+  var lateDone = myDone.filter(function(t) {
+    if (!t.creado || !t.cerrado) return false;
+    var c = pd(t.creado), f = pd(t.cerrado);
+    if (!c || !f) return false;
+    var biz = 0, cur = new Date(c);
+    while (cur < f) {
+      cur.setDate(cur.getDate() + 1);
+      var dy = cur.getDay();
+      if (dy !== 0 && dy !== 6) biz++;
+    }
+    return biz > (SLA_LIMITS[t.priority] || 5);
   }).length;
-  var onTimePct=totalDone>0?Math.round((totalDone-lateDone)/totalDone*100):100;
-  $('mt-total').textContent=myTasks.length;
-  $('mt-atraso').textContent=atraso;
-  $('mt-semana').textContent=cerradasSemana;
-  $('mt-ontime').textContent=onTimePct+'%';
-  $('mtTitle').textContent='Mis tareas activas — '+CURRENT_USER+' ('+myTasks.length+')';
-  var pMap={};if(D.projects)D.projects.forEach(function(p){pMap[p.id]=p.nombre});
-  var tb=$('mtBody');if(!tb)return;
-  if(!myTasks.length){tb.innerHTML='<tr><td colspan="8"><div class="empty"><div class="empty-icon">🎉</div>¡Sin tareas pendientes!</div></td></tr>';return}
-  var sorted=myTasks.slice().sort(function(a,b){return(PRIO_ORDER[a.priority]||1)-(PRIO_ORDER[b.priority]||1)||(STATUS_ORDER[a.status]||2)-(STATUS_ORDER[b.status]||2)});
+  var onTimePct = totalDone > 0 ? Math.round((totalDone - lateDone) / totalDone * 100) : 100;
+
+  $('mt-total').textContent  = myTasks.length;
+  $('mt-atraso').textContent = atraso;
+  $('mt-semana').textContent = cerradasSemana;
+  $('mt-ontime').textContent = onTimePct + '%';
+  $('mtTitle').textContent   = 'Mis tareas activas — ' + CURRENT_USER + ' (' + myTasks.length + ')';
+
+  var pMap = {};
+  if (D.projects) D.projects.forEach(function(p){ pMap[p.id] = p.nombre; });
+  var tb = $('mtBody');
+  if (!tb) return;
+  if (!myTasks.length) {
+    tb.innerHTML = '<tr><td colspan="8"><div class="empty"><div class="empty-icon">🎉</div>¡Sin tareas pendientes!</div></td></tr>';
+    return;
+  }
+  var sorted = myTasks.slice().sort(function(a, b) {
+    return (PRIO_ORDER[a.priority]   || 1) - (PRIO_ORDER[b.priority]   || 1)
+        || (STATUS_ORDER[a.status]   || 2) - (STATUS_ORDER[b.status]   || 2);
+  });
   tb.innerHTML = sorted.map(function(t) {
     var dl = renderDeadlineBadge(t.deadline);
     var pn = t.proyectoId && pMap[t.proyectoId] ? pMap[t.proyectoId] : (t.proyecto || '—');
