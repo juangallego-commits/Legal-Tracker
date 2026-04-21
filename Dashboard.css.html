@@ -737,6 +737,37 @@ tbody tr:hover { background: rgba(255,255,255,.015); }
 .d4 { animation-delay: .2s; }
 
 /* ═══════════════════════════════════════════════════════════════
+   ROLE GATING — oculta secciones según rol del visitante
+   El body recibe una clase role-head / role-manager / role-specialist
+   montada en JS desde window.__USER__.role.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Specialist: sin country bar, sin team grid, sin "Mis tareas" (ya es default),
+   sin chart de carga por equipo (todo pertenece a solo una persona). */
+body.role-specialist #cBar,
+body.role-specialist #tGrid,
+body.role-specialist #myTasksBtn,
+body.role-specialist #cardLoad,
+body.role-specialist #rChips { display: none !important; }
+
+/* Manager: country bar no aplica (solo su país); preserva team grid. */
+body.role-manager #cBar { display: none !important; }
+
+/* Badge de rol junto al nombre del usuario */
+.user-role-badge {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--purple-dim);
+  color: var(--purple);
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    USER CHIP (header, muestra el usuario SSO identificado)
    ═══════════════════════════════════════════════════════════════ */
 .user-chip {

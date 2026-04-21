@@ -384,9 +384,12 @@ function rDonut(tasks) {
 }
 
 // Barra horizontal de carga: por persona si hay country filter, por equipo si no.
+// Skip si el card está oculto por role-gating (specialist).
 function rLoad(team) {
   var c = $('cLoad');
   if (!c) return;
+  var card = $('cardLoad');
+  if (card && getComputedStyle(card).display === 'none') return;
   if (CH.l) CH.l.destroy();
   var labels, dA, dM, dB;
   if (F.country !== 'ALL') {
@@ -1066,24 +1069,44 @@ function reload() {
 // ═══ USER SESSION ═══
 // Con SSO de Google no hay login form: el server ya resolvió al visitante
 // contra la allowlist en doGet() y lo inyectó como window.__USER__. Este
-// helper solo muestra el chip con avatar+nombre y precarga el responsable
-// en los formularios de creación.
+// helper muestra chip + badge de rol, marca el body con la clase del rol
+// (para CSS role-gating) y precarga el responsable en los formularios.
 function mountUserChip() {
-  if (!CURRENT_USER) return;
-  var chip = $('userChip'), av = $('userChipAv'), nm = $('userChipName');
-  if (!chip) return;
-  chip.style.display = 'flex';
-  nm.textContent = CURRENT_USER.split(' ').slice(0, 2).join(' ');
-  var initials = CURRENT_USER.split(' ').slice(0, 2)
-    .map(function(w){ return w[0]; }).join('').toUpperCase();
-  av.textContent = initials;
-  av.style.background = AVC[CURRENT_USER.length % AVC.length] || 'var(--rappi)';
+  if (!USER || !CURRENT_USER) return;
 
-  // Pre-fill responsable en formularios de creación
+  // 1) Body class para CSS role-gating (.role-head / .role-manager / .role-specialist)
+  document.body.classList.add('role-' + (USER.role || 'specialist'));
+
+  // 2) Chip con avatar + nombre + badge del rol
+  var chip = $('userChip'), av = $('userChipAv'), nm = $('userChipName');
+  if (chip) {
+    chip.style.display = 'flex';
+    nm.textContent = CURRENT_USER.split(' ').slice(0, 2).join(' ');
+    var initials = CURRENT_USER.split(' ').slice(0, 2)
+      .map(function(w){ return w[0]; }).join('').toUpperCase();
+    av.textContent = initials;
+    av.style.background = AVC[CURRENT_USER.length % AVC.length] || 'var(--rappi)';
+
+    // Badge con el rol: Head / Manager CO / Specialist
+    var badge = document.createElement('span');
+    badge.className = 'user-role-badge';
+    badge.textContent = USER.role === 'head'    ? 'Head'
+                      : USER.role === 'manager' ? 'Manager ' + (USER.code || '')
+                                                : 'Specialist';
+    chip.appendChild(badge);
+  }
+
+  // 3) Pre-fill en formularios de creación
   var fResp = $('fResp');
   if (fResp) fResp.value = CURRENT_USER;
-  var countryCode = (USER && USER.code) || mc(CURRENT_USER);
+  var countryCode = USER.code || mc(CURRENT_USER);
   if (countryCode && $('fPais')) $('fPais').value = countryCode;
+
+  // 4) Specialist: por default entrar al filtro "Mis tareas" (aunque el backend
+  //    ya filtra, esto evita el popup de chips de responsable).
+  if (USER.role === 'specialist') {
+    F.resp = CURRENT_USER;
+  }
 }
 
 // ═══ MIS TAREAS ═══
