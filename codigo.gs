@@ -543,6 +543,45 @@ function updateProjectField(projId, field, value) {
   return { success: true };
 }
 
+// Batch update de proyectos: aplica varios campos en una sola llamada.
+// Valida permisos contra el estado actual antes de cualquier escritura.
+function updateProjectFields(projId, fields) {
+  if (!fields || typeof fields !== 'object') return { success: false, error: 'Invalid fields' };
+  var ctx = _getAuthContext();
+  var current = _readProjectById(ctx.ss, projId);
+  if (!current) return { success: false, error: 'Project #' + projId + ' not found' };
+  _authorizeProjectWrite(ctx, current);
+
+  // Manager no puede mover el proyecto a otro país; specialist no puede
+  // transferir responsabilidad ni cambiar país.
+  if (ctx.role === 'manager' && fields.pais !== undefined && fields.pais !== ctx.user.code) {
+    throw new Error('Sin permiso: no puedes mover el proyecto a otro país');
+  }
+  if (ctx.role === 'specialist') {
+    if (fields.responsable !== undefined && fields.responsable !== ctx.user.name) {
+      throw new Error('Sin permiso: no puedes transferir el proyecto');
+    }
+    if (fields.pais !== undefined && fields.pais !== current.pais) {
+      throw new Error('Sin permiso: no puedes cambiar el país del proyecto');
+    }
+  }
+
+  invalidateCache();
+  var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
+  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
+  var row = current.row;
+
+  Object.keys(fields).forEach(function(k) {
+    var col = fieldMap[k];
+    if (!col) return;
+    var v = fields[k];
+    // participantes puede llegar como array o string csv
+    if (k === 'participantes' && Array.isArray(v)) v = v.join(', ');
+    ws.getRange(row, col).setValue(v);
+  });
+  return { success: true };
+}
+
 // ════════════════════════════════════════════════════════════════
 // TASKS
 // ════════════════════════════════════════════════════════════════

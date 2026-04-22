@@ -35,6 +35,7 @@ var F = { country:'ALL', status:'ALL', project:'ALL', search:'', resp:'ALL', pro
 var SORT = { col: null, asc: true };
 var CH = {};
 var EDIT_ID = null;
+var EDIT_KIND = null; // 'task' | 'project' — qué se está editando
 var CURRENT_USER = USER ? USER.name : null;
 var AVC_MAP = {};
 
@@ -601,6 +602,7 @@ function rProjects() {
 
     return '<div class="pcard">'
       + '<div class="pcard-top">'
+      +   '<button class="pcard-edit btn-icon" data-act="open-edit-project" data-id="' + p.id + '" aria-label="Editar proyecto ' + esc(p.nombre) + '" title="Editar proyecto">⋮</button>'
       +   '<div class="pcard-meta">' + prioBadge + statusBadge + countryTag + '</div>'
       +   '<div class="pcard-name">' + esc(p.nombre) + '</div>'
       +   (p.descripcion ? '<div class="pcard-desc">' + esc(p.descripcion) + '</div>' : '')
@@ -826,7 +828,8 @@ function openEdit(id) {
   var t = D.tasks.find(function(x) { return x.id == id; });
   if (!t) return;
   EDIT_ID = id;
-  $('editT').textContent = 'Editar #' + id;
+  EDIT_KIND = 'task';
+  $('editT').textContent = 'Editar tarea #' + id;
 
   var members   = getAllMembers();
   var rOpts     = buildOptions(members, t.resp);
@@ -859,13 +862,66 @@ function openEdit(id) {
     '</div>';
   $('editOv').classList.add('show');
 }
+// Edición de proyectos: monta el form en el mismo modal genérico (#editOv).
+// El dispatcher saveEdit() decide qué guardar según EDIT_KIND.
+function openEditProj(id) {
+  var p = (D.projects || []).find(function(x){ return x.id == id; });
+  if (!p) return;
+  EDIT_ID = id;
+  EDIT_KIND = 'project';
+  $('editT').textContent = 'Editar proyecto #' + id;
+
+  var members    = getAllMembers();
+  var respOpts   = buildOptions(members, p.responsable, true);
+  var liderOpts  = buildOptions(members, p.lider, true);
+  var paisOpts   = buildOptions((D.equipos || []).map(function(eq){ return { value: eq.code, label: eq.code }; }), p.pais, true);
+  var prioOpts   = buildOptions([{value:'Alta',label:'🔴 Alta'},{value:'Media',label:'🟡 Media'},{value:'Baja',label:'🟢 Baja'}], p.priority);
+  var statOpts   = buildOptions(['Activo','En pausa','Completado','Cancelado'], p.status);
+  var tipoOpts   = buildOptions(['Contencioso','Regulatorio','Contractual','Privacy','Operativo'], p.tipoTrabajo, 'Sin definir');
+  var riesgoOpts = buildOptions(['Legal alto','Reputacional','Operativo'], p.riesgo, 'Sin definir');
+  var partsValue = (p.participantes || []).join(', ');
+
+  $('editB').innerHTML =
+    '<div class="form-group" style="margin-bottom:14px"><label>Nombre</label>'
+    +   '<input type="text" id="epNom" value="' + esc(p.nombre || '') + '"></div>'
+    + '<div class="form-group" style="margin-bottom:14px"><label>Descripción</label>'
+    +   '<textarea id="epDesc" rows="2">' + esc(p.descripcion || '') + '</textarea></div>'
+    + '<div class="form-3col" style="margin-bottom:14px">'
+    +   '<div class="form-group"><label>País</label><select id="epPais">' + paisOpts + '</select></div>'
+    +   '<div class="form-group"><label>Prioridad</label><select id="epPrio">' + prioOpts + '</select></div>'
+    +   '<div class="form-group"><label>Deadline</label>'
+    +     '<input type="' + (p.deadlineISO ? 'date' : 'text') + '" id="epDl" value="' + esc(p.deadlineISO || p.deadline || '') + '"></div>'
+    + '</div>'
+    + '<div class="form-3col" style="margin-bottom:14px">'
+    +   '<div class="form-group"><label>Responsable</label><select id="epResp">' + respOpts + '</select></div>'
+    +   '<div class="form-group"><label>Líder</label><select id="epLider">' + liderOpts + '</select></div>'
+    +   '<div class="form-group"><label>Estado</label><select id="epStat">' + statOpts + '</select></div>'
+    + '</div>'
+    + '<div class="form-grid" style="margin-bottom:14px">'
+    +   '<div class="form-group"><label>Tipo de trabajo</label><select id="epTipo">' + tipoOpts + '</select></div>'
+    +   '<div class="form-group"><label>Nivel de riesgo</label><select id="epRiesgo">' + riesgoOpts + '</select></div>'
+    + '</div>'
+    + '<div class="form-group" style="margin-bottom:14px"><label>Participantes <span style="font-weight:400;color:var(--text-dim)">(nombres separados por coma)</span></label>'
+    +   '<input type="text" id="epPart" value="' + esc(partsValue) + '"></div>'
+    + '<div class="form-group"><label>Notas</label>'
+    +   '<input type="text" id="epNot" value="' + esc(p.notas || '') + '"></div>';
+  $('editOv').classList.add('show');
+}
+
 function closeEdit() {
   $('editOv').classList.remove('show');
   EDIT_ID = null;
+  EDIT_KIND = null;
 }
 
+// Dispatcher: el modal de edición es genérico, EDIT_KIND decide qué guardar.
 function saveEdit() {
   if (!EDIT_ID) return;
+  if (EDIT_KIND === 'project') return saveEditProj();
+  return saveEditTask();
+}
+
+function saveEditTask() {
   var fields = {
     nombre: $('eNom').value, resp: $('eResp').value,
     priority: $('ePrio').value, status: $('eStat').value,
@@ -883,7 +939,29 @@ function saveEdit() {
   closeEdit();
 }
 
-// Batch update: aplica múltiples campos en una sola llamada al backend.
+// Construye payload del proyecto y delega a updateProjectFields.
+function saveEditProj() {
+  var participantes = $('epPart').value
+    .split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  var fields = {
+    nombre:      $('epNom').value,
+    descripcion: $('epDesc').value,
+    pais:        $('epPais').value,
+    responsable: $('epResp').value,
+    lider:       $('epLider').value,
+    deadline:    $('epDl').value,
+    priority:    $('epPrio').value,
+    status:      $('epStat').value,
+    notas:       $('epNot').value,
+    participantes: participantes,
+    tipoTrabajo: $('epTipo').value,
+    riesgo:      $('epRiesgo').value
+  };
+  batchUpdateProject(EDIT_ID, fields);
+  closeEdit();
+}
+
+// Batch update de tareas (legacy name).
 function batchU(id, fields) {
   toast('Guardando...', 'info');
   google.script.run
@@ -897,6 +975,17 @@ function batchU(id, fields) {
     })
     .withFailureHandler(function(e){ toast('Error: ' + e.message, 'error'); })
     .updateTaskFields(id, fields);
+}
+
+function batchUpdateProject(id, fields) {
+  toast('Guardando...', 'info');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) { toast('✅ Proyecto actualizado', 'success'); reload(); }
+      else { toast('Error: ' + ((r && r.error) || ''), 'error'); }
+    })
+    .withFailureHandler(function(e){ toast('Error: ' + e.message, 'error'); })
+    .updateProjectFields(id, fields);
 }
 
 // ═══ CONFIRM ═══
@@ -1272,6 +1361,7 @@ var ACTIONS = {
   'filter-team':     function(el){ fTeamCard(el.dataset.arg); },
   'filter-project':  function(el){ fPr(el.dataset.arg); },
   'open-edit':       function(el){ openEdit(Number(el.dataset.id)); },
+  'open-edit-project': function(el){ openEditProj(Number(el.dataset.id)); },
   'show-prio-menu':  function(el){ showPM({stopPropagation:function(){}, target: el}, Number(el.dataset.id)); },
   'show-status-menu':function(el){ showSM({stopPropagation:function(){}, target: el}, Number(el.dataset.id)); },
   'show-task-menu':  function(el){ showTM({stopPropagation:function(){}, target: el}, Number(el.dataset.id)); },
