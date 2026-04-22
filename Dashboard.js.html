@@ -747,8 +747,10 @@ function submitTask() {
   if (!r) return fm('fMsg', 'Responsable requerido', 'error');
   $('btnT').disabled = true;
   fm('fMsg', 'Guardando...', 'info');
+  showLoader();
   google.script.run
     .withSuccessHandler(function(res) {
+      hideLoader();
       $('btnT').disabled = false;
       if (res.success) {
         fm('fMsg', '✅ Tarea #' + res.id + ' creada', 'success');
@@ -762,6 +764,7 @@ function submitTask() {
       }
     })
     .withFailureHandler(function(e) {
+      hideLoader();
       $('btnT').disabled = false;
       fm('fMsg', 'Error: ' + e.message, 'error');
     })
@@ -780,8 +783,10 @@ function submitProj() {
   if (!n) return fm('pMsg', 'Nombre requerido', 'error');
   $('btnP').disabled = true;
   fm('pMsg', 'Guardando...', 'info');
+  showLoader();
   google.script.run
     .withSuccessHandler(function(res) {
+      hideLoader();
       $('btnP').disabled = false;
       if (res.success) {
         fm('pMsg', '✅ Proyecto #' + res.id + ' creado', 'success');
@@ -799,6 +804,7 @@ function submitProj() {
       }
     })
     .withFailureHandler(function(e) {
+      hideLoader();
       $('btnP').disabled = false;
       fm('pMsg', 'Error: ' + e.message, 'error');
     })
@@ -921,6 +927,22 @@ function saveEdit() {
   return saveEditTask();
 }
 
+// Deshabilita el botón Guardar del modal y cambia el texto mientras se
+// procesa. El modal no cierra hasta que el server responde OK (si falla,
+// el usuario mantiene su form para reintentar).
+function _setSaving(saving) {
+  var btn = $('editSaveBtn');
+  if (!btn) return;
+  if (saving) {
+    btn._orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Guardando...';
+  } else {
+    btn.disabled = false;
+    btn.textContent = btn._orig || 'Guardar';
+  }
+}
+
 function saveEditTask() {
   var fields = {
     nombre: $('eNom').value, resp: $('eResp').value,
@@ -930,13 +952,34 @@ function saveEditTask() {
     notas: $('eNot').value,
     tipoTrabajo: $('eTipo').value, riesgo: $('eRiesgo').value
   };
+  var id = EDIT_ID;
+  // "Listo" dispara confirmación y mueve al historial — cerramos el modal
+  // antes del confirm para no apilar dos overlays.
   if (fields.status === 'Listo') {
     closeEdit();
-    confirm_('¿Marcar como Listo? Se moverá al Historial.', function(){ batchU(EDIT_ID, fields); });
+    confirm_('¿Marcar como Listo? Se moverá al Historial.', function(){ batchU(id, fields); });
     return;
   }
-  batchU(EDIT_ID, fields);
-  closeEdit();
+  _setSaving(true);
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(r) {
+      hideLoader();
+      _setSaving(false);
+      if (r && r.success) {
+        toast('✅ Actualizado', 'success');
+        closeEdit();
+        reload();
+      } else {
+        toast('Error: ' + ((r && r.error) || ''), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      hideLoader();
+      _setSaving(false);
+      toast('Error: ' + e.message, 'error');
+    })
+    .updateTaskFields(id, fields);
 }
 
 // Construye payload del proyecto y delega a updateProjectFields.
@@ -957,13 +1000,32 @@ function saveEditProj() {
     tipoTrabajo: $('epTipo').value,
     riesgo:      $('epRiesgo').value
   };
-  batchUpdateProject(EDIT_ID, fields);
-  closeEdit();
+  var id = EDIT_ID;
+  _setSaving(true);
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(r) {
+      hideLoader();
+      _setSaving(false);
+      if (r && r.success) {
+        toast('✅ Proyecto actualizado', 'success');
+        closeEdit();
+        reload();
+      } else {
+        toast('Error: ' + ((r && r.error) || ''), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      hideLoader();
+      _setSaving(false);
+      toast('Error: ' + e.message, 'error');
+    })
+    .updateProjectFields(id, fields);
 }
 
 // Batch update de tareas (legacy name).
 function batchU(id, fields) {
-  toast('Guardando...', 'info');
+  showLoader();
   google.script.run
     .withSuccessHandler(function(r) {
       if (r && r.success) {
@@ -972,19 +1034,21 @@ function batchU(id, fields) {
       } else {
         toast('Error: ' + ((r && r.error) || ''), 'error');
       }
+      hideLoader();
     })
-    .withFailureHandler(function(e){ toast('Error: ' + e.message, 'error'); })
+    .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
     .updateTaskFields(id, fields);
 }
 
 function batchUpdateProject(id, fields) {
-  toast('Guardando...', 'info');
+  showLoader();
   google.script.run
     .withSuccessHandler(function(r) {
       if (r && r.success) { toast('✅ Proyecto actualizado', 'success'); reload(); }
       else { toast('Error: ' + ((r && r.error) || ''), 'error'); }
+      hideLoader();
     })
-    .withFailureHandler(function(e){ toast('Error: ' + e.message, 'error'); })
+    .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
     .updateProjectFields(id, fields);
 }
 
@@ -1066,19 +1130,39 @@ function closeDD() {
 }
 
 // Update single field del tarea (dropdown menu items).
+// Optimistic: para cambios no-destructivos aplica el cambio en D.tasks antes de
+// que el server responda. Si falla, rollback + toast de error. El reload()
+// posterior sincroniza stats (KPI/SLA/team/countries) reales del server.
 function uf(id, f, v) {
   closeDD();
-  toast('Actualizando...', 'info');
+  var willMoveToHistorial = (f === 'status' && v === 'Listo');
+  var task = D.tasks.find(function(x){ return x.id == id; });
+  var prevValue = task ? task[f] : null;
+
+  // Aplicar cambio optimista (solo si no va a moverse al historial)
+  if (!willMoveToHistorial && task) {
+    task[f] = v;
+    render();
+  }
+
+  showLoader();
   google.script.run
     .withSuccessHandler(function(r) {
       if (r.success) {
         toast(r.moved ? '✅ Movida a Historial' : '✅ OK', 'success');
-        reload();
+        reload(); // Sincroniza stats reales del server
       } else {
+        // Rollback: restaurar valor previo
+        if (!willMoveToHistorial && task) { task[f] = prevValue; render(); }
         toast('Error: ' + (r.error || ''), 'error');
       }
+      hideLoader();
     })
-    .withFailureHandler(function(e){ toast('Error: ' + e.message, 'error'); })
+    .withFailureHandler(function(e) {
+      if (!willMoveToHistorial && task) { task[f] = prevValue; render(); }
+      toast('Error: ' + e.message, 'error');
+      hideLoader();
+    })
     .updateTaskField(id, f, v);
 }
 
@@ -1151,8 +1235,10 @@ function fm(id, text, cls) {
 }
 
 function reload() {
+  showLoader();
   google.script.run
-    .withSuccessHandler(function(d){ D = d; render(); })
+    .withSuccessHandler(function(d){ D = d; render(); hideLoader(); })
+    .withFailureHandler(function(e){ hideLoader(); toast('Error al recargar: ' + e.message, 'error'); })
     .getTrackerData();
 }
 // ═══ USER SESSION ═══
@@ -1410,6 +1496,24 @@ function debounce(fn, wait) {
     clearTimeout(t);
     t = setTimeout(function(){ fn.apply(ctx, args); }, wait);
   };
+}
+
+// ════════════════════════════════════════════════════════════════
+// LOADER — barra superior mientras hay llamadas al server pendientes
+// Refcount para soportar llamadas concurrentes (ej. update + reload).
+// ════════════════════════════════════════════════════════════════
+var _loaderCount = 0;
+function showLoader() {
+  _loaderCount++;
+  var el = $('loaderBar');
+  if (el) el.classList.add('show');
+}
+function hideLoader() {
+  _loaderCount = Math.max(0, _loaderCount - 1);
+  if (_loaderCount === 0) {
+    var el = $('loaderBar');
+    if (el) el.classList.remove('show');
+  }
 }
 
 // ═══ INIT OVERRIDE ═══

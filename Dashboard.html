@@ -10,6 +10,7 @@
 <?!= include("Dashboard.css") ?>
 </head>
 <body>
+<div class="loader-bar" id="loaderBar" role="status" aria-live="polite" aria-label="Cargando"></div>
 <div class="ambient"></div>
 <div class="app">
 
@@ -196,7 +197,7 @@
 </div>
 
 <!-- EDIT MODAL -->
-<div class="modal-overlay" id="editOv" onclick="if(event.target===this)closeEdit()"><div class="modal"><div class="modal-header"><h2 id="editT">Editar</h2><button class="modal-close" onclick="closeEdit()" aria-label="Cerrar">✕</button></div><div class="modal-body" id="editB"></div><div class="modal-footer"><button class="btn-secondary" onclick="closeEdit()">Cancelar</button><button class="btn-submit btn-sm" onclick="saveEdit()">Guardar</button></div></div></div>
+<div class="modal-overlay" id="editOv" onclick="if(event.target===this)closeEdit()"><div class="modal"><div class="modal-header"><h2 id="editT">Editar</h2><button class="modal-close" onclick="closeEdit()" aria-label="Cerrar">✕</button></div><div class="modal-body" id="editB"></div><div class="modal-footer"><button class="btn-secondary" onclick="closeEdit()">Cancelar</button><button class="btn-submit btn-sm" id="editSaveBtn" onclick="saveEdit()">Guardar</button></div></div></div>
 <!-- CONFIRM -->
 <div class="modal-overlay" id="confOv" onclick="if(event.target===this)closeCf()"><div class="modal" style="max-width:400px"><div class="modal-header"><h2>Confirmar</h2><button class="modal-close" onclick="closeCf()" aria-label="Cerrar">✕</button></div><div class="modal-body"><p id="confTxt" style="font-size:14px;color:var(--text-muted)"></p></div><div class="modal-footer"><button class="btn-secondary" onclick="closeCf()">Cancelar</button><button class="btn-submit btn-sm" id="confBtn">Confirmar</button></div></div></div>
 <div class="dd-overlay" id="ddO" onclick="closeDD()"></div><div class="dd-menu" id="ddM"></div>

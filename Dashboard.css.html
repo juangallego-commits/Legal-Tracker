@@ -742,6 +742,28 @@ tbody tr:hover { background: rgba(255,255,255,.015); }
 .d4 { animation-delay: .2s; }
 
 /* ═══════════════════════════════════════════════════════════════
+   LOADER BAR (top del viewport, activo durante llamadas al server)
+   ═══════════════════════════════════════════════════════════════ */
+.loader-bar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  z-index: 10000;
+  background: linear-gradient(90deg, transparent 0%, var(--rappi) 40%, var(--rappi) 60%, transparent 100%);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  background-position: -40% 0;
+  opacity: 0;
+  transition: opacity .2s;
+  pointer-events: none;
+}
+.loader-bar.show { opacity: 1; animation: loaderslide 1.1s infinite linear; }
+@keyframes loaderslide {
+  0%   { background-position: -40% 0; }
+  100% { background-position: 140% 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    ROLE GATING — oculta secciones según rol del visitante
    El body recibe una clase role-head / role-manager / role-specialist
    montada en JS desde window.__USER__.role.
