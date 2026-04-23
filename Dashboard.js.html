@@ -136,6 +136,7 @@ function render() {
   rTable(tasks);
   rPChips();
   rRChips();
+  rActiveFilters();
   rAnalytics(tasks, team);
   rHist();
   rProjects();
@@ -215,6 +216,7 @@ function fC(c) {
   document.querySelectorAll('.cpill').forEach(function(b) {
     b.classList.toggle('active', b.dataset.country === c);
   });
+  persistFilters();
   render();
 }
 
@@ -223,16 +225,24 @@ function fSt(s) {
   document.querySelectorAll('#fBar .fbtn').forEach(function(b) {
     b.classList.toggle('active', b.textContent.trim() === (s === 'ALL' ? 'Todos' : s));
   });
+  persistFilters();
   rTable(ft());
+  rActiveFilters();
 }
 
 function fPr(p) {
   F.project = F.project === p ? 'ALL' : p;
+  persistFilters();
   rPChips();
   rTable(ft());
+  rActiveFilters();
 }
 // Buscador con debounce 200ms — evita recomputar render() en cada keystroke.
-var _searchDebounced = debounce(function() { F.search = $('sInput').value; render(); }, 200);
+var _searchDebounced = debounce(function() {
+  F.search = $('sInput').value;
+  persistFilters();
+  render();
+}, 200);
 function onS(){ _searchDebounced(); }
 function tSort(col) {
   if (SORT.col === col) SORT.asc = !SORT.asc;
@@ -242,8 +252,10 @@ function tSort(col) {
 
 function fR(name) {
   F.resp = F.resp === name ? 'ALL' : name;
+  persistFilters();
   rRChips();
   rTable(ft());
+  rActiveFilters();
 }
 
 function fPSt(s) {
@@ -251,6 +263,7 @@ function fPSt(s) {
   document.querySelectorAll('#projFBar .fbtn').forEach(function(b) {
     b.classList.toggle('active', b.textContent.trim() === (s === 'ALL' ? 'Todos' : s));
   });
+  persistFilters();
   rProjects();
 }
 
@@ -1285,6 +1298,14 @@ function mountUserChip() {
 }
 
 // ═══ MIS TAREAS ═══
+// Vista agrupada por urgencia. La ordenación no es por prioridad sino por
+// cuán pronto vence la tarea, que es lo que le importa al specialist día a día.
+// Buckets:
+//   ⚠ Vencidas       deadline pasado y no Listo
+//   🔥 Hoy           deadline = hoy
+//   📅 Esta semana   deadline en los próximos 7 días
+//   🔜 Después       deadline más lejano
+//   📋 Sin deadline  task sin deadline definido
 function rMisTareas() {
   if (!CURRENT_USER) return;
   var myTasks = D.tasks.filter(function(t){ return t.resp === CURRENT_USER; });
@@ -1298,7 +1319,6 @@ function rMisTareas() {
   var cerradasSemana = myDone.filter(function(t){ return t.semana === semLabel; }).length;
 
   // % on-time: de las tareas cerradas, cuáles cumplieron su SLA en días hábiles.
-  // Mide (cerrado - creado) en días hábiles y compara con SLA_LIMITS[priority].
   var totalDone = myDone.length;
   var lateDone = myDone.filter(function(t) {
     if (!t.creado || !t.cerrado) return false;
@@ -1320,32 +1340,82 @@ function rMisTareas() {
   $('mt-ontime').textContent = onTimePct + '%';
   $('mtTitle').textContent   = 'Mis tareas activas — ' + CURRENT_USER + ' (' + myTasks.length + ')';
 
-  var pMap = {};
-  if (D.projects) D.projects.forEach(function(p){ pMap[p.id] = p.nombre; });
   var tb = $('mtBody');
   if (!tb) return;
   if (!myTasks.length) {
     tb.innerHTML = '<tr><td colspan="8"><div class="empty"><div class="empty-icon">🎉</div>¡Sin tareas pendientes!</div></td></tr>';
     return;
   }
-  var sorted = myTasks.slice().sort(function(a, b) {
-    return (PRIO_ORDER[a.priority]   || 1) - (PRIO_ORDER[b.priority]   || 1)
-        || (STATUS_ORDER[a.status]   || 2) - (STATUS_ORDER[b.status]   || 2);
+
+  // Clasificar tareas en buckets de urgencia
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var todayMs = today.getTime();
+  var weekEndMs = todayMs + 7 * 864e5;
+
+  var buckets = { vencidas: [], hoy: [], semana: [], despues: [], sinFecha: [] };
+  myTasks.forEach(function(t) {
+    if (!t.deadline) { buckets.sinFecha.push(t); return; }
+    var d = pd(t.deadline);
+    if (!d) { buckets.sinFecha.push(t); return; }
+    d.setHours(0, 0, 0, 0);
+    var dMs = d.getTime();
+    if (dMs < todayMs)        buckets.vencidas.push(t);
+    else if (dMs === todayMs) buckets.hoy.push(t);
+    else if (dMs <= weekEndMs) buckets.semana.push(t);
+    else                      buckets.despues.push(t);
   });
-  tb.innerHTML = sorted.map(function(t) {
-    var dl = renderDeadlineBadge(t.deadline);
-    var pn = t.proyectoId && pMap[t.proyectoId] ? pMap[t.proyectoId] : (t.proyecto || '—');
-    return '<tr>' +
-      '<td class="col-id">' + t.id + '</td>' +
-      '<td class="col-nombre" data-act="open-edit" data-id="' + t.id + '">' + esc(t.nombre) + '</td>' +
-      '<td><span style="color:var(--purple);font-size:12px">' + esc(pn) + '</span></td>' +
-      '<td>' + renderPrioBadge(t.priority, t.id) + '</td>' +
-      '<td>' + renderStatusBadge(t.status, t.id) + '</td>' +
-      '<td>' + dl.html + '</td>' +
-      '<td class="col-acc">' + esc(t.acc || '') + '</td>' +
-      '<td><button class="btn-icon" data-act="show-task-menu" data-id="' + t.id + '" aria-label="Acciones tarea ' + t.id + '">⋮</button></td>' +
-    '</tr>';
-  }).join('');
+
+  // Sort dentro de cada bucket: por prioridad y luego por deadline ascendente
+  var sortBucket = function(arr) {
+    return arr.sort(function(a, b) {
+      var pa = PRIO_ORDER[a.priority] || 1, pb = PRIO_ORDER[b.priority] || 1;
+      if (pa !== pb) return pa - pb;
+      var da = pd(a.deadline), db = pd(b.deadline);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return da - db;
+    });
+  };
+  Object.keys(buckets).forEach(function(k){ buckets[k] = sortBucket(buckets[k]); });
+
+  var pMap = {};
+  if (D.projects) D.projects.forEach(function(p){ pMap[p.id] = p.nombre; });
+
+  // Render cada bucket no-vacío como sección separada
+  var sections = [
+    { key: 'vencidas', label: '⚠ Vencidas',      cls: 'mt-bucket-vencidas' },
+    { key: 'hoy',      label: '🔥 Hoy',          cls: 'mt-bucket-hoy' },
+    { key: 'semana',   label: '📅 Esta semana',  cls: 'mt-bucket-semana' },
+    { key: 'despues',  label: '🔜 Después',      cls: 'mt-bucket-despues' },
+    { key: 'sinFecha', label: '📋 Sin deadline', cls: 'mt-bucket-sinfecha' }
+  ];
+
+  var html = '';
+  sections.forEach(function(s) {
+    var bucket = buckets[s.key];
+    if (!bucket.length) return;
+    // Header row
+    html += '<tr class="mt-section-row ' + s.cls + '">'
+         +    '<td colspan="8">' + s.label + ' <span class="mt-section-count">' + bucket.length + '</span></td>'
+         +  '</tr>';
+    // Task rows
+    bucket.forEach(function(t) {
+      var dl = renderDeadlineBadge(t.deadline);
+      var pn = t.proyectoId && pMap[t.proyectoId] ? pMap[t.proyectoId] : (t.proyecto || '—');
+      html += '<tr>'
+           +   '<td class="col-id">' + t.id + '</td>'
+           +   '<td class="col-nombre" data-act="open-edit" data-id="' + t.id + '">' + esc(t.nombre) + '</td>'
+           +   '<td><span style="color:var(--purple);font-size:12px">' + esc(pn) + '</span></td>'
+           +   '<td>' + renderPrioBadge(t.priority, t.id) + '</td>'
+           +   '<td>' + renderStatusBadge(t.status, t.id) + '</td>'
+           +   '<td>' + dl.html + '</td>'
+           +   '<td class="col-acc">' + esc(t.acc || '') + '</td>'
+           +   '<td><button class="btn-icon" data-act="show-task-menu" data-id="' + t.id + '" aria-label="Acciones tarea ' + t.id + '">⋮</button></td>'
+           + '</tr>';
+    });
+  });
+  tb.innerHTML = html;
 }
 
 // ═══ TAGS INPUT (accionables y participantes) ═══
@@ -1455,7 +1525,9 @@ var ACTIONS = {
   'update-field':    function(el){ uf(Number(el.dataset.id), el.dataset.field, el.dataset.val); },
   'update-field-confirm': function(el){ cfUp(Number(el.dataset.id), el.dataset.field, el.dataset.val); },
   'add-tag':         function(el){ addTag(el.dataset.container, el.dataset.val); },
-  'remove-tag':      function(el){ removeTag(el.dataset.container, Number(el.dataset.i)); }
+  'remove-tag':      function(el){ removeTag(el.dataset.container, Number(el.dataset.i)); },
+  'clear-filter':    function(el){ var i = Number(el.dataset.i); if (_filterClearers[i]) { _filterClearers[i](); persistFilters(); render(); } },
+  'clear-all-filters': function(){ clearAllFilters(); }
 };
 document.addEventListener('click', function(e) {
   var el = e.target.closest && e.target.closest('[data-act]');
@@ -1499,6 +1571,91 @@ function debounce(fn, wait) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// PERSISTENCIA DE FILTROS
+// Guarda/restaura F en localStorage para que el contexto de trabajo
+// sobreviva al recargar. Excluye propiedades internas (_myTasks, etc).
+// ════════════════════════════════════════════════════════════════
+var FILTER_KEY = 'lt_filters_v1';
+var PERSISTED_KEYS = ['country','status','project','resp','search','projStatus'];
+
+function persistFilters() {
+  try {
+    var snapshot = {};
+    PERSISTED_KEYS.forEach(function(k){ snapshot[k] = F[k]; });
+    localStorage.setItem(FILTER_KEY, JSON.stringify(snapshot));
+  } catch (e) { /* localStorage no disponible o bloqueado */ }
+}
+
+function restoreFilters() {
+  try {
+    var raw = localStorage.getItem(FILTER_KEY);
+    if (!raw) return;
+    var obj = JSON.parse(raw);
+    PERSISTED_KEYS.forEach(function(k){ if (obj[k] !== undefined) F[k] = obj[k]; });
+    if (F.search) $('sInput') && ($('sInput').value = F.search);
+  } catch (e) {}
+}
+
+// ════════════════════════════════════════════════════════════════
+// CHIPS DE FILTROS ACTIVOS
+// Muestra arriba de la tabla de Tracker qué filtros están aplicados, con
+// una ✕ para quitar cada uno individualmente y "Limpiar todo".
+// ════════════════════════════════════════════════════════════════
+var _filterClearers = [];
+
+function rActiveFilters() {
+  var container = $('activeFilters');
+  if (!container) return;
+  var chips = [];
+  if (F.country !== 'ALL') chips.push({
+    label: 'País: ' + F.country,
+    clear: function(){ F.country = 'ALL'; document.querySelectorAll('.cpill').forEach(function(b){ b.classList.toggle('active', b.dataset.country === 'ALL'); }); }
+  });
+  if (F.status !== 'ALL') chips.push({
+    label: 'Estado: ' + F.status,
+    clear: function(){ F.status = 'ALL'; document.querySelectorAll('#fBar .fbtn').forEach(function(b){ b.classList.toggle('active', b.textContent.trim() === 'Todos'); }); }
+  });
+  if (F.resp !== 'ALL') chips.push({
+    label: 'Resp: ' + F.resp,
+    clear: function(){ F.resp = 'ALL'; }
+  });
+  if (F.project !== 'ALL') chips.push({
+    label: 'Proyecto: ' + F.project,
+    clear: function(){ F.project = 'ALL'; }
+  });
+  if (F.search) chips.push({
+    label: 'Búsqueda: ' + F.search,
+    clear: function(){ F.search = ''; if ($('sInput')) $('sInput').value = ''; }
+  });
+
+  if (!chips.length) { container.innerHTML = ''; return; }
+
+  container.innerHTML = chips.map(function(c, i) {
+    return '<span class="filter-chip" data-act="clear-filter" data-i="' + i + '">'
+      +      esc(c.label) + ' <span class="chip-x">✕</span>'
+      +    '</span>';
+  }).join('')
+  + '<button class="filter-clear-all" data-act="clear-all-filters">Limpiar todo</button>';
+
+  _filterClearers = chips.map(function(c){ return c.clear; });
+}
+
+function clearAllFilters() {
+  F.country = 'ALL';
+  F.status = 'ALL';
+  F.project = 'ALL';
+  F.resp = 'ALL';
+  F.search = '';
+  F._myTasks = false;
+  if ($('sInput')) $('sInput').value = '';
+  if ($('myTasksBtn')) $('myTasksBtn').classList.remove('active');
+  document.querySelectorAll('.cpill').forEach(function(b){ b.classList.toggle('active', b.dataset.country === 'ALL'); });
+  document.querySelectorAll('#fBar .fbtn').forEach(function(b){ b.classList.toggle('active', b.textContent.trim() === 'Todos'); });
+  persistFilters();
+  render();
+}
+
+// ════════════════════════════════════════════════════════════════
 // LOADER — barra superior mientras hay llamadas al server pendientes
 // Refcount para soportar llamadas concurrentes (ej. update + reload).
 // ════════════════════════════════════════════════════════════════
@@ -1532,6 +1689,23 @@ document.addEventListener('DOMContentLoaded', function() {
   _tagsAccHandle  = initTagsInput('fAccTags', 'fAcc', null);
   _tagsPartHandle = initTagsInput('pPartTags', 'pPart', members);
   mountUserChip();
+  // Restaurar filtros persistidos ANTES del primer render; refleja el estado
+  // en la UI (pills de país, fbtn de estado, sInput, myTasksBtn).
+  restoreFilters();
+  syncFilterUIFromState();
   render();
 }, true);
+
+// Aplica el estado de F a los botones/pills (después de restoreFilters).
+function syncFilterUIFromState() {
+  document.querySelectorAll('.cpill[data-country]').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.country === F.country);
+  });
+  document.querySelectorAll('#fBar .fbtn').forEach(function(b) {
+    b.classList.toggle('active', b.textContent.trim() === (F.status === 'ALL' ? 'Todos' : F.status));
+  });
+  document.querySelectorAll('#projFBar .fbtn').forEach(function(b) {
+    b.classList.toggle('active', b.textContent.trim() === (F.projStatus === 'ALL' ? 'Todos' : F.projStatus));
+  });
+}
 </script>

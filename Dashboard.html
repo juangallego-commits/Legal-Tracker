@@ -51,6 +51,7 @@
   <div class="team-grid anim d3" id="tGrid"></div>
   <div class="card anim d4">
     <div class="filter-bar" id="fBar"><span class="filter-label">Estado:</span><button class="fbtn active" onclick="fSt('ALL')">Todos</button><button class="fbtn" onclick="fSt('Pendiente')">Pendiente</button><button class="fbtn" onclick="fSt('En curso')">En curso</button><button class="fbtn" onclick="fSt('En revisión')">En revisión</button><button class="fbtn" onclick="fSt('Bloqueado')">Bloqueado</button><span id="rChips" style="margin-left:12px;display:flex;gap:4px;flex-wrap:wrap"></span><span id="pChips" style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap"></span></div>
+    <div class="active-filters" id="activeFilters" role="status" aria-live="polite"></div>
     <div class="table-wrap">
       <table>
         <thead>
