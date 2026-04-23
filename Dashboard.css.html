@@ -876,6 +876,75 @@ tbody tr:hover { background: rgba(255,255,255,.015); }
 .filter-clear-all:hover { color: var(--red); }
 
 /* ═══════════════════════════════════════════════════════════════
+   RESUMEN EJECUTIVO (head) — KPIs, comparativa países, risk, tendencia
+   ═══════════════════════════════════════════════════════════════ */
+.rx-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.rx-kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 20px;
+  text-align: center;
+  transition: border-color .15s;
+}
+.rx-kpi:hover { border-color: var(--border-light); }
+.rx-kpi-num {
+  font-size: 32px; font-weight: 800;
+  font-family: var(--mono);
+  letter-spacing: -1px;
+  line-height: 1;
+}
+.rx-kpi-lbl {
+  font-size: 11px; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: .5px;
+  margin-top: 6px; font-weight: 700;
+}
+
+.rx-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.rx-risk-list { padding: 0; }
+.rx-risk-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background .12s;
+}
+.rx-risk-item:hover { background: rgba(255,255,255,.02); }
+.rx-risk-item:last-child { border-bottom: none; }
+.rx-risk-info { flex: 1; min-width: 0; }
+.rx-risk-name {
+  font-weight: 700; font-size: 13px;
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rx-risk-meta {
+  font-size: 11px; color: var(--text-dim);
+  margin-top: 2px; font-weight: 600;
+}
+.rx-risk-stats { display: flex; gap: 6px; align-items: center; }
+.rx-risk-stat {
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px; font-weight: 800;
+  font-family: var(--mono);
+}
+
+@media (max-width: 1024px) {
+  .rx-kpi-row { grid-template-columns: 1fr 1fr; }
+  .rx-split { grid-template-columns: 1fr; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MI EQUIPO — vista para managers y head (grid de miembros + hotspots)
    ═══════════════════════════════════════════════════════════════ */
 .meq-grid {
@@ -1046,16 +1115,19 @@ tbody tr:hover { background: rgba(255,255,255,.015); }
    ═══════════════════════════════════════════════════════════════ */
 
 /* Specialist: sin country bar, sin team grid, sin "Mis tareas" (ya es default),
-   sin chart de carga por equipo, sin tab Mi equipo. */
+   sin chart de carga por equipo, sin tab Mi equipo ni Resumen. */
 body.role-specialist #cBar,
 body.role-specialist #tGrid,
 body.role-specialist #myTasksBtn,
 body.role-specialist #cardLoad,
 body.role-specialist #rChips,
-body.role-specialist #tabMiequipo { display: none !important; }
+body.role-specialist #tabMiequipo,
+body.role-specialist #tabResumen { display: none !important; }
 
-/* Manager: country bar no aplica (solo su país); preserva team grid. */
-body.role-manager #cBar { display: none !important; }
+/* Manager: country bar no aplica (solo su país); Resumen es vista ejecutiva
+   del head, no aplica al manager. */
+body.role-manager #cBar,
+body.role-manager #tabResumen { display: none !important; }
 
 /* Badge de rol junto al nombre del usuario */
 .user-role-badge {

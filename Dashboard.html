@@ -19,6 +19,7 @@
   <div class="topbar-brand"><div class="topbar-logo">⚖</div><h1>Legal Tracker <span>· Rappi</span></h1><span id="metaInfo" style="font-size:11px;color:#5C6480;font-weight:600;margin-left:4px;cursor:pointer" onclick="go('historial')" title="Click para ver historial"></span></div>
   <div class="topbar-right">
     <div class="nav-tabs">
+      <button class="nav-tab" onclick="go('resumen')" id="tabResumen">Resumen</button>
       <button class="nav-tab active" onclick="go('tracker')" id="tabTracker">Tracker</button>
       <button class="nav-tab" onclick="go('proyectos')" id="tabProyectos">Proyectos</button>
       <button class="nav-tab" onclick="go('miequipo')" id="tabMiequipo">Mi equipo</button>
@@ -72,6 +73,58 @@
         </thead>
         <tbody id="tBody"></tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ VIEW: RESUMEN EJECUTIVO (solo head) ═══ -->
+<div class="view" id="vResumen">
+  <!-- KPIs globales -->
+  <div class="rx-kpi-row anim d2">
+    <div class="rx-kpi"><div class="rx-kpi-num" style="color:var(--blue)"   id="rxActivas">0</div><div class="rx-kpi-lbl">Tareas activas</div></div>
+    <div class="rx-kpi"><div class="rx-kpi-num" style="color:var(--red)"    id="rxVencidas">0</div><div class="rx-kpi-lbl">⚠ Vencidas ahora</div></div>
+    <div class="rx-kpi"><div class="rx-kpi-num" style="color:var(--green)"  id="rxOnTime">—</div><div class="rx-kpi-lbl">On-time 30d</div></div>
+    <div class="rx-kpi"><div class="rx-kpi-num" style="color:var(--purple)" id="rxProyectos">0</div><div class="rx-kpi-lbl">Proyectos activos</div></div>
+  </div>
+
+  <!-- Comparativa por país -->
+  <div class="card anim d2" style="margin-bottom:22px">
+    <div class="card-header">
+      <span class="card-title">Comparativa por país</span>
+      <span class="card-badge" id="rxCountriesBadge">0</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">País</th>
+            <th scope="col">Líder</th>
+            <th scope="col">Activas</th>
+            <th scope="col">Vencidas</th>
+            <th scope="col">Bloq.</th>
+            <th scope="col">On-time 30d</th>
+            <th scope="col">Proyectos</th>
+          </tr>
+        </thead>
+        <tbody id="rxCountriesBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Proyectos en riesgo + Tendencia -->
+  <div class="rx-split">
+    <div class="card anim d3">
+      <div class="card-header">
+        <span class="card-title">🚨 Proyectos en riesgo</span>
+        <span class="card-badge" id="rxRiskBadge">0</span>
+      </div>
+      <div id="rxRiskList" class="rx-risk-list"></div>
+    </div>
+    <div class="card anim d3">
+      <div class="card-header">
+        <span class="card-title">Tareas cerradas · últimas 8 semanas</span>
+      </div>
+      <div class="card-body"><canvas id="rxTrend"></canvas></div>
     </div>
   </div>
 </div>

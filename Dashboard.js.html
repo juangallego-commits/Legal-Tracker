@@ -734,7 +734,7 @@ function rAnalytics(tasks, team) {
 // ═══ VIEWS ═══
 // Orden debe coincidir con el orden de <button class="nav-tab"> en el HTML.
 // La nav-tab "Crear" no está en VIEWS porque es un modal global.
-var VIEWS = ['tracker','proyectos','miequipo','analytics','historial','mistareas'];
+var VIEWS = ['resumen','tracker','proyectos','miequipo','analytics','historial','mistareas'];
 
 function go(v) {
   VIEWS.forEach(function(x) {
@@ -745,6 +745,7 @@ function go(v) {
   document.querySelectorAll('.nav-tab').forEach(function(b, i) {
     b.classList.toggle('active', VIEWS[i] === v);
   });
+  if (v === 'resumen')   rResumen();
   if (v === 'analytics') rAnalytics(ft(), fTeam());
   if (v === 'historial') rHist();
   if (v === 'proyectos') rProjects();
@@ -1445,6 +1446,208 @@ function mountUserChip() {
   }
 }
 
+// ═══ RESUMEN EJECUTIVO (head) ═══
+// Vista diseñada para el rol head: visibilidad agregada + detectar problemas
+// sistémicos. KPIs globales, comparativa por país, proyectos en riesgo y
+// tendencia de cierre últimas 8 semanas.
+function rResumen() {
+  if (!USER || USER.role !== 'head') return;
+
+  var tasks    = D.tasks || [];
+  var hist     = D.historial || [];
+  var projects = D.projects || [];
+  var equipos  = D.equipos || [];
+
+  // Helper: días hábiles entre dos Date
+  function bizDaysBetween(from, to) {
+    var biz = 0, cur = new Date(from);
+    while (cur < to) {
+      cur.setDate(cur.getDate() + 1);
+      var dy = cur.getDay();
+      if (dy !== 0 && dy !== 6) biz++;
+    }
+    return biz;
+  }
+
+  // ── KPIs globales
+  var vencidasNow = tasks.filter(taskOverdueBySLA).length;
+  var cutoffMs = Date.now() - 30 * 864e5;
+  var recentDone = hist.filter(function(t) {
+    var f = pd(t.cerrado);
+    return f && f.getTime() >= cutoffMs;
+  });
+  var lateGlobal = recentDone.filter(function(t) {
+    if (!t.creado || !t.cerrado) return false;
+    var c = pd(t.creado), f = pd(t.cerrado);
+    if (!c || !f) return false;
+    return bizDaysBetween(c, f) > (SLA_LIMITS[t.priority] || 5);
+  }).length;
+  var onTimeGlobal = recentDone.length > 0
+    ? Math.round((recentDone.length - lateGlobal) / recentDone.length * 100)
+    : null;
+  var activeProjects = projects.filter(function(p) {
+    return p.status !== 'Completado' && p.status !== 'Cancelado';
+  }).length;
+
+  if ($('rxActivas'))   $('rxActivas').textContent   = tasks.length;
+  if ($('rxVencidas'))  $('rxVencidas').textContent  = vencidasNow;
+  if ($('rxOnTime'))    $('rxOnTime').textContent    = onTimeGlobal == null ? '—' : (onTimeGlobal + '%');
+  if ($('rxProyectos')) $('rxProyectos').textContent = activeProjects;
+
+  // ── Comparativa por país
+  var countryMap = {};
+  equipos.forEach(function(eq) {
+    countryMap[eq.code] = {
+      code: eq.code, name: eq.country, leader: eq.leader,
+      activas: 0, vencidas: 0, bloqueadas: 0,
+      cerradas30: 0, late30: 0, proyectos: 0
+    };
+  });
+  tasks.forEach(function(t) {
+    var cc = t.pais || mc(t.resp);
+    if (!countryMap[cc]) return;
+    countryMap[cc].activas++;
+    if (taskOverdueBySLA(t))     countryMap[cc].vencidas++;
+    if (t.status === 'Bloqueado') countryMap[cc].bloqueadas++;
+  });
+  recentDone.forEach(function(t) {
+    var cc = t.pais || mc(t.resp);
+    if (!countryMap[cc]) return;
+    countryMap[cc].cerradas30++;
+    if (!t.creado || !t.cerrado) return;
+    var c = pd(t.creado), f = pd(t.cerrado);
+    if (!c || !f) return;
+    if (bizDaysBetween(c, f) > (SLA_LIMITS[t.priority] || 5)) countryMap[cc].late30++;
+  });
+  projects.forEach(function(p) {
+    if (p.status === 'Completado' || p.status === 'Cancelado') return;
+    if (countryMap[p.pais]) countryMap[p.pais].proyectos++;
+  });
+
+  var countries = Object.keys(countryMap).map(function(k){ return countryMap[k]; });
+  // Ordenar por "temperatura": vencidas*2 + bloqueadas desc
+  countries.sort(function(a, b) {
+    var heatA = a.vencidas * 2 + a.bloqueadas;
+    var heatB = b.vencidas * 2 + b.bloqueadas;
+    if (heatA !== heatB) return heatB - heatA;
+    return b.activas - a.activas;
+  });
+
+  if ($('rxCountriesBadge')) $('rxCountriesBadge').textContent = countries.length + (countries.length === 1 ? ' país' : ' países');
+  if ($('rxCountriesBody')) {
+    $('rxCountriesBody').innerHTML = countries.map(function(c) {
+      var ot = c.cerradas30 > 0 ? Math.round((c.cerradas30 - c.late30) / c.cerradas30 * 100) : null;
+      var otColor = ot == null ? 'var(--text-dim)'
+                  : ot >= 90   ? 'var(--green)'
+                  : ot >= 70   ? 'var(--yellow)'
+                               : 'var(--red)';
+      var venColor = c.vencidas   > 0 ? 'var(--red)'    : 'var(--text-dim)';
+      var blqColor = c.bloqueadas > 0 ? 'var(--yellow)' : 'var(--text-dim)';
+      return '<tr>'
+        + '<td><strong>' + esc(c.code) + '</strong> <span style="color:var(--text-dim);font-size:11px;margin-left:4px">' + esc(c.name || '') + '</span></td>'
+        + '<td class="col-resp">' + esc(c.leader || '—') + '</td>'
+        + '<td>' + c.activas + '</td>'
+        + '<td><span style="color:' + venColor + ';font-weight:700">' + c.vencidas + '</span></td>'
+        + '<td><span style="color:' + blqColor + ';font-weight:700">' + c.bloqueadas + '</span></td>'
+        + '<td><span style="color:' + otColor + ';font-weight:700">' + (ot == null ? '—' : ot + '%') + '</span></td>'
+        + '<td>' + c.proyectos + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  // ── Proyectos en riesgo: ≥2 bloqueadas o ≥3 vencidas
+  var risky = projects
+    .filter(function(p){ return p.status !== 'Completado' && p.status !== 'Cancelado'; })
+    .map(function(p) {
+      var pTasks  = tasks.filter(function(t){ return t.proyectoId == p.id; });
+      var blocked = pTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
+      var overdue = pTasks.filter(taskOverdueBySLA).length;
+      return { p: p, blocked: blocked, overdue: overdue, risk: blocked * 2 + overdue };
+    })
+    .filter(function(x){ return x.blocked >= 2 || x.overdue >= 3; })
+    .sort(function(a, b){ return b.risk - a.risk; })
+    .slice(0, 8);
+
+  if ($('rxRiskBadge')) $('rxRiskBadge').textContent = risky.length + (risky.length === 1 ? ' proyecto' : ' proyectos');
+  if ($('rxRiskList')) {
+    if (!risky.length) {
+      $('rxRiskList').innerHTML = '<div class="empty" style="padding:40px"><div class="empty-icon">✅</div>Sin proyectos en riesgo</div>';
+    } else {
+      $('rxRiskList').innerHTML = risky.map(function(x) {
+        return '<div class="rx-risk-item" data-act="open-edit-project" data-id="' + x.p.id + '">'
+          + '<div class="rx-risk-info">'
+          +   '<div class="rx-risk-name">' + esc(x.p.nombre) + '</div>'
+          +   '<div class="rx-risk-meta">'
+          +     esc(x.p.pais || '—')
+          +     (x.p.responsable ? ' · ' + esc(x.p.responsable.split(' ').slice(0,2).join(' ')) : '')
+          +   '</div>'
+          + '</div>'
+          + '<div class="rx-risk-stats">'
+          +   (x.blocked > 0 ? '<span class="rx-risk-stat" style="background:var(--yellow-dim);color:var(--yellow)">🟡 ' + x.blocked + '</span>' : '')
+          +   (x.overdue > 0 ? '<span class="rx-risk-stat" style="background:var(--red-dim);color:var(--red)">⚠ ' + x.overdue + '</span>' : '')
+          + '</div>'
+          + '</div>';
+      }).join('');
+    }
+  }
+
+  // ── Tendencia: tareas cerradas por semana (últimas 8 semanas)
+  var now = new Date();
+  var thisWeekStart = new Date(now);
+  thisWeekStart.setHours(0, 0, 0, 0);
+  var dow = thisWeekStart.getDay();
+  var daysToMonday = dow === 0 ? 6 : dow - 1;
+  thisWeekStart.setDate(thisWeekStart.getDate() - daysToMonday);
+
+  var buckets = [0,0,0,0,0,0,0,0];
+  hist.forEach(function(t) {
+    var f = pd(t.cerrado);
+    if (!f) return;
+    var diffMs = thisWeekStart.getTime() - f.getTime();
+    var weeksAgo = Math.floor(diffMs / (7 * 864e5));
+    // Tareas cerradas durante la semana actual aparecen como weeksAgo = -1 (porque
+    // thisWeekStart es lunes 00:00 y la tarea se cerró después).
+    if (weeksAgo === -1) weeksAgo = 0;
+    if (weeksAgo >= 0 && weeksAgo < 8) buckets[weeksAgo]++;
+  });
+
+  var labels = [], data = [];
+  for (var i = 7; i >= 0; i--) {
+    var wDate = new Date(thisWeekStart.getTime() - i * 7 * 864e5);
+    labels.push(wDate.getDate() + '/' + (wDate.getMonth() + 1));
+    data.push(buckets[i]);
+  }
+
+  var canvas = $('rxTrend');
+  if (canvas) {
+    if (CH.rxTrend) CH.rxTrend.destroy();
+    CH.rxTrend = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Cerradas',
+          data: data,
+          backgroundColor: '#5B9BFF',
+          borderRadius: 6,
+          barPercentage: .6
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 11, weight: 700 } } },
+          y: { grid: { color: 'rgba(255,255,255,.04)' }, ticks: { precision: 0 } }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: { backgroundColor: '#1C2030', padding: 12, cornerRadius: 10 }
+        }
+      }
+    });
+  }
+}
+
 // ═══ MI EQUIPO (manager + head) ═══
 // Grid de miembros con sus stats + Hotspots (tareas vencidas/bloqueadas).
 // Para managers el team del backend ya viene filtrado a su país.
@@ -2131,9 +2334,10 @@ document.addEventListener('DOMContentLoaded', function() {
   // Default view por rol:
   //   specialist → Mis tareas (su lista de urgencia)
   //   manager    → Mi equipo (vista del equipo con hotspots)
-  //   head       → Tracker (visibilidad global, default)
+  //   head       → Resumen ejecutivo (comparativa países + riesgo)
   if (USER && USER.role === 'specialist') go('mistareas');
   else if (USER && USER.role === 'manager') go('miequipo');
+  else if (USER && USER.role === 'head') go('resumen');
 }, true);
 
 // Aplica el estado de F a los botones/pills (después de restoreFilters).
