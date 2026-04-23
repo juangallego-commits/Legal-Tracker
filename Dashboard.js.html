@@ -1443,6 +1443,88 @@ function mountUserChip() {
   }
 }
 
+// ═══ MI DESEMPEÑO ═══
+// Calcula métricas personales del specialist:
+//   1. Racha on-time: cuántas de las últimas tareas cerradas se cerraron
+//      dentro del SLA de su prioridad (consecutivas desde la más reciente).
+//      Es "motivacional" — se rompe con la primera tarde.
+//   2. Tiempo promedio de cierre por prioridad: (cerrado - creado) en días
+//      hábiles, promediado por grupo. Muestra los 30 días más recientes
+//      para que refleje desempeño actual, no histórico de hace años.
+function _computeAndRenderPerf(myDone) {
+  var cutoffMs = Date.now() - 30 * 864e5;
+
+  // Ayudante: días hábiles entre dos fechas (excluye sábados y domingos).
+  function bizDaysBetween(from, to) {
+    var biz = 0, cur = new Date(from);
+    while (cur < to) {
+      cur.setDate(cur.getDate() + 1);
+      var dy = cur.getDay();
+      if (dy !== 0 && dy !== 6) biz++;
+    }
+    return biz;
+  }
+
+  // ── Racha on-time (últimas 10, consecutivas desde la más reciente)
+  var recent = myDone.slice().sort(function(a, b) {
+    var ca = pd(a.cerrado), cb = pd(b.cerrado);
+    if (!ca && !cb) return 0;
+    if (!ca) return 1;
+    if (!cb) return -1;
+    return cb - ca;
+  }).slice(0, 20);
+  var streak = 0;
+  for (var i = 0; i < recent.length; i++) {
+    var t = recent[i];
+    if (!t.creado || !t.cerrado) break;
+    var c = pd(t.creado), f = pd(t.cerrado);
+    if (!c || !f) break;
+    var biz = bizDaysBetween(c, f);
+    var limit = SLA_LIMITS[t.priority] || 5;
+    if (biz > limit) break;
+    streak++;
+  }
+
+  // ── Tiempo promedio de cierre por prioridad (últimos 30 días)
+  var sums = { Alta: { n: 0, b: 0 }, Media: { n: 0, b: 0 }, Baja: { n: 0, b: 0 } };
+  myDone.forEach(function(t) {
+    if (!t.creado || !t.cerrado) return;
+    var c = pd(t.creado), f = pd(t.cerrado);
+    if (!c || !f) return;
+    if (f.getTime() < cutoffMs) return;
+    var bucket = sums[t.priority];
+    if (!bucket) return;
+    bucket.n++;
+    bucket.b += bizDaysBetween(c, f);
+  });
+
+  function fmtAvg(bucket, slaLimit) {
+    if (!bucket.n) return '—';
+    var avg = bucket.b / bucket.n;
+    return avg.toFixed(1);
+  }
+
+  // ── Render
+  if ($('mtStreak')) {
+    $('mtStreak').textContent = streak;
+    $('mtStreak').style.color = streak >= 5 ? 'var(--green)'
+                              : streak >= 1 ? 'var(--rappi)'
+                                            : 'var(--text-dim)';
+  }
+  if ($('mtStreakSub')) {
+    $('mtStreakSub').textContent = streak === 0
+      ? 'última cerrada fuera de SLA'
+      : streak === 1
+        ? 'tarea cerrada a tiempo'
+        : streak + ' tareas seguidas a tiempo';
+    // Texto del hijo ya tiene el número; simplificamos:
+    $('mtStreakSub').textContent = 'tareas seguidas a tiempo';
+  }
+  if ($('mtAvgAlta'))  $('mtAvgAlta').textContent  = fmtAvg(sums.Alta)  + (sums.Alta.n  ? 'd' : '');
+  if ($('mtAvgMedia')) $('mtAvgMedia').textContent = fmtAvg(sums.Media) + (sums.Media.n ? 'd' : '');
+  if ($('mtAvgBaja'))  $('mtAvgBaja').textContent  = fmtAvg(sums.Baja)  + (sums.Baja.n  ? 'd' : '');
+}
+
 // ═══ MIS TAREAS ═══
 // Vista agrupada por urgencia. La ordenación no es por prioridad sino por
 // cuán pronto vence la tarea, que es lo que le importa al specialist día a día.
@@ -1485,6 +1567,18 @@ function rMisTareas() {
   $('mt-semana').textContent = cerradasSemana;
   $('mt-ontime').textContent = onTimePct + '%';
   $('mtTitle').textContent   = 'Mis tareas activas — ' + CURRENT_USER + ' (' + myTasks.length + ')';
+
+  // ─────────── Mi desempeño ────────────────────────────────────────────
+  // Solo tiene sentido si el specialist ha cerrado al menos una tarea.
+  var perfCard = $('mtPerfCard');
+  if (perfCard) {
+    if (!myDone.length) {
+      perfCard.style.display = 'none';
+    } else {
+      perfCard.style.display = '';
+      _computeAndRenderPerf(myDone);
+    }
+  }
 
   var tb = $('mtBody');
   if (!tb) return;

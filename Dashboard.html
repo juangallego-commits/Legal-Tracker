@@ -117,6 +117,41 @@
     <div class="mt-kpi"><div class="mt-kpi-num" id="mt-semana" style="color:var(--green)">0</div><div class="mt-kpi-lbl">Cerradas esta sem.</div></div>
     <div class="mt-kpi"><div class="mt-kpi-num" id="mt-ontime" style="color:var(--purple)">0%</div><div class="mt-kpi-lbl">% On time</div></div>
   </div>
+  <div class="card anim d2" id="mtPerfCard" style="display:none;margin-bottom:22px">
+    <div class="card-header">
+      <span class="card-title">Mi desempeño</span>
+      <span class="card-badge" id="mtPerfBadge">últimas cerradas</span>
+    </div>
+    <div class="card-body">
+      <div class="mt-perf-grid">
+        <div class="mt-perf-box">
+          <div class="mt-perf-label">🔥 Racha on-time</div>
+          <div class="mt-perf-streak" id="mtStreak">0</div>
+          <div class="mt-perf-sub" id="mtStreakSub">tareas seguidas a tiempo</div>
+        </div>
+        <div class="mt-perf-box">
+          <div class="mt-perf-label">⏱ Cierre promedio <span style="color:var(--text-dim);font-weight:600">(días hábiles)</span></div>
+          <div class="mt-perf-prios">
+            <div class="mt-perf-prio">
+              <span class="mt-perf-prio-emoji">🔴</span>
+              <span class="mt-perf-prio-val" id="mtAvgAlta">—</span>
+              <span class="mt-perf-prio-sub">Alta (SLA 2d)</span>
+            </div>
+            <div class="mt-perf-prio">
+              <span class="mt-perf-prio-emoji">🟡</span>
+              <span class="mt-perf-prio-val" id="mtAvgMedia">—</span>
+              <span class="mt-perf-prio-sub">Media (SLA 5d)</span>
+            </div>
+            <div class="mt-perf-prio">
+              <span class="mt-perf-prio-emoji">🟢</span>
+              <span class="mt-perf-prio-val" id="mtAvgBaja">—</span>
+              <span class="mt-perf-prio-sub">Baja (SLA 7d)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="card anim d3" id="mtCard">
     <div class="mt-section-title" id="mtTitle">Mis tareas activas</div>
     <div class="table-wrap">

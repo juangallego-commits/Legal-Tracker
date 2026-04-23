@@ -1025,6 +1025,62 @@ body.role-manager #cBar { display: none !important; }
   border-bottom: 1px solid var(--border);
 }
 
+/* Mi desempeño — métricas personales del specialist */
+.mt-perf-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) 2fr;
+  gap: 20px;
+}
+.mt-perf-box {
+  background: var(--surface2);
+  border-radius: var(--radius-sm);
+  padding: 18px 20px;
+}
+.mt-perf-label {
+  font-size: 11px; font-weight: 800;
+  color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .5px;
+  margin-bottom: 10px;
+}
+.mt-perf-streak {
+  font-size: 44px; font-weight: 800;
+  font-family: var(--mono);
+  color: var(--rappi);
+  line-height: 1;
+  letter-spacing: -2px;
+}
+.mt-perf-sub {
+  font-size: 11px; color: var(--text-dim);
+  margin-top: 4px;
+  font-weight: 600;
+}
+.mt-perf-prios {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.mt-perf-prio {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 2px;
+}
+.mt-perf-prio-emoji { font-size: 14px; }
+.mt-perf-prio-val {
+  font-size: 26px; font-weight: 800;
+  font-family: var(--mono);
+  color: var(--text);
+  line-height: 1.1;
+}
+.mt-perf-prio-sub {
+  font-size: 10px; color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+@media (max-width: 640px) {
+  .mt-perf-grid { grid-template-columns: 1fr; }
+  .mt-perf-prios { grid-template-columns: 1fr 1fr 1fr; }
+}
+
 /* Section headers dentro de la tabla Mis Tareas (bucket por urgencia) */
 .mt-section-row td {
   font-size: 11px;
