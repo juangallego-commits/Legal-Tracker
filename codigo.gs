@@ -384,6 +384,16 @@ function _buildViewForRole(raw, role, user) {
 // ════════════════════════════════════════════════════════════════
 // WRITE AUTHORIZATION
 // ════════════════════════════════════════════════════════════════
+// Convierte throws en {success:false, error} para que el frontend reciba
+// siempre el mismo contrato (failureHandler deja la UI en estado raro).
+function _safeMutation(fn) {
+  try {
+    return fn();
+  } catch (e) {
+    return { success: false, error: (e && e.message) || String(e) };
+  }
+}
+
 // Contexto actual del visitante + su rol. Se usa en cada mutation.
 function _getAuthContext() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -496,7 +506,8 @@ function readProjects(ss) {
   return projects;
 }
 
-function addProject(obj) {
+function addProject(obj) { return _safeMutation(function() { return _addProjectImpl(obj); }); }
+function _addProjectImpl(obj) {
   var ctx = _getAuthContext();
   // Validar que pueda crear en este país / como este responsable
   _authorizeProjectWrite(ctx, {
@@ -509,30 +520,38 @@ function addProject(obj) {
   var ws = ss.getSheetByName(SHEET_PROYECTOS);
   if (!ws) {
     ws = ss.insertSheet(SHEET_PROYECTOS);
-    ws.appendRow(['ID','Nombre','País','Líder','Responsable','Deadline','Prioridad','Estado','Descripción','Notas','Creado','Semana']);
+    ws.appendRow(['ID','Nombre','País','Líder','Responsable','Deadline','Prioridad','Estado','Descripción','Notas','Creado','Semana','Participantes','TipoTrabajo','Riesgo','Documentos']);
     ws.getRange(1,1,1,PROJ_COLS).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
     ws.setTabColor('#FF4940');
   }
-  var lastRow = ws.getLastRow();
-  // max(IDs existentes) + 1 — resiste borrados y mantiene IDs únicos.
-  var newId = 1;
-  if (lastRow >= 2) {
-    var ids = ws.getRange(2, 1, lastRow - 1, 1).getValues();
-    ids.forEach(function(r){ var v = parseInt(r[0]); if (!isNaN(v) && v >= newId) newId = v + 1; });
+  // Lock para evitar colisión de IDs entre addProject concurrentes
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  try {
+    var lastRow = ws.getLastRow();
+    // max(IDs existentes) + 1 — resiste borrados y mantiene IDs únicos.
+    var newId = 1;
+    if (lastRow >= 2) {
+      var ids = ws.getRange(2, 1, lastRow - 1, 1).getValues();
+      ids.forEach(function(r){ var v = parseInt(r[0], 10); if (!isNaN(v) && v >= newId) newId = v + 1; });
+    }
+    var equipos = readEquipos(ss);
+    var pais  = obj.pais || getCountryForMember(obj.responsable, equipos);
+    var lider = obj.lider || getLeaderForCountry(pais, equipos);
+    ws.appendRow([
+      newId, obj.nombre||'', pais, lider, obj.responsable||'',
+      obj.deadline||'', obj.priority||'Media', obj.status||'Activo',
+      obj.descripcion||'', obj.notas||'', new Date(), getCurrentWeekLabel(), obj.participantes||'',
+      obj.tipoTrabajo||'', obj.riesgo||'', ''
+    ]);
+    return {success:true, id:newId, nombre:obj.nombre||''};
+  } finally {
+    lock.releaseLock();
   }
-  var equipos = readEquipos(ss);
-  var pais  = obj.pais || getCountryForMember(obj.responsable, equipos);
-  var lider = obj.lider || getLeaderForCountry(pais, equipos);
-  ws.appendRow([
-    newId, obj.nombre||'', pais, lider, obj.responsable||'',
-    obj.deadline||'', obj.priority||'Media', obj.status||'Activo',
-    obj.descripcion||'', obj.notas||'', new Date(), getCurrentWeekLabel(), obj.participantes||'',
-    obj.tipoTrabajo||'', obj.riesgo||''
-  ]);
-  return {success:true, id:newId, nombre:obj.nombre||''};
 }
 
-function updateProjectField(projId, field, value) {
+function updateProjectField(projId, field, value) { return _safeMutation(function() { return _updateProjectFieldImpl(projId, field, value); }); }
+function _updateProjectFieldImpl(projId, field, value) {
   var ctx = _getAuthContext();
   var current = _readProjectById(ctx.ss, projId);
   if (!current) return { success: false, error: 'Project #' + projId + ' not found' };
@@ -548,7 +567,8 @@ function updateProjectField(projId, field, value) {
 
 // Batch update de proyectos: aplica varios campos en una sola llamada.
 // Valida permisos contra el estado actual antes de cualquier escritura.
-function updateProjectFields(projId, fields) {
+function updateProjectFields(projId, fields) { return _safeMutation(function() { return _updateProjectFieldsImpl(projId, fields); }); }
+function _updateProjectFieldsImpl(projId, fields) {
   if (!fields || typeof fields !== 'object') return { success: false, error: 'Invalid fields' };
   var ctx = _getAuthContext();
   var current = _readProjectById(ctx.ss, projId);
@@ -606,7 +626,7 @@ function readTasks(ws) {
       creadoRaw:row[8]?new Date(row[8]).toISOString():null,
       cerrado:row[9]?Utilities.formatDate(new Date(row[9]),'America/Bogota','dd/MM/yyyy'):'',
       notas:row[10]||'',
-      proyectoId: isNaN(parseInt(proyVal)) ? '' : parseInt(proyVal),
+      proyectoId: isNaN(parseInt(proyVal, 10)) ? '' : parseInt(proyVal, 10),
       proyecto: proyVal, // keep raw for backward compat
       pais:(row[12]||'').toString().trim(),
       lider:(row[13]||'').toString().trim(),
@@ -619,7 +639,8 @@ function readTasks(ws) {
   return tasks;
 }
 
-function addTask(taskObj) {
+function addTask(taskObj) { return _safeMutation(function() { return _addTaskImpl(taskObj); }); }
+function _addTaskImpl(taskObj) {
   var ctx = _getAuthContext();
   var equipos = ctx.equipos;
   var proposedResp = taskObj.resp || '';
@@ -630,24 +651,32 @@ function addTask(taskObj) {
 
   invalidateCache();
   var ss = ctx.ss, ws = ss.getSheetByName(SHEET_ACTIVO);
-  var newId = nextTaskId(ss);
-  var pais  = proposedPais;
-  var lider = taskObj.lider || getLeaderForCountry(pais, equipos);
-  // Normalizar proyectoId a entero; si no es válido, celda vacía.
-  var pid = taskObj.proyectoId || taskObj.proyecto || '';
-  var pidNum = parseInt(pid, 10);
-  var pidCell = isNaN(pidNum) ? '' : pidNum;
-  ws.appendRow([
-    newId, taskObj.nombre||'', taskObj.resp||'', taskObj.acc||'',
-    taskObj.deadline||'', taskObj.priority||'Media', taskObj.status||'Pendiente',
-    taskObj.semana||getCurrentWeekLabel(), new Date(), '', taskObj.notas||'',
-    pidCell, pais, lider,
-    taskObj.tipoTrabajo||'', taskObj.riesgo||''
-  ]);
-  return {success:true, id:newId};
+  // Lock para que nextTaskId + appendRow sean atómicos frente a creaciones concurrentes.
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  try {
+    var newId = nextTaskId(ss);
+    var pais  = proposedPais;
+    var lider = taskObj.lider || getLeaderForCountry(pais, equipos);
+    // Normalizar proyectoId a entero; si no es válido, celda vacía.
+    var pid = taskObj.proyectoId || taskObj.proyecto || '';
+    var pidNum = parseInt(pid, 10);
+    var pidCell = isNaN(pidNum) ? '' : pidNum;
+    ws.appendRow([
+      newId, taskObj.nombre||'', taskObj.resp||'', taskObj.acc||'',
+      taskObj.deadline||'', taskObj.priority||'Media', taskObj.status||'Pendiente',
+      taskObj.semana||getCurrentWeekLabel(), new Date(), '', taskObj.notas||'',
+      pidCell, pais, lider,
+      taskObj.tipoTrabajo||'', taskObj.riesgo||''
+    ]);
+    return {success:true, id:newId};
+  } finally {
+    lock.releaseLock();
+  }
 }
 
-function updateTaskField(taskId, field, value) {
+function updateTaskField(taskId, field, value) { return _safeMutation(function() { return _updateTaskFieldImpl(taskId, field, value); }); }
+function _updateTaskFieldImpl(taskId, field, value) {
   var ctx = _getAuthContext();
   var current = _readTaskById(ctx.ss, taskId);
   if (!current) return { success: false, error: 'Task #' + taskId + ' not found' };
@@ -685,7 +714,8 @@ function updateTaskStatus(taskId, newStatus) { return updateTaskField(taskId, 's
 
 // Batch update: aplica varios campos en una sola llamada.
 // Si `status` es 'Listo', se aplica al final y dispara el move a Historial (los demás campos ya quedaron escritos).
-function updateTaskFields(taskId, fields) {
+function updateTaskFields(taskId, fields) { return _safeMutation(function() { return _updateTaskFieldsImpl(taskId, fields); }); }
+function _updateTaskFieldsImpl(taskId, fields) {
   if (!fields || typeof fields !== 'object') return { success: false, error: 'Invalid fields' };
   var ctx = _getAuthContext();
   var current = _readTaskById(ctx.ss, taskId);
@@ -742,14 +772,22 @@ function readConfig(ss){var ws=ss.getSheetByName(SHEET_CONFIG);if(!ws)return {};
 function countBizDays(start,end){var count=0,cur=new Date(start);while(cur<end){cur.setDate(cur.getDate()+1);var d=cur.getDay();if(d!==0&&d!==6)count++}return count}
 // Mueve una tarea al Historial preservando su ID original.
 // Ya NO renumera las tareas restantes: los IDs son persistentes (pueden quedar huecos 1,3,7,...).
+// Lock para que read+append+delete sean atómicos: sin lock, dos cierres concurrentes pueden
+// borrar filas incorrectas (el deleteRow corre contra el sheet ya mutado por otro usuario).
 function moveToHistorial(ss, wsA, row) {
-  var wsH = ss.getSheetByName(SHEET_HISTORIAL);
-  var lc = Math.min(wsA.getLastColumn(), TASK_COLS);
-  var rd = wsA.getRange(row, 1, 1, lc).getValues()[0];
-  while (rd.length < TASK_COLS) rd.push('');
-  // Preserva el ID original — NO reasignar. Así las referencias (notas, Slack, humanas) siguen válidas.
-  wsH.appendRow(rd);
-  wsA.deleteRow(row);
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  try {
+    var wsH = ss.getSheetByName(SHEET_HISTORIAL);
+    var lc = Math.min(wsA.getLastColumn(), TASK_COLS);
+    var rd = wsA.getRange(row, 1, 1, lc).getValues()[0];
+    while (rd.length < TASK_COLS) rd.push('');
+    // Preserva el ID original — NO reasignar. Así las referencias (notas, Slack, humanas) siguen válidas.
+    wsH.appendRow(rd);
+    wsA.deleteRow(row);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // Calcula el próximo ID único entre activos + historial (evita colisiones tras mover tareas).
@@ -759,7 +797,7 @@ function nextTaskId(ss) {
     var ws = ss.getSheetByName(name); if (!ws) return;
     var lr = ws.getLastRow(); if (lr < 4) return;
     var ids = ws.getRange(4, 1, lr - 3, 1).getValues();
-    ids.forEach(function(r){ var v = parseInt(r[0]); if (!isNaN(v) && v > maxId) maxId = v; });
+    ids.forEach(function(r){ var v = parseInt(r[0], 10); if (!isNaN(v) && v > maxId) maxId = v; });
   });
   return maxId + 1;
 }
