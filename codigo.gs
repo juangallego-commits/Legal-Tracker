@@ -55,18 +55,44 @@ function doGet(e) {
   }
 
   // 2) Determinar rol (head / manager / specialist) contra hoja Config
-  var role = determineRole(authResult.email, authResult.user, config);
+  var realRole = determineRole(authResult.email, authResult.user, config);
 
-  // 3) Render normal, con el usuario ya resuelto y rol determinado
+  // 2b) View-as: solo heads pueden impersonar read-only la vista de otro email.
+  //     Si el target no existe o el caller no es head, ignoramos silenciosamente.
+  var viewAsEmail = (e && e.parameter && e.parameter.as || '').toString().toLowerCase().trim();
+  var effectiveUser = authResult.user;
+  var effectiveEmail = authResult.email;
+  var effectiveRole = realRole;
+  var viewAs = null;
+  if (viewAsEmail && realRole === 'head' && viewAsEmail !== authResult.email) {
+    var allow = buildEmailAllowlist(equipos);
+    var targetUser = allow[viewAsEmail];
+    if (targetUser) {
+      effectiveUser = targetUser;
+      effectiveEmail = viewAsEmail;
+      effectiveRole = determineRole(viewAsEmail, targetUser, config);
+      viewAs = { email: viewAsEmail, name: targetUser.name, role: effectiveRole, code: targetUser.code };
+    }
+  }
+
+  // 3) Render. `currentUser` refleja el rol EFECTIVO (lo que ve el frontend).
+  //    `realUser` preserva el email real para auditoría y para "volver a mi vista".
+  //    Escrituras del backend siguen usando Session.getActiveUser() (email real).
   var html = HtmlService.createTemplateFromFile('Dashboard');
-  html.data = JSON.stringify(getTrackerData());
+  html.data = JSON.stringify(_buildDataForUser(effectiveRole, effectiveUser));
   html.currentUser = JSON.stringify({
+    email: effectiveEmail,
+    name:  effectiveUser.name,
+    code:  effectiveUser.code,
+    isLeader: !!effectiveUser.isLeader,
+    role: effectiveRole
+  });
+  html.realUser = JSON.stringify({
     email: authResult.email,
     name:  authResult.user.name,
-    code:  authResult.user.code,
-    isLeader: !!authResult.user.isLeader,
-    role: role
+    role:  realRole
   });
+  html.viewAs = JSON.stringify(viewAs); // null si no está en modo view-as
   return html.evaluate()
     .setTitle('Legal Tracker · Rappi')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
@@ -147,15 +173,61 @@ function renderAccessDenied(authResult) {
 // Entry point que resuelve al visitante, determina su rol y devuelve la data
 // filtrada según lo que debe ver. Delega reads caros a _buildRawData()
 // (cacheado) y calcula stats en memoria sobre el subset visible.
-function getTrackerData() {
+function getTrackerData(viewAsEmail) {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var equipos = readEquipos(ss);
   var config = readConfig(ss);
   var auth = resolveVisitor(equipos);
   if (!auth.ok) throw new Error('No autorizado: ' + auth.message);
-  var role = determineRole(auth.email, auth.user, config);
+  var realRole = determineRole(auth.email, auth.user, config);
+
+  // View-as solo válido para heads; si no aplica, usa el email real.
+  var role = realRole;
+  var user = auth.user;
+  if (viewAsEmail && realRole === 'head') {
+    var target = buildEmailAllowlist(equipos)[viewAsEmail.toString().toLowerCase().trim()];
+    if (target) {
+      user = target;
+      role = determineRole(viewAsEmail, target, config);
+    }
+  }
+  return _buildDataForUser(role, user);
+}
+
+// Compone la vista (tasks/projects filtrados + stats) para un {role, user} dado.
+// Se usa tanto desde doGet como desde getTrackerData(viewAsEmail).
+function _buildDataForUser(role, user) {
   var raw = _cachedRawData();
-  return _buildViewForRole(raw, role, auth.user);
+  return _buildViewForRole(raw, role, user);
+}
+
+// Devuelve la lista de usuarios entre los que un head puede elegir para
+// "Ver como". Solo heads pueden invocar esta función; si no, retorna [].
+function listViewAsOptions() {
+  var ctx;
+  try { ctx = _getAuthContext(); } catch(e) { return []; }
+  if (ctx.role !== 'head') return [];
+  var config = readConfig(ctx.ss);
+  var allow = buildEmailAllowlist(ctx.equipos);
+  var opts = [];
+  Object.keys(allow).forEach(function(email) {
+    var u = allow[email];
+    opts.push({
+      email: email,
+      name:  u.name,
+      code:  u.code,
+      role:  determineRole(email, u, config)
+    });
+  });
+  // head primero, luego manager, luego specialist, luego alfabético.
+  var order = { head: 0, manager: 1, specialist: 2 };
+  opts.sort(function(a, b) {
+    var oa = order[a.role] != null ? order[a.role] : 3;
+    var ob = order[b.role] != null ? order[b.role] : 3;
+    if (oa !== ob) return oa - ob;
+    return a.name.localeCompare(b.name);
+  });
+  return opts;
 }
 
 // Cache solo la parte cara: lecturas del sheet. Los cálculos de stats se

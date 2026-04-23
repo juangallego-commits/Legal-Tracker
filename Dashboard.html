@@ -29,12 +29,20 @@
 <button class="nav-tab" onclick="openCreate()">+ Crear</button>
     </div>
     <div class="ov-badge" id="ovBadge">⚠ <span id="ovN">0</span> vencidas</div>
+    <button class="btn-viewas" id="viewAsBtn" onclick="openViewAsPicker(this)" style="display:none" title="Ver el dashboard como otro usuario (read-only)">👁 Ver como…</button>
     <div class="user-chip" id="userChip" title="Sesión activa (cierra sesión de Google para cambiar de usuario)" style="display:none">
   <div class="user-chip-av" id="userChipAv" style="background:var(--rappi)"></div>
   <span id="userChipName"></span>
 </div>
 <button class="btn-ref" onclick="location.reload()" aria-label="Recargar datos" title="Recargar">↻</button>
   </div>
+</div>
+
+<!-- VIEW-AS BANNER -->
+<div class="view-as-bar" id="viewAsBar" style="display:none">
+  <span class="view-as-icon">👁</span>
+  <span>Viendo como <strong id="viewAsName"></strong> <span class="view-as-role" id="viewAsRole"></span> · <em>modo read-only</em></span>
+  <button class="btn-secondary btn-sm" onclick="exitViewAs()">Volver a mi vista</button>
 </div>
 
 <!-- TOOLBAR -->
@@ -341,6 +349,8 @@
 <script>
   window.__DATA__ = <?!= data ?>;
   window.__USER__ = <?!= currentUser ?>;
+  window.__REAL_USER__ = <?!= realUser ?>;
+  window.__VIEW_AS__ = <?!= viewAs ?>; // null o {email, name, role, code}
 </script>
 <?!= include("Dashboard.js") ?>
 </body>

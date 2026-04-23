@@ -31,6 +31,10 @@ const AVC = [
 // si el visitante no está autorizado, ni siquiera se renderiza este script.
 var D = (typeof window !== 'undefined' && window.__DATA__) ? window.__DATA__ : {};
 var USER = (typeof window !== 'undefined' && window.__USER__) ? window.__USER__ : null;
+// REAL_USER es el caller real; USER puede ser el "view-as" target para un head.
+// Cuando VIEW_AS no es null, el dashboard está en modo read-only simulando otro rol.
+var REAL_USER = (typeof window !== 'undefined' && window.__REAL_USER__) ? window.__REAL_USER__ : null;
+var VIEW_AS = (typeof window !== 'undefined' && window.__VIEW_AS__) ? window.__VIEW_AS__ : null;
 var F = { country:'ALL', status:'ALL', project:'ALL', search:'', resp:'ALL', projStatus:'ALL' };
 var SORT = { col: null, asc: true };
 var CH = {};
@@ -757,6 +761,7 @@ function go(v) {
 // Abre el modal global de creación. Opcional: tab inicial ('newTask'|'newProj')
 // y proyectoId a preseleccionar (útil para "+tarea" desde una pcard).
 function openCreate(tab, prefillProjectId) {
+  if (_blockIfViewingAs()) return;
   tab = tab || 'newTask';
   goSub(tab);
   if (prefillProjectId != null && $('fProj')) {
@@ -914,6 +919,7 @@ function renderDocsSection(kind, itemId, docs) {
 // Límite: Apps Script acepta ~50MB por invocación. Base64 agrega ~33% overhead,
 // así que aceptamos hasta ~33 MB de archivo original.
 function onDocFileSelected(input) {
+  if (_blockIfViewingAs()) { input.value = ''; return; }
   var file = input.files && input.files[0];
   if (!file) { input.value = ''; return; }
   var kind = input.dataset.kind;
@@ -953,6 +959,7 @@ function onDocFileSelected(input) {
 
 // Pegar un link de Drive existente.
 function attachDocLinkFromForm(kind, itemId) {
+  if (_blockIfViewingAs()) return;
   var url = $('docLinkUrl').value.trim();
   var name = $('docLinkName').value.trim();
   if (!url) { toast('Pegá un link primero', 'error'); return; }
@@ -1086,6 +1093,7 @@ function closeEdit() {
 
 // Dispatcher: el modal de edición es genérico, EDIT_KIND decide qué guardar.
 function saveEdit() {
+  if (_blockIfViewingAs()) return;
   if (!EDIT_ID) return;
   if (EDIT_KIND === 'project') return saveEditProj();
   return saveEditTask();
@@ -1298,6 +1306,7 @@ function closeDD() {
 // que el server responda. Si falla, rollback + toast de error. El reload()
 // posterior sincroniza stats (KPI/SLA/team/countries) reales del server.
 function uf(id, f, v) {
+  if (_blockIfViewingAs()) { closeDD(); return; }
   closeDD();
   var willMoveToHistorial = (f === 'status' && v === 'Listo');
   var task = D.tasks.find(function(x){ return x.id == id; });
@@ -1332,6 +1341,7 @@ function uf(id, f, v) {
 
 // Confirmed update: se usa para transiciones destructivas (marcar Listo).
 function cfUp(id, f, v) {
+  if (_blockIfViewingAs()) { closeDD(); return; }
   closeDD();
   confirm_('¿Marcar como Listo? Se moverá al Historial.', function(){ uf(id, f, v); });
 }
@@ -1446,6 +1456,81 @@ function mountUserChip() {
   if (USER.role === 'specialist') {
     F.resp = CURRENT_USER;
   }
+
+  // 5) View-as: si el caller real es head, mostrar el botón "Ver como…".
+  //    Si estamos en modo view-as, mostrar banner y marcar body.
+  if (REAL_USER && REAL_USER.role === 'head') {
+    var vb = $('viewAsBtn');
+    if (vb) vb.style.display = 'inline-block';
+  }
+  if (VIEW_AS) {
+    document.body.classList.add('viewing-as');
+    var bar = $('viewAsBar');
+    if (bar) {
+      bar.style.display = 'flex';
+      $('viewAsName').textContent = VIEW_AS.name + (VIEW_AS.code ? ' (' + VIEW_AS.code + ')' : '');
+      $('viewAsRole').textContent = VIEW_AS.role;
+    }
+  }
+}
+
+// ═══ VIEW AS (solo head) ═══
+// Abre el dropdown con la lista de usuarios disponibles. La lista se carga una
+// sola vez; el backend valida que el caller sea head y retorna [] si no.
+var _viewAsCache = null;
+function openViewAsPicker(anchor) {
+  if (!REAL_USER || REAL_USER.role !== 'head') return;
+  if (_viewAsCache) {
+    _renderViewAsMenu(anchor, _viewAsCache);
+    return;
+  }
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(opts) {
+      hideLoader();
+      _viewAsCache = opts || [];
+      _renderViewAsMenu(anchor, _viewAsCache);
+    })
+    .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
+    .listViewAsOptions();
+}
+
+function _renderViewAsMenu(anchor, opts) {
+  if (!opts.length) { toast('No hay usuarios disponibles', 'info'); return; }
+  var items = opts.map(function(o) {
+    var isCurrent = VIEW_AS && VIEW_AS.email === o.email;
+    var isSelf = REAL_USER && REAL_USER.email === o.email;
+    var check = isCurrent ? '✓ ' : '';
+    var label = isSelf ? o.name + ' (tú)' : o.name;
+    return '<div class="viewas-item" data-act="pick-viewas" data-email="' + esc(o.email) + '">'
+      +      '<span class="viewas-item-name">' + check + esc(label) + '</span>'
+      +      '<span class="viewas-item-role">' + esc(o.role) + '</span>'
+      +    '</div>';
+  }).join('');
+  openDD(anchor, '<div class="viewas-list">' + items + '</div>');
+}
+
+function enterViewAs(email) {
+  if (!email) return;
+  var url = new URL(window.location.href);
+  url.searchParams.set('as', email);
+  window.location.href = url.toString();
+}
+
+function exitViewAs() {
+  var url = new URL(window.location.href);
+  url.searchParams.delete('as');
+  window.location.href = url.toString();
+}
+
+// Guard genérico para escrituras en modo view-as. Se llama al inicio de las
+// funciones de mutación del frontend; el backend hace la autorización real.
+function _blockIfViewingAs() {
+  if (VIEW_AS) {
+    toast('Modo read-only · estás viendo como ' + VIEW_AS.name, 'info');
+    return true;
+  }
+  return false;
 }
 
 // ═══ RESUMEN EJECUTIVO (head) ═══
@@ -2141,7 +2226,13 @@ var ACTIONS = {
     go('tracker');
     render();
   },
+  'pick-viewas':     function(el){
+    var email = el.dataset.email;
+    if (REAL_USER && email === REAL_USER.email) { exitViewAs(); return; }
+    enterViewAs(email);
+  },
   'remove-doc':      function(el){
+    if (_blockIfViewingAs()) return;
     var kind = el.dataset.kind;
     var itemId = Number(el.dataset.itemId);
     var i = Number(el.dataset.i);

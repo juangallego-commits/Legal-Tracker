@@ -1337,4 +1337,65 @@ body.role-manager #tabResumen { display: none !important; }
   .proj-grid { grid-template-columns: 1fr; }
   .mt-hero { grid-template-columns: 1fr 1fr; }
 }
+
+/* ═══ VIEW AS ═══ */
+.btn-viewas {
+  background: transparent; border: 1px solid rgba(255,255,255,.14);
+  color: var(--text-muted); font-size: 12px; font-weight: 600;
+  padding: 6px 12px; border-radius: 8px; cursor: pointer;
+  transition: all .15s ease;
+}
+.btn-viewas:hover { border-color: var(--rappi); color: var(--rappi); }
+
+.view-as-bar {
+  display: flex; align-items: center; gap: 12px;
+  background: linear-gradient(90deg, rgba(255,185,56,.12), rgba(255,185,56,.04));
+  border: 1px solid rgba(255,185,56,.3);
+  border-radius: 12px; padding: 10px 16px; margin: 0 0 16px 0;
+  font-size: 13px; color: var(--text);
+}
+.view-as-bar strong { color: #FFB938; }
+.view-as-bar em { color: var(--text-dim); font-style: normal; font-size: 11px; }
+.view-as-icon { font-size: 16px; }
+.view-as-role {
+  display: inline-block; font-size: 10px; text-transform: uppercase;
+  font-weight: 700; color: var(--text-dim);
+  border: 1px solid rgba(255,255,255,.12); border-radius: 4px;
+  padding: 1px 6px; margin-left: 4px; letter-spacing: .5px;
+}
+.view-as-bar .btn-secondary { margin-left: auto; }
+
+/* Dropdown "Ver como" options */
+.viewas-list { max-height: 400px; overflow-y: auto; min-width: 260px; }
+.viewas-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; cursor: pointer; border-radius: 6px;
+  font-size: 13px;
+}
+.viewas-item:hover { background: rgba(255,255,255,.06); }
+.viewas-item-name { flex: 1; font-weight: 600; }
+.viewas-item-role {
+  font-size: 10px; text-transform: uppercase; font-weight: 700;
+  color: var(--text-dim); padding: 2px 6px; border-radius: 4px;
+  background: rgba(255,255,255,.05); letter-spacing: .5px;
+}
+
+/* Modo read-only: desactivar todos los botones de mutación.
+   Escrituras también bloqueadas en JS; esto es la capa visual. */
+body.viewing-as .nav-tab[onclick*="openCreate"],
+body.viewing-as #editSaveBtn,
+body.viewing-as .quick-add-btn,
+body.viewing-as .btn-submit,
+body.viewing-as .card-ed,
+body.viewing-as [data-act="show-prio-menu"],
+body.viewing-as [data-act="show-status-menu"],
+body.viewing-as [data-act="remove-doc"],
+body.viewing-as .doc-upload-btn,
+body.viewing-as .doc-link-row,
+body.viewing-as .card-row[data-act="edit-task"],
+body.viewing-as .card-row[data-act="edit-proj"] {
+  pointer-events: none !important;
+  opacity: .45 !important;
+  cursor: not-allowed !important;
+}
 </style>
