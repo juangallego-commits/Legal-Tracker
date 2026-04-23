@@ -24,7 +24,7 @@
       <button class="nav-tab" onclick="go('analytics')" id="tabAnalytics">Analytics</button>
       <button class="nav-tab" onclick="go('historial')" id="tabHistorial">Historial</button>
       <button class="nav-tab" onclick="go('mistareas')" id="tabMisTareas">Mis tareas</button>
-<button class="nav-tab" onclick="go('nueva')">+ Crear</button>
+<button class="nav-tab" onclick="openCreate()">+ Crear</button>
     </div>
     <div class="ov-badge" id="ovBadge">⚠ <span id="ovN">0</span> vencidas</div>
     <div class="user-chip" id="userChip" title="Sesión activa (cierra sesión de Google para cambiar de usuario)" style="display:none">
@@ -138,9 +138,15 @@
     </div>
   </div>
 </div>
-<!-- ═══ VIEW: CREAR ═══ -->
-<div class="view" id="vNueva">
-  <div class="sub-tabs anim d2">
+<!-- ═══ CREAR MODAL (tarea o proyecto) ═══ -->
+<div class="modal-overlay" id="createOv" onclick="if(event.target===this)closeCreate()">
+<div class="modal modal-wide">
+<div class="modal-header">
+  <h2 id="createT">Crear</h2>
+  <button class="modal-close" onclick="closeCreate()" aria-label="Cerrar">✕</button>
+</div>
+<div class="modal-body">
+  <div class="sub-tabs">
     <button class="sub-tab active" onclick="goSub('newTask')">📝 Nueva tarea</button>
     <button class="sub-tab" onclick="goSub('newProj')">📁 Nuevo proyecto</button>
   </div>
@@ -193,6 +199,10 @@
     </div></div>
   </div>
 </div>
+</div>
+</div>
+
+<button class="fab" id="fabCreate" onclick="openCreate()" aria-label="Crear (atajo: N)" title="Crear tarea o proyecto (N)">+</button>
 
 <div class="footer">⚖ Con amor por el Legal Team · Rappi · Tracker v3.3</div>
 </div>

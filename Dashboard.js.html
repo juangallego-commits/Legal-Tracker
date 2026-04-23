@@ -623,16 +623,22 @@ function rProjects() {
       +   progress
       + '</div>'
       + (stats ? '<div class="pcard-stats">' + stats + '</div>' : '')
-      + (ts.total > 0
-          ? '<button class="pcard-toggle" data-act="toggle-ptasks"><span class="arrow">▶</span> Ver tareas (' + ts.total + ')</button>'
-            + '<div class="pcard-tasks" id="pt' + p.id + '">' + taskRows + '</div>'
-          : '')
+      + '<div class="pcard-footer">'
+      +   '<button class="pcard-add" data-act="create-task-in-project" data-id="' + p.id + '" title="Añadir tarea a este proyecto (preload)">+ tarea</button>'
+      +   (ts.total > 0
+            ? '<button class="pcard-toggle" data-act="toggle-ptasks"><span class="arrow">▶</span> Ver tareas (' + ts.total + ')</button>'
+            : '')
+      + '</div>'
+      + (ts.total > 0 ? '<div class="pcard-tasks" id="pt' + p.id + '">' + taskRows + '</div>' : '')
       + '</div>';
   }).join('');
 }
 
 function togglePTasks(btn) {
-  var tasks = btn.nextElementSibling;
+  // Busca .pcard-tasks dentro del mismo pcard (robusto ante cambios de estructura)
+  var pcard = btn.closest ? btn.closest('.pcard') : null;
+  if (!pcard) return;
+  var tasks = pcard.querySelector('.pcard-tasks');
   if (!tasks) return;
   var open = tasks.classList.toggle('open');
   var arrow = btn.querySelector('.arrow');
@@ -726,7 +732,9 @@ function rAnalytics(tasks, team) {
 }
 
 // ═══ VIEWS ═══
-var VIEWS = ['tracker','proyectos','analytics','historial','mistareas','nueva'];
+// 'nueva' ya no es una view; es un modal global (openCreate). Lo dejo en el
+// array para mantener índices de .nav-tab coherentes con el orden del HTML.
+var VIEWS = ['tracker','proyectos','analytics','historial','mistareas'];
 
 function go(v) {
   VIEWS.forEach(function(x) {
@@ -742,6 +750,29 @@ function go(v) {
   if (v === 'mistareas') rMisTareas();
 }
 
+// ═══ CREATE MODAL ═══
+// Abre el modal global de creación. Opcional: tab inicial ('newTask'|'newProj')
+// y proyectoId a preseleccionar (útil para "+tarea" desde una pcard).
+function openCreate(tab, prefillProjectId) {
+  tab = tab || 'newTask';
+  goSub(tab);
+  if (prefillProjectId != null && $('fProj')) {
+    $('fProj').value = prefillProjectId;
+  }
+  $('createT').textContent = tab === 'newProj' ? 'Crear proyecto' : 'Crear tarea';
+  $('createOv').classList.add('show');
+  // Auto-focus en el primer input relevante
+  setTimeout(function() {
+    var input = tab === 'newProj' ? $('pNom') : $('fNom');
+    if (input) input.focus();
+  }, 80);
+}
+
+function closeCreate() {
+  $('createOv').classList.remove('show');
+}
+
+
 function goSub(v) {
   var subs = ['newTask', 'newProj'];
   subs.forEach(function(x) {
@@ -751,6 +782,8 @@ function goSub(v) {
   document.querySelectorAll('.sub-tab').forEach(function(b, i) {
     b.classList.toggle('active', subs[i] === v);
   });
+  // Actualizar el título del modal Crear si está abierto
+  if ($('createT')) $('createT').textContent = v === 'newProj' ? 'Crear proyecto' : 'Crear tarea';
 }
 
 // ═══ SUBMIT TASK ═══
@@ -772,6 +805,7 @@ function submitTask() {
         $('fDl').value = '';
         if (_tagsAccHandle) _tagsAccHandle.clear();
         reload();
+        closeCreate();
       } else {
         fm('fMsg', 'Error: ' + (res.error || ''), 'error');
       }
@@ -812,6 +846,7 @@ function submitProj() {
         var o = document.createElement('option');
         o.value = res.id; o.textContent = res.nombre;
         $('fProj').appendChild(o);
+        closeCreate();
       } else {
         fm('pMsg', 'Error: ' + (res.error || ''), 'error');
       }
@@ -1639,6 +1674,7 @@ var ACTIONS = {
   'remove-tag':      function(el){ removeTag(el.dataset.container, Number(el.dataset.i)); },
   'clear-filter':    function(el){ var i = Number(el.dataset.i); if (_filterClearers[i]) { _filterClearers[i](); persistFilters(); render(); } },
   'clear-all-filters': function(){ clearAllFilters(); },
+  'create-task-in-project': function(el){ openCreate('newTask', Number(el.dataset.id)); },
   'remove-doc':      function(el){
     var kind = el.dataset.kind;
     var itemId = Number(el.dataset.itemId);
@@ -1673,14 +1709,25 @@ document.addEventListener('click', function(e) {
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     if ($('ddM') && $('ddM').style.display === 'block') { closeDD(); return; }
+    if ($('createOv') && $('createOv').classList.contains('show')) { closeCreate(); return; }
     if ($('editOv') && $('editOv').classList.contains('show')) { closeEdit(); return; }
     if ($('confOv') && $('confOv').classList.contains('show')) { closeCf(); return; }
     return;
   }
-  if (e.key === '/' && document.activeElement && document.activeElement.tagName !== 'INPUT'
-      && document.activeElement.tagName !== 'TEXTAREA' && document.activeElement.tagName !== 'SELECT') {
-    var input = $('sInput');
-    if (input) { e.preventDefault(); input.focus(); input.select(); }
+  var ae = document.activeElement;
+  var inInput = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT');
+  if (inInput) return;
+  if (e.key === '/') {
+    var sInput = $('sInput');
+    if (sInput) { e.preventDefault(); sInput.focus(); sInput.select(); }
+    return;
+  }
+  // N → abrir modal de creación (no dentro de un input)
+  if (e.key === 'n' || e.key === 'N') {
+    if ($('createOv') && !$('createOv').classList.contains('show')) {
+      e.preventDefault();
+      openCreate();
+    }
   }
 });
 
@@ -1820,6 +1867,9 @@ document.addEventListener('DOMContentLoaded', function() {
   restoreFilters();
   syncFilterUIFromState();
   render();
+  // Default view por rol: specialist va directo a su lista de tareas,
+  // manager y head entran al Tracker global (con sus respectivos filtros).
+  if (USER && USER.role === 'specialist') go('mistareas');
 }, true);
 
 // Aplica el estado de F a los botones/pills (después de restoreFilters).

@@ -454,17 +454,23 @@ tbody tr:hover { background: rgba(255,255,255,.015); }
 .pcard-stats { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 20px 14px; }
 .pcard-stat { padding: 3px 9px; border-radius: var(--radius-xs); font-size: 10px; font-weight: 700; }
 
-.pcard-toggle {
-  padding: 10px 20px;
+.pcard-footer {
+  display: flex; align-items: center;
   border-top: 1px solid var(--border);
+  padding: 8px 12px;
+  gap: 8px;
+}
+.pcard-toggle {
+  padding: 6px 10px;
   cursor: pointer;
   font-size: 12px; font-weight: 700;
   color: var(--text-dim);
   display: flex; align-items: center; gap: 6px;
   transition: color .15s;
   background: transparent;
-  border-left: none; border-right: none; border-bottom: none;
-  width: 100%; text-align: left;
+  border: none;
+  flex: 1;
+  text-align: left;
   font-family: var(--font);
 }
 .pcard-toggle:hover { color: var(--text); }
@@ -636,6 +642,9 @@ tbody tr:hover { background: rgba(255,255,255,.015); }
   overflow-y: auto;
   box-shadow: var(--shadow);
   animation: mIn .25s ease;
+}
+.modal.modal-wide {
+  max-width: 780px;
 }
 @keyframes mIn {
   from { opacity: 0; transform: scale(.95) translateY(10px); }
@@ -865,6 +874,51 @@ tbody tr:hover { background: rgba(255,255,255,.015); }
   transition: color .15s;
 }
 .filter-clear-all:hover { color: var(--red); }
+
+/* ═══════════════════════════════════════════════════════════════
+   FAB (floating action button) — crear tarea/proyecto desde cualquier vista
+   ═══════════════════════════════════════════════════════════════ */
+.fab {
+  position: fixed;
+  bottom: 28px; right: 28px;
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--rappi);
+  color: #fff;
+  font-size: 28px;
+  font-weight: 400;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(255,73,64,.4);
+  z-index: 900;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+  transition: all .2s;
+  font-family: var(--font);
+}
+.fab:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 12px 32px rgba(255,73,64,.5);
+}
+.fab:active { transform: translateY(0); }
+
+/* Botón "+ tarea" dentro de cada pcard (quick-add a ese proyecto) */
+.pcard-add {
+  font-size: 11px; font-weight: 700;
+  color: var(--rappi);
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: all .15s;
+  margin-left: 6px;
+}
+.pcard-add:hover {
+  border-color: var(--rappi);
+  background: var(--rappi-glow);
+}
 
 /* ═══════════════════════════════════════════════════════════════
    LOADER BAR (top del viewport, activo durante llamadas al server)
