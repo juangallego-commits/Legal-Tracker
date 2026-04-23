@@ -900,7 +900,7 @@ function renderDocsSection(kind, itemId, docs) {
     + '<div class="doc-actions">'
     +   '<label class="doc-upload-btn">'
     +     '📤 Subir archivo'
-    +     '<input type="file" id="docFileInput" data-kind="' + kind + '" data-item-id="' + itemId + '" style="display:none" onchange="onDocFileSelected(this)">'
+    +     '<input type="file" id="docFileInput" data-kind="' + kind + '" data-item-id="' + itemId + '" style="display:none" onclick="this.value=null" onchange="onDocFileSelected(this)">'
     +   '</label>'
     +   '<div class="doc-link-row">'
     +     '<input type="text" id="docLinkUrl" placeholder="Pegar link de Drive" class="doc-link-input">'
@@ -911,13 +911,15 @@ function renderDocsSection(kind, itemId, docs) {
 }
 
 // File input → base64 → backend. Muestra loader y spinner durante upload.
+// Límite: Apps Script acepta ~50MB por invocación. Base64 agrega ~33% overhead,
+// así que aceptamos hasta ~33 MB de archivo original.
 function onDocFileSelected(input) {
   var file = input.files && input.files[0];
-  if (!file) return;
+  if (!file) { input.value = ''; return; }
   var kind = input.dataset.kind;
   var itemId = Number(input.dataset.itemId);
-  if (file.size > 45 * 1024 * 1024) {
-    toast('Archivo muy grande (máx 45 MB en Apps Script)', 'error');
+  if (file.size > 33 * 1024 * 1024) {
+    toast('Archivo muy grande (máx 33 MB). Subilo directo a Drive y pegá el link.', 'error');
     input.value = '';
     return;
   }

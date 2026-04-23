@@ -860,11 +860,28 @@ function _getRootFolder() {
 }
 
 // Retorna (o crea) una subcarpeta por nombre dentro de parent.
+// DriveApp no tiene unicidad por nombre; si dos uploads concurrentes no
+// encuentran la carpeta, ambos la crean (duplicada). Usamos lock corto para
+// serializar la creación. El get es idempotente, el createFolder no.
 function _ensureSubfolder(parent, name) {
   var clean = (name || '').toString().trim() || 'Sin clasificar';
   var it = parent.getFoldersByName(clean);
   if (it.hasNext()) return it.next();
-  return parent.createFolder(clean);
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(5000); } catch(e) {
+    // Si no pudimos tomar el lock, hacemos el check una vez más y creamos.
+    it = parent.getFoldersByName(clean);
+    if (it.hasNext()) return it.next();
+    return parent.createFolder(clean);
+  }
+  try {
+    // Re-check adentro del lock: otra invocación pudo haberla creado.
+    it = parent.getFoldersByName(clean);
+    if (it.hasNext()) return it.next();
+    return parent.createFolder(clean);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // Resuelve la carpeta final donde debe ir un archivo según la taxonomía:
@@ -948,7 +965,11 @@ function _readDocsFor(kind, itemId) {
 }
 
 // Sube un archivo (base64) a Drive y lo vincula al item. Retorna el doc descriptor.
-function uploadDocument(kind, itemId, fileData) {
+// Lock para que upload + read + append + write al sheet sean atómicos (evita
+// perder docs cuando hay uploads concurrentes al mismo item).
+// Si la escritura al sheet falla, se borra el archivo de Drive para no dejar huérfanos.
+function uploadDocument(kind, itemId, fileData) { return _safeMutation(function() { return _uploadDocumentImpl(kind, itemId, fileData); }); }
+function _uploadDocumentImpl(kind, itemId, fileData) {
   if (!fileData || !fileData.data || !fileData.name) {
     return { success: false, error: 'Datos de archivo inválidos' };
   }
@@ -958,27 +979,38 @@ function uploadDocument(kind, itemId, fileData) {
   if (kind === 'task') _authorizeTaskWrite(ctx, info.target);
   else _authorizeProjectWrite(ctx, info.target);
 
-  var folder;
-  try {
-    folder = _resolveTargetFolder(kind, itemId);
-  } catch (e) {
-    return { success: false, error: e.message };
-  }
-
+  var folder = _resolveTargetFolder(kind, itemId);
   var bytes = Utilities.base64Decode(fileData.data);
   var blob = Utilities.newBlob(bytes, fileData.mimeType || 'application/octet-stream', fileData.name);
-  var file = folder.createFile(blob);
 
-  var doc = { name: file.getName(), url: file.getUrl(), id: file.getId(),
-              uploadedBy: ctx.user.name, uploadedAt: new Date().toISOString() };
-  var docs = info.docs.concat([doc]);
-  info.ws.getRange(info.row, info.col).setValue(_serializeDocs(docs));
-  invalidateCache();
-  return { success: true, doc: doc };
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  var file = null;
+  try {
+    // Re-leer docs bajo el lock para no pisar otra escritura concurrente.
+    var fresh = _readDocsFor(kind, itemId);
+    if (!fresh) return { success: false, error: 'Item desapareció mientras se subía' };
+    file = folder.createFile(blob);
+    var doc = { name: file.getName(), url: file.getUrl(), id: file.getId(),
+                uploadedBy: ctx.user.name, uploadedAt: new Date().toISOString() };
+    var docs = fresh.docs.concat([doc]);
+    try {
+      fresh.ws.getRange(fresh.row, fresh.col).setValue(_serializeDocs(docs));
+    } catch (writeErr) {
+      // Rollback: borra el archivo recién subido para no dejarlo huérfano.
+      try { file.setTrashed(true); } catch (e) {}
+      throw writeErr;
+    }
+    invalidateCache();
+    return { success: true, doc: doc };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // Vincula un link existente de Drive (no mueve el archivo).
-function attachDocumentLink(kind, itemId, link) {
+function attachDocumentLink(kind, itemId, link) { return _safeMutation(function() { return _attachDocumentLinkImpl(kind, itemId, link); }); }
+function _attachDocumentLinkImpl(kind, itemId, link) {
   if (!link || !link.url) return { success: false, error: 'URL requerida' };
   var ctx = _getAuthContext();
   var info = _readDocsFor(kind, itemId);
@@ -986,34 +1018,52 @@ function attachDocumentLink(kind, itemId, link) {
   if (kind === 'task') _authorizeTaskWrite(ctx, info.target);
   else _authorizeProjectWrite(ctx, info.target);
 
-  var doc = {
-    name: (link.name || '').toString().trim() || link.url,
-    url: link.url.toString().trim(),
-    id: _extractDriveId(link.url) || '',
-    external: true,
-    uploadedBy: ctx.user.name,
-    uploadedAt: new Date().toISOString()
-  };
-  var docs = info.docs.concat([doc]);
-  info.ws.getRange(info.row, info.col).setValue(_serializeDocs(docs));
-  invalidateCache();
-  return { success: true, doc: doc };
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  try {
+    var fresh = _readDocsFor(kind, itemId);
+    if (!fresh) return { success: false, error: 'Item desapareció' };
+    var doc = {
+      name: (link.name || '').toString().trim() || link.url,
+      url: link.url.toString().trim(),
+      id: _extractDriveId(link.url) || '',
+      external: true,
+      uploadedBy: ctx.user.name,
+      uploadedAt: new Date().toISOString()
+    };
+    var docs = fresh.docs.concat([doc]);
+    fresh.ws.getRange(fresh.row, fresh.col).setValue(_serializeDocs(docs));
+    invalidateCache();
+    return { success: true, doc: doc };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // Quita la referencia del tracker (NO borra el archivo en Drive).
-function removeDocument(kind, itemId, docIndex) {
+function removeDocument(kind, itemId, docIndex) { return _safeMutation(function() { return _removeDocumentImpl(kind, itemId, docIndex); }); }
+function _removeDocumentImpl(kind, itemId, docIndex) {
   var ctx = _getAuthContext();
   var info = _readDocsFor(kind, itemId);
   if (!info) return { success: false, error: 'No encontrado' };
   if (kind === 'task') _authorizeTaskWrite(ctx, info.target);
   else _authorizeProjectWrite(ctx, info.target);
 
-  var idx = parseInt(docIndex, 10);
-  if (isNaN(idx) || idx < 0 || idx >= info.docs.length) return { success: false, error: 'Índice inválido' };
-  info.docs.splice(idx, 1);
-  info.ws.getRange(info.row, info.col).setValue(_serializeDocs(info.docs));
-  invalidateCache();
-  return { success: true };
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  try {
+    // Re-leer bajo el lock: el índice puede haber cambiado si otro agregó/quitó docs.
+    var fresh = _readDocsFor(kind, itemId);
+    if (!fresh) return { success: false, error: 'No encontrado' };
+    var idx = parseInt(docIndex, 10);
+    if (isNaN(idx) || idx < 0 || idx >= fresh.docs.length) return { success: false, error: 'Índice inválido' };
+    fresh.docs.splice(idx, 1);
+    fresh.ws.getRange(fresh.row, fresh.col).setValue(_serializeDocs(fresh.docs));
+    invalidateCache();
+    return { success: true };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
