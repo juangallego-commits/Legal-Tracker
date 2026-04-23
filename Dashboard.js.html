@@ -732,13 +732,14 @@ function rAnalytics(tasks, team) {
 }
 
 // ═══ VIEWS ═══
-// 'nueva' ya no es una view; es un modal global (openCreate). Lo dejo en el
-// array para mantener índices de .nav-tab coherentes con el orden del HTML.
-var VIEWS = ['tracker','proyectos','analytics','historial','mistareas'];
+// Orden debe coincidir con el orden de <button class="nav-tab"> en el HTML.
+// La nav-tab "Crear" no está en VIEWS porque es un modal global.
+var VIEWS = ['tracker','proyectos','miequipo','analytics','historial','mistareas'];
 
 function go(v) {
   VIEWS.forEach(function(x) {
-    var e = $('v' + x.charAt(0).toUpperCase() + x.slice(1));
+    var id = 'v' + x.charAt(0).toUpperCase() + x.slice(1);
+    var e = $(id);
     if (e) e.classList.toggle('active', x === v);
   });
   document.querySelectorAll('.nav-tab').forEach(function(b, i) {
@@ -748,6 +749,7 @@ function go(v) {
   if (v === 'historial') rHist();
   if (v === 'proyectos') rProjects();
   if (v === 'mistareas') rMisTareas();
+  if (v === 'miequipo')  rMiEquipo();
 }
 
 // ═══ CREATE MODAL ═══
@@ -1443,6 +1445,164 @@ function mountUserChip() {
   }
 }
 
+// ═══ MI EQUIPO (manager + head) ═══
+// Grid de miembros con sus stats + Hotspots (tareas vencidas/bloqueadas).
+// Para managers el team del backend ya viene filtrado a su país.
+// Para heads el team incluye a todos los miembros.
+function rMiEquipo() {
+  if (!USER || USER.role === 'specialist') return;
+
+  var equipo = D.team || [];
+  var tasks  = D.tasks || [];
+  var hist   = D.historial || [];
+
+  // Para manager: filtrar team a su país (el backend ya lo hace, defensive).
+  if (USER.role === 'manager' && USER.code) {
+    equipo = equipo.filter(function(m){ return m.country === USER.code; });
+  }
+
+  // Título
+  var titleEl = $('meqTitle');
+  if (titleEl) titleEl.textContent = USER.role === 'head' ? 'Todos los equipos' : 'Mi equipo (' + (USER.code || '—') + ')';
+  var countEl = $('meqTeamCount');
+  if (countEl) countEl.textContent = equipo.length + (equipo.length === 1 ? ' persona' : ' personas');
+
+  // ─── Hotspots: tareas vencidas o bloqueadas, ordenadas por antigüedad de creación
+  var hotspots = tasks.filter(function(t) {
+    if (t.status === 'Bloqueado') return true;
+    if (taskOverdueBySLA(t)) return true;
+    return false;
+  });
+  // Ordena por días desde creación, descendente (más viejas primero)
+  hotspots.sort(function(a, b) {
+    var ca = a.creadoRaw ? new Date(a.creadoRaw).getTime() : Date.now();
+    var cb = b.creadoRaw ? new Date(b.creadoRaw).getTime() : Date.now();
+    return ca - cb;
+  });
+
+  var hsBody = $('meqHotspotsBody');
+  var hsCount = $('meqHotspotsCount');
+  if (hsCount) hsCount.textContent = hotspots.length + (hotspots.length === 1 ? ' tarea' : ' tareas');
+  if (hsBody) {
+    if (!hotspots.length) {
+      hsBody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">🎉</div>Sin hotspots — todo bajo control</div></td></tr>';
+    } else {
+      hsBody.innerHTML = hotspots.map(function(t) {
+        var ageDays = t.creadoRaw
+          ? Math.floor((Date.now() - new Date(t.creadoRaw).getTime()) / 864e5)
+          : '—';
+        var ageClass = (typeof ageDays === 'number' && ageDays > 14) ? ' critical'
+                     : (typeof ageDays === 'number' && ageDays > 7)  ? ' warn' : '';
+        var dl = renderDeadlineBadge(t.deadline);
+        return '<tr>'
+          +   '<td class="col-id">' + t.id + '</td>'
+          +   '<td class="col-nombre" data-act="open-edit" data-id="' + t.id + '">' + esc(t.nombre) + '</td>'
+          +   '<td class="col-resp">' + esc(t.resp) + '</td>'
+          +   '<td>' + renderStatusBadge(t.status, t.id) + '</td>'
+          +   '<td>' + dl.html + '</td>'
+          +   '<td><span class="hotspot-days' + ageClass + '">' + ageDays + (typeof ageDays === 'number' ? 'd' : '') + '</span></td>'
+          +   '<td><button class="btn-icon" data-act="show-task-menu" data-id="' + t.id + '" aria-label="Acciones">⋮</button></td>'
+          + '</tr>';
+      }).join('');
+    }
+  }
+
+  // ─── Grid de miembros: para cada miembro, computar sus contadores
+  // usando tasks + historial visibles (ya filtrados por rol en backend).
+  var stats = {}; // name -> {activas, vencidas, bloqueadas, onTimePct, alta, media, baja}
+  equipo.forEach(function(m) {
+    stats[m.name] = {
+      member: m,
+      activas: 0,
+      vencidas: 0,
+      bloqueadas: 0,
+      cerradas: 0,
+      lateCerradas: 0,
+      alta: 0, media: 0, baja: 0
+    };
+  });
+  tasks.forEach(function(t) {
+    var s = stats[t.resp];
+    if (!s) return;
+    s.activas++;
+    if (t.priority === 'Alta')  s.alta++;
+    if (t.priority === 'Media') s.media++;
+    if (t.priority === 'Baja')  s.baja++;
+    if (t.status === 'Bloqueado') s.bloqueadas++;
+    if (taskOverdueBySLA(t))      s.vencidas++;
+  });
+  // On-time% a partir del historial (última ventana cercana a 30 días)
+  var cutoffMs = Date.now() - 30 * 864e5;
+  hist.forEach(function(t) {
+    var s = stats[t.resp];
+    if (!s || !t.creado || !t.cerrado) return;
+    var c = pd(t.creado), f = pd(t.cerrado);
+    if (!c || !f || f.getTime() < cutoffMs) return;
+    var biz = 0, cur = new Date(c);
+    while (cur < f) {
+      cur.setDate(cur.getDate() + 1);
+      var dy = cur.getDay();
+      if (dy !== 0 && dy !== 6) biz++;
+    }
+    s.cerradas++;
+    if (biz > (SLA_LIMITS[t.priority] || 5)) s.lateCerradas++;
+  });
+
+  var grid = $('meqGrid');
+  if (!grid) return;
+  if (!equipo.length) {
+    grid.innerHTML = '<div class="empty"><div class="empty-icon">👥</div>Sin miembros en el equipo</div>';
+    return;
+  }
+  // Ordenar: los que tienen más vencidas/bloqueadas primero (lo que pide atención)
+  var sorted = equipo.slice().sort(function(a, b) {
+    var sa = stats[a.name], sb = stats[b.name];
+    var heatA = (sa ? (sa.vencidas * 2 + sa.bloqueadas) : 0);
+    var heatB = (sb ? (sb.vencidas * 2 + sb.bloqueadas) : 0);
+    if (heatA !== heatB) return heatB - heatA;
+    return a.name.localeCompare(b.name);
+  });
+
+  grid.innerHTML = sorted.map(function(m, idx) {
+    var s = stats[m.name] || { activas:0, vencidas:0, bloqueadas:0, cerradas:0, lateCerradas:0, alta:0, media:0, baja:0 };
+    var bg = AVC[idx % AVC.length];
+    var onTime = s.cerradas > 0 ? Math.round((s.cerradas - s.lateCerradas) / s.cerradas * 100) : null;
+    var isHot = s.vencidas > 0 || s.bloqueadas > 0;
+
+    // Barra de distribución por prioridad (% del total activas)
+    var total = s.alta + s.media + s.baja || 1;
+    var bar = '<div class="meq-bar">'
+      + (s.alta  > 0 ? '<div class="meq-bar-seg meq-bar-alta"  style="width:' + (s.alta/total*100)  + '%"></div>' : '')
+      + (s.media > 0 ? '<div class="meq-bar-seg meq-bar-media" style="width:' + (s.media/total*100) + '%"></div>' : '')
+      + (s.baja  > 0 ? '<div class="meq-bar-seg meq-bar-baja"  style="width:' + (s.baja/total*100)  + '%"></div>' : '')
+      + '</div>';
+
+    return '<div class="meq-card' + (isHot ? ' meq-hot' : '') + '">'
+      + '<div class="meq-head">'
+      +   '<div class="meq-av" style="background:' + bg + '">' + esc(m.initials || '') + '</div>'
+      +   '<div>'
+      +     '<div class="meq-name">' + esc(m.name) + '</div>'
+      +     '<div class="meq-country">' + esc(m.country || '—') + '</div>'
+      +   '</div>'
+      + '</div>'
+      + '<div class="meq-stats">'
+      +   '<div class="meq-stat"><div class="meq-stat-num" style="color:var(--blue)">'   + s.activas    + '</div><div class="meq-stat-lbl">Activas</div></div>'
+      +   '<div class="meq-stat"><div class="meq-stat-num" style="color:var(--red)">'    + s.vencidas   + '</div><div class="meq-stat-lbl">Vencidas</div></div>'
+      +   '<div class="meq-stat"><div class="meq-stat-num" style="color:var(--yellow)">' + s.bloqueadas + '</div><div class="meq-stat-lbl">Bloq.</div></div>'
+      +   '<div class="meq-stat"><div class="meq-stat-num" style="color:var(--green)">'
+      +      (onTime == null ? '—' : (onTime + '%'))
+      +      '</div><div class="meq-stat-lbl">On-time</div></div>'
+      + '</div>'
+      + '<div class="meq-bar-row">'
+      +   '<span style="color:var(--red)">' + s.alta + '</span>'
+      +   bar
+      +   '<span style="color:var(--green)">' + s.baja + '</span>'
+      + '</div>'
+      + '<button class="meq-view-btn" data-act="view-member-tasks" data-arg="' + esc(m.name) + '">Ver sus tareas →</button>'
+      + '</div>';
+  }).join('');
+}
+
 // ═══ MI DESEMPEÑO ═══
 // Calcula métricas personales del specialist:
 //   1. Racha on-time: cuántas de las últimas tareas cerradas se cerraron
@@ -1769,6 +1929,13 @@ var ACTIONS = {
   'clear-filter':    function(el){ var i = Number(el.dataset.i); if (_filterClearers[i]) { _filterClearers[i](); persistFilters(); render(); } },
   'clear-all-filters': function(){ clearAllFilters(); },
   'create-task-in-project': function(el){ openCreate('newTask', Number(el.dataset.id)); },
+  'view-member-tasks': function(el) {
+    // Desde "Mi equipo": ir al Tracker con el filtro del miembro aplicado
+    F.resp = el.dataset.arg;
+    persistFilters();
+    go('tracker');
+    render();
+  },
   'remove-doc':      function(el){
     var kind = el.dataset.kind;
     var itemId = Number(el.dataset.itemId);
@@ -1961,9 +2128,12 @@ document.addEventListener('DOMContentLoaded', function() {
   restoreFilters();
   syncFilterUIFromState();
   render();
-  // Default view por rol: specialist va directo a su lista de tareas,
-  // manager y head entran al Tracker global (con sus respectivos filtros).
+  // Default view por rol:
+  //   specialist → Mis tareas (su lista de urgencia)
+  //   manager    → Mi equipo (vista del equipo con hotspots)
+  //   head       → Tracker (visibilidad global, default)
   if (USER && USER.role === 'specialist') go('mistareas');
+  else if (USER && USER.role === 'manager') go('miequipo');
 }, true);
 
 // Aplica el estado de F a los botones/pills (después de restoreFilters).

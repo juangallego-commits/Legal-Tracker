@@ -876,6 +876,103 @@ tbody tr:hover { background: rgba(255,255,255,.015); }
 .filter-clear-all:hover { color: var(--red); }
 
 /* ═══════════════════════════════════════════════════════════════
+   MI EQUIPO — vista para managers y head (grid de miembros + hotspots)
+   ═══════════════════════════════════════════════════════════════ */
+.meq-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+.meq-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  display: flex; flex-direction: column; gap: 10px;
+  transition: border-color .15s;
+}
+.meq-card:hover { border-color: var(--border-light); }
+.meq-card.meq-hot { border-color: rgba(255,92,92,.3); }
+
+.meq-head {
+  display: flex; align-items: center; gap: 10px;
+}
+.meq-av {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 12px;
+  color: #fff;
+  flex-shrink: 0;
+}
+.meq-name { font-weight: 700; font-size: 13px; line-height: 1.2; }
+.meq-country { font-size: 11px; color: var(--text-dim); margin-top: 1px; font-weight: 600; }
+
+.meq-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.meq-stat {
+  text-align: center;
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 6px 4px;
+}
+.meq-stat-num {
+  font-size: 18px; font-weight: 800;
+  font-family: var(--mono);
+  line-height: 1;
+}
+.meq-stat-lbl {
+  font-size: 9px; color: var(--text-dim);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  margin-top: 3px;
+}
+
+.meq-bar-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10px; color: var(--text-dim);
+  font-weight: 600;
+}
+.meq-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--surface3);
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+}
+.meq-bar-seg { height: 100%; }
+.meq-bar-alta  { background: #FF5C5C; }
+.meq-bar-media { background: #FFB938; }
+.meq-bar-baja  { background: #2DD4A0; }
+
+.meq-view-btn {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px; font-weight: 700;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: var(--font);
+  transition: all .15s;
+}
+.meq-view-btn:hover {
+  border-color: var(--rappi); color: var(--rappi);
+}
+
+/* Hotspots rows: énfasis visual en urgencia */
+.hotspot-days {
+  font-family: var(--mono);
+  font-weight: 700;
+}
+.hotspot-days.critical { color: var(--red); }
+.hotspot-days.warn { color: var(--yellow); }
+
+/* ═══════════════════════════════════════════════════════════════
    FAB (floating action button) — crear tarea/proyecto desde cualquier vista
    ═══════════════════════════════════════════════════════════════ */
 .fab {
@@ -949,12 +1046,13 @@ tbody tr:hover { background: rgba(255,255,255,.015); }
    ═══════════════════════════════════════════════════════════════ */
 
 /* Specialist: sin country bar, sin team grid, sin "Mis tareas" (ya es default),
-   sin chart de carga por equipo (todo pertenece a solo una persona). */
+   sin chart de carga por equipo, sin tab Mi equipo. */
 body.role-specialist #cBar,
 body.role-specialist #tGrid,
 body.role-specialist #myTasksBtn,
 body.role-specialist #cardLoad,
-body.role-specialist #rChips { display: none !important; }
+body.role-specialist #rChips,
+body.role-specialist #tabMiequipo { display: none !important; }
 
 /* Manager: country bar no aplica (solo su país); preserva team grid. */
 body.role-manager #cBar { display: none !important; }

@@ -21,6 +21,7 @@
     <div class="nav-tabs">
       <button class="nav-tab active" onclick="go('tracker')" id="tabTracker">Tracker</button>
       <button class="nav-tab" onclick="go('proyectos')" id="tabProyectos">Proyectos</button>
+      <button class="nav-tab" onclick="go('miequipo')" id="tabMiequipo">Mi equipo</button>
       <button class="nav-tab" onclick="go('analytics')" id="tabAnalytics">Analytics</button>
       <button class="nav-tab" onclick="go('historial')" id="tabHistorial">Historial</button>
       <button class="nav-tab" onclick="go('mistareas')" id="tabMisTareas">Mis tareas</button>
@@ -79,6 +80,41 @@
 <div class="view" id="vProyectos">
   <div class="filter-bar anim d2" id="projFBar"><span class="filter-label">Estado:</span><button class="fbtn active" onclick="fPSt('ALL')">Todos</button><button class="fbtn" onclick="fPSt('Activo')">Activo</button><button class="fbtn" onclick="fPSt('En pausa')">En pausa</button><button class="fbtn" onclick="fPSt('Completado')">Completado</button><button class="fbtn" onclick="fPSt('Cancelado')">Cancelado</button></div>
   <div class="proj-grid anim d2" id="projGrid"></div>
+</div>
+
+<!-- ═══ VIEW: MI EQUIPO (solo manager/head) ═══ -->
+<div class="view" id="vMiequipo">
+  <div class="card anim d2" id="meqHotspots" style="margin-bottom:22px">
+    <div class="card-header">
+      <span class="card-title">🔥 Hotspots</span>
+      <span class="card-badge" id="meqHotspotsCount">0</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col" class="col-id">#</th>
+            <th scope="col">Tarea</th>
+            <th scope="col">Responsable</th>
+            <th scope="col">Estado</th>
+            <th scope="col">Deadline</th>
+            <th scope="col">Días</th>
+            <th scope="col" style="width:36px" aria-label="Acciones"></th>
+          </tr>
+        </thead>
+        <tbody id="meqHotspotsBody"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card anim d3">
+    <div class="card-header">
+      <span class="card-title" id="meqTitle">Mi equipo</span>
+      <span class="card-badge" id="meqTeamCount">0</span>
+    </div>
+    <div class="card-body">
+      <div class="meq-grid" id="meqGrid"></div>
+    </div>
+  </div>
 </div>
 
 <!-- ═══ VIEW: ANALYTICS ═══ -->
