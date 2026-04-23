@@ -742,6 +742,90 @@ tbody tr:hover { background: rgba(255,255,255,.015); }
 .d4 { animation-delay: .2s; }
 
 /* ═══════════════════════════════════════════════════════════════
+   DOCUMENTOS — sección en el modal de edición
+   ═══════════════════════════════════════════════════════════════ */
+.doc-list {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 10px 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  min-height: 44px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.doc-empty {
+  font-size: 12px; color: var(--text-dim); font-style: italic;
+}
+.doc-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--surface3);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 4px 6px 4px 12px;
+  font-size: 12px;
+  max-width: 320px;
+}
+.doc-chip a {
+  color: var(--blue);
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+.doc-chip a:hover { text-decoration: underline; }
+.doc-chip-x {
+  width: 20px; height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--font);
+}
+.doc-chip-x:hover { background: var(--red-dim); color: var(--red); }
+
+.doc-actions {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.doc-upload-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--rappi);
+  color: #fff;
+  font-size: 13px; font-weight: 700;
+  cursor: pointer;
+  transition: all .2s;
+  border: none;
+  align-self: flex-start;
+}
+.doc-upload-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(255,73,64,.3);
+}
+.doc-link-row {
+  display: flex; gap: 6px;
+  align-items: center;
+}
+.doc-link-input {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+}
+.doc-link-input:focus { outline: none; border-color: var(--rappi); }
+.doc-link-input:first-of-type { flex: 2; }
+
+/* ═══════════════════════════════════════════════════════════════
    ACTIVE FILTERS — chips removibles arriba de la tabla
    ═══════════════════════════════════════════════════════════════ */
 .active-filters {

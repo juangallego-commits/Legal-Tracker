@@ -843,6 +843,115 @@ function buildOptions(items, current, includeBlank) {
   }).join('');
 }
 
+// ═══ DOCUMENTOS ═══
+// Sección en el modal de edición: lista de docs actuales + botón subir + pegar link.
+// kind: 'task' | 'project'. itemId: id del item. docs: array actual.
+function renderDocsSection(kind, itemId, docs) {
+  var chips = (docs || []).map(function(d, i) {
+    var urlEsc = esc(d.url || '#');
+    var nameEsc = esc(d.name || 'Documento');
+    var tooltip = d.external ? 'Link externo' : 'Subido por ' + esc(d.uploadedBy || '—');
+    return '<span class="doc-chip" title="' + tooltip + '">'
+      +      '<a href="' + urlEsc + '" target="_blank" rel="noopener">📄 ' + nameEsc + '</a>'
+      +      '<button class="doc-chip-x" data-act="remove-doc" data-kind="' + kind + '" data-item-id="' + itemId + '" data-i="' + i + '" aria-label="Quitar">✕</button>'
+      +    '</span>';
+  }).join('');
+
+  return '<div class="form-section"><div class="form-section-title">Documentos</div>'
+    + '<div class="doc-list" id="docList">' + (chips || '<span class="doc-empty">Ningún documento adjunto</span>') + '</div>'
+    + '<div class="doc-actions">'
+    +   '<label class="doc-upload-btn">'
+    +     '📤 Subir archivo'
+    +     '<input type="file" id="docFileInput" data-kind="' + kind + '" data-item-id="' + itemId + '" style="display:none" onchange="onDocFileSelected(this)">'
+    +   '</label>'
+    +   '<div class="doc-link-row">'
+    +     '<input type="text" id="docLinkUrl" placeholder="Pegar link de Drive" class="doc-link-input">'
+    +     '<input type="text" id="docLinkName" placeholder="Nombre (opcional)" class="doc-link-input">'
+    +     '<button class="btn-secondary btn-sm" onclick="attachDocLinkFromForm(\'' + kind + '\', ' + itemId + ')">Vincular</button>'
+    +   '</div>'
+    + '</div></div>';
+}
+
+// File input → base64 → backend. Muestra loader y spinner durante upload.
+function onDocFileSelected(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var kind = input.dataset.kind;
+  var itemId = Number(input.dataset.itemId);
+  if (file.size > 45 * 1024 * 1024) {
+    toast('Archivo muy grande (máx 45 MB en Apps Script)', 'error');
+    input.value = '';
+    return;
+  }
+  var reader = new FileReader();
+  reader.onerror = function(){ toast('Error leyendo archivo', 'error'); input.value = ''; };
+  reader.onload = function() {
+    var dataUrl = reader.result; // data:<mime>;base64,<data>
+    var base64 = String(dataUrl).split(',')[1];
+    toast('Subiendo ' + file.name + '...', 'info');
+    showLoader();
+    google.script.run
+      .withSuccessHandler(function(res) {
+        hideLoader();
+        input.value = '';
+        if (res && res.success) {
+          toast('✅ ' + file.name + ' subido', 'success');
+          reopenEditWithFreshData();
+        } else {
+          toast('Error: ' + ((res && res.error) || 'upload falló'), 'error');
+        }
+      })
+      .withFailureHandler(function(e) {
+        hideLoader();
+        input.value = '';
+        toast('Error: ' + e.message, 'error');
+      })
+      .uploadDocument(kind, itemId, { name: file.name, mimeType: file.type, data: base64 });
+  };
+  reader.readAsDataURL(file);
+}
+
+// Pegar un link de Drive existente.
+function attachDocLinkFromForm(kind, itemId) {
+  var url = $('docLinkUrl').value.trim();
+  var name = $('docLinkName').value.trim();
+  if (!url) { toast('Pegá un link primero', 'error'); return; }
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      hideLoader();
+      if (res && res.success) {
+        toast('✅ Link vinculado', 'success');
+        reopenEditWithFreshData();
+      } else {
+        toast('Error: ' + ((res && res.error) || ''), 'error');
+      }
+    })
+    .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
+    .attachDocumentLink(kind, itemId, { url: url, name: name });
+}
+
+// Después de agregar/quitar un doc, recargamos la data del server y re-abrimos
+// el modal con la lista refrescada (sin cerrar/volver a abrir visualmente).
+function reopenEditWithFreshData() {
+  var id = EDIT_ID, kind = EDIT_KIND;
+  if (!id) return;
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(d) {
+      hideLoader();
+      D = d;
+      render();
+      // Refresh solo el modal body con data nueva
+      if ($('editOv').classList.contains('show')) {
+        if (kind === 'task') openEdit(id);
+        else if (kind === 'project') openEditProj(id);
+      }
+    })
+    .withFailureHandler(function(e){ hideLoader(); toast('Error al refrescar: ' + e.message, 'error'); })
+    .getTrackerData();
+}
+
 function openEdit(id) {
   var t = D.tasks.find(function(x) { return x.id == id; });
   if (!t) return;
@@ -875,10 +984,11 @@ function openEdit(id) {
       '<div class="form-group"><label>Tipo de trabajo</label><select id="eTipo">' + tipoOpts + '</select></div>' +
       '<div class="form-group"><label>Nivel de riesgo</label><select id="eRiesgo">' + riesgoOpts + '</select></div>' +
     '</div>' +
-    '<div class="form-grid">' +
+    '<div class="form-grid" style="margin-bottom:14px">' +
       '<div class="form-group"><label>Accionable</label><input type="text" id="eAcc" value="' + esc(t.acc || '') + '"></div>' +
       '<div class="form-group"><label>Notas</label><input type="text" id="eNot" value="' + esc(t.notas || '') + '"></div>' +
-    '</div>';
+    '</div>' +
+    renderDocsSection('task', id, t.documentos || []);
   $('editOv').classList.add('show');
 }
 // Edición de proyectos: monta el form en el mismo modal genérico (#editOv).
@@ -922,8 +1032,9 @@ function openEditProj(id) {
     + '</div>'
     + '<div class="form-group" style="margin-bottom:14px"><label>Participantes <span style="font-weight:400;color:var(--text-dim)">(nombres separados por coma)</span></label>'
     +   '<input type="text" id="epPart" value="' + esc(partsValue) + '"></div>'
-    + '<div class="form-group"><label>Notas</label>'
-    +   '<input type="text" id="epNot" value="' + esc(p.notas || '') + '"></div>';
+    + '<div class="form-group" style="margin-bottom:14px"><label>Notas</label>'
+    +   '<input type="text" id="epNot" value="' + esc(p.notas || '') + '"></div>'
+    + renderDocsSection('project', id, p.documentos || []);
   $('editOv').classList.add('show');
 }
 
@@ -1527,7 +1638,22 @@ var ACTIONS = {
   'add-tag':         function(el){ addTag(el.dataset.container, el.dataset.val); },
   'remove-tag':      function(el){ removeTag(el.dataset.container, Number(el.dataset.i)); },
   'clear-filter':    function(el){ var i = Number(el.dataset.i); if (_filterClearers[i]) { _filterClearers[i](); persistFilters(); render(); } },
-  'clear-all-filters': function(){ clearAllFilters(); }
+  'clear-all-filters': function(){ clearAllFilters(); },
+  'remove-doc':      function(el){
+    var kind = el.dataset.kind;
+    var itemId = Number(el.dataset.itemId);
+    var i = Number(el.dataset.i);
+    if (!confirm('¿Quitar este documento del tracker? (no se borra del Drive)')) return;
+    showLoader();
+    google.script.run
+      .withSuccessHandler(function(res) {
+        hideLoader();
+        if (res && res.success) { toast('✅ Documento removido', 'success'); reopenEditWithFreshData(); }
+        else toast('Error: ' + ((res && res.error) || ''), 'error');
+      })
+      .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
+      .removeDocument(kind, itemId, i);
+  }
 };
 document.addEventListener('click', function(e) {
   var el = e.target.closest && e.target.closest('[data-act]');

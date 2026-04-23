@@ -10,10 +10,12 @@ const SHEET_CONFIG    = 'Config';
 const SHEET_EQUIPOS   = 'Equipos';
 const SHEET_PROYECTOS = 'Proyectos';
 
-// Tasks: 16 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder,TipoTrabajo,Riesgo
-const TASK_COLS = 16;
-// Projects: 15 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana,Participantes,TipoTrabajo,Riesgo
-const PROJ_COLS = 15;
+// Tasks: 17 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder,TipoTrabajo,Riesgo,Documentos
+const TASK_COLS = 17;
+const TASK_DOCS_COL = 17; // 1-indexed
+// Projects: 16 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana,Participantes,TipoTrabajo,Riesgo,Documentos
+const PROJ_COLS = 16;
+const PROJ_DOCS_COL = 16; // 1-indexed
 
 const STATUS_ORDER = {'Bloqueado':0,'En curso':1,'Pendiente':2,'En revisión':3,'Listo':4};
 const PRIO_ORDER   = {'Alta':0,'Media':1,'Baja':2};
@@ -487,6 +489,7 @@ function readProjects(ss) {
       participantes: (row[12]||'').toString().split(',').map(function(s){return s.trim()}).filter(Boolean),
       tipoTrabajo: (row[13]||'').toString().trim(),
       riesgo: (row[14]||'').toString().trim(),
+      documentos: _parseDocs(row[15]),
       pctDone: 0, tasks: [], taskStats: {}
     });
   });
@@ -608,7 +611,8 @@ function readTasks(ws) {
       pais:(row[12]||'').toString().trim(),
       lider:(row[13]||'').toString().trim(),
       tipoTrabajo:(row[14]||'').toString().trim(),
-      riesgo:(row[15]||'').toString().trim()
+      riesgo:(row[15]||'').toString().trim(),
+      documentos: _parseDocs(row[16])
     });
   });
   tasks.sort(function(a,b){return (PRIO_ORDER[a.priority]||1)-(PRIO_ORDER[b.priority]||1)||(STATUS_ORDER[a.status]||2)-(STATUS_ORDER[b.status]||2)});
@@ -760,6 +764,219 @@ function nextTaskId(ss) {
   return maxId + 1;
 }
 function getCurrentWeekLabel(){var now=new Date(),mon=new Date(now);mon.setDate(now.getDate()-(now.getDay()===0?6:now.getDay()-1));var fri=new Date(mon);fri.setDate(mon.getDate()+4);var m=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];return mon.getDate()+'-'+fri.getDate()+' '+m[fri.getMonth()]+' '+fri.getFullYear()}
+
+// ════════════════════════════════════════════════════════════════
+// DOCUMENTS (Drive integration)
+// ════════════════════════════════════════════════════════════════
+// Cada task/project tiene columna "Documentos" con JSON [{name, url, id}].
+// Subidas nuevas se clasifican en subcarpetas automáticas bajo la raíz
+// configurada en Config!DriveFolder.
+
+function _parseDocs(cellValue) {
+  if (!cellValue) return [];
+  var s = cellValue.toString().trim();
+  if (!s) return [];
+  try {
+    var arr = JSON.parse(s);
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+
+function _serializeDocs(docs) {
+  if (!docs || !docs.length) return '';
+  return JSON.stringify(docs);
+}
+
+// Extrae el ID de Drive de una URL o retorna el valor tal cual si ya parece ID.
+function _extractDriveId(urlOrId) {
+  if (!urlOrId) return '';
+  var s = urlOrId.toString().trim();
+  // URL típica: /folders/XXX  o  /d/XXX  o  ?id=XXX
+  var m = s.match(/\/folders\/([a-zA-Z0-9_-]+)/) ||
+          s.match(/\/d\/([a-zA-Z0-9_-]+)/) ||
+          s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  // Si ya parece un ID crudo (solo chars válidos)
+  if (/^[a-zA-Z0-9_-]{20,}$/.test(s)) return s;
+  return '';
+}
+
+// Resuelve la carpeta raíz configurada en Config!DriveFolder. Lanza si no
+// está configurada o no es accesible.
+function _getRootFolder() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var config = readConfig(ss);
+  var cfgValue = config['DriveFolder'] || config['driveFolder'] || '';
+  if (!cfgValue) {
+    throw new Error('Configura la carpeta raíz en Config!DriveFolder (pega la URL o el ID de una carpeta de Drive).');
+  }
+  var folderId = _extractDriveId(cfgValue);
+  if (!folderId) {
+    throw new Error('El valor de Config!DriveFolder no es una URL o ID de Drive válidos.');
+  }
+  try {
+    return DriveApp.getFolderById(folderId);
+  } catch (e) {
+    throw new Error('No puedo acceder a la carpeta de Drive. Verifica permisos del owner del webapp sobre ' + folderId + '.');
+  }
+}
+
+// Retorna (o crea) una subcarpeta por nombre dentro de parent.
+function _ensureSubfolder(parent, name) {
+  var clean = (name || '').toString().trim() || 'Sin clasificar';
+  var it = parent.getFoldersByName(clean);
+  if (it.hasNext()) return it.next();
+  return parent.createFolder(clean);
+}
+
+// Resuelve la carpeta final donde debe ir un archivo según la taxonomía:
+//   TipoTrabajo / País / (NombreProyecto | "Tareas sueltas")
+function _resolveTargetFolder(kind, itemId) {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var root = _getRootFolder();
+  var tipo = '', pais = '', projName = '';
+
+  if (kind === 'task') {
+    var ws = ss.getSheetByName(SHEET_ACTIVO);
+    var lr = ws.getLastRow();
+    var data = ws.getRange(4, 1, Math.max(0, lr - 3), TASK_COLS).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (data[i][0] == itemId) {
+        pais = (data[i][12] || '').toString().trim();
+        tipo = (data[i][14] || '').toString().trim();
+        var pid = parseInt((data[i][11] || '').toString().trim(), 10);
+        if (!isNaN(pid)) {
+          var projRow = _readProjectById(ss, pid);
+          if (projRow) {
+            var pws = ss.getSheetByName(SHEET_PROYECTOS);
+            projName = (pws.getRange(projRow.row, 2).getValue() || '').toString().trim();
+          }
+        }
+        break;
+      }
+    }
+  } else if (kind === 'project') {
+    var pws = ss.getSheetByName(SHEET_PROYECTOS);
+    var plr = pws.getLastRow();
+    var pdata = pws.getRange(2, 1, Math.max(0, plr - 1), PROJ_COLS).getValues();
+    for (var j = 0; j < pdata.length; j++) {
+      if (pdata[j][0] == itemId) {
+        pais = (pdata[j][2] || '').toString().trim();
+        tipo = (pdata[j][13] || '').toString().trim();
+        projName = (pdata[j][1] || '').toString().trim();
+        break;
+      }
+    }
+  }
+
+  var tipoFolder = _ensureSubfolder(root, tipo || 'Sin clasificar');
+  var paisFolder = _ensureSubfolder(tipoFolder, pais || 'Sin país');
+  var finalName = kind === 'project'
+    ? (projName || 'Sin nombre')
+    : (projName || 'Tareas sueltas');
+  return _ensureSubfolder(paisFolder, finalName);
+}
+
+// Lee los docs actuales del item + la posición en el sheet + la columna.
+function _readDocsFor(kind, itemId) {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  if (kind === 'task') {
+    var ws = ss.getSheetByName(SHEET_ACTIVO);
+    var lr = ws.getLastRow();
+    if (lr < 4) return null;
+    var data = ws.getRange(4, 1, lr - 3, TASK_COLS).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (data[i][0] == itemId) {
+        return { ss: ss, ws: ws, row: i + 4, col: TASK_DOCS_COL, docs: _parseDocs(data[i][TASK_DOCS_COL - 1]),
+                 target: { resp: data[i][2], pais: (data[i][12] || '').toString().trim() } };
+      }
+    }
+  } else if (kind === 'project') {
+    var pws = ss.getSheetByName(SHEET_PROYECTOS);
+    var plr = pws.getLastRow();
+    if (plr < 2) return null;
+    var pdata = pws.getRange(2, 1, plr - 1, PROJ_COLS).getValues();
+    for (var j = 0; j < pdata.length; j++) {
+      if (pdata[j][0] == itemId) {
+        var parts = (pdata[j][12] || '').toString().split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+        return { ss: ss, ws: pws, row: j + 2, col: PROJ_DOCS_COL, docs: _parseDocs(pdata[j][PROJ_DOCS_COL - 1]),
+                 target: { responsable: (pdata[j][4] || '').toString().trim(),
+                           pais: (pdata[j][2] || '').toString().trim(),
+                           participantes: parts } };
+      }
+    }
+  }
+  return null;
+}
+
+// Sube un archivo (base64) a Drive y lo vincula al item. Retorna el doc descriptor.
+function uploadDocument(kind, itemId, fileData) {
+  if (!fileData || !fileData.data || !fileData.name) {
+    return { success: false, error: 'Datos de archivo inválidos' };
+  }
+  var ctx = _getAuthContext();
+  var info = _readDocsFor(kind, itemId);
+  if (!info) return { success: false, error: (kind === 'project' ? 'Proyecto' : 'Tarea') + ' #' + itemId + ' no encontrado' };
+  if (kind === 'task') _authorizeTaskWrite(ctx, info.target);
+  else _authorizeProjectWrite(ctx, info.target);
+
+  var folder;
+  try {
+    folder = _resolveTargetFolder(kind, itemId);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+
+  var bytes = Utilities.base64Decode(fileData.data);
+  var blob = Utilities.newBlob(bytes, fileData.mimeType || 'application/octet-stream', fileData.name);
+  var file = folder.createFile(blob);
+
+  var doc = { name: file.getName(), url: file.getUrl(), id: file.getId(),
+              uploadedBy: ctx.user.name, uploadedAt: new Date().toISOString() };
+  var docs = info.docs.concat([doc]);
+  info.ws.getRange(info.row, info.col).setValue(_serializeDocs(docs));
+  invalidateCache();
+  return { success: true, doc: doc };
+}
+
+// Vincula un link existente de Drive (no mueve el archivo).
+function attachDocumentLink(kind, itemId, link) {
+  if (!link || !link.url) return { success: false, error: 'URL requerida' };
+  var ctx = _getAuthContext();
+  var info = _readDocsFor(kind, itemId);
+  if (!info) return { success: false, error: (kind === 'project' ? 'Proyecto' : 'Tarea') + ' #' + itemId + ' no encontrado' };
+  if (kind === 'task') _authorizeTaskWrite(ctx, info.target);
+  else _authorizeProjectWrite(ctx, info.target);
+
+  var doc = {
+    name: (link.name || '').toString().trim() || link.url,
+    url: link.url.toString().trim(),
+    id: _extractDriveId(link.url) || '',
+    external: true,
+    uploadedBy: ctx.user.name,
+    uploadedAt: new Date().toISOString()
+  };
+  var docs = info.docs.concat([doc]);
+  info.ws.getRange(info.row, info.col).setValue(_serializeDocs(docs));
+  invalidateCache();
+  return { success: true, doc: doc };
+}
+
+// Quita la referencia del tracker (NO borra el archivo en Drive).
+function removeDocument(kind, itemId, docIndex) {
+  var ctx = _getAuthContext();
+  var info = _readDocsFor(kind, itemId);
+  if (!info) return { success: false, error: 'No encontrado' };
+  if (kind === 'task') _authorizeTaskWrite(ctx, info.target);
+  else _authorizeProjectWrite(ctx, info.target);
+
+  var idx = parseInt(docIndex, 10);
+  if (isNaN(idx) || idx < 0 || idx >= info.docs.length) return { success: false, error: 'Índice inválido' };
+  info.docs.splice(idx, 1);
+  info.ws.getRange(info.row, info.col).setValue(_serializeDocs(info.docs));
+  invalidateCache();
+  return { success: true };
+}
 
 // ════════════════════════════════════════════════════════════════
 // SLACK HELPERS
