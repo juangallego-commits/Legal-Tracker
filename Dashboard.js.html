@@ -1,4 +1,8 @@
 <script>
+// BUILD-TAG: editorial-fase0-fix2-no-chart-at-load
+// (Si ves esta línea en la consola al cargar, este archivo SÍ es el nuevo.)
+console.log('Legal Tracker · build editorial-fase0-fix2');
+
 // ════════════════════════════════════════════════════════════════
 // 1 · CONSTANTS
 // ════════════════════════════════════════════════════════════════
@@ -90,15 +94,12 @@ function chartTheme() {
   };
 }
 
-// Defensive: si Chart.js (CDN) no carga (CSP del sandbox de Apps Script,
-// red flaky, etc.), no romper la app entera. Las funciones que renderizan
-// charts ya verifican CH antes de usar; sin defaults, los charts usan los
-// suyos pero el resto de la UI vive.
-if (typeof Chart !== 'undefined' && Chart.defaults) {
-  Chart.defaults.color = getTok('--muted');
-  Chart.defaults.font.family = "'Nunito Sans',sans-serif";
-  Chart.defaults.font.size = 12;
-}
+// Defensive: NO tocamos Chart.defaults en script-load. Si Chart.js (CDN)
+// no terminó de bajar a tiempo, cualquier referencia a Chart aquí haría
+// caer todo el script y la página queda en blanco. Las funciones que
+// renderizan gráficos (rDonut, rLoad, rAnalytics, rxTrend) verifican
+// `typeof Chart !== 'undefined'` antes de usar y consumen colores via
+// chartTheme() en vez de defaults globales.
 
 // ════════════════════════════════════════════════════════════════
 // 3 · RENDER HELPERS (reusable fragment builders)
