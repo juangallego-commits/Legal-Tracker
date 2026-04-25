@@ -39,7 +39,58 @@ var EDIT_KIND = null; // 'task' | 'project' — qué se está editando
 var CURRENT_USER = USER ? USER.name : null;
 var AVC_MAP = {};
 
-Chart.defaults.color = '#9099B0';
+// ════════════════════════════════════════════════════════════════
+// 2.1 · THEME / TOKEN HELPERS (Fase 0)
+// ════════════════════════════════════════════════════════════════
+// Read a CSS custom property from :root. Returns the resolved value
+// (works for #hex, rgba(), and var() chains).
+function getTok(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// Toggle theme (light is default). Persists to localStorage.
+// Charts inline token values at construction, so we destroy + re-render
+// the active view to pick up the new palette.
+function setTheme(theme) {
+  if (theme === 'dark') document.documentElement.dataset.theme = 'dark';
+  else delete document.documentElement.dataset.theme;
+  try { localStorage.setItem('lt-theme', theme === 'dark' ? 'dark' : 'light'); } catch (e) {}
+  Chart.defaults.color = getTok('--muted');
+  Object.keys(CH).forEach(function(k){ try { CH[k] && CH[k].destroy(); } catch (e) {} CH[k] = null; });
+  var active = document.querySelector('.view.active');
+  if (active && active.id && typeof go === 'function') {
+    var v = active.id.replace(/^v/, '');
+    v = v.charAt(0).toLowerCase() + v.slice(1);
+    go(v);
+  }
+}
+
+// Restore preferred theme on load.
+(function(){
+  try {
+    var pref = localStorage.getItem('lt-theme');
+    if (pref === 'dark') document.documentElement.dataset.theme = 'dark';
+  } catch (e) {}
+})();
+
+// Chart styling derived from tokens. Call inside chart configs so colors
+// follow theme switches (combined with CH[k].update() in setTheme).
+function chartTheme() {
+  return {
+    prio:      [getTok('--critical'), getTok('--warn'), getTok('--good')],
+    info:      getTok('--info'),
+    accent:    getTok('--accent'),
+    muted:     getTok('--muted'),
+    dim:       getTok('--dim'),
+    ink:       getTok('--ink'),
+    surface:   getTok('--surface'),
+    surface2:  getTok('--surface2'),
+    rule:      getTok('--rule'),
+    ruleSoft:  getTok('--rule-soft')
+  };
+}
+
+Chart.defaults.color = getTok('--muted');
 Chart.defaults.font.family = "'Nunito Sans',sans-serif";
 Chart.defaults.font.size = 12;
 
@@ -361,21 +412,22 @@ function rDonut(tasks) {
     else b++;
   });
   var n = tasks.length;
+  var th = chartTheme();
   CH.p = new Chart(c, {
     type: 'doughnut',
     data: {
       labels: ['Alta', 'Media', 'Baja'],
       datasets: [{
         data: [a, m, b],
-        backgroundColor: ['#FF5C5C', '#FFB938', '#2DD4A0'],
-        borderColor: '#151820', borderWidth: 4, hoverOffset: 10
+        backgroundColor: th.prio,
+        borderColor: th.surface, borderWidth: 4, hoverOffset: 10
       }]
     },
     options: {
       responsive: true, maintainAspectRatio: true, cutout: '74%',
       plugins: {
         legend: { position: 'bottom', labels: { padding: 18, usePointStyle: true, pointStyle: 'circle', font: { size: 12, weight: 600 } } },
-        tooltip: { backgroundColor: '#1C2030', padding: 12, cornerRadius: 10 }
+        tooltip: { backgroundColor: th.surface2, padding: 12, cornerRadius: 10 }
       },
       animation: { duration: 900 }
     },
@@ -385,11 +437,11 @@ function rDonut(tasks) {
         var x = ch.ctx;
         x.save();
         x.font = "800 32px 'JetBrains Mono',monospace";
-        x.fillStyle = '#F0F2F8';
+        x.fillStyle = th.ink;
         x.textAlign = 'center'; x.textBaseline = 'middle';
         x.fillText(n, ch.width / 2, ch.height / 2 - 8);
         x.font = "600 11px 'Nunito Sans',sans-serif";
-        x.fillStyle = '#9099B0';
+        x.fillStyle = th.muted;
         x.fillText('tareas', ch.width / 2, ch.height / 2 + 16);
         x.restore();
       }
@@ -426,25 +478,26 @@ function rLoad(team) {
     dM = k.map(function(x){ return cd[x].m; });
     dB = k.map(function(x){ return cd[x].b; });
   }
+  var th = chartTheme();
   CH.l = new Chart(c, {
     type: 'bar',
     data: {
       labels: labels,
       datasets: [
-        { label: 'Alta',  data: dA, backgroundColor: '#FF5C5C', borderRadius: 6, barPercentage: .5, categoryPercentage: .7 },
-        { label: 'Media', data: dM, backgroundColor: '#FFB938', borderRadius: 6, barPercentage: .5, categoryPercentage: .7 },
-        { label: 'Baja',  data: dB, backgroundColor: '#2DD4A0', borderRadius: 6, barPercentage: .5, categoryPercentage: .7 }
+        { label: 'Alta',  data: dA, backgroundColor: th.prio[0], borderRadius: 6, barPercentage: .5, categoryPercentage: .7 },
+        { label: 'Media', data: dM, backgroundColor: th.prio[1], borderRadius: 6, barPercentage: .5, categoryPercentage: .7 },
+        { label: 'Baja',  data: dB, backgroundColor: th.prio[2], borderRadius: 6, barPercentage: .5, categoryPercentage: .7 }
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: true, indexAxis: 'y',
       scales: {
-        x: { stacked: true, grid: { color: 'rgba(255,255,255,.04)' }, ticks: { stepSize: 2 } },
+        x: { stacked: true, grid: { color: th.ruleSoft }, ticks: { stepSize: 2 } },
         y: { stacked: true, grid: { display: false }, ticks: { font: { size: 12, weight: 700 } } }
       },
       plugins: {
         legend: { position: 'top', align: 'end', labels: { padding: 14, usePointStyle: true, pointStyle: 'circle', font: { size: 11, weight: 600 } } },
-        tooltip: { backgroundColor: '#1C2030', padding: 12, cornerRadius: 10 }
+        tooltip: { backgroundColor: th.surface2, padding: 12, cornerRadius: 10 }
       },
       animation: { duration: 700 }
     }
@@ -687,14 +740,15 @@ function rAnalytics(tasks, team) {
       else if (t.priority === 'Media') m++;
       else b++;
     });
+    var thA = chartTheme();
     CH.pa = new Chart(c1, {
       type: 'doughnut',
       data: {
         labels: ['Alta', 'Media', 'Baja'],
         datasets: [{
           data: [a, m, b],
-          backgroundColor: ['#FF5C5C', '#FFB938', '#2DD4A0'],
-          borderColor: '#151820', borderWidth: 4
+          backgroundColor: thA.prio,
+          borderColor: thA.surface, borderWidth: 4
         }]
       },
       options: {
@@ -708,22 +762,23 @@ function rAnalytics(tasks, team) {
   var c2 = $('cStatA');
   if (c2 && team.length) {
     if (CH.sa) CH.sa.destroy();
+    var thS = chartTheme();
     CH.sa = new Chart(c2, {
       type: 'bar',
       data: {
         labels: team.map(function(t){ return t.name.split(' ').slice(0, 2).join(' '); }),
         datasets: [
-          { label: 'Pend.', data: team.map(function(t){ return t.pendiente; }),  backgroundColor: '#64748B', borderRadius: 4, barPercentage: .5 },
-          { label: 'Curso', data: team.map(function(t){ return t.enCurso; }),    backgroundColor: '#5B9BFF', borderRadius: 4, barPercentage: .5 },
-          { label: 'Rev.',  data: team.map(function(t){ return t.enRevision; }), backgroundColor: '#A78BFA', borderRadius: 4, barPercentage: .5 },
-          { label: 'Bloq.', data: team.map(function(t){ return t.bloqueado; }),  backgroundColor: '#FFB938', borderRadius: 4, barPercentage: .5 }
+          { label: 'Pend.', data: team.map(function(t){ return t.pendiente; }),  backgroundColor: thS.dim,    borderRadius: 4, barPercentage: .5 },
+          { label: 'Curso', data: team.map(function(t){ return t.enCurso; }),    backgroundColor: thS.info,   borderRadius: 4, barPercentage: .5 },
+          { label: 'Rev.',  data: team.map(function(t){ return t.enRevision; }), backgroundColor: thS.accent, borderRadius: 4, barPercentage: .5 },
+          { label: 'Bloq.', data: team.map(function(t){ return t.bloqueado; }),  backgroundColor: thS.prio[1],borderRadius: 4, barPercentage: .5 }
         ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
         scales: {
           x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11, weight: 700 } } },
-          y: { stacked: true, grid: { color: 'rgba(255,255,255,.04)' }, ticks: { stepSize: 2 } }
+          y: { stacked: true, grid: { color: thS.ruleSoft }, ticks: { stepSize: 2 } }
         },
         plugins: { legend: { position: 'top', labels: { padding: 12, usePointStyle: true, font: { size: 11 } } } }
       }
@@ -1621,6 +1676,7 @@ function rResumen() {
   var canvas = $('rxTrend');
   if (canvas) {
     if (CH.rxTrend) CH.rxTrend.destroy();
+    var thT = chartTheme();
     CH.rxTrend = new Chart(canvas, {
       type: 'bar',
       data: {
@@ -1628,7 +1684,7 @@ function rResumen() {
         datasets: [{
           label: 'Cerradas',
           data: data,
-          backgroundColor: '#5B9BFF',
+          backgroundColor: thT.info,
           borderRadius: 6,
           barPercentage: .6
         }]
@@ -1637,11 +1693,11 @@ function rResumen() {
         responsive: true, maintainAspectRatio: true,
         scales: {
           x: { grid: { display: false }, ticks: { font: { size: 11, weight: 700 } } },
-          y: { grid: { color: 'rgba(255,255,255,.04)' }, ticks: { precision: 0 } }
+          y: { grid: { color: thT.ruleSoft }, ticks: { precision: 0 } }
         },
         plugins: {
           legend: { display: false },
-          tooltip: { backgroundColor: '#1C2030', padding: 12, cornerRadius: 10 }
+          tooltip: { backgroundColor: thT.surface2, padding: 12, cornerRadius: 10 }
         }
       }
     });
