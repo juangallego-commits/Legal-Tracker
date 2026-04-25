@@ -90,9 +90,15 @@ function chartTheme() {
   };
 }
 
-Chart.defaults.color = getTok('--muted');
-Chart.defaults.font.family = "'Nunito Sans',sans-serif";
-Chart.defaults.font.size = 12;
+// Defensive: si Chart.js (CDN) no carga (CSP del sandbox de Apps Script,
+// red flaky, etc.), no romper la app entera. Las funciones que renderizan
+// charts ya verifican CH antes de usar; sin defaults, los charts usan los
+// suyos pero el resto de la UI vive.
+if (typeof Chart !== 'undefined' && Chart.defaults) {
+  Chart.defaults.color = getTok('--muted');
+  Chart.defaults.font.family = "'Nunito Sans',sans-serif";
+  Chart.defaults.font.size = 12;
+}
 
 // ════════════════════════════════════════════════════════════════
 // 3 · RENDER HELPERS (reusable fragment builders)
@@ -412,6 +418,7 @@ function rDonut(tasks) {
     else b++;
   });
   var n = tasks.length;
+  if (typeof Chart === 'undefined') return;
   var th = chartTheme();
   CH.p = new Chart(c, {
     type: 'doughnut',
@@ -478,6 +485,7 @@ function rLoad(team) {
     dM = k.map(function(x){ return cd[x].m; });
     dB = k.map(function(x){ return cd[x].b; });
   }
+  if (typeof Chart === 'undefined') return;
   var th = chartTheme();
   CH.l = new Chart(c, {
     type: 'bar',
@@ -731,6 +739,7 @@ function rAnalytics(tasks, team) {
   $('slaOv').textContent = D.sla ? D.sla.overdue : 0;
 
   // Donut por prioridad (versión analytics, sin anotación central)
+  if (typeof Chart === 'undefined') return;
   var c1 = $('cPrioA');
   if (c1) {
     if (CH.pa) CH.pa.destroy();
@@ -1674,7 +1683,7 @@ function rResumen() {
   }
 
   var canvas = $('rxTrend');
-  if (canvas) {
+  if (canvas && typeof Chart !== 'undefined') {
     if (CH.rxTrend) CH.rxTrend.destroy();
     var thT = chartTheme();
     CH.rxTrend = new Chart(canvas, {
