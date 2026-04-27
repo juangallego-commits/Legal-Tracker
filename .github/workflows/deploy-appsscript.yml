@@ -1,0 +1,37 @@
+name: Deploy a Apps Script
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalar clasp
+        run: npm install -g @google/clasp
+
+      - name: Escribir credenciales de clasp
+        run: echo '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
+
+      - name: Escribir .clasp.json
+        run: |
+          cat > .clasp.json <<EOF
+          {
+            "scriptId": "${{ secrets.SCRIPT_ID }}",
+            "rootDir": "."
+          }
+          EOF
+
+      - name: Push a Apps Script
+        run: clasp push -f

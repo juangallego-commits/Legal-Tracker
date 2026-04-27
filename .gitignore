@@ -1,0 +1,14 @@
+# clasp / credenciales locales (NO subir a GitHub)
+.clasp.json
+.clasprc.json
+creds.json
+
+# Node
+node_modules/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Archivos pesados de handoff
+*.zip
