@@ -44,6 +44,15 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  // Endpoint público /exec?page=demo: sirve el HTML standalone del demo editorial.
+  // Sin auth (es para presentación interna). Si en el futuro queremos cerrarlo,
+  // basta con resolver el visitante antes de retornar.
+  if (page === 'demo') {
+    return HtmlService.createHtmlOutputFromFile('frontend/StandaloneDemo')
+      .setTitle('Legal Tracker — Editorial Deep')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
+
   // 1) Autenticación: resolver el usuario visitante contra la allowlist
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var equipos = readEquipos(ss);
@@ -59,7 +68,7 @@ function doGet(e) {
 
   // 3) Render normal, con el usuario ya resuelto y rol determinado
   var html = HtmlService.createTemplateFromFile('frontend/Dashboard');
-  html.data = JSON.stringify(getTrackerData());
+  html.data = JSON.stringify(getEditorialData());
   html.currentUser = JSON.stringify({
     email: authResult.email,
     name:  authResult.user.name,
@@ -156,6 +165,145 @@ function getTrackerData() {
   var role = determineRole(auth.email, auth.user, config);
   var raw = _cachedRawData();
   return _buildViewForRole(raw, role, auth.user);
+}
+
+// ════════════════════════════════════════════════════════════════
+// EDITORIAL DATA (extiende getTrackerData con campos derivados)
+// ════════════════════════════════════════════════════════════════
+// Wrapper sobre getTrackerData() que enriquece tareas, miembros del equipo
+// y países con campos derivados que la nueva UI editorial consume.
+// Reusa la cache de 30s vía getTrackerData(); los cálculos extra son baratos.
+// NO modifica el shape original — sólo agrega campos.
+function getEditorialData() {
+  var data = getTrackerData();
+  var today = Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy-MM-dd');
+
+  // Enriquecer tareas activas + historial
+  if (data.tasks && data.tasks.length) {
+    data.tasks.forEach(function(t) { _enrichTaskEditorial(t, today); });
+  }
+  if (data.historial && data.historial.length) {
+    data.historial.forEach(function(t) { _enrichTaskEditorial(t, today); });
+  }
+
+  // Enriquecer miembros del team (load, capacity, overdue, blocked, streak, avgs)
+  if (data.team && data.team.length) {
+    data.team.forEach(function(member) {
+      var memberTasks = (data.tasks || []).filter(function(t){ return t.resp === member.name; });
+      var activeTasks = memberTasks.filter(function(t){ return t.status !== 'Listo' && t.status !== 'Cancelado'; });
+      member.load     = activeTasks.length;
+      member.capacity = 5; // TODO Fase 2: leer de hoja Config
+      member.overdue  = memberTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
+      member.blocked  = memberTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
+      member.streak   = 0;   // TODO Fase 2: calcular del historial real
+      member.avgAlta  = '—'; // TODO Fase 2
+      member.avgMedia = '—';
+      member.avgBaja  = '—';
+    });
+  }
+
+  // Enriquecer countries (open, overdue, slaPct, trend)
+  if (data.countries && data.countries.length) {
+    data.countries.forEach(function(c) {
+      var countryTasks = (data.tasks || []).filter(function(t){ return t.pais === c.code; });
+      c.open    = countryTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
+      c.overdue = countryTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
+      c.slaPct  = 100; // TODO Fase 2: calcular contra historial real
+      c.trend   = [3, 4, 2, 5, 3, 4, 6, 4, 3, 5, 4, 3]; // TODO Fase 2: tareas por semana, últimas 12
+    });
+  }
+
+  // Globales
+  data.today = today;
+  data.roleSpecific = data.roleSpecific || {};
+  data.roleSpecific.narrative = _buildNarrative(data);
+
+  return data;
+}
+
+// Calcula y agrega los campos derivados a una tarea: eta, etaDays,
+// accionable, blockedReason, slaTarget. Mutación in-place.
+function _enrichTaskEditorial(t, todayISO) {
+  // etaDays + eta humano
+  if (t.deadlineISO) {
+    var diff = _daysBetweenISO(todayISO, t.deadlineISO);
+    t.etaDays = diff;
+    t.eta = _fmtEta(diff);
+  } else {
+    t.etaDays = null;
+    t.eta = '';
+  }
+
+  // accionable: primera línea de notas, o derivado del estado
+  var firstNoteLine = '';
+  if (t.notas) {
+    var lines = t.notas.toString().split(/\r?\n/);
+    firstNoteLine = (lines[0] || '').trim();
+  }
+  if (firstNoteLine) {
+    t.accionable = firstNoteLine;
+  } else {
+    var byStatus = {
+      'Pendiente':   'Por iniciar',
+      'En curso':    'Avanzar',
+      'En revisión': 'Revisar',
+      'Bloqueado':   'Desbloquear',
+      'Listo':       'Cerrada'
+    };
+    t.accionable = byStatus[t.status] || '';
+  }
+
+  // blockedReason: solo cuando la tarea está bloqueada
+  t.blockedReason = (t.status === 'Bloqueado') ? firstNoteLine : '';
+
+  // slaTarget por prioridad
+  var slaByPrio = { 'Alta': '2d', 'Media': '5d', 'Baja': '7d' };
+  t.slaTarget = slaByPrio[t.priority] || '5d';
+}
+
+// Diferencia de días entre dos fechas ISO (YYYY-MM-DD). Resultado en días enteros.
+// Negativo si endISO está en el pasado relativo a startISO.
+function _daysBetweenISO(startISO, endISO) {
+  var s = _parseISODate(startISO);
+  var e = _parseISODate(endISO);
+  if (!s || !e) return 0;
+  var ms = e.getTime() - s.getTime();
+  return Math.round(ms / (1000 * 60 * 60 * 24));
+}
+
+// Parsea YYYY-MM-DD como fecha local (medianoche). Evita drift de timezone.
+function _parseISODate(iso) {
+  if (!iso) return null;
+  var m = iso.toString().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+}
+
+// Convierte etaDays (int) en string humano editorial.
+function _fmtEta(days) {
+  if (days < 0) return 'venció hace ' + Math.abs(days) + 'd';
+  if (days === 0) return 'vence HOY';
+  if (days === 1) return 'mañana';
+  return 'en ' + days + 'd';
+}
+
+// Genera la narrativa contextual server-side, en función del rol del visitante.
+function _buildNarrative(data) {
+  var role = data._role;
+  var tasks = data.tasks || [];
+  var active = tasks.filter(function(t){ return t.status !== 'Listo'; });
+  var thisWeek = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= 7; });
+  var atRisk = tasks.filter(function(t){ return (typeof t.etaDays === 'number' && t.etaDays < 0) || t.status === 'Bloqueado'; });
+
+  if (role === 'specialist') {
+    return 'Tienes ' + active.length + ' tareas activas. ' + thisWeek.length + ' vencen esta semana.';
+  }
+  if (role === 'manager') {
+    return 'Tu equipo tiene ' + active.length + ' tareas activas. ' + atRisk.length + ' están en riesgo.';
+  }
+  // head / hq
+  var countries = (data.countries || []).length;
+  return 'LATAM tiene ' + active.length + ' tareas activas en ' + countries + ' países.';
 }
 
 // Cache solo la parte cara: lecturas del sheet. Los cálculos de stats se
