@@ -58,7 +58,7 @@ function doGet(e) {
   var role = determineRole(authResult.email, authResult.user, config);
 
   // 3) Render normal, con el usuario ya resuelto y rol determinado
-  var html = HtmlService.createTemplateFromFile('Dashboard');
+  var html = HtmlService.createTemplateFromFile('frontend/Dashboard');
   html.data = JSON.stringify(getTrackerData());
   html.currentUser = JSON.stringify({
     email: authResult.email,
