@@ -58,7 +58,11 @@ function setTheme(theme) {
   Chart.defaults.color = getTok('--muted');
   Object.keys(CH).forEach(function(k){ try { CH[k] && CH[k].destroy(); } catch (e) {} CH[k] = null; });
   var active = document.querySelector('.view.active');
-  if (active && active.id && typeof go === 'function') {
+  if (!active || !active.id) return;
+  // Las vistas editoriales no están en VIEWS y se reendrean vía goEd.
+  if (active.id === 'vEdHome' && typeof goEd === 'function') { goEd('home'); return; }
+  if (active.id === 'vEdTracker' && typeof goEd === 'function') { goEd('tracker'); return; }
+  if (typeof go === 'function') {
     var v = active.id.replace(/^v/, '');
     v = v.charAt(0).toLowerCase() + v.slice(1);
     go(v);
@@ -2554,7 +2558,9 @@ function renderEdSidebar(role, activeViewId) {
       var isActive = it.id === activeViewId;
       var badge = _badgeFor(it.id, navRole);
       html += '<div class="ed-nav-item' + (isActive ? ' active' : '')
-           +  '" data-viewid="' + esc(it.id) + '" onclick="goEd(\'' + esc(it.id) + '\')">';
+           +  '" role="link" tabindex="0"' + (isActive ? ' aria-current="page"' : '')
+           +  ' data-viewid="' + esc(it.id) + '" onclick="goEd(\'' + esc(it.id) + '\')"'
+           +  ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();goEd(\'' + esc(it.id) + '\')}">';
       html +=   '<span>' + esc(it.label) + '</span>';
       if (badge != null) html += '<span class="ed-nav-badge">' + esc(String(badge)) + '</span>';
       html += '</div>';
@@ -2567,7 +2573,7 @@ function renderEdSidebar(role, activeViewId) {
        +     '<div class="ed-foot-name">' + esc(name) + '</div>'
        +     '<div class="ed-foot-role">' + esc(subtitle) + '</div>'
        +   '</div>'
-       +   '<button class="theme-toggle" title="Cambiar tema" '
+       +   '<button class="theme-toggle" title="Cambiar tema" aria-label="Cambiar tema claro/oscuro" '
        +     'onclick="setTheme(document.documentElement.dataset.theme === \'dark\' ? \'light\' : \'dark\')">◐</button>'
        + '</div>';
   return html;
