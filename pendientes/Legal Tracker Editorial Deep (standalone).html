@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Legal Tracker — Editorial Deep</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;500;600;700;800;900&family=Fraunces:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; background:#f0eee9; font-family:'Nunito Sans',system-ui,sans-serif; }
+  * { box-sizing: border-box; }
+  #root { min-height: 100vh; }
+  .ab-host { width:100%; height:100%; overflow:auto; }
+  .ab-host::-webkit-scrollbar { width:8px; height:8px; }
+  .ab-host::-webkit-scrollbar-thumb { background:rgba(0,0,0,.18); border-radius:4px; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<template id="__bundler_thumbnail" data-bg-color="#FAFAF7">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#FAFAF7"/>
+    <text x="600" y="380" font-family="Fraunces, Georgia, serif" font-size="120" font-weight="400" fill="#1A1A1A" text-anchor="middle" font-style="italic">Legal</text>
+    <text x="600" y="460" font-family="Nunito Sans, system-ui" font-size="22" font-weight="700" fill="#B8551F" text-anchor="middle" letter-spacing="4">DEEP DIVE — EDITORIAL</text>
+  </svg>
+</template>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="shared-components.jsx"></script>
+<script type="text/babel" src="editorial-data.jsx"></script>
+<script type="text/babel" src="editorial-shared.jsx"></script>
+<script type="text/babel" src="ed-home-specialist.jsx"></script>
+<script type="text/babel" src="ed-home-manager-hq.jsx"></script>
+<script type="text/babel" src="ed-agrupadas.jsx"></script>
+<script type="text/babel" src="ed-tracker.jsx"></script>
+<script type="text/babel" src="ed-crear.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme_specialist": "light",
+  "theme_manager": "light",
+  "theme_hq": "light",
+  "theme_grouped": "light",
+  "theme_tracker": "light",
+  "theme_crear": "light",
+  "tracker_role": "manager"
+}/*EDITMODE-END*/;
+
+function App() {
+  const [tw, setTw] = useTweaks(TWEAK_DEFAULTS);
+
+  const AB_W = 1280;
+  const AB_H = 1100;
+  const TRK_W = 1480; // tracker has the side panel
+  const CR_W = 1280;
+  const CR_H = 980;
+
+  const host = (extra) => ({ width:'100%', height:'100%', overflow:'auto', background:'#fff', ...extra });
+
+  return (
+    <>
+      <DesignCanvas>
+
+        <DCSection id="home-by-role" title="① Home — por tipo de usuario" subtitle="Specialist ve sólo lo suyo · Manager ve su equipo · HQ ve toda LATAM. La estructura de info y el lenguaje cambian con el rol.">
+
+          <DCArtboard id="home-spec-light" label="Home Specialist · light — Juan Camilo (foco ETAs, vencidas, racha)" width={AB_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdHomeSpecialist theme="light"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="home-spec-dark" label="Home Specialist · dark" width={AB_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdHomeSpecialist theme="dark"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="home-mgr-light" label="Home Manager · light — Carlos F. (carga del equipo, atención ranked)" width={AB_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdHomeManager theme="light"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="home-mgr-dark" label="Home Manager · dark" width={AB_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdHomeManager theme="dark"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="home-hq-light" label="Home HQ · light — Enrique G. (visión 10 países, brasil en riesgo)" width={AB_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdHomeHQ theme="light"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="home-hq-dark" label="Home HQ · dark" width={AB_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdHomeHQ theme="dark"/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+        <DCSection id="grouped" title="② Vista intermedia — Tus tareas agrupadas" subtitle="Antes de meterse a la tabla densa: un mapa por urgencia con narrativa. Reduce la fricción cognitiva entre 'home' y 'tracker'.">
+
+          <DCArtboard id="grouped-light" label="Por urgencia (vencidas / hoy / esta semana / más adelante)" width={AB_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdAgrupadas theme="light"/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+        <DCSection id="tracker" title="③ Tracker — tabla totalmente clickeable + panel de detalle" subtitle="Click en cualquier fila abre un panel lateral con estado actual, historial y acciones. Sin perder contexto de la tabla.">
+
+          <DCArtboard id="trk-mgr-light" label="Tracker Manager · light — fila T-142 abierta en panel lateral" width={TRK_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdTracker theme="light" role="manager" selectedId="T-142"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="trk-mgr-dark" label="Tracker Manager · dark — mismo estado" width={TRK_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdTracker theme="dark" role="manager" selectedId="T-142"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="trk-spec-light" label="Tracker Specialist · light — sólo sus 4 tareas (no ve al equipo)" width={TRK_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdTracker theme="light" role="specialist" selectedId="T-138"/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+        <DCSection id="crear" title="④ Crear tarea — paso a paso con sugerencias IA" subtitle="Reduce la carga cognitiva: empezás con lo esencial (título + descripción), después la IA sugiere prioridad, responsable, SLA y proyecto basado en histórico.">
+
+          <DCArtboard id="cr-1-light" label="Paso 1 · light — sólo lo esencial (título, descripción, tipo, país)" width={CR_W} height={CR_H}>
+            <div className="ab-host" style={host()}>
+              <EdCrear theme="light" step={1}/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="cr-2-light" label="Paso 2 · light — IA sugiere Alta + Carlos F + SLA 2d basado en tareas similares" width={CR_W} height={CR_H}>
+            <div className="ab-host" style={host()}>
+              <EdCrear theme="light" step={2}/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="cr-2-dark" label="Paso 2 · dark — mismo flujo" width={CR_W} height={CR_H}>
+            <div className="ab-host" style={host()}>
+              <EdCrear theme="dark" step={2}/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+      </DesignCanvas>
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection title="Notas del rediseño">
+          <div style={{fontSize:11.5,color:'#5b5b5b',lineHeight:1.55,padding:'4px 0'}}>
+            La sidebar cambia con el rol: <b>Specialist</b> ve "Mi día" + "Donde participo". <b>Manager</b> agrega "Equipo" + "Insights". <b>HQ</b> reemplaza por "Visión global".
+          </div>
+        </TweakSection>
+        <TweakSection title="Cobertura">
+          <div style={{fontSize:11.5,color:'#5b5b5b',lineHeight:1.55,padding:'4px 0'}}>
+            12 artboards · 4 secciones. Tipografía Fraunces sólo en H1 grandes y números hero, como pediste.
+          </div>
+        </TweakSection>
+      </TweaksPanel>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
