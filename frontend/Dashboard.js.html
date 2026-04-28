@@ -2387,13 +2387,11 @@ document.addEventListener('DOMContentLoaded', function() {
   restoreFilters();
   syncFilterUIFromState();
   render();
-  // Default view por rol:
-  //   specialist → Mis tareas (su lista de urgencia)
-  //   manager    → Mi equipo (vista del equipo con hotspots)
-  //   head       → Resumen ejecutivo (comparativa países + riesgo)
-  if (USER && USER.role === 'specialist') go('mistareas');
-  else if (USER && USER.role === 'manager') go('miequipo');
-  else if (USER && USER.role === 'head') go('resumen');
+  // Editorial shell: sidebar + header dinámicos según rol, default a Inicio editorial.
+  // Las vistas legacy (proyectos, miequipo, analytics, historial, mistareas, resumen)
+  // siguen accesibles desde la sidebar; goEd las enrutea a go() existente.
+  if (typeof mountEdShell === 'function') mountEdShell();
+  if (typeof goEd === 'function') goEd('home');
 }, true);
 
 // Aplica el estado de F a los botones/pills (después de restoreFilters).
