@@ -2408,4 +2408,24 @@ function syncFilterUIFromState() {
     b.classList.toggle('active', b.textContent.trim() === (F.projStatus === 'ALL' ? 'Todos' : F.projStatus));
   });
 }
+
+// ════════════════════════════════════════════════════════════════
+// 99 · EDITORIAL REDESIGN (vanilla JS port)
+//      Below: sections populated by editorial agents.
+//      Insertion order on page: HOME (per role) → TRACKER → side panel.
+//      Each agent owns its own marker block; do NOT touch the other.
+// ════════════════════════════════════════════════════════════════
+
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_HOME_BEGIN  (owned by Agente C)
+// Append: rEdHomeSpecialist, rEdHomeManager, rEdHomeHQ, mountEdShell,
+//         renderEdSidebar, goEd, ED_NAV_BY_ROLE, theme-toggle wiring.
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_HOME_END
+
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_TRACKER_BEGIN  (owned by Agente D)
+// Append: rEdTracker, renderEdTrackerPanel, ed-tracker filtering helpers.
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_TRACKER_END
 </script>
