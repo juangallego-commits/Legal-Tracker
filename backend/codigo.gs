@@ -182,6 +182,9 @@ function getTrackerData() {
 // Reusa la cache de 30s vía getTrackerData(); los cálculos extra son baratos.
 // NO modifica el shape original — sólo agrega campos.
 function getEditorialData() {
+  return _telemetry('getEditorialData', _getEditorialDataImpl);
+}
+function _getEditorialDataImpl() {
   var data = getTrackerData();
   var today = Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy-MM-dd');
 
@@ -600,6 +603,55 @@ function _safeMutation(fn) {
   }
 }
 
+// ── TELEMETRY ───────────────────────────────────────────────────
+// Wrapper mínimo para entry-points públicos. Loggea email del visitante,
+// nombre de la función, duración (ms), success/error y meta opcional.
+// Dos sinks: console.info (Stackdriver / Apps Script Executions) y la hoja
+// 'Telemetry' del spreadsheet (si existe). Re-lanza el error original para
+// no alterar el comportamiento del entry-point.
+function _telemetry(fnName, fn, meta) {
+  var start = Date.now();
+  var email = '';
+  try { email = Session.getActiveUser().getEmail() || ''; } catch (e) {}
+  var result, err;
+  try {
+    result = fn();
+  } catch (e) {
+    err = e;
+  }
+  var duration = Date.now() - start;
+  var success = !err && (result == null || result.success !== false);
+  var record = {
+    ts: new Date().toISOString(),
+    email: email,
+    fn: fnName,
+    duration: duration,
+    success: success,
+    error: err ? (err.message || String(err)) : (result && result.error) || null,
+    meta: meta || null
+  };
+  // 1) Stackdriver vía console.info (se ve en Apps Script Executions / GCP Logging)
+  try { console.info(JSON.stringify(record)); } catch (e) {}
+  // 2) Hoja Telemetry (si existe). NO crearla automáticamente; el dueño la crea cuando quiera.
+  try { _appendTelemetryRow(record); } catch (e) {}
+  if (err) throw err;
+  return result;
+}
+
+// Cómo activar: el dueño del sheet crea una hoja llamada 'Telemetry' con
+// columnas: ts | email | fn | duration_ms | status | error | meta.
+// Sin la hoja, el log queda solo en Stackdriver (console.info).
+function _appendTelemetryRow(record) {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var ws = ss.getSheetByName('Telemetry');
+  if (!ws) return; // hoja no existe → skip silencioso (no error)
+  ws.appendRow([
+    record.ts, record.email, record.fn, record.duration,
+    record.success ? 'OK' : 'ERR',
+    record.error || '', record.meta ? JSON.stringify(record.meta) : ''
+  ]);
+}
+
 // Contexto actual del visitante + su rol. Se usa en cada mutation.
 function _getAuthContext() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -860,7 +912,11 @@ function readTasks(ws) {
   return tasks;
 }
 
-function addTask(taskObj) { return _safeMutation(function() { return _addTaskImpl(taskObj); }); }
+function addTask(taskObj) {
+  return _telemetry('addTask', function() {
+    return _safeMutation(function() { return _addTaskImpl(taskObj); });
+  }, { hasResp: !!(taskObj && taskObj.resp), hasProyecto: !!(taskObj && (taskObj.proyectoId || taskObj.proyecto)) });
+}
 function _addTaskImpl(taskObj) {
   var ctx = _getAuthContext();
   var equipos = ctx.equipos;
@@ -961,7 +1017,11 @@ function updateTaskStatus(taskId, newStatus) { return updateTaskField(taskId, 's
 
 // Batch update: aplica varios campos en una sola llamada.
 // Si `status` es 'Listo', se aplica al final y dispara el move a Historial (los demás campos ya quedaron escritos).
-function updateTaskFields(taskId, fields) { return _safeMutation(function() { return _updateTaskFieldsImpl(taskId, fields); }); }
+function updateTaskFields(taskId, fields) {
+  return _telemetry('updateTaskFields', function() {
+    return _safeMutation(function() { return _updateTaskFieldsImpl(taskId, fields); });
+  }, { taskId: taskId, fieldCount: (fields && typeof fields === 'object') ? Object.keys(fields).length : 0, hasStatus: !!(fields && fields.status) });
+}
 function _updateTaskFieldsImpl(taskId, fields) {
   if (!fields || typeof fields !== 'object') return { success: false, error: 'Invalid fields' };
   var ctx = _getAuthContext();
@@ -1361,6 +1421,11 @@ function findTaskCandidates(text) {
 // desde Slack, Session=owner (head) así que pasa; desde el webapp, el usuario
 // debe tener permiso sobre la tarea según su rol.
 function closeTaskById(taskId, slackUser) {
+  return _telemetry('closeTaskById', function() {
+    return _closeTaskByIdImpl(taskId, slackUser);
+  }, { taskId: taskId, viaSlack: !!slackUser });
+}
+function _closeTaskByIdImpl(taskId, slackUser) {
   var ctx = _getAuthContext();
   var current = _readTaskById(ctx.ss, taskId);
   if (!current) return { success: false, message: 'Tarea #' + taskId + ' no encontrada' };
@@ -1386,6 +1451,11 @@ function closeTaskById(taskId, slackUser) {
 
 // Bloquea una tarea por ID. Mismas validaciones que closeTaskById.
 function blockTaskById(taskId, reason, slackUser) {
+  return _telemetry('blockTaskById', function() {
+    return _blockTaskByIdImpl(taskId, reason, slackUser);
+  }, { taskId: taskId, viaSlack: !!slackUser, hasReason: !!reason });
+}
+function _blockTaskByIdImpl(taskId, reason, slackUser) {
   var ctx = _getAuthContext();
   var current = _readTaskById(ctx.ss, taskId);
   if (!current) return { success: false, message: 'Tarea #' + taskId + ' no encontrada' };
@@ -1414,3 +1484,25 @@ function testData() {
   Logger.log('Projects: ' + d.projects.length);
   Logger.log('Team: ' + d.team.length);
 }
+
+// ════════════════════════════════════════════════════════════════
+// TELEMETRY · README
+// ════════════════════════════════════════════════════════════════
+// - Cómo ver los logs: Apps Script editor → "Ejecuciones" (View → Executions).
+//   Cada llamada a un entry-point wrappeado emite un JSON con
+//   { ts, email, fn, duration, success, error, meta } vía console.info.
+//   En GCP Logging filtrá por jsonPayload.fn="updateTaskFields" para ver
+//   por función o jsonPayload.success=false para ver errores.
+// - Cómo activar la hoja Telemetry: el dueño del spreadsheet crea
+//   manualmente una hoja con el nombre exacto 'Telemetry' y columnas
+//   ts | email | fn | duration_ms | status | error | meta. A partir de
+//   ese momento cada call queda persistido (1 row por call). Sin la hoja,
+//   los logs viven solo en Stackdriver y se rotan según política de GCP.
+// - Por qué NO loguea el body de las requests: las tareas/proyectos pueden
+//   contener nombres de personas, notas confidenciales (cláusulas, montos,
+//   contrapartes). Solo loggeamos metadata booleana o counts (ej. hasResp,
+//   fieldCount) para correlacionar sin filtrar PII.
+// - Entry-points wrappeados (5): getEditorialData, addTask, updateTaskFields,
+//   closeTaskById, blockTaskById. El resto (updateTaskField, addProject,
+//   uploadDocument, etc.) no está wrappeado para minimizar diff; agregar
+//   más siguiendo el mismo patrón si hace falta más visibilidad.
