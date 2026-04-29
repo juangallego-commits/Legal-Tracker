@@ -1475,6 +1475,7 @@ function reload() {
         else if (active.id === 'vEdAgrupadas') goEd('agrupadas');
         else if (active.id === 'vEdProyectosIndex') goEd('proyectos');
         else if (active.id === 'vEdMisTareas') goEd('mistareas');
+        else if (active.id === 'vEdHistorial') goEd('historial');
       }
       hideLoader();
     })
@@ -2778,6 +2779,13 @@ function goEd(viewId) {
   if (viewId === 'mistareas' && typeof rEdMisTareas === 'function') {
     var v5 = $('vEdMisTareas'); if (v5) v5.classList.add('active');
     rEdMisTareas(D);
+    return;
+  }
+  // Editorial Historial — disponible para los 3 roles. Si el renderer
+  // no está disponible, caemos al legacy go('historial').
+  if (viewId === 'historial' && typeof rEdHistorial === 'function') {
+    var v6 = $('vEdHistorial'); if (v6) v6.classList.add('active');
+    rEdHistorial(D);
     return;
   }
   // Alias sin equivalente legacy: 'paises' → resumen
@@ -4591,4 +4599,203 @@ function rEdMisTareas(D) {
 }
 
 // MARKER:EDITORIAL_MISTAREAS_END
+
+// MARKER:EDITORIAL_HISTORIAL_BEGIN  (owned by Agente O1)
+// Historial editorial · "Cerradas" (specialist) / "Historial" (manager/head).
+// Hero stats (total · on-time · tarde · esta semana) + tabla narrativa de
+// tareas cerradas filtradas por rol. Reutiliza .esp-hero / .esp-stat /
+// .tk-table / .ed-pill — no agrega CSS nuevo. Las filas no abren panel
+// detallado todavía (las cerradas no tienen tracker view); click muestra
+// toast informativo. Robust ante D.historial vacío con empty state cálido.
+// ───────────────────────────────────────────────────────────────
+
+function _edHistFilterByRole(D) {
+  var hist = (D && D.historial) || [];
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  if (role === 'specialist') {
+    var name = _effectiveUserName();
+    return hist.filter(function(t){ return t.resp === name; });
+  }
+  if (role === 'manager') {
+    var code = _effectiveUserCode();
+    return hist.filter(function(t){ return t.pais === code; });
+  }
+  // head: todo
+  return hist.slice();
+}
+
+// Días hábiles entre dos Date — replica local del helper usado en rResumen()
+// para no depender del orden de declaración entre archivos editados.
+function _edBizDaysBetween(from, to) {
+  var biz = 0, cur = new Date(from);
+  while (cur < to) {
+    cur.setDate(cur.getDate() + 1);
+    var dy = cur.getDay();
+    if (dy !== 0 && dy !== 6) biz++;
+  }
+  return biz;
+}
+
+// ¿Cerrada dentro de SLA? Devuelve null si no podemos calcular (faltan fechas).
+function _edWasOnTime(t) {
+  if (!t || !t.creado || !t.cerrado) return null;
+  var c = pd(t.creado), f = pd(t.cerrado);
+  if (!c || !f) return null;
+  var biz = _edBizDaysBetween(c, f);
+  var lim = (typeof SLA_LIMITS !== 'undefined' && SLA_LIMITS[t.priority]) || 5;
+  return biz <= lim;
+}
+
+// Días hábiles cerrada vs SLA (negativo = sobró tiempo / on-time).
+function _edDaysVsSla(t) {
+  if (!t || !t.creado || !t.cerrado) return null;
+  var c = pd(t.creado), f = pd(t.cerrado);
+  if (!c || !f) return null;
+  var biz = _edBizDaysBetween(c, f);
+  var lim = (typeof SLA_LIMITS !== 'undefined' && SLA_LIMITS[t.priority]) || 5;
+  return biz - lim;
+}
+
+function _edHistOnClick() {
+  if (typeof toast === 'function') {
+    toast('Tarea cerrada — historial detallado próximamente', 'info');
+  }
+}
+
+function rEdHistorial(D) {
+  var v = $('vEdHistorial'); if (!v) return;
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var hist = _edHistFilterByRole(D);
+  var total = hist.length;
+
+  // Métricas: on-time / tarde / esta semana
+  var onTime = 0, late = 0, unknown = 0;
+  hist.forEach(function(t){
+    var ot = _edWasOnTime(t);
+    if (ot === true) onTime++;
+    else if (ot === false) late++;
+    else unknown++;
+  });
+  var weekCutoff = Date.now() - 7 * 864e5;
+  var thisWeek = hist.filter(function(t){
+    var f = pd(t.cerrado);
+    return f && f.getTime() >= weekCutoff;
+  }).length;
+
+  // Eyebrow/H1/Lede según rol
+  var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
+  var eyebrow;
+  if (role === 'specialist') {
+    eyebrow = 'Tu historial · ' + total + (total === 1 ? ' tarea cerrada' : ' tareas cerradas');
+  } else if (role === 'manager') {
+    eyebrow = 'Historial · ' + total + (total === 1 ? ' tarea cerrada en tu equipo' : ' tareas cerradas en tu equipo');
+  } else {
+    eyebrow = 'Historial global · ' + total + (total === 1 ? ' tarea cerrada LATAM' : ' tareas cerradas LATAM');
+  }
+  if (todayLine) eyebrow += ' · ' + todayLine;
+
+  var h1Inner;
+  if (total === 0) {
+    h1Inner = 'Aún no hay <em>tareas cerradas</em>.';
+  } else if (thisWeek > 0) {
+    h1Inner = '<em>' + esc(String(thisWeek).padStart(2,'0')) + '</em> ' + (thisWeek === 1 ? 'tarea cerrada' : 'tareas cerradas') + '<br>esta semana.';
+  } else {
+    h1Inner = '<em>' + esc(String(total).padStart(2,'0')) + '</em> ' + (total === 1 ? 'tarea cerrada' : 'tareas cerradas') + ' en total.';
+  }
+
+  // Lede narrativa
+  var lede;
+  if (total === 0) {
+    lede = 'Aún no hay tareas cerradas. Cuando cierres tu primera, aparecerá acá.';
+  } else {
+    var ratio = (onTime + late) > 0 ? Math.round(onTime / (onTime + late) * 100) : null;
+    var bits = [];
+    if (ratio !== null) bits.push('<span class="good">' + ratio + '% on-time</span>');
+    if (late > 0) bits.push('<span class="crit">' + late + ' fuera de SLA</span>');
+    if (thisWeek > 0 && total !== thisWeek) bits.push(thisWeek + ' esta semana');
+    if (bits.length === 0) bits.push('Sin datos de SLA suficientes para calcular ritmo.');
+    lede = bits.join(' · ') + '.';
+  }
+
+  var html = ''
+    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
+    + '<h1 class="ed-h1" style="margin-bottom:8px">' + h1Inner + '</h1>'
+    + '<p class="ed-lede" style="margin-bottom:28px">' + lede + '</p>';
+
+  // HERO stats (4)
+  html += '<div class="esp-hero">'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Total cerradas</div>'
+       +      '<div class="esp-stat-num">' + String(total).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">' + (role === 'specialist' ? 'tu historial' : (role === 'manager' ? 'en tu equipo' : 'global LATAM')) + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">On-time</div>'
+       +      '<div class="esp-stat-num good">' + String(onTime).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">dentro de SLA</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Tarde</div>'
+       +      '<div class="esp-stat-num ' + (late > 0 ? 'crit' : '') + '">' + String(late).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">' + (late > 0 ? 'fuera de SLA' : 'sin demoras') + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Esta semana</div>'
+       +      '<div class="esp-stat-num">' + String(thisWeek).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">cerradas en 7d</div></div>'
+       + '</div>';
+
+  // Tabla
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— ' + (role === 'specialist' ? 'Tus cerradas' : (role === 'manager' ? 'Cerradas del equipo' : 'Cerradas LATAM')) + '</div>';
+
+  if (total === 0) {
+    html += '<div class="ed-lede">Aún no hay tareas cerradas. Cuando cierres tu primera, aparecerá acá.</div>';
+  } else {
+    // Orden: más recientes primero (cerrado desc)
+    var rows = hist.slice().sort(function(a, b){
+      var fa = pd(a.cerrado), fb = pd(b.cerrado);
+      var ta = fa ? fa.getTime() : 0;
+      var tb = fb ? fb.getTime() : 0;
+      return tb - ta;
+    });
+
+    var showResp = (role === 'manager' || role === 'head');
+
+    html += '<table class="tk-table">'
+         +    '<thead><tr>'
+         +      '<th>ID</th><th>Tarea</th><th>Proyecto</th>'
+         +      (showResp ? '<th>Resp.</th>' : '')
+         +      '<th>Prioridad</th><th>Cerrada el</th><th>Días vs SLA</th>'
+         +    '</tr></thead><tbody>';
+
+    for (var i = 0; i < rows.length; i++) {
+      var t = rows[i];
+      var pn = _projNameForTask(t);
+      var meta = (t.tipoTrabajo || '—') + (t.pais ? ' · ' + t.pais : '');
+      var dvs = _edDaysVsSla(t);
+      var slaTxt, slaTone;
+      if (dvs === null) {
+        slaTxt = '—'; slaTone = 'dim';
+      } else if (dvs <= 0) {
+        slaTxt = (dvs === 0 ? 'justo' : (Math.abs(dvs) + 'd antes'));
+        slaTone = 'good';
+      } else {
+        slaTxt = '+' + dvs + 'd tarde';
+        slaTone = 'crit';
+      }
+      html += '<tr class="tk-row" onclick="_edHistOnClick()">'
+           +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
+           +    '<td>'
+           +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
+           +      '<div class="tk-name-meta">' + esc(meta) + '</div>'
+           +    '</td>'
+           +    '<td>' + esc(pn) + '</td>'
+           +    (showResp ? '<td>' + esc(t.resp || '—') + '</td>' : '')
+           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span></td>'
+           +    '<td style="font-family:var(--mono);font-size:12px">' + esc(t.cerrado || '—') + '</td>'
+           +    '<td><span class="tk-eta ' + slaTone + '">' + esc(slaTxt) + '</span></td>'
+           + '</tr>';
+    }
+    html += '</tbody></table>';
+  }
+  html += '</section>';
+
+  v.innerHTML = html;
+}
+
+// MARKER:EDITORIAL_HISTORIAL_END
 </script>
