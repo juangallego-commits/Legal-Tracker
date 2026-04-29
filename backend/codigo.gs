@@ -80,9 +80,12 @@ function doGet(e) {
     isLeader: !!authResult.user.isLeader,
     role: role
   });
+  // SECURITY: por default Apps Script setea X-Frame-Options=SAMEORIGIN, lo que
+  // mitiga clickjacking. Antes estaba ALLOWALL (cualquiera podía iframearlo).
+  // TODO: si el equipo necesita embeberlo en Notion/Confluence, agregar selectivamente
+  // ALLOWALL aquí (asumiendo el riesgo de clickjacking documentado en code review).
   return html.evaluate()
     .setTitle('Legal Tracker · Rappi')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport','width=device-width, initial-scale=1');
 }
 
@@ -179,6 +182,9 @@ function getTrackerData() {
 // Reusa la cache de 30s vía getTrackerData(); los cálculos extra son baratos.
 // NO modifica el shape original — sólo agrega campos.
 function getEditorialData() {
+  return _telemetry('getEditorialData', _getEditorialDataImpl);
+}
+function _getEditorialDataImpl() {
   var data = getTrackerData();
   var today = Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy-MM-dd');
 
@@ -359,15 +365,40 @@ function determineRole(email, user, config) {
 //   head      → todas
 //   manager   → las de su país (pais === user.code, o resp en ese equipo)
 //   specialist→ solo donde resp === user.name
+// Después aplica un segundo filtro por confidencialidad de la tarea:
+//   estandar     → visible para todo el equipo (rol OK actual)
+//   restringido  → solo resp / lider / head / manager del país
+//   confidencial → solo resp / lider / head
 function filterTasksForRole(tasks, role, user, equipos) {
-  if (role === 'head') return tasks;
-  if (role === 'manager') {
-    return tasks.filter(function(t) {
+  var roleFiltered;
+  if (role === 'head') {
+    roleFiltered = tasks;
+  } else if (role === 'manager') {
+    roleFiltered = tasks.filter(function(t) {
       var cc = t.pais || getCountryForMember(t.resp, equipos);
       return cc === user.code;
     });
+  } else {
+    roleFiltered = tasks.filter(function(t){ return t.resp === user.name; });
   }
-  return tasks.filter(function(t){ return t.resp === user.name; });
+
+  // Filtro adicional por confidencialidad (server-side enforcement, no solo UI)
+  return roleFiltered.filter(function(t) {
+    var conf = (t.confidencialidad || 'estandar').toString().trim().toLowerCase() || 'estandar';
+    if (conf === 'estandar') return true;
+    if (conf === 'restringido') {
+      return user.name === t.resp
+          || user.name === t.lider
+          || role === 'head'
+          || (role === 'manager' && t.pais === user.code);
+    }
+    if (conf === 'confidencial') {
+      return user.name === t.resp
+          || user.name === t.lider
+          || role === 'head';
+    }
+    return true;
+  });
 }
 
 // Filtra proyectos según el rol.
@@ -515,6 +546,13 @@ function _buildViewForRole(raw, role, user) {
     .filter(function(p){ return p.status !== 'Completado' && p.status !== 'Cancelado'; })
     .map(function(p){ return { id: p.id, nombre: p.nombre }; });
 
+  // Filtrar `equipos` según rol — un specialist o manager no debería ver miembros
+  // y emails de otros países (PII / confidencialidad organizacional).
+  var visibleEquipos = equipos;
+  if (role === 'specialist' || role === 'manager') {
+    visibleEquipos = equipos.filter(function(e){ return e.code === user.code; });
+  }
+
   return {
     tasks: tasks,
     historial: historial,
@@ -522,7 +560,7 @@ function _buildViewForRole(raw, role, user) {
     sla: sla,
     team: team,
     countries: Object.values(countryMap),
-    equipos: equipos,
+    equipos: visibleEquipos,
     projects: projects,
     projectList: projectList,
     semana: raw.semana,
@@ -563,6 +601,55 @@ function _safeMutation(fn) {
   } catch (e) {
     return { success: false, error: (e && e.message) || String(e) };
   }
+}
+
+// ── TELEMETRY ───────────────────────────────────────────────────
+// Wrapper mínimo para entry-points públicos. Loggea email del visitante,
+// nombre de la función, duración (ms), success/error y meta opcional.
+// Dos sinks: console.info (Stackdriver / Apps Script Executions) y la hoja
+// 'Telemetry' del spreadsheet (si existe). Re-lanza el error original para
+// no alterar el comportamiento del entry-point.
+function _telemetry(fnName, fn, meta) {
+  var start = Date.now();
+  var email = '';
+  try { email = Session.getActiveUser().getEmail() || ''; } catch (e) {}
+  var result, err;
+  try {
+    result = fn();
+  } catch (e) {
+    err = e;
+  }
+  var duration = Date.now() - start;
+  var success = !err && (result == null || result.success !== false);
+  var record = {
+    ts: new Date().toISOString(),
+    email: email,
+    fn: fnName,
+    duration: duration,
+    success: success,
+    error: err ? (err.message || String(err)) : (result && result.error) || null,
+    meta: meta || null
+  };
+  // 1) Stackdriver vía console.info (se ve en Apps Script Executions / GCP Logging)
+  try { console.info(JSON.stringify(record)); } catch (e) {}
+  // 2) Hoja Telemetry (si existe). NO crearla automáticamente; el dueño la crea cuando quiera.
+  try { _appendTelemetryRow(record); } catch (e) {}
+  if (err) throw err;
+  return result;
+}
+
+// Cómo activar: el dueño del sheet crea una hoja llamada 'Telemetry' con
+// columnas: ts | email | fn | duration_ms | status | error | meta.
+// Sin la hoja, el log queda solo en Stackdriver (console.info).
+function _appendTelemetryRow(record) {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var ws = ss.getSheetByName('Telemetry');
+  if (!ws) return; // hoja no existe → skip silencioso (no error)
+  ws.appendRow([
+    record.ts, record.email, record.fn, record.duration,
+    record.success ? 'OK' : 'ERR',
+    record.error || '', record.meta ? JSON.stringify(record.meta) : ''
+  ]);
 }
 
 // Contexto actual del visitante + su rol. Se usa en cada mutation.
@@ -732,8 +819,15 @@ function _updateProjectFieldImpl(projId, field, value) {
   var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
   var col = fieldMap[field];
   if (!col) return { success: false, error: 'Invalid field: ' + field };
-  ws.getRange(current.row, col).setValue(_sanitizeCell(value));
-  return { success: true };
+  // Lock para serializar mutaciones concurrentes sobre la hoja Proyectos.
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  try {
+    ws.getRange(current.row, col).setValue(_sanitizeCell(value));
+    return { success: true };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // Batch update de proyectos: aplica varios campos en una sola llamada.
@@ -765,15 +859,22 @@ function _updateProjectFieldsImpl(projId, fields) {
   var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
   var row = current.row;
 
-  Object.keys(fields).forEach(function(k) {
-    var col = fieldMap[k];
-    if (!col) return;
-    var v = fields[k];
-    // participantes puede llegar como array o string csv
-    if (k === 'participantes' && Array.isArray(v)) v = v.join(', ');
-    ws.getRange(row, col).setValue(_sanitizeCell(v));
-  });
-  return { success: true };
+  // Lock para serializar mutaciones concurrentes en hoja Proyectos.
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  try {
+    Object.keys(fields).forEach(function(k) {
+      var col = fieldMap[k];
+      if (!col) return;
+      var v = fields[k];
+      // participantes puede llegar como array o string csv
+      if (k === 'participantes' && Array.isArray(v)) v = v.join(', ');
+      ws.getRange(row, col).setValue(_sanitizeCell(v));
+    });
+    return { success: true };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -811,7 +912,11 @@ function readTasks(ws) {
   return tasks;
 }
 
-function addTask(taskObj) { return _safeMutation(function() { return _addTaskImpl(taskObj); }); }
+function addTask(taskObj) {
+  return _telemetry('addTask', function() {
+    return _safeMutation(function() { return _addTaskImpl(taskObj); });
+  }, { hasResp: !!(taskObj && taskObj.resp), hasProyecto: !!(taskObj && (taskObj.proyectoId || taskObj.proyecto)) });
+}
 function _addTaskImpl(taskObj) {
   var ctx = _getAuthContext();
   var equipos = ctx.equipos;
@@ -875,6 +980,10 @@ function _updateTaskFieldImpl(taskId, field, value) {
   if (field === 'pais' && ctx.role === 'manager' && value !== ctx.user.code) {
     throw new Error('Sin permiso: no puedes mover tareas a otro país');
   }
+  // Solo manager/head pueden cambiar el nivel de confidencialidad de una tarea.
+  if (field === 'confidencialidad' && ctx.role !== 'manager' && ctx.role !== 'head') {
+    throw new Error('Sin permiso: solo manager o head pueden cambiar confidencialidad');
+  }
 
   invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
@@ -883,9 +992,22 @@ function _updateTaskFieldImpl(taskId, field, value) {
     var n = parseInt(value, 10);
     value = isNaN(n) ? '' : n;
   }
-  ws.getRange(current.row, col).setValue(_sanitizeCell(value));
-  if (field === 'status' && value === 'Listo') {
-    ws.getRange(current.row, 10).setValue(new Date());
+  // Lock para serializar la escritura de la celda. moveToHistorial tiene su propio
+  // lock interno, por eso lo invocamos FUERA del bloque (el lock de Apps Script no
+  // es reentrante de forma garantizada, así evitamos cualquier deadlock).
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  var movedToHistorial = false;
+  try {
+    ws.getRange(current.row, col).setValue(_sanitizeCell(value));
+    if (field === 'status' && value === 'Listo') {
+      ws.getRange(current.row, 10).setValue(new Date());
+      movedToHistorial = true;
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, current.row);
     return { success: true, moved: true, message: 'Tarea movida a Historial' };
   }
@@ -895,7 +1017,11 @@ function updateTaskStatus(taskId, newStatus) { return updateTaskField(taskId, 's
 
 // Batch update: aplica varios campos en una sola llamada.
 // Si `status` es 'Listo', se aplica al final y dispara el move a Historial (los demás campos ya quedaron escritos).
-function updateTaskFields(taskId, fields) { return _safeMutation(function() { return _updateTaskFieldsImpl(taskId, fields); }); }
+function updateTaskFields(taskId, fields) {
+  return _telemetry('updateTaskFields', function() {
+    return _safeMutation(function() { return _updateTaskFieldsImpl(taskId, fields); });
+  }, { taskId: taskId, fieldCount: (fields && typeof fields === 'object') ? Object.keys(fields).length : 0, hasStatus: !!(fields && fields.status) });
+}
 function _updateTaskFieldsImpl(taskId, fields) {
   if (!fields || typeof fields !== 'object') return { success: false, error: 'Invalid fields' };
   var ctx = _getAuthContext();
@@ -910,33 +1036,49 @@ function _updateTaskFieldsImpl(taskId, fields) {
   if (ctx.role === 'manager' && fields.pais !== undefined && fields.pais !== ctx.user.code) {
     throw new Error('Sin permiso: no puedes mover tareas a otro país');
   }
+  // Solo manager/head pueden cambiar el nivel de confidencialidad de una tarea.
+  if (fields.confidencialidad !== undefined && ctx.role !== 'manager' && ctx.role !== 'head') {
+    throw new Error('Sin permiso: solo manager o head pueden cambiar confidencialidad');
+  }
 
   invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
   var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18};
   var row = current.row;
 
-  // 1) Aplicar todos los campos menos status
-  Object.keys(fields).forEach(function(k) {
-    if (k === 'status') return;
-    var col = fieldMap[k];
-    if (!col) return;
-    var v = fields[k];
-    if (k === 'proyectoId' || k === 'proyecto') {
-      var n = parseInt(v, 10);
-      v = isNaN(n) ? '' : n;
-    }
-    ws.getRange(row, col).setValue(_sanitizeCell(v));
-  });
+  // Lock para serializar mutaciones. moveToHistorial se llama fuera del bloque
+  // (tiene su propio lock interno; evitamos asumir reentrancia).
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  var movedToHistorial = false;
+  try {
+    // 1) Aplicar todos los campos menos status
+    Object.keys(fields).forEach(function(k) {
+      if (k === 'status') return;
+      var col = fieldMap[k];
+      if (!col) return;
+      var v = fields[k];
+      if (k === 'proyectoId' || k === 'proyecto') {
+        var n = parseInt(v, 10);
+        v = isNaN(n) ? '' : n;
+      }
+      ws.getRange(row, col).setValue(_sanitizeCell(v));
+    });
 
-  // 2) Status al final (puede disparar move a Historial)
-  if (fields.status !== undefined) {
-    ws.getRange(row, 7).setValue(_sanitizeCell(fields.status));
-    if (fields.status === 'Listo') {
-      ws.getRange(row, 10).setValue(new Date());
-      moveToHistorial(ctx.ss, ws, row);
-      return { success: true, moved: true, message: 'Tarea movida a Historial' };
+    // 2) Status al final (puede disparar move a Historial)
+    if (fields.status !== undefined) {
+      ws.getRange(row, 7).setValue(_sanitizeCell(fields.status));
+      if (fields.status === 'Listo') {
+        ws.getRange(row, 10).setValue(new Date());
+        movedToHistorial = true;
+      }
     }
+  } finally {
+    lock.releaseLock();
+  }
+  if (movedToHistorial) {
+    moveToHistorial(ctx.ss, ws, row);
+    return { success: true, moved: true, message: 'Tarea movida a Historial' };
   }
   return { success: true };
 }
@@ -1131,6 +1273,19 @@ function _readDocsFor(kind, itemId) {
 }
 
 // Sube un archivo (base64) a Drive y lo vincula al item. Retorna el doc descriptor.
+// SECURITY: aplica cap de tamaño y allowlist de MIME types para evitar abuso.
+var _UPLOAD_MAX_BYTES = 45 * 1024 * 1024; // 45 MB
+var _UPLOAD_ALLOWED_MIME = {
+  'application/pdf': 1,
+  'application/msword': 1,
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 1,
+  'application/vnd.ms-excel': 1,
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 1,
+  'image/png': 1,
+  'image/jpeg': 1,
+  'image/jpg': 1,
+  'text/plain': 1
+};
 function uploadDocument(kind, itemId, fileData) {
   if (!fileData || !fileData.data || !fileData.name) {
     return { success: false, error: 'Datos de archivo inválidos' };
@@ -1141,6 +1296,12 @@ function uploadDocument(kind, itemId, fileData) {
   if (kind === 'task') _authorizeTaskWrite(ctx, info.target);
   else _authorizeProjectWrite(ctx, info.target);
 
+  // Validar MIME en allowlist (rechaza tipos peligrosos: html, exe, scripts, etc.)
+  var mime = (fileData.mimeType || '').toString().trim().toLowerCase();
+  if (!_UPLOAD_ALLOWED_MIME[mime]) {
+    return { success: false, error: 'Tipo de archivo no permitido' };
+  }
+
   var folder;
   try {
     folder = _resolveTargetFolder(kind, itemId);
@@ -1149,7 +1310,11 @@ function uploadDocument(kind, itemId, fileData) {
   }
 
   var bytes = Utilities.base64Decode(fileData.data);
-  var blob = Utilities.newBlob(bytes, fileData.mimeType || 'application/octet-stream', fileData.name);
+  // Cap de tamaño para evitar agotar cuota de Drive del owner del webapp.
+  if (bytes.length > _UPLOAD_MAX_BYTES) {
+    return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
+  }
+  var blob = Utilities.newBlob(bytes, mime, fileData.name);
   var file = folder.createFile(blob);
 
   var doc = { name: file.getName(), url: file.getUrl(), id: file.getId(),
@@ -1256,6 +1421,11 @@ function findTaskCandidates(text) {
 // desde Slack, Session=owner (head) así que pasa; desde el webapp, el usuario
 // debe tener permiso sobre la tarea según su rol.
 function closeTaskById(taskId, slackUser) {
+  return _telemetry('closeTaskById', function() {
+    return _closeTaskByIdImpl(taskId, slackUser);
+  }, { taskId: taskId, viaSlack: !!slackUser });
+}
+function _closeTaskByIdImpl(taskId, slackUser) {
   var ctx = _getAuthContext();
   var current = _readTaskById(ctx.ss, taskId);
   if (!current) return { success: false, message: 'Tarea #' + taskId + ' no encontrada' };
@@ -1263,15 +1433,29 @@ function closeTaskById(taskId, slackUser) {
 
   invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
-  var tn = ws.getRange(current.row, 2).getValue();
-  ws.getRange(current.row, 7).setValue('Listo');
-  ws.getRange(current.row, 10).setValue(new Date());
+  // Lock para serializar la mutación. moveToHistorial se llama fuera (tiene su
+  // propio lock interno; no asumimos reentrancia del lock de Apps Script).
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  var tn;
+  try {
+    tn = ws.getRange(current.row, 2).getValue();
+    ws.getRange(current.row, 7).setValue('Listo');
+    ws.getRange(current.row, 10).setValue(new Date());
+  } finally {
+    lock.releaseLock();
+  }
   moveToHistorial(ctx.ss, ws, current.row);
   return { success: true, id: taskId, nombre: tn, message: 'Tarea #' + taskId + ' "' + tn + '" cerrada y movida a Historial' };
 }
 
 // Bloquea una tarea por ID. Mismas validaciones que closeTaskById.
 function blockTaskById(taskId, reason, slackUser) {
+  return _telemetry('blockTaskById', function() {
+    return _blockTaskByIdImpl(taskId, reason, slackUser);
+  }, { taskId: taskId, viaSlack: !!slackUser, hasReason: !!reason });
+}
+function _blockTaskByIdImpl(taskId, reason, slackUser) {
   var ctx = _getAuthContext();
   var current = _readTaskById(ctx.ss, taskId);
   if (!current) return { success: false, message: 'Tarea #' + taskId + ' no encontrada' };
@@ -1279,12 +1463,19 @@ function blockTaskById(taskId, reason, slackUser) {
 
   invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
-  var tn = ws.getRange(current.row, 2).getValue();
-  ws.getRange(current.row, 7).setValue('Bloqueado');
-  var prevNotes = ws.getRange(current.row, 11).getValue() || '';
-  var stamp = '⛔ ' + (reason || '') + ' (' + (slackUser || '') + ', ' + new Date().toLocaleDateString('es-CO') + ')';
-  ws.getRange(current.row, 11).setValue(_sanitizeCell((prevNotes ? prevNotes + ' | ' : '') + stamp));
-  return { success: true, id: taskId, nombre: tn, message: 'Tarea bloqueada: #' + taskId + ' "' + tn + '"' };
+  // Lock para serializar el read-modify-write de notas (evita perder concurrencia).
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  try {
+    var tn = ws.getRange(current.row, 2).getValue();
+    ws.getRange(current.row, 7).setValue('Bloqueado');
+    var prevNotes = ws.getRange(current.row, 11).getValue() || '';
+    var stamp = '⛔ ' + (reason || '') + ' (' + (slackUser || '') + ', ' + new Date().toLocaleDateString('es-CO') + ')';
+    ws.getRange(current.row, 11).setValue(_sanitizeCell((prevNotes ? prevNotes + ' | ' : '') + stamp));
+    return { success: true, id: taskId, nombre: tn, message: 'Tarea bloqueada: #' + taskId + ' "' + tn + '"' };
+  } finally {
+    lock.releaseLock();
+  }
 }
 function testData() {
   var d = getTrackerData();
@@ -1293,3 +1484,25 @@ function testData() {
   Logger.log('Projects: ' + d.projects.length);
   Logger.log('Team: ' + d.team.length);
 }
+
+// ════════════════════════════════════════════════════════════════
+// TELEMETRY · README
+// ════════════════════════════════════════════════════════════════
+// - Cómo ver los logs: Apps Script editor → "Ejecuciones" (View → Executions).
+//   Cada llamada a un entry-point wrappeado emite un JSON con
+//   { ts, email, fn, duration, success, error, meta } vía console.info.
+//   En GCP Logging filtrá por jsonPayload.fn="updateTaskFields" para ver
+//   por función o jsonPayload.success=false para ver errores.
+// - Cómo activar la hoja Telemetry: el dueño del spreadsheet crea
+//   manualmente una hoja con el nombre exacto 'Telemetry' y columnas
+//   ts | email | fn | duration_ms | status | error | meta. A partir de
+//   ese momento cada call queda persistido (1 row por call). Sin la hoja,
+//   los logs viven solo en Stackdriver y se rotan según política de GCP.
+// - Por qué NO loguea el body de las requests: las tareas/proyectos pueden
+//   contener nombres de personas, notas confidenciales (cláusulas, montos,
+//   contrapartes). Solo loggeamos metadata booleana o counts (ej. hasResp,
+//   fieldCount) para correlacionar sin filtrar PII.
+// - Entry-points wrappeados (5): getEditorialData, addTask, updateTaskFields,
+//   closeTaskById, blockTaskById. El resto (updateTaskField, addProject,
+//   uploadDocument, etc.) no está wrappeado para minimizar diff; agregar
+//   más siguiendo el mismo patrón si hace falta más visibilidad.

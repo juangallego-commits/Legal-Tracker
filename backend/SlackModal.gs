@@ -17,6 +17,94 @@
 const SLACK_BOT_TOKEN  = PropertiesService.getScriptProperties().getProperty('SLACK_BOT_TOKEN') || '';
 const SLACK_LOG_SHEET  = 'Slack Log';
 
+// SECURITY: Slack signature verification.
+// El webapp Apps Script está deployado ANYONE_ANONYMOUS para que Slack pueda hacer POST.
+// Sin verificación de firma cualquiera con la URL podría falsificar payloads y cerrar/bloquear tareas.
+// Slack firma cada request con HMAC-SHA256 usando SLACK_SIGNING_SECRET.
+//
+// Setup: Apps Script Editor → ⚙ Project Settings → Script Properties → Add:
+//   Key: SLACK_SIGNING_SECRET   Value: <signing secret de tu Slack app>
+//
+// LIMITACIÓN: en Apps Script doPost los headers HTTP NO están disponibles en e.parameter
+// y solo a veces aparecen en e.headers (depende del modo de deployment y el tipo de request).
+// En webapps simples no son accesibles, lo que impide validar la firma de manera estándar.
+// Workaround sugerido a futuro: usar una Cloud Function como proxy que sí puede validar la firma,
+// y forwardear a Apps Script con un shared secret en el body.
+// Por eso dejamos el helper preparado pero con flag _SLACK_SIG_ENFORCED = false hasta poder migrarlo.
+const _SLACK_SIG_ENFORCED = false;
+const _SLACK_SIG_MAX_AGE_SEC = 60 * 5; // 5 min anti-replay
+
+// Convierte un byte[] (signed) de Apps Script en string hex lowercase.
+function _bytesToHex(bytes) {
+  var hex = '';
+  for (var i = 0; i < bytes.length; i++) {
+    var b = bytes[i];
+    if (b < 0) b += 256;
+    var h = b.toString(16);
+    if (h.length === 1) h = '0' + h;
+    hex += h;
+  }
+  return hex;
+}
+
+// Verifica la firma HMAC de Slack. Retorna true si es válida (o si no hay secret seteado, modo dev).
+// Si _SLACK_SIG_ENFORCED es false, hace soft-fail (loggea pero permite el request).
+// SECURITY: en Apps Script doPost los headers vienen en e.headers PERO en webapps simples no están
+// disponibles. Workaround: usar Cloud Functions como proxy.
+function _verifySlackSignature(e) {
+  var secret = '';
+  try { secret = PropertiesService.getScriptProperties().getProperty('SLACK_SIGNING_SECRET') || ''; } catch (err) {}
+
+  if (!secret) {
+    // Modo dev: warning pero permitido
+    try { console.warn('SLACK_SIGNING_SECRET no seteado — ejecución sin verificación de firma (modo dev)'); } catch(_e) {}
+    return true;
+  }
+
+  // Intentar leer headers — en Apps Script puede que estén en e.headers o no estén.
+  var headers = (e && e.headers) ? e.headers : null;
+  var sigHeader = '';
+  var tsHeader  = '';
+  if (headers) {
+    sigHeader = headers['x-slack-signature'] || headers['X-Slack-Signature'] || '';
+    tsHeader  = headers['x-slack-request-timestamp'] || headers['X-Slack-Request-Timestamp'] || '';
+  }
+
+  if (!sigHeader || !tsHeader) {
+    // Apps Script webapp simple no expone headers. No podemos validar.
+    try { console.warn('Slack signature headers no disponibles en e.headers — Apps Script webapp limita esto.'); } catch(_e) {}
+    return !_SLACK_SIG_ENFORCED;
+  }
+
+  // Anti-replay: timestamp no más viejo que 5 min
+  var nowSec = Math.floor(Date.now() / 1000);
+  var tsNum = parseInt(tsHeader, 10);
+  if (isNaN(tsNum) || Math.abs(nowSec - tsNum) > _SLACK_SIG_MAX_AGE_SEC) {
+    try { console.warn('Slack signature timestamp fuera de rango (' + tsHeader + ')'); } catch(_e) {}
+    return !_SLACK_SIG_ENFORCED;
+  }
+
+  // Recompute: sigBase = 'v0:' + ts + ':' + body
+  var body = (e && e.postData && e.postData.contents) ? e.postData.contents : '';
+  var base = 'v0:' + tsHeader + ':' + body;
+  var hmac = Utilities.computeHmacSha256Signature(base, secret);
+  var expected = 'v0=' + _bytesToHex(hmac);
+
+  // Comparación constante en tiempo (evita timing attacks)
+  if (expected.length !== sigHeader.length) {
+    return !_SLACK_SIG_ENFORCED;
+  }
+  var diff = 0;
+  for (var i = 0; i < expected.length; i++) {
+    diff |= expected.charCodeAt(i) ^ sigHeader.charCodeAt(i);
+  }
+  if (diff !== 0) {
+    try { console.warn('Slack signature mismatch'); } catch(_e) {}
+    return !_SLACK_SIG_ENFORCED;
+  }
+  return true;
+}
+
 // Emojis que disparan acciones
 const EMOJI_CREATE = 'scales';              // ⚖️  → crear tarea (con formulario)
 const EMOJI_CLOSE  = 'white_check_mark';   // ✅  → cerrar tarea directamente
@@ -28,6 +116,14 @@ const EMOJI_BLOCK  = 'no_entry';           // ⛔  → bloquear tarea (con razó
 // ════════════════════════════════════════════════════════════════
 function doPost(e) {
   try {
+    // ── SECURITY: validar firma HMAC de Slack antes de procesar nada ──
+    // Si el secret no está seteado, permite (modo dev) con warning.
+    // Si está seteado pero los headers no están disponibles, soft-fail según _SLACK_SIG_ENFORCED.
+    if (!_verifySlackSignature(e)) {
+      logSlackError('doPost', { message: 'Slack signature verification failed', stack: '' });
+      return jsonResponse({ error: 'unauthorized' });
+    }
+
     // ── Interactions: botones y modals llegan como form-encoded ──
     if (e.postData.type === 'application/x-www-form-urlencoded') {
       const payload = JSON.parse(e.parameter.payload || '{}');
