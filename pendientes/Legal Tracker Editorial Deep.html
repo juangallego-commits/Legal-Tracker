@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Legal Tracker — Editorial Deep</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;500;600;700;800;900&family=Fraunces:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; background:#f0eee9; font-family:'Nunito Sans',system-ui,sans-serif; }
+  * { box-sizing: border-box; }
+  #root { min-height: 100vh; }
+  .ab-host { width:100%; height:100%; overflow:auto; }
+  .ab-host::-webkit-scrollbar { width:8px; height:8px; }
+  .ab-host::-webkit-scrollbar-thumb { background:rgba(0,0,0,.18); border-radius:4px; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<template id="__bundler_thumbnail" data-bg-color="#FAFAF7">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#FAFAF7"/>
+    <text x="600" y="380" font-family="Fraunces, Georgia, serif" font-size="120" font-weight="400" fill="#1A1A1A" text-anchor="middle" font-style="italic">Legal</text>
+    <text x="600" y="460" font-family="Nunito Sans, system-ui" font-size="22" font-weight="700" fill="#B8551F" text-anchor="middle" letter-spacing="4">DEEP DIVE — EDITORIAL</text>
+  </svg>
+</template>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="shared-components.jsx"></script>
+<script type="text/babel" src="editorial-data.jsx"></script>
+<script type="text/babel" src="editorial-shared.jsx"></script>
+<script type="text/babel" src="ed-cover-close.jsx"></script>
+<script type="text/babel" src="ed-home-specialist.jsx"></script>
+<script type="text/babel" src="ed-home-manager-hq.jsx"></script>
+<script type="text/babel" src="ed-agrupadas.jsx"></script>
+<script type="text/babel" src="ed-tracker.jsx"></script>
+<script type="text/babel" src="ed-crear.jsx"></script>
+<script type="text/babel" src="ed-proyecto.jsx"></script>
+<script type="text/babel" src="ed-proyectos-index.jsx"></script>
+<script type="text/babel" src="ed-actualizar.jsx"></script>
+<script type="text/babel" src="ed-bandeja.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme_specialist": "light",
+  "theme_manager": "light",
+  "theme_hq": "light",
+  "theme_grouped": "light",
+  "theme_tracker": "light",
+  "theme_crear": "light",
+  "tracker_role": "manager"
+}/*EDITMODE-END*/;
+
+function App() {
+  const [tw, setTw] = useTweaks(TWEAK_DEFAULTS);
+
+  const AB_W = 1280;
+  const AB_H = 1100;
+  const TRK_W = 1480; // tracker has the side panel
+  const CR_W = 1280;
+  const CR_H = 980;
+
+  const host = (extra) => ({ width:'100%', height:'100%', overflow:'auto', background:'#fff', ...extra });
+
+  return (
+    <>
+      <DesignCanvas>
+
+        <DCSection id="cover" title="① Portada — Una herramienta legal que entiende a quien la usa" subtitle="Apertura editorial. Contexto del rediseño, los 3 personajes, las 4 vistas. Es donde empieza la lectura del deep-dive.">
+
+          <DCArtboard id="cover-1" label="Cover — contexto, roles, flujo, tono" width={1280} height={1640}>
+            <div className="ab-host" style={host()}>
+              <EdCover theme="light"/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+        <DCSection id="home-by-role" title="② Home — por tipo de usuario" subtitle="Specialist ve sólo lo suyo · Manager ve su equipo · HQ ve toda LATAM. La estructura de info y el lenguaje cambian con el rol.">
+
+          <DCArtboard id="home-spec-light" label="Home Specialist — Juan Camilo (foco ETAs, vencidas, racha)" width={AB_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdHomeSpecialist theme="light"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="home-mgr-light" label="Home Manager — Carlos F. (carga del equipo, atención ranked)" width={AB_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdHomeManager theme="light"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="home-hq-light" label="Home HQ — Enrique G. (visión 10 países, brasil en riesgo)" width={AB_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdHomeHQ theme="light"/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+        <DCSection id="grouped" title="③ Vista intermedia — Tus tareas agrupadas" subtitle="Antes de meterse a la tabla densa: un mapa por prioridad con narrativa. Reduce la fricción cognitiva entre el Home (alto nivel) y el Tracker (denso).">
+
+          <DCArtboard id="grouped-light" label="Por prioridad (pendientes / hoy / esta semana / más adelante)" width={AB_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdAgrupadas theme="light"/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+        <DCSection id="tracker" title="④ Tracker — tabla totalmente clickeable + panel de detalle" subtitle="Click en cualquier fila abre un panel lateral con estado actual, historial y acciones. Sin perder contexto de la tabla.">
+
+          <DCArtboard id="trk-mgr-light" label="Tracker Manager — fila T-142 abierta en panel lateral" width={TRK_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdTracker theme="light" role="manager" selectedId="T-142"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="trk-spec-light" label="Tracker Specialist — sólo sus 4 tareas (no ve al equipo)" width={TRK_W} height={AB_H}>
+            <div className="ab-host" style={host()}>
+              <EdTracker theme="light" role="specialist" selectedId="T-138"/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+        <DCSection id="proyectos-index" title="⑤ Mis proyectos — vista índice cuando hay varios" subtitle="Antes del detalle de un proyecto, la lista. El más urgente como hero, el resto como filas con avance, equipo y deadline.">
+
+          <DCArtboard id="proy-idx" label="Índice · 5 proyectos activos · Legal Tracker como hero" width={1380} height={1480}>
+            <div className="ab-host" style={host()}>
+              <EdProyectosIndex theme="light"/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+        <DCSection id="proyecto" title="⑥ Detalle de proyecto — donde participa Juan Camilo" subtitle="La vista que se abre al hacer click en 'Legal Tracker' desde el índice. Tareas + equipo + hitos + actividad reciente.">
+
+          <DCArtboard id="proy-1" label="Proyecto · renovación contratos críticos · líder Carlos F." width={1380} height={1240}>
+            <div className="ab-host" style={host()}>
+              <EdProyecto theme="light"/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+        <DCSection id="actualizar" title="⑦ Actualizar el estado de una tarea — panel deslizante" subtitle="La pieza que faltaba: cómo el especialista mueve una tarea por el flujo. Tres variantes: avanzar a revisión, cerrar (con resumen IA + adjunto final + aprendizaje), o marcar bloqueada.">
+
+          <DCArtboard id="act-cerrar" label="Cerrar — resumen IA, adjunto final, qué aprendimos, a quién avisar" width={1380} height={1100}>
+            <div className="ab-host" style={host()}>
+              <EdActualizar theme="light" variant="cerrar"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="act-bloquear" label="Bloquear — qué te bloquea, quién destraba, cuándo reintentar" width={1380} height={1100}>
+            <div className="ab-host" style={host()}>
+              <EdActualizar theme="light" variant="bloquear"/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="act-avanzar" label="Avanzar — mandar a revisión: revisor sugerido, nota, plazo" width={1380} height={1100}>
+            <div className="ab-host" style={host()}>
+              <EdActualizar theme="light" variant="avanzar"/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+        <DCSection id="crear" title="⑥ Crear tarea — paso a paso con sugerencias IA" subtitle="Reduce la carga cognitiva: empezás con lo esencial (título + descripción), después la IA sugiere prioridad, responsable, SLA y proyecto basado en histórico.">
+
+          <DCArtboard id="cr-1-light" label="Paso 1 — sólo lo esencial (título, descripción, tipo, país)" width={CR_W} height={CR_H}>
+            <div className="ab-host" style={host()}>
+              <EdCrear theme="light" step={1}/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="cr-2-light" label="Paso 2 — IA sugiere prioridad, responsable y SLA + visibilidad + adjuntos" width={CR_W} height={CR_H}>
+            <div className="ab-host" style={host()}>
+              <EdCrear theme="light" step={2}/>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="cr-3-light" label="Paso 3 — confirmación: resumen + visibilidad + adjuntos antes de publicar" width={CR_W} height={CR_H}>
+            <div className="ab-host" style={host()}>
+              <EdCrear theme="light" step={3}/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+        <DCSection id="bandeja" title="⑧ Bandeja — lo que llega de Slack y Gmail" subtitle="Las tareas no nacen siempre en el formulario. El bot /legal en Slack y los correos a legal-tracker@ generan borradores que la IA pre-llena. Vos confirmás en ~30 segundos.">
+
+          <DCArtboard id="bandeja-1" label="Triage · 7 pendientes · mensaje de Slack abierto · IA pre-llenó" width={1380} height={1380}>
+            <div className="ab-host" style={host()}>
+              <EdBandeja theme="light"/>
+            </div>
+          </DCArtboard>
+
+        </DCSection>
+
+      </DesignCanvas>
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection title="Notas del rediseño">
+          <div style={{fontSize:11.5,color:'#5b5b5b',lineHeight:1.55,padding:'4px 0'}}>
+            La sidebar cambia con el rol: <b>Specialist</b> ve "Mi día" + "Donde participo". <b>Manager</b> agrega "Equipo" + "Insights". <b>HQ</b> reemplaza por "Visión global".
+          </div>
+        </TweakSection>
+        <TweakSection title="Cobertura">
+          <div style={{fontSize:11.5,color:'#5b5b5b',lineHeight:1.55,padding:'4px 0'}}>
+            14 artboards · 8 secciones. Cover + 3 Homes + Agrupadas + 2 Tracker + Índice de proyectos + Proyecto + 3 Crear + 3 Actualizar + Bandeja Slack/Gmail.
+          </div>
+        </TweakSection>
+      </TweaksPanel>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

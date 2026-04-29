@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=1440,initial-scale=1"/>
+<title>Legal Tracker — Capture Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;500;600;700;800;900&family=Fraunces:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; background:#f0eee9; font-family:'Nunito Sans',system-ui,sans-serif; width:1440px; }
+  * { box-sizing: border-box; }
+  #stage {
+    position: relative;
+    width: 1440px;
+    height: 900px;
+    background: #fff;
+    overflow: hidden;
+  }
+  #content {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+  /* Cover */
+  .cover {
+    width: 100%; height: 100%;
+    background: #FAFAF7;
+    color: #1A1A1A;
+    padding: 80px 110px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .cover .eye { font-size: 13px; text-transform: uppercase; letter-spacing: 2.4px; font-weight: 800; color: #B8551F; margin-bottom: 22px; }
+  .cover h1 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 300;
+    font-size: 110px;
+    line-height: 1;
+    letter-spacing: -3px;
+    margin: 0;
+  }
+  .cover h1 em { font-style: italic; color: #B8551F; font-weight: 400; }
+  .cover .lede { font-size: 19px; color: #5B5B5B; max-width: 900px; line-height: 1.55; margin-top: 32px; }
+  .cover .lede b { color: #1A1A1A; font-weight: 700; }
+  .cover .meta { font-size: 12px; text-transform: uppercase; letter-spacing: 1.8px; font-weight: 700; color: #9A998F; }
+  .toc { font-size: 14px; line-height: 1.9; color: #1A1A1A; columns: 2; column-gap: 70px; }
+  .toc-row { display: flex; gap: 18px; align-items: baseline; border-bottom: 1px solid rgba(0,0,0,.08); padding: 8px 0; break-inside: avoid; }
+  .toc-num { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9A998F; font-weight: 700; min-width: 28px; }
+  .toc-name { font-weight: 700; flex: 1; font-size: 13px; }
+
+  /* Captioned page */
+  .frame {
+    width: 100%; height: 100%;
+    display: grid;
+    grid-template-rows: 1fr 86px;
+    background: #fff;
+  }
+  .frame .canvas {
+    overflow: hidden;
+    position: relative;
+  }
+  .frame .scaler {
+    transform-origin: top left;
+  }
+  .frame .caption {
+    background: #FAFAF7;
+    border-top: 1px solid rgba(0,0,0,.08);
+    padding: 16px 36px;
+    display: flex; align-items: center; gap: 22px;
+  }
+  .frame .num {
+    font-family: 'Fraunces', Georgia, serif;
+    font-style: italic;
+    font-weight: 300;
+    font-size: 44px;
+    color: #B8551F;
+    line-height: 1;
+    min-width: 60px;
+  }
+  .frame .lbl-wrap { flex: 1; }
+  .frame .lbl {
+    font-size: 16px;
+    font-weight: 800;
+    color: #1A1A1A;
+    margin-bottom: 4px;
+    letter-spacing: -.2px;
+  }
+  .frame .sub {
+    font-size: 13px;
+    color: #5B5B5B;
+    line-height: 1.45;
+    max-width: 1100px;
+  }
+  .frame .sub b { color: #1A1A1A; font-weight: 700; }
+  .frame .pageno {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: #9A998F;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+  }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="stage"><div id="content"></div></div>
+
+<script type="text/babel" src="shared-components.jsx"></script>
+<script type="text/babel" src="editorial-data.jsx"></script>
+<script type="text/babel" src="editorial-shared.jsx"></script>
+<script type="text/babel" src="ed-home-specialist.jsx"></script>
+<script type="text/babel" src="ed-home-manager-hq.jsx"></script>
+<script type="text/babel" src="ed-agrupadas.jsx"></script>
+<script type="text/babel" src="ed-tracker.jsx"></script>
+<script type="text/babel" src="ed-crear.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+const STAGE_W = 1440;
+const STAGE_H = 900;
+const CAPTION_H = 86;
+const CANVAS_H = STAGE_H - CAPTION_H;
+
+const FRAMES = [
+  { kind: 'cover' },
+  { kind: 'frame', num: '02 / 14', label: 'Home Specialist · light',
+    sub: <>Vista del usuario operativo (Juan Camilo). Hero con <b>vencidas</b>, <b>vence hoy</b>, <b>esta semana</b> y <b>bloqueadas</b>. Lista ranked "en tu mesa por urgencia" con narrativa accionable. Performance personal con cierres promedio por SLA y racha on-time.</>,
+    inner: () => <EdHomeSpecialist theme="light"/>, innerW: 1280, innerH: 1100 },
+  { kind: 'frame', num: '03 / 14', label: 'Home Specialist · dark',
+    sub: <>Mismo contenido en tema oscuro. Fraunces (serif) restringido a H1 y números hero como pediste — el resto Nunito Sans para máxima legibilidad operativa.</>,
+    inner: () => <EdHomeSpecialist theme="dark"/>, innerW: 1280, innerH: 1100 },
+  { kind: 'frame', num: '04 / 14', label: 'Home Manager · light',
+    sub: <>Vista del manager (Carlos Fernández, líder CO). <b>Carga del equipo</b>, <b>SLA cumplido</b>, lista ranked "pide tu atención ahora" con razón concreta y botón de reasignar. Tabla del equipo con barras de utilización por persona.</>,
+    inner: () => <EdHomeManager theme="light"/>, innerW: 1280, innerH: 1100 },
+  { kind: 'frame', num: '05 / 14', label: 'Home Manager · dark',
+    sub: <>La sidebar agrega Equipo + Insights vs. Specialist. Vocabulario operativo: <b>reasignar</b>, <b>escalar</b>, sobrecarga.</>,
+    inner: () => <EdHomeManager theme="dark"/>, innerW: 1280, innerH: 1100 },
+  { kind: 'frame', num: '06 / 14', label: 'Home HQ · light',
+    sub: <>Vista del HQ regional. <b>10 países LATAM</b> con tendencia 30d (sparklines). Brasil flageado en rojo (SLA 79%, -6pp mes). Métricas globales: 217 abiertas, 16 vencidas, 89% SLA promedio.</>,
+    inner: () => <EdHomeHQ theme="light"/>, innerW: 1280, innerH: 1100 },
+  { kind: 'frame', num: '07 / 14', label: 'Home HQ · dark',
+    sub: <>Misma información en tema oscuro. La sidebar reemplaza por <b>Visión / Operación / Insights</b> — estructura de info distinta al rol operativo.</>,
+    inner: () => <EdHomeHQ theme="dark"/>, innerW: 1280, innerH: 1100 },
+  { kind: 'frame', num: '08 / 14', label: 'Tus tareas agrupadas — vista intermedia',
+    sub: <>Antes de meterse a la tabla densa, esta vista intermedia agrupa por <b>vencidas / hoy / esta semana / más adelante</b> con narrativa por bucket. Reduce la fricción cognitiva entre Home y Tracker. Tabs alternativos: por proyecto, por tipo, por riesgo.</>,
+    inner: () => <EdAgrupadas theme="light"/>, innerW: 1280, innerH: 1100 },
+  { kind: 'frame', num: '09 / 14', label: 'Tracker Manager · light + panel de detalle',
+    sub: <>Click en cualquier fila abre un panel lateral con <b>estado actual</b>, <b>metadata grid</b>, <b>timeline cronológica</b> y <b>acciones</b> (escalar, reasignar, comentar). Sin perder contexto de la tabla.</>,
+    inner: () => <EdTracker theme="light" role="manager" selectedId="T-142"/>, innerW: 1480, innerH: 1100 },
+  { kind: 'frame', num: '10 / 14', label: 'Tracker Manager · dark',
+    sub: <>Mismo estado en tema oscuro. La fila seleccionada queda destacada con un edge marker en el lado izquierdo, no con un fondo sólido.</>,
+    inner: () => <EdTracker theme="dark" role="manager" selectedId="T-142"/>, innerW: 1480, innerH: 1100 },
+  { kind: 'frame', num: '11 / 14', label: 'Tracker Specialist · light',
+    sub: <>Vista filtrada según rol — Juan Camilo solo ve sus 4 tareas, no el equipo. La columna "responsable" se reemplaza por <b>"proyecto"</b>, ya que es información más relevante para él.</>,
+    inner: () => <EdTracker theme="light" role="specialist" selectedId="T-138"/>, innerW: 1480, innerH: 1100 },
+  { kind: 'frame', num: '12 / 14', label: 'Crear tarea · paso 1',
+    sub: <>Solo lo esencial: <b>título</b>, <b>descripción</b>, <b>tipo</b>, <b>país</b>. Sin abrumar al usuario con prioridad/SLA/responsable en este momento — esos los va a sugerir la IA en el paso 2.</>,
+    inner: () => <EdCrear theme="light" step={1}/>, innerW: 1280, innerH: 980 },
+  { kind: 'frame', num: '13 / 14', label: 'Crear tarea · paso 2 con sugerencias IA',
+    sub: <>La IA sugiere <b>prioridad Alta</b> (deadline 30 abril), <b>responsable Carlos F.</b> (3 contratos similares cerrados a tiempo), <b>SLA 2d</b>, y <b>match 92%</b> con proyecto. Cada sugerencia tiene pill `Sugerido:` y el Apply/Ignore es explícito — la IA no decide, recomienda.</>,
+    inner: () => <EdCrear theme="light" step={2}/>, innerW: 1280, innerH: 980 },
+  { kind: 'frame', num: '14 / 14', label: 'Crear tarea · paso 2 dark',
+    sub: <>Mismo flujo en tema oscuro. El callout naranja con el avatar "A" señala visualmente que la sugerencia viene del asistente; no se mezcla con campos editables del usuario.</>,
+    inner: () => <EdCrear theme="dark" step={2}/>, innerW: 1280, innerH: 980 },
+];
+
+function Cover() {
+  return (
+    <div className="cover">
+      <div>
+        <div className="eye">Legal Tracker · Rappi · Rediseño 2025</div>
+        <h1>Editorial<br/><em>Deep dive.</em></h1>
+        <p className="lede">
+          Profundización de la dirección Editorial. Tres roles (<b>Specialist · Manager · HQ</b>) con sidebar y lenguaje propios,
+          una vista intermedia "tus tareas agrupadas", tracker totalmente clickeable con panel de detalle, y flujo de creación con sugerencias de IA.
+        </p>
+      </div>
+      <div className="toc">
+        <div className="toc-row"><span className="toc-num">02</span><span className="toc-name">Home Specialist · light</span></div>
+        <div className="toc-row"><span className="toc-num">03</span><span className="toc-name">Home Specialist · dark</span></div>
+        <div className="toc-row"><span className="toc-num">04</span><span className="toc-name">Home Manager · light</span></div>
+        <div className="toc-row"><span className="toc-num">05</span><span className="toc-name">Home Manager · dark</span></div>
+        <div className="toc-row"><span className="toc-num">06</span><span className="toc-name">Home HQ · light</span></div>
+        <div className="toc-row"><span className="toc-num">07</span><span className="toc-name">Home HQ · dark</span></div>
+        <div className="toc-row"><span className="toc-num">08</span><span className="toc-name">Tus tareas agrupadas</span></div>
+        <div className="toc-row"><span className="toc-num">09</span><span className="toc-name">Tracker Manager · light + panel</span></div>
+        <div className="toc-row"><span className="toc-num">10</span><span className="toc-name">Tracker Manager · dark</span></div>
+        <div className="toc-row"><span className="toc-num">11</span><span className="toc-name">Tracker Specialist · light</span></div>
+        <div className="toc-row"><span className="toc-num">12</span><span className="toc-name">Crear tarea · paso 1</span></div>
+        <div className="toc-row"><span className="toc-num">13</span><span className="toc-name">Crear tarea · paso 2 (IA)</span></div>
+        <div className="toc-row"><span className="toc-num">14</span><span className="toc-name">Crear tarea · paso 2 dark</span></div>
+      </div>
+      <div className="meta">14 pantallas · 25 abril 2026</div>
+    </div>
+  );
+}
+
+function Frame({ frame }) {
+  const sX = STAGE_W / frame.innerW;
+  const sY = CANVAS_H / frame.innerH;
+  const s = Math.min(sX, sY);
+  const offsetX = (STAGE_W - frame.innerW * s) / 2;
+  return (
+    <div className="frame">
+      <div className="canvas">
+        <div className="scaler" style={{
+          width: frame.innerW,
+          height: frame.innerH,
+          transform: `translateX(${offsetX}px) scale(${s})`,
+          transformOrigin: 'top left',
+        }}>
+          {frame.inner()}
+        </div>
+      </div>
+      <div className="caption">
+        <span className="num">{frame.num.split(' / ')[0]}</span>
+        <div className="lbl-wrap">
+          <div className="lbl">{frame.label}</div>
+          <div className="sub">{frame.sub}</div>
+        </div>
+        <span className="pageno">{frame.num}</span>
+      </div>
+    </div>
+  );
+}
+
+let currentRoot = null;
+window.__renderFrame = function(idx) {
+  const f = FRAMES[idx];
+  const el = document.getElementById('content');
+  if (!currentRoot) currentRoot = ReactDOM.createRoot(el);
+  currentRoot.render(f.kind === 'cover' ? <Cover/> : <Frame frame={f}/>);
+};
+window.__totalFrames = FRAMES.length;
+
+// Render frame 0 by default
+setTimeout(() => window.__renderFrame(0), 200);
+</script>
+</body>
+</html>
