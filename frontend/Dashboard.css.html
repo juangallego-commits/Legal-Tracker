@@ -1698,6 +1698,40 @@ body.role-manager #tabResumen { display: none !important; }
 }
 .theme-toggle:hover { background: var(--paper2); border-color: var(--rule-strong); }
 
+/* Demo switcher (solo visible para HQ real) */
+.ed-demo-switch {
+  margin-top: auto;
+  padding: 12px 0;
+  border-top: 1px dashed var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ed-demo-lbl {
+  font-size: 9px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+  font-weight: 800;
+}
+.ed-demo-sel {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 8px;
+  background: var(--paper2);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ed-demo-sel:hover { border-color: var(--accent); }
+.ed-demo-sel:focus { outline: none; border-color: var(--accent); }
+/* Cuando hay demo switcher, el side-foot deja de tener margin-top:auto
+   (el switcher lo toma). Lo re-aplicamos para que el switcher empuje
+   foot abajo del todo. */
+.ed-demo-switch + .ed-side-foot { margin-top: 0; }
+
 /* ═══════════════════════════════════════════════════════════════
    SPECIALIST HOME (.esp-*)
    ═══════════════════════════════════════════════════════════════ */
@@ -2518,6 +2552,9 @@ body.role-manager #tabResumen { display: none !important; }
 .cr-pill-btn.alta.active { background: var(--critical); border-color: var(--critical); color: #fff; }
 .cr-pill-btn.media.active { background: var(--warn); border-color: var(--warn); color: #fff; }
 .cr-pill-btn.baja.active { background: var(--good); border-color: var(--good); color: #fff; }
+.cr-pill-btn.estandar.active     { background: var(--good);     border-color: var(--good);     color: #fff; }
+.cr-pill-btn.restringido.active  { background: var(--warn);     border-color: var(--warn);     color: #fff; }
+.cr-pill-btn.confidencial.active { background: var(--critical); border-color: var(--critical); color: #fff; }
 .cr-foot { padding: 16px 32px; border-top: 1px solid var(--rule); display: flex; gap: 10px; align-items: center; background: var(--paper); }
 .cr-foot-info { font-size: 11.5px; color: var(--dim); flex: 1; line-height: 1.45; }
 .cr-foot-info b { color: var(--ink); font-weight: 700; }
@@ -2832,6 +2869,21 @@ body.role-manager #tabResumen { display: none !important; }
   font-size: 13px;
   color: var(--dim);
 }
+
+/* === confidencialidad (3 niveles, solo visualización) === */
+.cf-dot { width:8px; height:8px; border-radius:50%; display:inline-block; vertical-align:middle; }
+.cf-dot.estandar     { background: var(--good); }
+.cf-dot.restringido  { background: var(--warn); }
+.cf-dot.confidencial { background: var(--critical); }
+.cf-band { padding:10px 14px; border-radius:4px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.4px; display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.cf-band.estandar    { background: var(--good-soft);     color: var(--good);     border-left:3px solid var(--good); }
+.cf-band.restringido { background: var(--warn-soft);     color: var(--warn);     border-left:3px solid var(--warn); }
+.cf-band.confidencial{ background: var(--critical-soft); color: var(--critical); border-left:3px solid var(--critical); }
+.cf-band-desc { font-size:11px; color: var(--muted); text-transform:none; letter-spacing:.2px; font-weight:600; flex:1; }
+.cf-pill { display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:3px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; }
+.cf-pill.estandar    { background: var(--good-soft);     color: var(--good); }
+.cf-pill.restringido { background: var(--warn-soft);     color: var(--warn); }
+.cf-pill.confidencial{ background: var(--critical-soft); color: var(--critical); }
 
 /* === editorial overrides === */
 .nav-tab.active { box-shadow: none; }

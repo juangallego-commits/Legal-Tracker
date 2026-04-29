@@ -1396,12 +1396,17 @@ function cfUp(id, f, v) {
 // ═══ HELPERS ═══
 function $(id){ return document.getElementById(id); }
 
-// Escapa contenido para insertar en innerHTML (HTML entity encoding).
+// Escapa contenido para insertar en innerHTML O en atributos HTML
+// (escapa <, >, &, ", '). Usar siempre antes de inyectar valores
+// derivados de datos del backend o entrada del usuario.
 function esc(s) {
-  if (!s) return '';
-  var d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // NOTA: escJs ya no se usa (reemplazado por event delegation con data-act).
@@ -2469,6 +2474,59 @@ var ED_NAV_BY_ROLE = {
   ]
 };
 
+// ───────────────────────────────────────────────────────────────
+// DEMO MODE: el head puede simular ver la app como specialist /
+// manager / hq sin cambiar de cuenta. Solo cambia el rendering;
+// el backend sigue ejecutando como el head real (cualquier mutación
+// se registra a su nombre).
+// Persiste en localStorage. Solo visible cuando USER.role === 'head'.
+// ───────────────────────────────────────────────────────────────
+var DEMO_AS = (function(){
+  try { return localStorage.getItem('lt-demo-as') || null; } catch (e) { return null; }
+})();
+function _isHeadReal() { return !!(USER && USER.role === 'head'); }
+function _effectiveRole() {
+  if (DEMO_AS && _isHeadReal()) return DEMO_AS;
+  return _effectiveRole();
+}
+function _effectiveUserName() {
+  if (DEMO_AS && _isHeadReal()) {
+    var equipos = (D && D.equipos) || [];
+    if (DEMO_AS === 'specialist' && equipos[0]) {
+      // Primer member del primer país que NO sea el lider
+      var first = (equipos[0].members || []).find(function(m){ return m && m !== equipos[0].leader; });
+      if (first) return first;
+      if (equipos[0].members && equipos[0].members[0]) return equipos[0].members[0];
+    }
+    if (DEMO_AS === 'manager' && equipos[0] && equipos[0].leader) return equipos[0].leader;
+  }
+  return _effectiveUserName();
+}
+function _effectiveUserCode() {
+  if (DEMO_AS && _isHeadReal()) {
+    var equipos = (D && D.equipos) || [];
+    if ((DEMO_AS === 'specialist' || DEMO_AS === 'manager') && equipos[0]) return equipos[0].code || '';
+    if (DEMO_AS === 'head') return '';
+  }
+  return _effectiveUserCode();
+}
+// Abre el tracker editorial con la tarea seleccionada (panel detalle visible).
+function edGoTaskInTracker(taskId) {
+  if (typeof EDT !== 'undefined') EDT.selectedId = taskId;
+  if (typeof goEd === 'function') goEd('tracker');
+}
+
+function setDemoAs(preset) {
+  if (preset === 'real' || preset === '' || preset === null) preset = null;
+  DEMO_AS = preset;
+  try {
+    if (preset) localStorage.setItem('lt-demo-as', preset);
+    else localStorage.removeItem('lt-demo-as');
+  } catch (e) {}
+  if (typeof mountEdShell === 'function') mountEdShell();
+  if (typeof goEd === 'function') goEd('home');
+}
+
 // Helpers editoriales compartidos (usados por sidebar y los 3 homes).
 function _userInitials(name) {
   if (!name) return '··';
@@ -2532,10 +2590,38 @@ function _edTodayQuote() {
   return ED_QUOTES[idx];
 }
 
+// ── CONFIDENCIALIDAD (3 niveles, solo visualización) ──────────────
+// Fase 1: el nivel se muestra en tracker, panel de tarea, wizard de crear
+// y panel de actualizar. NO hay control de acceso real (filtering ACL queda
+// para Fase 2). Default 'estandar' al crear/leer.
+var ED_CONF_LEVELS = {
+  estandar: {
+    label: 'Estándar',
+    short: 'Estándar',
+    desc: 'Visible para todo el equipo legal del país.',
+    cls: 'estandar'
+  },
+  restringido: {
+    label: 'Restringido',
+    short: 'Restringido',
+    desc: 'Visible solo para responsable, lider y manager.',
+    cls: 'restringido'
+  },
+  confidencial: {
+    label: 'Confidencial',
+    short: 'Conf.',
+    desc: 'Visible solo para responsable y autorizados explícitos.',
+    cls: 'confidencial'
+  }
+};
+function _confLevel(t) {
+  return (t && t.confidencialidad && ED_CONF_LEVELS[t.confidencialidad]) ? t.confidencialidad : 'estandar';
+}
+
 function _badgeFor(itemId, role) {
   if (!D || !D.tasks) return null;
-  var userName = (USER && USER.name) || '';
-  var userCode = (USER && USER.code) || '';
+  var userName = _effectiveUserName();
+  var userCode = _effectiveUserCode();
   if (itemId === 'mistareas') {
     return D.tasks.filter(function(t){ return t.resp === userName && t.status !== 'Listo'; }).length || null;
   }
@@ -2553,8 +2639,8 @@ function _badgeFor(itemId, role) {
 function renderEdSidebar(role, activeViewId) {
   var navRole = role === 'head' ? 'head' : (role === 'manager' ? 'manager' : 'specialist');
   var nav = ED_NAV_BY_ROLE[navRole] || ED_NAV_BY_ROLE.specialist;
-  var name = (USER && USER.name) || (D && D._user && D._user.name) || 'Usuario';
-  var code = (USER && USER.code) || (D && D._user && D._user.code) || '';
+  var name = _effectiveUserName() || 'Usuario';
+  var code = _effectiveUserCode();
   var initials = _userInitials(name);
   var subtitle = _roleSubtitle(navRole, code);
   var rolePill = '· ' + _roleLabel(navRole);
@@ -2582,7 +2668,24 @@ function renderEdSidebar(role, activeViewId) {
     }
     html += '</div>';
   }
-  html += '<div class="ed-side-foot">'
+  // Demo switcher (solo visible para el head real). Permite ver la app
+  // como specialist/manager/hq sin cambiar de cuenta.
+  var demoHtml = '';
+  if (_isHeadReal()) {
+    var sel = DEMO_AS || 'real';
+    function _opt(k, lbl) { return '<option value="' + k + '"' + (sel === k ? ' selected' : '') + '>' + esc(lbl) + '</option>'; }
+    demoHtml = '<div class="ed-demo-switch">'
+            +   '<label class="ed-demo-lbl" title="Solo visible para HQ">Demo · Ver como</label>'
+            +   '<select class="ed-demo-sel" onchange="setDemoAs(this.value)">'
+            +     _opt('real',       'Yo (real)')
+            +     _opt('specialist', 'Specialist')
+            +     _opt('manager',    'Manager')
+            +     _opt('head',       'HQ')
+            +   '</select>'
+            + '</div>';
+  }
+  html += demoHtml
+       + '<div class="ed-side-foot">'
        +   '<div class="ed-foot-av">' + esc(initials) + '</div>'
        +   '<div class="ed-foot-meta">'
        +     '<div class="ed-foot-name">' + esc(name) + '</div>'
@@ -2606,9 +2709,11 @@ function renderEdHead() {
 }
 
 function mountEdShell() {
-  var role = (D && D._role) || (USER && USER.role) || 'specialist';
+  var role = _effectiveRole();
   var side = $('edSide'); if (side) side.innerHTML = renderEdSidebar(role, 'home');
   var head = $('edHead'); if (head) head.innerHTML = renderEdHead();
+  // Esconder el FAB legacy: el header editorial ya tiene "+ Nueva".
+  var fab = $('fabCreate'); if (fab) fab.style.display = 'none';
 }
 
 function goEd(viewId) {
@@ -2618,7 +2723,7 @@ function goEd(viewId) {
   });
   if (viewId === 'home') {
     var v = $('vEdHome'); if (v) v.classList.add('active');
-    var role = (D && D._role) || (USER && USER.role) || 'specialist';
+    var role = _effectiveRole();
     if (role === 'head' && typeof rEdHomeHQ === 'function') rEdHomeHQ(D);
     else if (role === 'manager' && typeof rEdHomeManager === 'function') rEdHomeManager(D);
     else if (typeof rEdHomeSpecialist === 'function') rEdHomeSpecialist(D);
@@ -2649,7 +2754,7 @@ function goEd(viewId) {
 
 function rEdHomeSpecialist(D) {
   var v = $('vEdHome'); if (!v) return;
-  var name = (USER && USER.name) || (D && D._user && D._user.name) || '';
+  var name = _effectiveUserName();
   var firstName = name ? name.split(/\s+/)[0] : 'Hola';
   var tasks = (D && D.tasks) ? D.tasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; }) : [];
   var overdue   = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
@@ -2672,7 +2777,9 @@ function rEdHomeSpecialist(D) {
   var html = ''
     + '<div class="ed-eye">' + esc('Hoy' + (todayLine ? ' · ' + todayLine : '')) + '</div>'
     + '<h1 class="ed-h1">Buenos días, ' + esc(firstName) + '.<br>'
-    +   'Tienes <em>' + esc(String(apremiantes).padStart(2,'0')) + ' cosas</em> apremiantes hoy.'
+    +   (apremiantes === 0
+        ? 'Hoy <em>no tienes</em> nada urgente.'
+        : 'Tienes <em>' + esc(String(apremiantes).padStart(2,'0')) + (apremiantes === 1 ? ' cosa' : ' cosas') + '</em> apremiante' + (apremiantes === 1 ? '' : 's') + ' hoy.')
     + '</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
     // QUOTE rotativa (una frase distinta por día)
@@ -2713,7 +2820,7 @@ function rEdHomeSpecialist(D) {
       } else {
         actionHtml = esc(t.accionable || '');
       }
-      html += '<div class="esp-task-row" onclick="goEd(\'tracker\')">'
+      html += '<div class="esp-task-row" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
            +   '<div class="esp-task-rank ' + tone + '">' + String(i+1).padStart(2,'0') + '</div>'
            +   '<div class="esp-task-body">'
            +     '<div class="esp-task-meta">' + esc(t.id + ' · ' + pn + (sla ? ' · SLA ' + sla : '')) + '</div>'
@@ -2728,7 +2835,7 @@ function rEdHomeSpecialist(D) {
            + '</div>';
     }
     html += '<div style="padding-top:14px"><button class="ed-btn" onclick="goEd(\'mistareas\')">'
-         +    'Ver todas mis ' + tasks.length + ' tareas →</button></div>';
+         +    (tasks.length === 1 ? 'Ver mi tarea →' : ('Ver todas mis ' + tasks.length + ' tareas →')) + '</button></div>';
   }
   html += '</section>';
 
@@ -2786,7 +2893,7 @@ function rEdHomeSpecialist(D) {
 
 function rEdHomeManager(D) {
   var v = $('vEdHome'); if (!v) return;
-  var userCode = (USER && USER.code) || (D && D._user && D._user.code) || '';
+  var userCode = _effectiveUserCode();
   var allTasks = (D && D.tasks) || [];
   // Tareas del país del manager
   var paisTasks = allTasks.filter(function(t){ return (t.pais || '') === userCode; });
@@ -2826,7 +2933,7 @@ function rEdHomeManager(D) {
     +     '<div class="mgr-stat-ctx">' + totalLoad + '/' + totalCap + ' capacidad</div></div>'
     +   '<div class="mgr-stat"><div class="mgr-stat-lbl">SLA cumplido</div>'
     +     '<div class="mgr-stat-num good">—</div>'
-    +     '<div class="mgr-stat-ctx">Fase 2</div></div>'
+    +     '<div class="mgr-stat-ctx">próximamente</div></div>'
     + '</div>';
 
   // ATENCIÓN
@@ -2847,8 +2954,8 @@ function rEdHomeManager(D) {
            +      '<div class="mgr-att-name">' + esc(t.nombre || '') + ' — ' + esc(t.eta || '') + '</div>'
            +      '<div class="mgr-att-why">' + why + '</div>'
            +    '</div>'
-           +    '<button class="ed-btn" onclick="goEd(\'tracker\')">Ver</button>'
-           +    '<button class="ed-btn primary">Reasignar</button>'
+           +    '<button class="ed-btn" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">Ver</button>'
+           +    '<button class="ed-btn primary" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">Ver detalle</button>'
            + '</div>';
     }
   }
@@ -3070,9 +3177,9 @@ function _buildEdTimeline(t) {
 
 function rEdTracker(D) {
   var v = $('vEdTracker'); if (!v) return;
-  var role = (D && D._role) || (USER && USER.role) || 'specialist';
-  var userName = (USER && USER.name) || (D && D._user && D._user.name) || '';
-  var userCode = (USER && USER.code) || (D && D._user && D._user.code) || '';
+  var role = _effectiveRole();
+  var userName = _effectiveUserName();
+  var userCode = _effectiveUserCode();
   var allTasks = (D && D.tasks) || [];
   var roleTasks = _edFilterByRole(allTasks, role, userName, userCode);
 
@@ -3127,10 +3234,10 @@ function rEdTracker(D) {
   var respCol = role === 'specialist' ? 'Proyecto' : 'Responsable';
   html += '<table class="tk-table">'
        +    '<thead><tr>'
-       +      '<th>ID</th><th>Tarea</th><th>' + respCol + '</th><th>Prioridad</th><th>Estado</th><th>ETA</th>'
+       +      '<th></th><th>ID</th><th>Tarea</th><th>' + respCol + '</th><th>Prioridad</th><th>Estado</th><th>ETA</th>'
        +    '</tr></thead><tbody>';
   if (rows.length === 0) {
-    html += '<tr><td colspan="6" style="padding:32px 14px;color:var(--dim);font-size:13px">Sin tareas para este filtro.</td></tr>';
+    html += '<tr><td colspan="7" style="padding:32px 14px;color:var(--dim);font-size:13px">Sin tareas para este filtro.</td></tr>';
   } else {
     for (var i = 0; i < rows.length; i++) {
       var t = rows[i];
@@ -3139,7 +3246,10 @@ function rEdTracker(D) {
       var etaTxt = t.eta || _etaTextFromDays(t.etaDays);
       var etaTone = _etaToneClass(t.etaDays, t.status);
       var isSel = sel && sel.id == t.id;
+      var cfLvl = _confLevel(t);
+      var cfMeta = ED_CONF_LEVELS[cfLvl];
       html += '<tr class="tk-row' + (isSel ? ' selected' : '') + '" onclick="edSelectTask(\'' + esc(t.id) + '\')">'
+           +    '<td><span class="cf-dot ' + cfLvl + '" title="' + esc(cfMeta.label) + '"></span></td>'
            +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
            +    '<td>'
            +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
@@ -3176,12 +3286,18 @@ function rEdTracker(D) {
              +    '<div class="tk-tl-what">' + it.what + '</div>'
              + '</div>';
     }
+    var selCfLvl = _confLevel(sel);
+    var selCfMeta = ED_CONF_LEVELS[selCfLvl];
     html += '<aside class="tk-panel">'
          +    '<div class="tk-panel-head">'
          +      '<span class="tk-panel-eyebrow">' + esc(sel.id + (sel.pais ? ' · ' + sel.pais : '')) + '</span>'
          +      '<button class="tk-panel-close" onclick="edClosePanel()" aria-label="Cerrar">×</button>'
          +    '</div>'
          +    '<h2 class="tk-panel-title">' + esc(sel.nombre || '') + '</h2>'
+         +    '<div class="cf-band ' + selCfLvl + '">'
+         +      '<span>' + esc(selCfMeta.label) + '</span>'
+         +      '<span class="cf-band-desc">' + esc(selCfMeta.desc) + '</span>'
+         +    '</div>'
          +    '<div class="tk-panel-pills">'
          +      '<span class="ed-pill ' + (sel.priority || '').toLowerCase() + '">' + esc(sel.priority || '') + '</span>'
          +      '<span class="ed-pill ' + _statusClass(sel.status) + '">' + esc(sel.status || '') + '</span>'
@@ -3276,7 +3392,7 @@ function _agBucketNarr(key, tasks) {
 
 function rEdAgrupadas(D) {
   var v = $('vEdAgrupadas'); if (!v) return;
-  var name = (USER && USER.name) || (D && D._user && D._user.name) || '';
+  var name = _effectiveUserName();
   var tasks = (D && D.tasks) ? D.tasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; }) : [];
   var b = _agBuckets(tasks);
   var totalActive = b.overdue.length + b.today.length + b.week.length + b.later.length;
@@ -3321,7 +3437,7 @@ function rEdAgrupadas(D) {
         var actionHtml = t.blockedReason
           ? '<span class="warn">En espera de ' + esc(t.blockedReason) + '.</span> ' + esc(t.accionable || '')
           : esc(t.accionable || '');
-        html += '<div class="ag-card" onclick="goEd(\'tracker\')">'
+        html += '<div class="ag-card" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
              +    '<div class="ag-card-meta">'
              +      '<span>' + esc(t.id) + '</span>'
              +      '<span class="sep">·</span>'
@@ -3356,7 +3472,19 @@ function rEdAgrupadas(D) {
 // Sin: AI, adjuntos, notif preview — Fase 2.
 // ───────────────────────────────────────────────────────────────
 
-var EDU = { taskId: null, variant: null };
+var EDU = { taskId: null, variant: null, newConf: null };
+
+// Helper: el usuario puede opcionalmente cambiar el nivel de confidencialidad
+// al cerrar o bloquear. newConf null = no cambia; valor = se incluye en el update.
+function edUSetConf(nivel) {
+  if (!ED_CONF_LEVELS[nivel]) return;
+  // Toggle: si clickea el mismo nivel, lo des-selecciona.
+  EDU.newConf = (EDU.newConf === nivel) ? null : nivel;
+  if (!EDU.taskId) return;
+  var task = D && D.tasks && D.tasks.find(function(t){ return t.id == EDU.taskId; });
+  if (!task) return;
+  var host = $('uaHost'); if (host) host.innerHTML = _uaRender(task, EDU.variant);
+}
 var _UA_FLOW = ['Pendiente', 'En curso', 'En revisión', 'Listo'];
 
 function _uaNextStatus(current) {
@@ -3438,6 +3566,27 @@ function _uaRenderActionCard(variant, task) {
        + '</div>';
 }
 
+function _uaRenderConfField(task) {
+  // Sólo se muestra en variantes cerrar/bloquear: pills opcionales para cambiar
+  // el nivel de confidencialidad. Si EDU.newConf es null, ninguna queda activa.
+  var current = _confLevel(task);
+  var sel = EDU.newConf;
+  function pill(lvl) {
+    var meta = ED_CONF_LEVELS[lvl];
+    var active = (sel === lvl) ? ' active' : '';
+    return '<button type="button" class="cr-pill-btn ' + lvl + active + '" '
+         + 'onclick="edUSetConf(\'' + lvl + '\')">' + esc(meta.label) + '</button>';
+  }
+  var hint = sel
+    ? 'Cambiará a <b>' + esc(ED_CONF_LEVELS[sel].label) + '</b>. Click otra vez para desmarcar.'
+    : 'Actual: <b>' + esc(ED_CONF_LEVELS[current].label) + '</b>. Click un nivel para cambiarlo.';
+  return '<div class="ua-field">'
+       +   '<div class="ua-label">Cambiar confidencialidad <span class="opt">(opcional)</span></div>'
+       +   '<div class="cr-pills-row">' + pill('estandar') + pill('restringido') + pill('confidencial') + '</div>'
+       +   '<div style="font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.45">' + hint + '</div>'
+       + '</div>';
+}
+
 function _uaRenderBody(task, variant) {
   var actionCard = _uaRenderActionCard(variant, task);
   var fieldHtml;
@@ -3457,7 +3606,9 @@ function _uaRenderBody(task, variant) {
               +   '<textarea class="ua-input ua-textarea" id="uaNota" placeholder="Ej: revisar especialmente cláusula 7.2."></textarea>'
               + '</div>';
   }
-  return '<div class="ua-body">' + _uaRenderOptions(variant) + actionCard + fieldHtml + '</div>';
+  // Confidencialidad opcional sólo en cerrar/bloquear (avanzar es transición de estado pura)
+  var confHtml = (variant === 'cerrar' || variant === 'bloquear') ? _uaRenderConfField(task) : '';
+  return '<div class="ua-body">' + _uaRenderOptions(variant) + actionCard + fieldHtml + confHtml + '</div>';
 }
 
 function _uaRenderFoot(variant) {
@@ -3503,6 +3654,7 @@ function edUOpen(taskId, variant) {
   if (!task) { if (typeof toast === 'function') toast('Tarea no encontrada', 'error'); return; }
   EDU.taskId = task.id;
   EDU.variant = variant || 'avanzar';
+  EDU.newConf = null;
   var host = $('uaHost'); if (!host) return;
   host.innerHTML = _uaRender(task, EDU.variant);
 }
@@ -3510,12 +3662,15 @@ function edUOpen(taskId, variant) {
 function edUClose() {
   EDU.taskId = null;
   EDU.variant = null;
+  EDU.newConf = null;
   var host = $('uaHost'); if (host) host.innerHTML = '';
 }
 
 function edUSwitchVariant(v) {
   if (!EDU.taskId) return;
   EDU.variant = v;
+  // Avanzar no muestra el field de confidencialidad — limpiamos para no arrastrar selección.
+  if (v === 'avanzar') EDU.newConf = null;
   var task = D.tasks.find(function(t){ return t.id == EDU.taskId; });
   if (!task) return;
   var host = $('uaHost'); if (host) host.innerHTML = _uaRender(task, v);
@@ -3540,6 +3695,11 @@ function edUSubmit() {
     fields.status = _uaNextStatus(task.status);
     var nota = ($('uaNota') && $('uaNota').value || '').trim();
     if (nota) fields.notas = nota;
+  }
+  // Si el usuario eligió cambiar el nivel de confidencialidad (sólo cerrar/bloquear),
+  // lo incluimos en el batch update.
+  if ((EDU.variant === 'cerrar' || EDU.variant === 'bloquear') && EDU.newConf) {
+    fields.confidencialidad = EDU.newConf;
   }
   if (typeof showLoader === 'function') showLoader();
   google.script.run
@@ -3589,7 +3749,8 @@ var EDC = {
     riesgo: '',
     resp: '',
     deadline: '',
-    proyectoId: ''
+    proyectoId: '',
+    confidencialidad: 'estandar'
   }
 };
 
@@ -3654,6 +3815,18 @@ function _crRiesgoMod(val) {
   if (val === 'Operativo') return 'baja';
   return '';
 }
+function _crConfMod(val) {
+  // Mapea el nivel a la clase de confidencialidad para el pill (.estandar/.restringido/.confidencial)
+  if (val === 'estandar') return 'estandar';
+  if (val === 'restringido') return 'restringido';
+  if (val === 'confidencial') return 'confidencial';
+  return '';
+}
+var _CR_CONF_OPTS = [
+  { value: 'estandar', label: 'Estándar' },
+  { value: 'restringido', label: 'Restringido' },
+  { value: 'confidencial', label: 'Confidencial' }
+];
 
 function _crSelectHtml(id, options, current, blankLabel) {
   var html = '';
@@ -3711,6 +3884,8 @@ function _crRenderStep2() {
   var v = EDC.values;
   var resp = _crResponsables().map(function(n){ return { value: n, label: n }; });
   var projs = _crProjects().map(function(p){ return { value: p.id, label: p.nombre }; });
+  var confLvl = v.confidencialidad || 'estandar';
+  var confDesc = (ED_CONF_LEVELS[confLvl] || ED_CONF_LEVELS.estandar).desc;
   return ''
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
@@ -3736,6 +3911,11 @@ function _crRenderStep2() {
     + '<div class="cr-field">'
     +   '<div class="cr-label">Vincular a proyecto</div>'
     +   _crSelectHtml('crProj', projs, v.proyectoId, 'Sin proyecto').replace('<select id="crProj"', '<select id="crProj" onchange="edCrearSetField(\'proyectoId\', this.value)"')
+    + '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Confidencialidad</div>'
+    +   '<div class="cr-pills-row">' + _crPillsHtml('confidencialidad', _CR_CONF_OPTS, confLvl, _crConfMod) + '</div>'
+    +   '<div style="font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.45">' + esc(confDesc) + '</div>'
     + '</div>';
 }
 
@@ -3851,7 +4031,8 @@ function edCrearOpen() {
     riesgo: '',
     resp: '',
     deadline: '',
-    proyectoId: ''
+    proyectoId: '',
+    confidencialidad: 'estandar'
   };
   _crMount();
   setTimeout(function() {
@@ -3871,7 +4052,7 @@ function edCrearSetField(key, value) {
   // Para campos texto/select que están dentro del DOM actual, no re-renderizamos
   // — el valor ya está en EDC.values. Para pills sí re-renderizamos para
   // reflejar el estado activo.
-  var rerenderFields = { tipo: 1, pais: 1, prioridad: 1, riesgo: 1 };
+  var rerenderFields = { tipo: 1, pais: 1, prioridad: 1, riesgo: 1, confidencialidad: 1 };
   if (rerenderFields[key]) _crMount();
 }
 
@@ -3926,7 +4107,8 @@ function edCrearSubmit() {
       lider: '',
       deadline: v.deadline || '',
       acc: '',
-      notas: (v.descripcion || '').trim()
+      notas: (v.descripcion || '').trim(),
+      confidencialidad: v.confidencialidad || 'estandar'
     });
 }
 
@@ -4031,7 +4213,7 @@ function _piRenderHero(enriched) {
   var teamCount = enriched.people.length + enriched.more;
 
   var allTasks = (D && D.tasks) || [];
-  var userName = (USER && USER.name) || '';
+  var userName = _effectiveUserName();
   var myInProj = allTasks.filter(function(t){ return t.proyectoId == p.id && t.resp === userName && t.status !== 'Listo'; })
     .sort(function(a, b) {
       var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
@@ -4046,7 +4228,7 @@ function _piRenderHero(enriched) {
     for (var i = 0; i < myInProj.length; i++) {
       var t = myInProj[i];
       var tone = _etaToneClass(t.etaDays, t.status);
-      miniHtml += '<div class="pi-mini-task">'
+      miniHtml += '<div class="pi-mini-task" style="cursor:pointer" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
                +   '<span class="pi-mini-id">' + esc(t.id) + '</span>'
                +   '<span class="pi-mini-name">' + esc(t.nombre || '') + '</span>'
                +   '<span class="pi-mini-eta ' + tone + '">' + esc(t.eta || '') + '</span>'
@@ -4087,7 +4269,7 @@ function _piRenderRow(enriched, idx) {
   var dlVal = dl == null ? '—' : (dl < 0 ? Math.abs(dl) : dl);
   var isOwner = enriched.role === 'Owner';
   var roleClass = isOwner ? 'role' : 'role muted';
-  var tag = (p.lider && p.lider !== ((USER && USER.name) || '')) ? ('Lidera ' + p.lider) : '';
+  var tag = (p.lider && p.lider !== _effectiveUserName()) ? ('Lidera ' + p.lider) : '';
   var prog = enriched.progress;
   var peopleHtml = '';
   for (var i = 0; i < enriched.people.length; i++) peopleHtml += _piPersonAvatar(enriched.people[i], false);
@@ -4127,7 +4309,7 @@ function edPSetTab(key) { EDP.tab = key; if (D) rEdProyectosIndex(D); }
 
 function rEdProyectosIndex(D) {
   var v = $('vEdProyectosIndex'); if (!v) return;
-  var userName = (USER && USER.name) || (D && D._user && D._user.name) || '';
+  var userName = _effectiveUserName();
   var projects = (D && D.projects) || [];
   var tasks = (D && D.tasks) || [];
 

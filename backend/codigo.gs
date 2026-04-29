@@ -10,9 +10,13 @@ const SHEET_CONFIG    = 'Config';
 const SHEET_EQUIPOS   = 'Equipos';
 const SHEET_PROYECTOS = 'Proyectos';
 
-// Tasks: 17 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder,TipoTrabajo,Riesgo,Documentos
-const TASK_COLS = 17;
+// Tasks: 18 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder,TipoTrabajo,Riesgo,Documentos,Confidencialidad
+// La columna 18 (Confidencialidad) puede no existir todavía en la hoja: getLastColumn() devolverá
+// menos y el read defaultea a 'estandar'. Cuando el usuario agregue la columna manualmente,
+// los nuevos updates se persisten ahí.
+const TASK_COLS = 18;
 const TASK_DOCS_COL = 17; // 1-indexed
+const TASK_CONF_COL = 18; // 1-indexed
 // Projects: 16 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana,Participantes,TipoTrabajo,Riesgo,Documentos
 const PROJ_COLS = 16;
 const PROJ_DOCS_COL = 16; // 1-indexed
@@ -780,7 +784,8 @@ function readTasks(ws) {
       lider:(row[13]||'').toString().trim(),
       tipoTrabajo:(row[14]||'').toString().trim(),
       riesgo:(row[15]||'').toString().trim(),
-      documentos: _parseDocs(row[16])
+      documentos: _parseDocs(row[16]),
+      confidencialidad: (row[17] || 'estandar').toString().trim() || 'estandar'
     });
   });
   tasks.sort(function(a,b){return (PRIO_ORDER[a.priority]||1)-(PRIO_ORDER[b.priority]||1)||(STATUS_ORDER[a.status]||2)-(STATUS_ORDER[b.status]||2)});
@@ -810,13 +815,22 @@ function _addTaskImpl(taskObj) {
     var pid = taskObj.proyectoId || taskObj.proyecto || '';
     var pidNum = parseInt(pid, 10);
     var pidCell = isNaN(pidNum) ? '' : pidNum;
-    ws.appendRow([
+    var conf = (taskObj.confidencialidad || 'estandar').toString().trim() || 'estandar';
+    // Construimos la fila al ancho real del sheet: si el usuario aún no agregó
+    // la columna 17 (Documentos) o 18 (Confidencialidad), no las escribimos
+    // (no podemos crear columnas desde acá). Si existen, se llenan vacío/default.
+    var lc = ws.getLastColumn();
+    var rowVals = [
       newId, taskObj.nombre||'', taskObj.resp||'', taskObj.acc||'',
       taskObj.deadline||'', taskObj.priority||'Media', taskObj.status||'Pendiente',
       taskObj.semana||getCurrentWeekLabel(), new Date(), '', taskObj.notas||'',
       pidCell, pais, lider,
       taskObj.tipoTrabajo||'', taskObj.riesgo||''
-    ]);
+    ];
+    // Solo agregamos columnas adicionales si la hoja las tiene; si no, appendRow las omite.
+    if (lc >= 17) rowVals.push(''); // Documentos
+    if (lc >= 18) rowVals.push(conf); // Confidencialidad
+    ws.appendRow(rowVals);
     return {success:true, id:newId};
   } finally {
     lock.releaseLock();
@@ -830,7 +844,7 @@ function _updateTaskFieldImpl(taskId, field, value) {
   if (!current) return { success: false, error: 'Task #' + taskId + ' not found' };
   _authorizeTaskWrite(ctx, current);
 
-  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16};
+  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18};
   var col = fieldMap[field];
   if (!col) return { success: false, error: 'Invalid field: ' + field };
 
@@ -880,7 +894,7 @@ function _updateTaskFieldsImpl(taskId, fields) {
 
   invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
-  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16};
+  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18};
   var row = current.row;
 
   // 1) Aplicar todos los campos menos status
@@ -1025,7 +1039,8 @@ function _resolveTargetFolder(kind, itemId) {
   if (kind === 'task') {
     var ws = ss.getSheetByName(SHEET_ACTIVO);
     var lr = ws.getLastRow();
-    var data = ws.getRange(4, 1, Math.max(0, lr - 3), TASK_COLS).getValues();
+    var lc = Math.min(ws.getLastColumn(), TASK_COLS);
+    var data = ws.getRange(4, 1, Math.max(0, lr - 3), lc).getValues();
     for (var i = 0; i < data.length; i++) {
       if (data[i][0] == itemId) {
         pais = (data[i][12] || '').toString().trim();
@@ -1070,7 +1085,8 @@ function _readDocsFor(kind, itemId) {
     var ws = ss.getSheetByName(SHEET_ACTIVO);
     var lr = ws.getLastRow();
     if (lr < 4) return null;
-    var data = ws.getRange(4, 1, lr - 3, TASK_COLS).getValues();
+    var lc = Math.min(ws.getLastColumn(), TASK_COLS);
+    var data = ws.getRange(4, 1, lr - 3, lc).getValues();
     for (var i = 0; i < data.length; i++) {
       if (data[i][0] == itemId) {
         return { ss: ss, ws: ws, row: i + 4, col: TASK_DOCS_COL, docs: _parseDocs(data[i][TASK_DOCS_COL - 1]),
