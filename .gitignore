@@ -12,3 +12,6 @@ Thumbs.db
 
 # Archivos pesados de handoff
 *.zip
+
+# Claude Code session state (worktrees, plans, transcripts locales)
+.claude/
