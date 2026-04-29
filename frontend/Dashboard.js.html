@@ -2517,6 +2517,21 @@ function _todayHumanStr(iso) {
   var mons = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
   return dows[d.getDay()] + ' ' + d.getDate() + ' ' + mons[d.getMonth()];
 }
+var ED_QUOTES = [
+  { text: 'El derecho no se hace solo con leyes; se hace con criterio, contexto y oficio.', who: 'Anónimo' },
+  { text: 'Donde hay un contrato, hay una promesa que sostener.', who: 'Anónimo' },
+  { text: 'La diligencia debida es el arte de mirar dos veces antes de firmar.', who: 'Anónimo' },
+  { text: 'En lo legal, la claridad es una forma de respeto.', who: 'Anónimo' },
+  { text: 'Una buena política se mide en lo que evita, no en lo que muestra.', who: 'Anónimo' }
+];
+function _edTodayQuote() {
+  // Rotativa por día: misma frase durante todo el día (no aleatoria por load).
+  if (!D || !D.today) return ED_QUOTES[0];
+  var seed = D.today.replace(/-/g, '');
+  var idx = (parseInt(seed, 10) || 0) % ED_QUOTES.length;
+  return ED_QUOTES[idx];
+}
+
 function _badgeFor(itemId, role) {
   if (!D || !D.tasks) return null;
   var userName = (USER && USER.name) || '';
@@ -2652,18 +2667,23 @@ function rEdHomeSpecialist(D) {
     +   'Tienes <em>' + esc(String(apremiantes).padStart(2,'0')) + ' cosas</em> apremiantes hoy.'
     + '</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
-    // HERO
+    // QUOTE rotativa (una frase distinta por día)
+    + (function(){ var q = _edTodayQuote(); return '<div class="esp-quote">'
+    +   '<div class="esp-quote-text">"' + esc(q.text) + '"</div>'
+    +   '<div class="esp-quote-who">— ' + esc(q.who) + '</div>'
+    + '</div>'; })()
+    // HERO (copy reframeado: orientado a "qué hago AHORA")
     + '<div class="esp-hero">'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
-    +     '<div class="esp-stat-num crit">' + String(overdue).padStart(2,'0') + '</div>'
-    +     '<div class="esp-stat-ctx">' + (overdue ? 'Resolver primero' : 'Sin vencidas') + '</div></div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">Pendientes de cierre</div>'
+    +     '<div class="esp-stat-num warn">' + String(overdue).padStart(2,'0') + '</div>'
+    +     '<div class="esp-stat-ctx">' + (overdue ? 'Resolver primero' : 'Al día') + '</div></div>'
     +   '<div class="esp-stat"><div class="esp-stat-lbl">Vencen hoy</div>'
     +     '<div class="esp-stat-num warn">' + String(dueToday).padStart(2,'0') + '</div>'
     +     '<div class="esp-stat-ctx">' + (dueToday ? 'Cerrar hoy' : 'Día limpio') + '</div></div>'
     +   '<div class="esp-stat"><div class="esp-stat-lbl">Esta semana</div>'
     +     '<div class="esp-stat-num">' + String(thisWeek).padStart(2,'0') + '</div>'
     +     '<div class="esp-stat-ctx">en cola</div></div>'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">Bloqueadas</div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">En espera externa</div>'
     +     '<div class="esp-stat-num warn">' + String(blocked).padStart(2,'0') + '</div>'
     +     '<div class="esp-stat-ctx">' + (blocked ? 'Necesitan empuje' : '—') + '</div></div>'
     + '</div>';
@@ -2787,13 +2807,13 @@ function rEdHomeManager(D) {
     + '<h1 class="ed-h1">Tu equipo cargó <em>' + altaActive + ' tareas</em><br>de alta prioridad esta semana.</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
     + '<div class="mgr-hero">'
-    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Vencidas</div>'
-    +     '<div class="mgr-stat-num crit">' + String(overdue).padStart(2,'0') + '</div>'
-    +     '<div class="mgr-stat-ctx">' + (overdue ? 'requieren atención' : 'Sin vencidas') + '</div></div>'
+    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Necesitan apoyo</div>'
+    +     '<div class="mgr-stat-num warn">' + String(overdue).padStart(2,'0') + '</div>'
+    +     '<div class="mgr-stat-ctx">' + (overdue ? 'requieren atención' : 'al día') + '</div></div>'
     +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Vencen hoy</div>'
     +     '<div class="mgr-stat-num warn">' + String(dueToday).padStart(2,'0') + '</div>'
-    +     '<div class="mgr-stat-ctx">cerrar hoy</div></div>'
-    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Carga equipo</div>'
+    +     '<div class="mgr-stat-ctx">' + (dueToday ? 'cerrar hoy' : 'día limpio') + '</div></div>'
+    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Carga del equipo</div>'
     +     '<div class="mgr-stat-num">' + (totalCap ? loadPct + '%' : '—') + '</div>'
     +     '<div class="mgr-stat-ctx">' + totalLoad + '/' + totalCap + ' capacidad</div></div>'
     +   '<div class="mgr-stat"><div class="mgr-stat-lbl">SLA cumplido</div>'
@@ -2877,16 +2897,16 @@ function rEdHomeHQ(D) {
     + '<h1 class="ed-h1">Operación legal global,<br><em>vista de un día</em>.</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
     + '<div class="hq-hero">'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Total abiertas</div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Total LATAM</div>'
     +     '<div class="hq-stat-num">' + totalOpen + '</div>'
     +     '<div class="hq-stat-ctx">' + countries.length + ' países</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Vencidas global</div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Atrasadas LATAM</div>'
     +     '<div class="hq-stat-num crit">' + String(totalOverdue).padStart(2,'0') + '</div>'
     +     '<div class="hq-stat-ctx">' + (totalOverdue ? 'reasignar' : '—') + '</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">SLA LATAM</div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">SLA promedio</div>'
     +     '<div class="hq-stat-num good">' + (slaAvg || '—') + (slaAvg ? '%' : '') + '</div>'
-    +     '<div class="hq-stat-ctx">promedio</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Países en riesgo</div>'
+    +     '<div class="hq-stat-ctx">LATAM</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Necesitan apoyo</div>'
     +     '<div class="hq-stat-num warn">' + String(atRisk).padStart(2,'0') + '</div>'
     +     '<div class="hq-stat-ctx">' + (atRisk ? 'monitorear' : 'todos OK') + '</div></div>'
     + '</div>';
@@ -2911,12 +2931,25 @@ function rEdHomeHQ(D) {
       var slaCls = sla >= 90 ? 'good' : (sla >= 85 ? 'warn' : 'crit');
       var ovCls  = (c.overdue || 0) > 3 ? 'crit' : ((c.overdue || 0) > 0 ? 'warn' : 'dim');
       var trend = c.trend || [];
+      // Detectar slope: comparar promedio del primer tercio vs último tercio.
+      // ratio > 1.10 → up (good), < 0.90 → down (crit), resto → flat (dim).
+      var sparkColor = '';
+      if (trend.length >= 3) {
+        var third = Math.floor(trend.length / 3);
+        var firstAvg = 0, lastAvg = 0;
+        for (var fi = 0; fi < third; fi++) firstAvg += trend[fi];
+        for (var li = trend.length - third; li < trend.length; li++) lastAvg += trend[li];
+        firstAvg /= third || 1; lastAvg /= third || 1;
+        var ratio = firstAvg > 0 ? lastAvg / firstAvg : 1;
+        if (ratio > 1.10) sparkColor = 'good';
+        else if (ratio < 0.90) sparkColor = 'crit';
+      }
       var sparkHtml = '';
       for (var k = 0; k < trend.length; k++) {
-        var ratio = maxTrend > 0 ? trend[k] / maxTrend : 0;
-        var h = Math.max(4, Math.round(ratio * 22));
+        var ratioH = maxTrend > 0 ? trend[k] / maxTrend : 0;
+        var h = Math.max(4, Math.round(ratioH * 22));
         var isHigh = (k === trend.length - 1);
-        sparkHtml += '<span class="bar' + (isHigh ? ' high' : '') + '" style="height:' + h + 'px"></span>';
+        sparkHtml += '<span class="bar' + (isHigh ? ' high' : '') + (sparkColor ? ' ' + sparkColor : '') + '" style="height:' + h + 'px"></span>';
       }
       html += '<div class="hq-country-row">'
            +    '<div class="hq-flag">' + esc(c.code || '') + '</div>'
@@ -3074,10 +3107,10 @@ function rEdTracker(D) {
          + '</button>';
   }
   html += '<div class="tk-toolbar">'
-       +    fBtn('all',     'Todas',      cAll,     null)
-       +    fBtn('overdue', 'Vencidas',   cOverdue, 'critical')
-       +    fBtn('today',   'Hoy',        cToday,   'warn')
-       +    fBtn('blocked', 'Bloqueadas', cBlocked, null)
+       +    fBtn('all',     'Todas',                cAll,     null)
+       +    fBtn('overdue', 'Pendientes de cierre', cOverdue, 'critical')
+       +    fBtn('today',   'Vencen hoy',           cToday,   'warn')
+       +    fBtn('blocked', 'En espera',            cBlocked, null)
        +    '<input class="tk-search" type="text" placeholder="⌘F filtrar por proyecto, persona, tipo…" '
        +      'value="' + esc(EDT.search) + '" oninput="edSetSearch(this.value)">'
        + '</div>';
