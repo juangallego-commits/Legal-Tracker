@@ -11,41 +11,38 @@
 </head>
 <body>
 <div class="loader-bar" id="loaderBar" role="status" aria-live="polite" aria-label="Cargando"></div>
-<div class="ambient"></div>
 <div class="app">
+<div class="ed-root">
+<aside class="ed-side" id="edSide">
+  <!-- Renderizado por mountEdShell() en Dashboard.js -->
+</aside>
+<main class="ed-main" id="edMain">
+<header class="ed-head" id="edHead">
+  <!-- Renderizado por mountEdShell() en Dashboard.js -->
+</header>
 
-<!-- TOPBAR -->
-<div class="topbar anim">
-  <div class="topbar-brand"><div class="topbar-logo">⚖</div><h1>Legal Tracker <span>· Rappi</span></h1><span id="metaInfo" style="font-size:11px;color:var(--text-dim);font-weight:600;margin-left:4px;cursor:pointer" onclick="go('historial')" title="Click para ver historial"></span></div>
-  <div class="topbar-right">
-    <div class="nav-tabs">
-      <button class="nav-tab" onclick="go('resumen')" id="tabResumen">Resumen</button>
-      <button class="nav-tab active" onclick="go('tracker')" id="tabTracker">Tracker</button>
-      <button class="nav-tab" onclick="go('proyectos')" id="tabProyectos">Proyectos</button>
-      <button class="nav-tab" onclick="go('miequipo')" id="tabMiequipo">Mi equipo</button>
-      <button class="nav-tab" onclick="go('analytics')" id="tabAnalytics">Analytics</button>
-      <button class="nav-tab" onclick="go('historial')" id="tabHistorial">Historial</button>
-      <button class="nav-tab" onclick="go('mistareas')" id="tabMisTareas">Mis tareas</button>
-<button class="nav-tab" onclick="openCreate()">+ Crear</button>
-    </div>
-    <div class="ov-badge" id="ovBadge">⚠ <span id="ovN">0</span> vencidas</div>
-    <div class="user-chip" id="userChip" title="Sesión activa (cierra sesión de Google para cambiar de usuario)" style="display:none">
-  <div class="user-chip-av" id="userChipAv" style="background:var(--rappi)"></div>
-  <span id="userChipName"></span>
-</div>
-<button class="btn-ref" onclick="location.reload()" aria-label="Recargar datos" title="Recargar">↻</button>
-  </div>
+<!-- Legacy IDs de la toolbar antigua. Se mantienen ocultos para no
+     romper queries del JS legacy hasta que el Agente D refactorice
+     los filtros al tracker editorial. -->
+<div hidden aria-hidden="true">
+  <span id="metaInfo"></span>
+  <span id="ovBadge"><span id="ovN">0</span></span>
+  <span id="userChip"><span id="userChipAv"></span><span id="userChipName"></span></span>
+  <span id="tabResumen"></span><span id="tabTracker"></span><span id="tabProyectos"></span>
+  <span id="tabMiequipo"></span><span id="tabAnalytics"></span><span id="tabHistorial"></span>
+  <span id="tabMisTareas"></span>
+  <div id="cBar"><button class="cpill active" data-country="ALL" id="pillAll">Todos</button></div>
+  <button id="myTasksBtn"></button>
+  <div class="search-box"><input type="text" id="sInput" oninput="onS()"></div>
 </div>
 
-<!-- TOOLBAR -->
-<div class="toolbar anim d1">
-  <div class="country-bar" id="cBar"><button class="cpill active" data-country="ALL" onclick="fC('ALL')" id="pillAll">🌐 Todos</button></div>
-  <button class="cpill" id="myTasksBtn" onclick="toggleMyTasks()" title="Filtro rápido por tu nombre" style="margin-left:auto">🎯 Mis tareas</button>
-  <div class="search-box"><input type="text" id="sInput" placeholder="Buscar..." oninput="onS()"></div>
-</div>
+<!-- ═══ EDITORIAL HOME (specialist/manager/hq) ═══ -->
+<div class="view active" id="vEdHome"></div>
+<!-- ═══ EDITORIAL TRACKER (Agente D fillea) ═══ -->
+<div class="view" id="vEdTracker"></div>
 
 <!-- ═══ VIEW: TRACKER ═══ -->
-<div class="view active" id="vTracker">
+<div class="view" id="vTracker">
   <div class="hero-grid">
     <div class="card anim d2"><div class="card-header"><span class="card-title">Distribución por prioridad</span><span class="card-badge" id="totalB">0</span></div><div class="card-body"><canvas id="cPrio"></canvas></div></div>
     <div class="card anim d2" id="cardLoad"><div class="card-header"><span class="card-title" id="loadT">Carga por equipo</span></div><div class="card-body"><canvas id="cLoad"></canvas></div></div>
@@ -329,7 +326,9 @@
 <button class="fab" id="fabCreate" onclick="openCreate()" aria-label="Crear (atajo: N)" title="Crear tarea o proyecto (N)">+</button>
 
 <div class="footer">⚖ Con amor por el Legal Team · Rappi · Tracker v3.3</div>
-</div>
+</main>
+</div><!-- /.ed-root -->
+</div><!-- /.app -->
 
 <!-- EDIT MODAL -->
 <div class="modal-overlay" id="editOv" onclick="if(event.target===this)closeEdit()"><div class="modal"><div class="modal-header"><h2 id="editT">Editar</h2><button class="modal-close" onclick="closeEdit()" aria-label="Cerrar">✕</button></div><div class="modal-body" id="editB"></div><div class="modal-footer"><button class="btn-secondary" onclick="closeEdit()">Cancelar</button><button class="btn-submit btn-sm" id="editSaveBtn" onclick="saveEdit()">Guardar</button></div></div></div>

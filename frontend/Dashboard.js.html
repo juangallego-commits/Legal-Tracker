@@ -58,7 +58,11 @@ function setTheme(theme) {
   Chart.defaults.color = getTok('--muted');
   Object.keys(CH).forEach(function(k){ try { CH[k] && CH[k].destroy(); } catch (e) {} CH[k] = null; });
   var active = document.querySelector('.view.active');
-  if (active && active.id && typeof go === 'function') {
+  if (!active || !active.id) return;
+  // Las vistas editoriales no están en VIEWS y se reendrean vía goEd.
+  if (active.id === 'vEdHome' && typeof goEd === 'function') { goEd('home'); return; }
+  if (active.id === 'vEdTracker' && typeof goEd === 'function') { goEd('tracker'); return; }
+  if (typeof go === 'function') {
     var v = active.id.replace(/^v/, '');
     v = v.charAt(0).toLowerCase() + v.slice(1);
     go(v);
@@ -2387,13 +2391,11 @@ document.addEventListener('DOMContentLoaded', function() {
   restoreFilters();
   syncFilterUIFromState();
   render();
-  // Default view por rol:
-  //   specialist → Mis tareas (su lista de urgencia)
-  //   manager    → Mi equipo (vista del equipo con hotspots)
-  //   head       → Resumen ejecutivo (comparativa países + riesgo)
-  if (USER && USER.role === 'specialist') go('mistareas');
-  else if (USER && USER.role === 'manager') go('miequipo');
-  else if (USER && USER.role === 'head') go('resumen');
+  // Editorial shell: sidebar + header dinámicos según rol, default a Inicio editorial.
+  // Las vistas legacy (proyectos, miequipo, analytics, historial, mistareas, resumen)
+  // siguen accesibles desde la sidebar; goEd las enrutea a go() existente.
+  if (typeof mountEdShell === 'function') mountEdShell();
+  if (typeof goEd === 'function') goEd('home');
 }, true);
 
 // Aplica el estado de F a los botones/pills (después de restoreFilters).
@@ -2408,4 +2410,764 @@ function syncFilterUIFromState() {
     b.classList.toggle('active', b.textContent.trim() === (F.projStatus === 'ALL' ? 'Todos' : F.projStatus));
   });
 }
+
+// ════════════════════════════════════════════════════════════════
+// 99 · EDITORIAL REDESIGN (vanilla JS port)
+//      Below: sections populated by editorial agents.
+//      Insertion order on page: HOME (per role) → TRACKER → side panel.
+//      Each agent owns its own marker block; do NOT touch the other.
+// ════════════════════════════════════════════════════════════════
+
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_HOME_BEGIN  (owned by Agente C)
+// Sidebar dinámico por rol, header editorial, router goEd y los 3
+// renders de Home (specialist/manager/hq). Datos reales de D; los
+// counts y avgs que aún no calcula el backend salen "—" o mockup.
+// ───────────────────────────────────────────────────────────────
+
+var ED_NAV_BY_ROLE = {
+  specialist: [
+    { section: 'Mi día', items: [
+      { id: 'home',      label: 'Inicio',       view: 'home' },
+      { id: 'mistareas', label: 'Mis tareas',   view: 'mistareas' },
+      { id: 'agrupadas', label: 'Por urgencia', view: 'agrupadas' }
+    ]},
+    { section: 'Donde participo', items: [
+      { id: 'proyectos', label: 'Mis proyectos', view: 'proyectos' },
+      { id: 'historial', label: 'Cerradas',      view: 'historial' }
+    ]}
+  ],
+  manager: [
+    { section: 'Mi día', items: [
+      { id: 'home',      label: 'Inicio',     view: 'home' },
+      { id: 'mistareas', label: 'Mis tareas', view: 'mistareas' }
+    ]},
+    { section: 'Equipo', items: [
+      { id: 'tracker',   label: 'Tracker',    view: 'tracker' },
+      { id: 'miequipo',  label: 'Mi equipo',  view: 'miequipo' },
+      { id: 'proyectos', label: 'Proyectos',  view: 'proyectos' }
+    ]},
+    { section: 'Insights', items: [
+      { id: 'analytics', label: 'Analytics', view: 'analytics' },
+      { id: 'historial', label: 'Historial', view: 'historial' }
+    ]}
+  ],
+  head: [
+    { section: 'Visión', items: [
+      { id: 'home',   label: 'Inicio global', view: 'home' },
+      { id: 'paises', label: 'Por país',      view: 'resumen' }
+    ]},
+    { section: 'Operación', items: [
+      { id: 'tracker',   label: 'Tracker global', view: 'tracker' },
+      { id: 'proyectos', label: 'Proyectos',      view: 'proyectos' },
+      { id: 'miequipo',  label: 'Equipos',        view: 'miequipo' }
+    ]},
+    { section: 'Insights', items: [
+      { id: 'analytics', label: 'Analytics', view: 'analytics' },
+      { id: 'historial', label: 'Historial', view: 'historial' }
+    ]}
+  ]
+};
+
+// Helpers editoriales compartidos (usados por sidebar y los 3 homes).
+function _userInitials(name) {
+  if (!name) return '··';
+  return name.split(/\s+/).slice(0, 2).map(function(w){ return (w[0] || '').toUpperCase(); }).join('') || '··';
+}
+function _roleLabel(role) {
+  if (role === 'manager') return 'Manager';
+  if (role === 'head') return 'HQ';
+  return 'Specialist';
+}
+function _roleSubtitle(role, code) {
+  if (role === 'manager') return 'Country Lead' + (code ? ' · ' + code : '');
+  if (role === 'head') return 'Global Legal Head';
+  return 'Legal Ops';
+}
+function _statusClass(s) {
+  if (s === 'En curso')    return 'curso';
+  if (s === 'En revisión') return 'revision';
+  if (s === 'Bloqueado')   return 'bloqueado';
+  return 'pendiente';
+}
+function _etaToneClass(etaDays, status) {
+  if (status === 'Bloqueado') return 'crit';
+  if (etaDays == null) return 'dim';
+  if (etaDays < 0)  return 'crit';
+  if (etaDays === 0) return 'crit';
+  if (etaDays === 1) return 'warn';
+  if (etaDays <= 3) return 'warn';
+  return 'dim';
+}
+function _projNameForTask(t) {
+  if (!t) return '';
+  if (t.proyectoId && D && D.projects) {
+    var p = D.projects.find(function(pp){ return pp.id == t.proyectoId; });
+    if (p && p.nombre) return p.nombre;
+  }
+  return t.proyecto || 'Sin proyecto';
+}
+function _todayHumanStr(iso) {
+  // Devuelve "Jue 23 abr" desde "YYYY-MM-DD" sin drift de timezone.
+  if (!iso) return '';
+  var m = iso.toString().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return '';
+  var d = new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
+  var dows = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  var mons = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  return dows[d.getDay()] + ' ' + d.getDate() + ' ' + mons[d.getMonth()];
+}
+function _badgeFor(itemId, role) {
+  if (!D || !D.tasks) return null;
+  var userName = (USER && USER.name) || '';
+  var userCode = (USER && USER.code) || '';
+  if (itemId === 'mistareas') {
+    return D.tasks.filter(function(t){ return t.resp === userName && t.status !== 'Listo'; }).length || null;
+  }
+  if (itemId === 'tracker') {
+    var visible = D.tasks.filter(function(t){ return t.status !== 'Listo'; });
+    if (role === 'manager') visible = visible.filter(function(t){ return (t.pais || '') === userCode; });
+    return visible.length || null;
+  }
+  if (itemId === 'proyectos') return (D.projects || []).length || null;
+  if (itemId === 'paises')    return (D.countries || []).length || null;
+  if (itemId === 'historial') return (D.historial || []).length || null;
+  return null;
+}
+
+function renderEdSidebar(role, activeViewId) {
+  var navRole = role === 'head' ? 'head' : (role === 'manager' ? 'manager' : 'specialist');
+  var nav = ED_NAV_BY_ROLE[navRole] || ED_NAV_BY_ROLE.specialist;
+  var name = (USER && USER.name) || (D && D._user && D._user.name) || 'Usuario';
+  var code = (USER && USER.code) || (D && D._user && D._user.code) || '';
+  var initials = _userInitials(name);
+  var subtitle = _roleSubtitle(navRole, code);
+  var rolePill = '· ' + _roleLabel(navRole);
+  var html = ''
+    + '<div class="ed-side-brand">'
+    +   '<div class="ed-brand">Legal</div>'
+    +   '<div class="ed-brand-sub">Tracker · Rappi</div>'
+    +   '<div class="ed-role-pill">' + esc(rolePill) + '</div>'
+    + '</div>';
+  for (var i = 0; i < nav.length; i++) {
+    var sec = nav[i];
+    html += '<div class="ed-nav-section">';
+    html +=   '<div class="ed-nav-label">' + esc(sec.section) + '</div>';
+    for (var j = 0; j < sec.items.length; j++) {
+      var it = sec.items[j];
+      var isActive = it.id === activeViewId;
+      var badge = _badgeFor(it.id, navRole);
+      html += '<div class="ed-nav-item' + (isActive ? ' active' : '')
+           +  '" role="link" tabindex="0"' + (isActive ? ' aria-current="page"' : '')
+           +  ' data-viewid="' + esc(it.id) + '" onclick="goEd(\'' + esc(it.id) + '\')"'
+           +  ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();goEd(\'' + esc(it.id) + '\')}">';
+      html +=   '<span>' + esc(it.label) + '</span>';
+      if (badge != null) html += '<span class="ed-nav-badge">' + esc(String(badge)) + '</span>';
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  html += '<div class="ed-side-foot">'
+       +   '<div class="ed-foot-av">' + esc(initials) + '</div>'
+       +   '<div class="ed-foot-meta">'
+       +     '<div class="ed-foot-name">' + esc(name) + '</div>'
+       +     '<div class="ed-foot-role">' + esc(subtitle) + '</div>'
+       +   '</div>'
+       +   '<button class="theme-toggle" title="Cambiar tema" aria-label="Cambiar tema claro/oscuro" '
+       +     'onclick="setTheme(document.documentElement.dataset.theme === \'dark\' ? \'light\' : \'dark\')">◐</button>'
+       + '</div>';
+  return html;
+}
+
+function renderEdHead() {
+  var sem = D && D.semana ? ('Sem ' + D.semana) : 'Sem 17';
+  var today = (D && D.today) ? _todayHumanStr(D.today) : '23 abr';
+  return ''
+    + '<div class="ed-head-eye">' + esc(sem + ' · ' + today) + '</div>'
+    + '<div class="ed-head-actions">'
+    +   '<div class="ed-search">⌘K  Buscar...</div>'
+    +   '<button class="ed-btn accent" onclick="openCreate()">+ Nueva</button>'
+    + '</div>';
+}
+
+function mountEdShell() {
+  var role = (D && D._role) || (USER && USER.role) || 'specialist';
+  var side = $('edSide'); if (side) side.innerHTML = renderEdSidebar(role, 'home');
+  var head = $('edHead'); if (head) head.innerHTML = renderEdHead();
+}
+
+function goEd(viewId) {
+  document.querySelectorAll('.view').forEach(function(v) { v.classList.remove('active'); });
+  document.querySelectorAll('.ed-nav-item').forEach(function(n) {
+    n.classList.toggle('active', n.dataset && n.dataset.viewid === viewId);
+  });
+  if (viewId === 'home') {
+    var v = $('vEdHome'); if (v) v.classList.add('active');
+    var role = (D && D._role) || (USER && USER.role) || 'specialist';
+    if (role === 'head' && typeof rEdHomeHQ === 'function') rEdHomeHQ(D);
+    else if (role === 'manager' && typeof rEdHomeManager === 'function') rEdHomeManager(D);
+    else if (typeof rEdHomeSpecialist === 'function') rEdHomeSpecialist(D);
+    return;
+  }
+  if (viewId === 'tracker') {
+    var v2 = $('vEdTracker'); if (v2) v2.classList.add('active');
+    if (typeof rEdTracker === 'function') rEdTracker(D);
+    return;
+  }
+  // Aliases sin equivalente legacy: 'agrupadas' → mistareas, 'paises' → resumen
+  var legacy = viewId === 'agrupadas' ? 'mistareas' : (viewId === 'paises' ? 'resumen' : viewId);
+  if (typeof go === 'function') go(legacy);
+}
+
+function rEdHomeSpecialist(D) {
+  var v = $('vEdHome'); if (!v) return;
+  var name = (USER && USER.name) || (D && D._user && D._user.name) || '';
+  var firstName = name ? name.split(/\s+/)[0] : 'Hola';
+  var tasks = (D && D.tasks) ? D.tasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; }) : [];
+  var overdue   = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
+  var dueToday  = tasks.filter(function(t){ return t.etaDays === 0; }).length;
+  var thisWeek  = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= 7; }).length;
+  var blocked   = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
+  var apremiantes = overdue + dueToday + blocked;
+  var narrative = (D && D.roleSpecific && D.roleSpecific.narrative) || ('Tienes ' + tasks.length + ' tareas activas.');
+  var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
+  // Top 4 ordenadas por urgencia (etaDays asc, vencidas y bloqueadas primero)
+  var top = tasks.slice().sort(function(a, b) {
+    var aBlk = a.status === 'Bloqueado' ? -1 : 0;
+    var bBlk = b.status === 'Bloqueado' ? -1 : 0;
+    if (aBlk !== bBlk) return aBlk - bBlk;
+    var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
+    var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
+    return ad - bd;
+  }).slice(0, 4);
+
+  var html = ''
+    + '<div class="ed-eye">' + esc('Hoy' + (todayLine ? ' · ' + todayLine : '')) + '</div>'
+    + '<h1 class="ed-h1">Buenos días, ' + esc(firstName) + '.<br>'
+    +   'Tienes <em>' + esc(String(apremiantes).padStart(2,'0')) + ' cosas</em> apremiantes hoy.'
+    + '</h1>'
+    + '<p class="ed-lede">' + esc(narrative) + '</p>'
+    // HERO
+    + '<div class="esp-hero">'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
+    +     '<div class="esp-stat-num crit">' + String(overdue).padStart(2,'0') + '</div>'
+    +     '<div class="esp-stat-ctx">' + (overdue ? 'Resolver primero' : 'Sin vencidas') + '</div></div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">Vencen hoy</div>'
+    +     '<div class="esp-stat-num warn">' + String(dueToday).padStart(2,'0') + '</div>'
+    +     '<div class="esp-stat-ctx">' + (dueToday ? 'Cerrar hoy' : 'Día limpio') + '</div></div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">Esta semana</div>'
+    +     '<div class="esp-stat-num">' + String(thisWeek).padStart(2,'0') + '</div>'
+    +     '<div class="esp-stat-ctx">en cola</div></div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">Bloqueadas</div>'
+    +     '<div class="esp-stat-num warn">' + String(blocked).padStart(2,'0') + '</div>'
+    +     '<div class="esp-stat-ctx">' + (blocked ? 'Necesitan empuje' : '—') + '</div></div>'
+    + '</div>';
+
+  // EN TU MESA
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— En tu mesa, por urgencia</div>';
+  if (top.length === 0) {
+    html += '<div class="ed-lede">No tienes tareas activas asignadas.</div>';
+  } else {
+    for (var i = 0; i < top.length; i++) {
+      var t = top[i];
+      var tone = _etaToneClass(t.etaDays, t.status);
+      var pn = _projNameForTask(t);
+      var sla = t.slaTarget || '';
+      var actionHtml;
+      if (t.blockedReason) {
+        actionHtml = '<span class="crit">Bloqueada: ' + esc(t.blockedReason) + '.</span> ' + esc(t.accionable || '');
+      } else {
+        actionHtml = esc(t.accionable || '');
+      }
+      html += '<div class="esp-task-row" onclick="goEd(\'tracker\')">'
+           +   '<div class="esp-task-rank ' + tone + '">' + String(i+1).padStart(2,'0') + '</div>'
+           +   '<div class="esp-task-body">'
+           +     '<div class="esp-task-meta">' + esc(t.id + ' · ' + pn + (sla ? ' · SLA ' + sla : '')) + '</div>'
+           +     '<div class="esp-task-name">' + esc(t.nombre || '') + '</div>'
+           +     '<div class="esp-task-action">' + actionHtml + '</div>'
+           +   '</div>'
+           +   '<div class="esp-task-eta ' + tone + '">' + esc(t.eta || '') + '</div>'
+           +   '<div class="esp-task-pills">'
+           +     '<span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span>'
+           +     '<span class="ed-pill ' + _statusClass(t.status) + '">' + esc(t.status || '') + '</span>'
+           +   '</div>'
+           + '</div>';
+    }
+    html += '<div style="padding-top:14px"><button class="ed-btn" onclick="goEd(\'mistareas\')">'
+         +    'Ver todas mis ' + tasks.length + ' tareas →</button></div>';
+  }
+  html += '</section>';
+
+  // PERFORMANCE (campos mock por ahora — Fase 2)
+  var me = (D && D.team || []).find(function(m){ return m.name === name; }) || {};
+  var streak = (typeof me.streak === 'number' && me.streak > 0) ? me.streak : 0;
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Tu desempeño este mes</div>'
+       +    '<div class="esp-perf">'
+       +      '<div class="esp-stat"><div class="esp-stat-lbl">🔥 Racha on-time</div>'
+       +        '<div class="esp-stat-num good">' + (streak ? String(streak).padStart(2,'0') : '—') + '</div>'
+       +        '<div class="esp-stat-ctx">tareas seguidas a tiempo</div></div>'
+       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Alta</div>'
+       +        '<div class="esp-stat-num">' + esc(me.avgAlta || '—') + '</div>'
+       +        '<div class="esp-stat-ctx">SLA 2d</div></div>'
+       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Media</div>'
+       +        '<div class="esp-stat-num">' + esc(me.avgMedia || '—') + '</div>'
+       +        '<div class="esp-stat-ctx">SLA 5d</div></div>'
+       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Baja</div>'
+       +        '<div class="esp-stat-num">' + esc(me.avgBaja || '—') + '</div>'
+       +        '<div class="esp-stat-ctx">SLA 7d</div></div>'
+       +    '</div>'
+       + '</section>';
+
+  // PROYECTOS
+  var projs = (D && D.projects) ? D.projects.filter(function(p){
+    if (p.lider === name) return true;
+    return (D.tasks || []).some(function(t){ return t.proyectoId == p.id && t.resp === name; });
+  }) : [];
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Proyectos donde participas</div>';
+  if (projs.length === 0) {
+    html += '<div class="ed-lede">No participás en ningún proyecto activo.</div>';
+  } else {
+    for (var k = 0; k < projs.length; k++) {
+      var p = projs[k];
+      var role = p.lider === name ? 'Owner' : 'Participante';
+      var done = (D.historial || []).filter(function(t){ return t.proyectoId == p.id; }).length;
+      var openP = (D.tasks || []).filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; }).length;
+      html += '<div class="esp-proj-row">'
+           +    '<div class="esp-proj-role">' + esc(role) + '</div>'
+           +    '<div>'
+           +      '<div class="esp-proj-name">' + esc(p.nombre || '') + '</div>'
+           +      '<div class="esp-proj-lead">Líder: ' + esc(p.lider || '—') + '</div>'
+           +    '</div>'
+           +    '<div class="esp-proj-prog">' + done + '/' + (done + openP) + '</div>'
+           +    '<div class="esp-proj-eta">' + esc(p.deadline || '') + '</div>'
+           + '</div>';
+    }
+  }
+  html += '</section>';
+
+  v.innerHTML = html;
+}
+
+function rEdHomeManager(D) {
+  var v = $('vEdHome'); if (!v) return;
+  var userCode = (USER && USER.code) || (D && D._user && D._user.code) || '';
+  var allTasks = (D && D.tasks) || [];
+  // Tareas del país del manager
+  var paisTasks = allTasks.filter(function(t){ return (t.pais || '') === userCode; });
+  var active = paisTasks.filter(function(t){ return t.status !== 'Listo'; });
+  var overdue = active.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
+  var dueToday = active.filter(function(t){ return t.etaDays === 0; }).length;
+  var altaActive = active.filter(function(t){ return t.priority === 'Alta'; }).length;
+  // Carga de equipo
+  var teamMine = (D && D.team || []).filter(function(m){ return m.country === userCode; });
+  var totalLoad = 0, totalCap = 0;
+  teamMine.forEach(function(m){ totalLoad += (m.load || 0); totalCap += (m.capacity || 0); });
+  var loadPct = totalCap ? Math.round((totalLoad / totalCap) * 100) : 0;
+  var narrative = (D && D.roleSpecific && D.roleSpecific.narrative) || ('Tu equipo tiene ' + active.length + ' tareas activas.');
+  // Top atención: bloqueadas y vencidas, top 4
+  var att = active.slice().sort(function(a, b) {
+    var aBlk = a.status === 'Bloqueado' ? -1 : 0;
+    var bBlk = b.status === 'Bloqueado' ? -1 : 0;
+    if (aBlk !== bBlk) return aBlk - bBlk;
+    var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
+    var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
+    return ad - bd;
+  }).slice(0, 4);
+
+  var html = ''
+    + '<div class="ed-eye">' + esc('Hoy · Equipo ' + (userCode || '')) + '</div>'
+    + '<h1 class="ed-h1">Tu equipo cargó <em>' + altaActive + ' tareas</em><br>de alta prioridad esta semana.</h1>'
+    + '<p class="ed-lede">' + esc(narrative) + '</p>'
+    + '<div class="mgr-hero">'
+    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Vencidas</div>'
+    +     '<div class="mgr-stat-num crit">' + String(overdue).padStart(2,'0') + '</div>'
+    +     '<div class="mgr-stat-ctx">' + (overdue ? 'requieren atención' : 'Sin vencidas') + '</div></div>'
+    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Vencen hoy</div>'
+    +     '<div class="mgr-stat-num warn">' + String(dueToday).padStart(2,'0') + '</div>'
+    +     '<div class="mgr-stat-ctx">cerrar hoy</div></div>'
+    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Carga equipo</div>'
+    +     '<div class="mgr-stat-num">' + (totalCap ? loadPct + '%' : '—') + '</div>'
+    +     '<div class="mgr-stat-ctx">' + totalLoad + '/' + totalCap + ' capacidad</div></div>'
+    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">SLA cumplido</div>'
+    +     '<div class="mgr-stat-num good">—</div>'
+    +     '<div class="mgr-stat-ctx">Fase 2</div></div>'
+    + '</div>';
+
+  // ATENCIÓN
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Pide tu atención, ahora</div>';
+  if (att.length === 0) {
+    html += '<div class="ed-lede">El equipo está al día. Nada urgente.</div>';
+  } else {
+    for (var i = 0; i < att.length; i++) {
+      var t = att[i];
+      var tone = _etaToneClass(t.etaDays, t.status);
+      var why = t.blockedReason ? ('<span class="crit">Bloqueada: ' + esc(t.blockedReason) + '.</span> ' + esc(t.accionable || ''))
+                                : esc(t.accionable || '');
+      html += '<div class="mgr-att-row">'
+           +    '<div class="mgr-att-rank ' + tone + '">' + String(i+1).padStart(2,'0') + '</div>'
+           +    '<div class="mgr-att-body">'
+           +      '<div class="mgr-att-meta">' + esc(t.id + ' · ' + (t.resp || '—')) + '</div>'
+           +      '<div class="mgr-att-name">' + esc(t.nombre || '') + ' — ' + esc(t.eta || '') + '</div>'
+           +      '<div class="mgr-att-why">' + why + '</div>'
+           +    '</div>'
+           +    '<button class="ed-btn" onclick="goEd(\'tracker\')">Ver</button>'
+           +    '<button class="ed-btn primary">Reasignar</button>'
+           + '</div>';
+    }
+  }
+  html += '</section>';
+
+  // EQUIPO
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Tu equipo de un vistazo</div>';
+  if (teamMine.length === 0) {
+    html += '<div class="ed-lede">No hay miembros visibles para tu país.</div>';
+  } else {
+    html += '<div class="mgr-team-row" style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;font-weight:700">'
+         +    '<span></span><span>Persona</span><span>Carga</span><span>Vencidas</span><span>Bloqueadas</span><span>SLA mes</span>'
+         + '</div>';
+    for (var k = 0; k < teamMine.length; k++) {
+      var m = teamMine[k];
+      var pct = (m.capacity > 0) ? Math.round((m.load || 0) / m.capacity * 100) : 0;
+      var over = pct > 80;
+      html += '<div class="mgr-team-row">'
+           +    '<div class="ed-foot-av" style="background:var(--accent)">' + esc(m.initials || _userInitials(m.name)) + '</div>'
+           +    '<div class="mgr-team-name"><b>' + esc(m.name || '') + '</b><span class="role">' + esc(m.country || '') + '</span></div>'
+           +    '<div class="mgr-load-cell">'
+           +      '<div class="mgr-load-bar"><div class="mgr-load-fill ' + (over ? 'over' : '') + '" style="width:' + Math.min(pct, 100) + '%"></div></div>'
+           +      '<span class="mgr-load-num">' + (m.load || 0) + '/' + (m.capacity || 0) + '</span>'
+           +    '</div>'
+           +    '<div class="mgr-team-num ' + ((m.overdue || 0) > 0 ? 'crit' : 'dim') + '">' + (m.overdue || 0) + '</div>'
+           +    '<div class="mgr-team-num ' + ((m.blocked || 0) > 0 ? 'crit' : 'dim') + '">' + (m.blocked || 0) + '</div>'
+           +    '<div class="mgr-team-num dim">—</div>'
+           + '</div>';
+    }
+  }
+  html += '</section>';
+
+  v.innerHTML = html;
+}
+
+function rEdHomeHQ(D) {
+  var v = $('vEdHome'); if (!v) return;
+  var countries = (D && D.countries) || [];
+  var allTasks = (D && D.tasks) || [];
+  var totalOpen = countries.reduce(function(a, c){ return a + (c.open || 0); }, 0)
+                || allTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
+  var totalOverdue = countries.reduce(function(a, c){ return a + (c.overdue || 0); }, 0);
+  var slaAvg = 0;
+  if (countries.length) {
+    var slaSum = countries.reduce(function(a, c){ return a + (c.slaPct || 0); }, 0);
+    slaAvg = Math.round(slaSum / countries.length);
+  }
+  var atRisk = countries.filter(function(c){ return (c.overdue || 0) > 3 || (c.slaPct || 100) < 85; }).length;
+  var narrative = (D && D.roleSpecific && D.roleSpecific.narrative) || ('LATAM tiene ' + totalOpen + ' tareas activas.');
+
+  var html = ''
+    + '<div class="ed-eye">' + esc('Visión global · ' + countries.length + ' países') + '</div>'
+    + '<h1 class="ed-h1">Operación legal global,<br><em>vista de un día</em>.</h1>'
+    + '<p class="ed-lede">' + esc(narrative) + '</p>'
+    + '<div class="hq-hero">'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Total abiertas</div>'
+    +     '<div class="hq-stat-num">' + totalOpen + '</div>'
+    +     '<div class="hq-stat-ctx">' + countries.length + ' países</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Vencidas global</div>'
+    +     '<div class="hq-stat-num crit">' + String(totalOverdue).padStart(2,'0') + '</div>'
+    +     '<div class="hq-stat-ctx">' + (totalOverdue ? 'reasignar' : '—') + '</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">SLA LATAM</div>'
+    +     '<div class="hq-stat-num good">' + (slaAvg || '—') + (slaAvg ? '%' : '') + '</div>'
+    +     '<div class="hq-stat-ctx">promedio</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Países en riesgo</div>'
+    +     '<div class="hq-stat-num warn">' + String(atRisk).padStart(2,'0') + '</div>'
+    +     '<div class="hq-stat-ctx">' + (atRisk ? 'monitorear' : 'todos OK') + '</div></div>'
+    + '</div>';
+
+  // POR PAÍS
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Por país</div>';
+  if (countries.length === 0) {
+    html += '<div class="ed-lede">Sin datos de países disponibles.</div>';
+  } else {
+    html += '<div class="hq-country-row" style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;font-weight:700">'
+         +    '<span></span><span>País / Líder</span><span>Abiertas</span><span>Vencidas</span><span>SLA</span><span>Tendencia 30d</span>'
+         + '</div>';
+    var maxTrend = countries.reduce(function(m, c){
+      var arr = c.trend || [];
+      for (var i = 0; i < arr.length; i++) if (arr[i] > m) m = arr[i];
+      return m;
+    }, 1);
+    for (var i = 0; i < countries.length; i++) {
+      var c = countries[i];
+      var sla = c.slaPct || 0;
+      var slaCls = sla >= 90 ? 'good' : (sla >= 85 ? 'warn' : 'crit');
+      var ovCls  = (c.overdue || 0) > 3 ? 'crit' : ((c.overdue || 0) > 0 ? 'warn' : 'dim');
+      var trend = c.trend || [];
+      var sparkHtml = '';
+      for (var k = 0; k < trend.length; k++) {
+        var ratio = maxTrend > 0 ? trend[k] / maxTrend : 0;
+        var h = Math.max(4, Math.round(ratio * 22));
+        var isHigh = (k === trend.length - 1);
+        sparkHtml += '<span class="bar' + (isHigh ? ' high' : '') + '" style="height:' + h + 'px"></span>';
+      }
+      html += '<div class="hq-country-row">'
+           +    '<div class="hq-flag">' + esc(c.code || '') + '</div>'
+           +    '<div class="hq-country-name"><b>' + esc(c.name || c.code || '') + '</b><span class="lead">' + esc(c.leader || '—') + '</span></div>'
+           +    '<div class="hq-num">' + (c.open || 0) + '</div>'
+           +    '<div class="hq-num ' + ovCls + '">' + (c.overdue || 0) + '</div>'
+           +    '<div class="hq-num ' + slaCls + '">' + (sla || '—') + (sla ? '%' : '') + '</div>'
+           +    '<div class="hq-spark">' + sparkHtml + '</div>'
+           + '</div>';
+    }
+  }
+  html += '</section>';
+
+  v.innerHTML = html;
+}
+
+// MARKER:EDITORIAL_HOME_END
+
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_TRACKER_BEGIN  (owned by Agente D)
+// Tracker editorial: toolbar de filtros, tabla por rol y panel sticky
+// 440px con detalle. Estado local EDT (filter/search/selectedId).
+// ───────────────────────────────────────────────────────────────
+
+var EDT = { filter: 'all', search: '', selectedId: null };
+
+function _etaTextFromDays(d) {
+  if (typeof d !== 'number') return '';
+  if (d < 0)  return 'venció hace ' + Math.abs(d) + 'd';
+  if (d === 0) return 'vence HOY';
+  if (d === 1) return 'mañana';
+  return 'en ' + d + 'd';
+}
+
+function _edFilterByRole(tasks, role, userName, userCode) {
+  // Specialist: solo sus tareas. Manager: su país. Head: todo.
+  if (role === 'specialist') return tasks.filter(function(t){ return t.resp === userName; });
+  if (role === 'manager')    return tasks.filter(function(t){ return (t.pais || '') === userCode; });
+  return tasks;
+}
+
+function _edApplyFilter(tasks, filter) {
+  if (filter === 'overdue') return tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; });
+  if (filter === 'today')   return tasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; });
+  if (filter === 'blocked') return tasks.filter(function(t){ return t.status === 'Bloqueado'; });
+  return tasks.filter(function(t){ return t.status !== 'Listo'; });
+}
+
+function _edApplySearch(tasks, q) {
+  if (!q) return tasks;
+  var s = q.toLowerCase();
+  return tasks.filter(function(t) {
+    return ((t.id || '') + '').toLowerCase().indexOf(s) >= 0
+        || ((t.nombre || '') + '').toLowerCase().indexOf(s) >= 0
+        || ((t.resp || '') + '').toLowerCase().indexOf(s) >= 0
+        || ((t.proyecto || '') + '').toLowerCase().indexOf(s) >= 0
+        || ((t.tipoTrabajo || '') + '').toLowerCase().indexOf(s) >= 0;
+  });
+}
+
+function _edSortByUrgency(tasks) {
+  return tasks.slice().sort(function(a, b) {
+    var aBlk = a.status === 'Bloqueado' ? -1 : 0;
+    var bBlk = b.status === 'Bloqueado' ? -1 : 0;
+    if (aBlk !== bBlk) return aBlk - bBlk;
+    var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
+    var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
+    return ad - bd;
+  });
+}
+
+// EDT actions wired desde la toolbar / filas del tracker
+function edSetFilter(f) { EDT.filter = f; if (D) rEdTracker(D); }
+function edSetSearch(q) { EDT.search = q || ''; if (D) rEdTracker(D); }
+function edSelectTask(id) {
+  EDT.selectedId = (EDT.selectedId === id) ? null : id;
+  if (D) rEdTracker(D);
+}
+function edClosePanel() { EDT.selectedId = null; if (D) rEdTracker(D); }
+
+function _panelCell(lbl, val, valCls) {
+  return '<div class="tk-panel-cell">'
+       +   '<div class="lbl">' + esc(lbl) + '</div>'
+       +   '<div class="val' + (valCls ? ' ' + valCls : '') + '">' + esc(val == null || val === '' ? '—' : val) + '</div>'
+       + '</div>';
+}
+
+function _buildEdTimeline(t) {
+  // Timeline sintética desde campos disponibles. No tocamos backend en Fase 1.
+  var items = [];
+  if (typeof t.etaDays === 'number' && t.etaDays < 0) {
+    items.push({ when: 'Hoy', what: 'Sistema marcó <b>vencida</b>. Revisá próxima acción.', dot: 'crit' });
+  } else if (t.etaDays === 0) {
+    items.push({ when: 'Hoy', what: '<b>Vence hoy.</b> Cerrar antes de fin de día.', dot: 'crit' });
+  }
+  if (t.status === 'Bloqueado' && t.blockedReason) {
+    items.push({ when: '—', what: 'Estado: <b>Bloqueado</b> · ' + esc(t.blockedReason), dot: 'crit' });
+  }
+  if (t.cerrado) {
+    items.push({ when: t.cerrado, what: 'Tarea <b>cerrada</b>.', dot: 'good' });
+  }
+  if (t.creado) {
+    items.push({ when: t.creado, what: 'Tarea creada' + (t.resp ? ' · asignada a <b>' + esc(t.resp) + '</b>' : ''), dot: 'info' });
+  }
+  if (items.length === 0) {
+    items.push({ when: '—', what: 'Sin actividad registrada.', dot: 'info' });
+  }
+  return items;
+}
+
+function rEdTracker(D) {
+  var v = $('vEdTracker'); if (!v) return;
+  var role = (D && D._role) || (USER && USER.role) || 'specialist';
+  var userName = (USER && USER.name) || (D && D._user && D._user.name) || '';
+  var userCode = (USER && USER.code) || (D && D._user && D._user.code) || '';
+  var allTasks = (D && D.tasks) || [];
+  var roleTasks = _edFilterByRole(allTasks, role, userName, userCode);
+
+  // Counts por filtro (sobre el conjunto del rol, sin filtro activo)
+  var cAll      = roleTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
+  var cOverdue  = roleTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
+  var cToday    = roleTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; }).length;
+  var cBlocked  = roleTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
+
+  var rows = _edApplySearch(_edApplyFilter(roleTasks, EDT.filter), EDT.search);
+  rows = _edSortByUrgency(rows);
+
+  var sel = EDT.selectedId ? rows.find(function(t){ return t.id == EDT.selectedId; }) || roleTasks.find(function(t){ return t.id == EDT.selectedId; }) : null;
+  // Aplicar / quitar la clase with-panel sobre #edMain
+  var edMain = document.getElementById('edMain');
+  if (edMain) edMain.classList.toggle('with-panel', !!sel);
+
+  // EYEBROW + H1 + LEDE
+  var eyebrow = role === 'head' ? 'Tracker · Global'
+              : role === 'manager' ? ('Tracker · Equipo ' + userCode)
+              : 'Tracker · Mis tareas';
+  var lede = role === 'head'
+    ? ('LATAM con ' + cAll + ' tareas activas. Cliquea cualquier fila para ver detalle.')
+    : role === 'manager'
+      ? (cAll + ' tareas activas en tu equipo. Cliquea cualquier fila para ver detalle, historial y reasignar.')
+      : ('Tus ' + cAll + ' tareas activas. Cliquea cualquiera para ver detalle, historial y siguiente acción.');
+
+  var html = ''
+    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
+    + '<h1 class="ed-h1" style="margin-bottom:8px">Tracker</h1>'
+    + '<p class="ed-lede" style="margin-bottom:28px">' + esc(lede) + '</p>';
+
+  // TOOLBAR
+  function fBtn(key, label, count, accent) {
+    var active = EDT.filter === key;
+    var countCls = accent && count ? ' style="color:var(--' + accent + ')"' : '';
+    return '<button class="tk-filter' + (active ? ' active' : '') + '" onclick="edSetFilter(\'' + key + '\')">'
+         +    esc(label)
+         +    '<span class="tk-filter-count"' + countCls + '>' + count + '</span>'
+         + '</button>';
+  }
+  html += '<div class="tk-toolbar">'
+       +    fBtn('all',     'Todas',      cAll,     null)
+       +    fBtn('overdue', 'Vencidas',   cOverdue, 'critical')
+       +    fBtn('today',   'Hoy',        cToday,   'warn')
+       +    fBtn('blocked', 'Bloqueadas', cBlocked, null)
+       +    '<input class="tk-search" type="text" placeholder="⌘F filtrar por proyecto, persona, tipo…" '
+       +      'value="' + esc(EDT.search) + '" oninput="edSetSearch(this.value)">'
+       + '</div>';
+
+  // TABLE
+  var respCol = role === 'specialist' ? 'Proyecto' : 'Responsable';
+  html += '<table class="tk-table">'
+       +    '<thead><tr>'
+       +      '<th>ID</th><th>Tarea</th><th>' + respCol + '</th><th>Prioridad</th><th>Estado</th><th>ETA</th>'
+       +    '</tr></thead><tbody>';
+  if (rows.length === 0) {
+    html += '<tr><td colspan="6" style="padding:32px 14px;color:var(--dim);font-size:13px">Sin tareas para este filtro.</td></tr>';
+  } else {
+    for (var i = 0; i < rows.length; i++) {
+      var t = rows[i];
+      var pn = _projNameForTask(t);
+      var meta = (t.tipoTrabajo || '—') + ' · ' + pn + (t.pais ? ' · ' + t.pais : '');
+      var etaTxt = t.eta || _etaTextFromDays(t.etaDays);
+      var etaTone = _etaToneClass(t.etaDays, t.status);
+      var isSel = sel && sel.id == t.id;
+      html += '<tr class="tk-row' + (isSel ? ' selected' : '') + '" onclick="edSelectTask(\'' + esc(t.id) + '\')">'
+           +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
+           +    '<td>'
+           +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
+           +      '<div class="tk-name-meta">' + esc(meta) + '</div>'
+           +    '</td>'
+           +    '<td>' + esc(role === 'specialist' ? pn : (t.resp || '—')) + '</td>'
+           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span></td>'
+           +    '<td><span class="ed-pill ' + _statusClass(t.status) + '">' + esc(t.status || '') + '</span></td>'
+           +    '<td><span class="tk-eta ' + etaTone + '">' + esc(etaTxt) + '</span></td>'
+           + '</tr>';
+    }
+  }
+  html += '</tbody></table>';
+
+  // PANEL (si hay selección)
+  if (sel) {
+    var pn2 = _projNameForTask(sel);
+    var blockCls = (sel.status === 'Bloqueado' || (typeof sel.etaDays === 'number' && sel.etaDays < 0)) ? 'crit' : '';
+    var stateBody;
+    if (sel.status === 'Bloqueado') {
+      stateBody = '<b>Bloqueada.</b> ' + esc(sel.blockedReason || sel.accionable || 'Necesita desbloqueo manual.');
+    } else if (typeof sel.etaDays === 'number' && sel.etaDays < 0) {
+      stateBody = '<b>Vencida hace ' + Math.abs(sel.etaDays) + ' días.</b> ' + esc(sel.accionable || '');
+    } else {
+      stateBody = esc(sel.accionable || 'Sin acción registrada.');
+    }
+    var timeline = _buildEdTimeline(sel);
+    var tlHtml = '';
+    for (var k = 0; k < timeline.length; k++) {
+      var it = timeline[k];
+      tlHtml += '<div class="tk-tl-item">'
+             +    '<div class="tk-tl-dot ' + (it.dot || '') + '"></div>'
+             +    '<div class="tk-tl-when">' + esc(it.when) + '</div>'
+             +    '<div class="tk-tl-what">' + it.what + '</div>'
+             + '</div>';
+    }
+    html += '<aside class="tk-panel">'
+         +    '<div class="tk-panel-head">'
+         +      '<span class="tk-panel-eyebrow">' + esc(sel.id + (sel.pais ? ' · ' + sel.pais : '')) + '</span>'
+         +      '<button class="tk-panel-close" onclick="edClosePanel()" aria-label="Cerrar">×</button>'
+         +    '</div>'
+         +    '<h2 class="tk-panel-title">' + esc(sel.nombre || '') + '</h2>'
+         +    '<div class="tk-panel-pills">'
+         +      '<span class="ed-pill ' + (sel.priority || '').toLowerCase() + '">' + esc(sel.priority || '') + '</span>'
+         +      '<span class="ed-pill ' + _statusClass(sel.status) + '">' + esc(sel.status || '') + '</span>'
+         +      (sel.tipoTrabajo ? '<span class="ed-pill curso">' + esc(sel.tipoTrabajo) + '</span>' : '')
+         +    '</div>'
+         +    '<div class="tk-panel-block ' + blockCls + '">'
+         +      '<div class="blk-lbl">— Estado actual</div>'
+         +      '<div class="blk-body">' + stateBody + '</div>'
+         +    '</div>'
+         +    '<div class="tk-panel-grid">'
+         +      _panelCell('Responsable', sel.resp)
+         +      _panelCell('Líder', sel.lider)
+         +      _panelCell('Deadline', sel.deadline + (sel.eta ? ' · ' + sel.eta : ''),
+                            (typeof sel.etaDays === 'number' && sel.etaDays < 0) ? 'crit' : '')
+         +      _panelCell('SLA', sel.slaTarget)
+         +      _panelCell('Riesgo', sel.riesgo, sel.riesgo === 'Legal alto' ? 'crit' : '')
+         +      _panelCell('Proyecto', pn2)
+         +    '</div>'
+         +    '<div class="tk-panel-block">'
+         +      '<div class="blk-lbl">— Historial</div>'
+         +      '<div class="tk-timeline">' + tlHtml + '</div>'
+         +    '</div>'
+         +    '<div class="tk-actions">'
+         +      '<button class="ed-btn primary">Escalar</button>'
+         +      '<button class="ed-btn">Reasignar</button>'
+         +      '<button class="ed-btn">Comentar</button>'
+         +    '</div>'
+         + '</aside>';
+  }
+
+  v.innerHTML = html;
+}
+
+// MARKER:EDITORIAL_TRACKER_END
 </script>
