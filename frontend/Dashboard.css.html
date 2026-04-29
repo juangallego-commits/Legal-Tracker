@@ -112,7 +112,7 @@ body {
 }
 .app {
   position: relative; z-index: 1;
-  max-width: 1440px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 0 28px 60px;
 }
@@ -1594,12 +1594,23 @@ body.role-manager #tabResumen { display: none !important; }
   overflow-y: auto;
   height: 100vh;
 }
-.ed-main.with-panel {
+/* Cuando el tracker tiene panel sticky abierto, la VIEW del tracker
+   se vuelve grid 1fr+440px para acomodar tabla + aside. Usamos :has()
+   para que se active SOLO cuando el aside.tk-panel está realmente
+   presente en el DOM — nunca queda un grid "fantasma" si el panel
+   se cierra o se navega a otra vista. La clase legacy .ed-main.with-panel
+   queda solo como hint visual; el grid real ahora vive en la view. */
+.view.active:has(> .tk-panel) {
   display: grid;
   grid-template-columns: 1fr 440px;
-  max-width: none;
   gap: 0;
-  padding-right: 0;
+  align-items: start;
+}
+.ed-main.with-panel {
+  /* No-op visual — el grid lo maneja .view.active:has(> .tk-panel).
+     Lo dejamos por compatibilidad con código legacy que aún toggle
+     este class. */
+  max-width: none;
 }
 
 .ed-head {
@@ -1698,9 +1709,11 @@ body.role-manager #tabResumen { display: none !important; }
 }
 .theme-toggle:hover { background: var(--paper2); border-color: var(--rule-strong); }
 
-/* Demo switcher (solo visible para HQ real) */
+/* Demo switcher (solo visible para HQ real). Va inmediatamente después
+   de la nav, antes del footer; el footer (avatar+theme toggle) sigue
+   pegado al fondo via margin-top:auto en .ed-side-foot. */
 .ed-demo-switch {
-  margin-top: auto;
+  margin-top: 28px;
   padding: 12px 0;
   border-top: 1px dashed var(--rule);
   display: flex;
@@ -1727,10 +1740,6 @@ body.role-manager #tabResumen { display: none !important; }
 }
 .ed-demo-sel:hover { border-color: var(--accent); }
 .ed-demo-sel:focus { outline: none; border-color: var(--accent); }
-/* Cuando hay demo switcher, el side-foot deja de tener margin-top:auto
-   (el switcher lo toma). Lo re-aplicamos para que el switcher empuje
-   foot abajo del todo. */
-.ed-demo-switch + .ed-side-foot { margin-top: 0; }
 
 /* ═══════════════════════════════════════════════════════════════
    SPECIALIST HOME (.esp-*)
