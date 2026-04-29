@@ -2601,7 +2601,7 @@ function renderEdHead() {
     + '<div class="ed-head-eye">' + esc(sem + ' · ' + today) + '</div>'
     + '<div class="ed-head-actions">'
     +   '<div class="ed-search">⌘K  Buscar...</div>'
-    +   '<button class="ed-btn accent" onclick="openCreate()">+ Nueva</button>'
+    +   '<button class="ed-btn accent" onclick="edCrearOpen()">+ Nueva</button>'
     + '</div>';
 }
 
@@ -3560,4 +3560,367 @@ function edUSubmit() {
 }
 
 // MARKER:EDITORIAL_ACTUALIZAR_END
+
+// MARKER:EDITORIAL_CREAR_BEGIN
+// Wizard editorial de 3 pasos para crear tarea — versión simplificada del
+// rediseño de pendientes/ed-crear.jsx. Mantiene step indicator, pills, resumen
+// final + submit a addTask. Descarta features que requieren backend nuevo:
+// sugerencias IA, banda IA, niveles de confidencialidad, visibilidad multi-
+// persona, adjuntos drive/local. El modal legacy #createOv se mantiene
+// intacto para crear proyectos (openCreate('newProj')).
+// ───────────────────────────────────────────────────────────────
+
+var EDC = {
+  step: 1,
+  values: {
+    titulo: '',
+    descripcion: '',
+    tipo: '',
+    pais: '',
+    prioridad: 'Media',
+    riesgo: '',
+    resp: '',
+    deadline: '',
+    proyectoId: ''
+  }
+};
+
+var _CR_TIPOS  = ['Contractual', 'Regulatorio', 'Contencioso', 'Privacy', 'Operativo'];
+var _CR_PRIOS  = ['Alta', 'Media', 'Baja'];
+var _CR_RIESGOS = ['Legal alto', 'Reputacional', 'Operativo'];
+var _CR_PAIS_FALLBACK = ['CO', 'MX', 'BR', 'AR', 'CL', 'PE'];
+
+function _crCountries() {
+  if (D && D.equipos && D.equipos.length) {
+    var seen = {}, out = [];
+    D.equipos.forEach(function(eq){
+      var c = eq && eq.code;
+      if (c && !seen[c]) { seen[c] = 1; out.push(c); }
+    });
+    if (out.length) return out;
+  }
+  return _CR_PAIS_FALLBACK.slice();
+}
+
+function _crResponsables() {
+  if (typeof getAllMembers === 'function') {
+    var m = getAllMembers();
+    if (m && m.length) return m;
+  }
+  if (D && D.team && D.team.length) {
+    return D.team.map(function(t){ return t && t.name; }).filter(Boolean);
+  }
+  return [];
+}
+
+function _crProjects() {
+  var src = (D && (D.projectList || D.projects)) || [];
+  return src.filter(function(p){
+    if (!p) return false;
+    var s = p.status || p.estado || '';
+    return s !== 'Completado' && s !== 'Cancelado';
+  });
+}
+
+function _crPillsHtml(field, options, activeVal, modCls) {
+  return options.map(function(opt){
+    var val = typeof opt === 'object' ? opt.value : opt;
+    var lbl = typeof opt === 'object' ? opt.label : opt;
+    var active = String(activeVal) === String(val) ? ' active' : '';
+    var mod = modCls ? (' ' + modCls(val)) : '';
+    return '<button type="button" class="cr-pill-btn' + mod + active + '" '
+         + 'onclick="edCrearSetField(\'' + field + '\',\'' + escJs(String(val)) + '\')">'
+         + esc(lbl) + '</button>';
+  }).join('');
+}
+
+function _crPrioMod(val) {
+  if (val === 'Alta') return 'alta';
+  if (val === 'Media') return 'media';
+  if (val === 'Baja') return 'baja';
+  return '';
+}
+function _crRiesgoMod(val) {
+  if (val === 'Legal alto') return 'alta';
+  if (val === 'Reputacional') return 'media';
+  if (val === 'Operativo') return 'baja';
+  return '';
+}
+
+function _crSelectHtml(id, options, current, blankLabel) {
+  var html = '';
+  if (blankLabel != null) {
+    var sel = !current ? ' selected' : '';
+    html += '<option value=""' + sel + '>' + esc(blankLabel) + '</option>';
+  }
+  options.forEach(function(opt){
+    var val = typeof opt === 'object' ? opt.value : opt;
+    var lbl = typeof opt === 'object' ? opt.label : opt;
+    var sel = String(current) === String(val) ? ' selected' : '';
+    html += '<option value="' + esc(String(val)) + '"' + sel + '>' + esc(lbl) + '</option>';
+  });
+  return '<select id="' + id + '" class="cr-input">' + html + '</select>';
+}
+
+function _crProjectName(id) {
+  if (!id) return 'Sin proyecto';
+  var list = (D && (D.projectList || D.projects)) || [];
+  for (var i = 0; i < list.length; i++) {
+    if (String(list[i].id) === String(id)) return list[i].nombre || ('#' + id);
+  }
+  return '#' + id;
+}
+
+function _crRenderStep1() {
+  var v = EDC.values;
+  return ''
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Título de la tarea <span class="req">*</span></div>'
+    +   '<input class="cr-input title" id="crTitulo" maxlength="120" '
+    +     'placeholder="Ej: Revisar contrato proveedor logística — Bogotá" '
+    +     'value="' + esc(v.titulo) + '" '
+    +     'oninput="edCrearSetField(\'titulo\', this.value)">'
+    + '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Descripción / contexto</div>'
+    +   '<textarea class="cr-input cr-textarea" id="crDesc" '
+    +     'placeholder="Contexto, objetivos, links relevantes…" '
+    +     'oninput="edCrearSetField(\'descripcion\', this.value)">' + esc(v.descripcion) + '</textarea>'
+    + '</div>'
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Tipo <span class="req">*</span></div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('tipo', _CR_TIPOS, v.tipo) + '</div>'
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">País <span class="req">*</span></div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
+    +   '</div>'
+    + '</div>';
+}
+
+function _crRenderStep2() {
+  var v = EDC.values;
+  var resp = _crResponsables().map(function(n){ return { value: n, label: n }; });
+  var projs = _crProjects().map(function(p){ return { value: p.id, label: p.nombre }; });
+  return ''
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Prioridad</div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('prioridad', _CR_PRIOS, v.prioridad, _crPrioMod) + '</div>'
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Nivel de riesgo</div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('riesgo', _CR_RIESGOS, v.riesgo, _crRiesgoMod) + '</div>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Responsable <span class="req">*</span></div>'
+    +     _crSelectHtml('crResp', resp, v.resp, 'Seleccionar…').replace('<select id="crResp"', '<select id="crResp" onchange="edCrearSetField(\'resp\', this.value)"')
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Deadline <span class="req">*</span></div>'
+    +     '<input type="date" class="cr-input" id="crDeadline" value="' + esc(v.deadline) + '" '
+    +       'onchange="edCrearSetField(\'deadline\', this.value)">'
+    +   '</div>'
+    + '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Vincular a proyecto</div>'
+    +   _crSelectHtml('crProj', projs, v.proyectoId, 'Sin proyecto').replace('<select id="crProj"', '<select id="crProj" onchange="edCrearSetField(\'proyectoId\', this.value)"')
+    + '</div>';
+}
+
+function _crRenderStep3() {
+  var v = EDC.values;
+  var pills = '';
+  if (v.prioridad) pills += '<span class="ed-pill ' + esc((v.prioridad || '').toLowerCase()) + '">Prioridad ' + esc(v.prioridad) + '</span>';
+  if (v.riesgo) pills += '<span class="ed-pill curso">' + esc(v.riesgo) + '</span>';
+  if (v.tipo) pills += '<span class="ed-pill curso">' + esc(v.tipo) + '</span>';
+  if (v.pais) pills += '<span class="ed-pill curso">' + esc(v.pais) + '</span>';
+  var projName = _crProjectName(v.proyectoId);
+  if (v.proyectoId) pills += '<span class="ed-pill curso">' + esc(projName) + '</span>';
+
+  var html = ''
+    + '<div class="cr-conf-banner">'
+    +   '<div class="cr-conf-mark">✓</div>'
+    +   '<div class="cr-conf-msg">Todo listo para publicar. Una vez confirmes, <b>' + esc(v.resp || 'el responsable') + '</b> recibirá la tarea.</div>'
+    + '</div>'
+    + '<div class="cr-conf-section">'
+    +   '<div class="cr-conf-eye">— Resumen</div>'
+    +   '<div class="cr-conf-title">' + esc(v.titulo || 'Sin título') + '</div>'
+    +   (pills ? '<div class="cr-conf-pills">' + pills + '</div>' : '')
+    +   '<div class="cr-conf-grid">'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Responsable</div><div class="cr-conf-val">' + esc(v.resp || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Deadline</div><div class="cr-conf-val">' + esc(v.deadline || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Tipo</div><div class="cr-conf-val">' + esc(v.tipo || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">País</div><div class="cr-conf-val">' + esc(v.pais || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Proyecto</div><div class="cr-conf-val">' + esc(projName) + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Riesgo</div><div class="cr-conf-val">' + esc(v.riesgo || '—') + '</div></div>'
+    +   '</div>'
+    + '</div>';
+  if (v.descripcion) {
+    html += '<div class="cr-conf-section">'
+         +   '<div class="cr-conf-eye">— Descripción</div>'
+         +   '<div class="cr-conf-desc">' + esc(v.descripcion) + '</div>'
+         + '</div>';
+  }
+  return html;
+}
+
+function _crStepClasses(stepNum, current) {
+  if (current > stepNum) return 'cr-step done';
+  if (current === stepNum) return 'cr-step active';
+  return 'cr-step';
+}
+
+function _crRender(step) {
+  var s = step || EDC.step || 1;
+  var titles = {
+    1: 'Empecemos por lo esencial',
+    2: 'Detalles, equipo y deadline',
+    3: 'Listo para publicar'
+  };
+  var infos = {
+    1: 'Próximo paso: <b>asignación, prioridad y deadline.</b>',
+    2: 'Cuando estés listo, te llevamos a la revisión final antes de publicar.',
+    3: 'Última revisión. Cuando confirmes, la tarea se crea.'
+  };
+  var bodyHtml;
+  if (s === 1) bodyHtml = _crRenderStep1();
+  else if (s === 2) bodyHtml = _crRenderStep2();
+  else bodyHtml = _crRenderStep3();
+
+  var footBtns = '';
+  if (s === 1) {
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearClose()">Cancelar</button>'
+             + '<button type="button" class="ed-btn accent" onclick="edCrearGoStep(2)">Continuar →</button>';
+  } else if (s === 2) {
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearGoStep(1)">← Volver</button>'
+             + '<button type="button" class="ed-btn accent" onclick="edCrearGoStep(3)">Revisar y publicar →</button>';
+  } else {
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearGoStep(2)">← Editar</button>'
+             + '<button type="button" class="ed-btn accent" id="crSubmit" onclick="edCrearSubmit()">Publicar tarea</button>';
+  }
+
+  return '<div class="cr-overlay" onclick="if(event.target===this)edCrearClose()">'
+       +   '<div class="cr-backdrop" onclick="edCrearClose()"></div>'
+       +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Crear tarea">'
+       +     '<div class="cr-head">'
+       +       '<div>'
+       +         '<div class="cr-eye">— Crear nueva tarea</div>'
+       +         '<div class="cr-title">' + esc(titles[s] || '') + '</div>'
+       +       '</div>'
+       +       '<button type="button" class="cr-x" onclick="edCrearClose()" aria-label="Cerrar">×</button>'
+       +     '</div>'
+       +     '<div class="cr-steps">'
+       +       '<div class="' + _crStepClasses(1, s) + '"><span class="cr-step-num">01</span> Esencial</div>'
+       +       '<div class="' + _crStepClasses(2, s) + '"><span class="cr-step-num">02</span> Detalles</div>'
+       +       '<div class="' + _crStepClasses(3, s) + '"><span class="cr-step-num">03</span> Confirmar</div>'
+       +     '</div>'
+       +     '<div class="cr-body">' + bodyHtml + '</div>'
+       +     '<div class="cr-foot">'
+       +       '<div class="cr-foot-info">' + (infos[s] || '') + '</div>'
+       +       footBtns
+       +     '</div>'
+       +   '</div>'
+       + '</div>';
+}
+
+function _crMount() {
+  var host = $('crHost'); if (!host) return;
+  host.innerHTML = _crRender(EDC.step);
+}
+
+function edCrearOpen() {
+  EDC.step = 1;
+  EDC.values = {
+    titulo: '',
+    descripcion: '',
+    tipo: '',
+    pais: '',
+    prioridad: 'Media',
+    riesgo: '',
+    resp: '',
+    deadline: '',
+    proyectoId: ''
+  };
+  _crMount();
+  setTimeout(function() {
+    var input = $('crTitulo');
+    if (input) input.focus();
+  }, 60);
+}
+
+function edCrearClose() {
+  EDC.step = 1;
+  var host = $('crHost'); if (host) host.innerHTML = '';
+}
+
+function edCrearSetField(key, value) {
+  if (!EDC.values || !(key in EDC.values)) return;
+  EDC.values[key] = value;
+  // Para campos texto/select que están dentro del DOM actual, no re-renderizamos
+  // — el valor ya está en EDC.values. Para pills sí re-renderizamos para
+  // reflejar el estado activo.
+  var rerenderFields = { tipo: 1, pais: 1, prioridad: 1, riesgo: 1 };
+  if (rerenderFields[key]) _crMount();
+}
+
+function edCrearGoStep(n) {
+  // Validación del paso actual antes de avanzar
+  var v = EDC.values;
+  if (n > EDC.step) {
+    if (EDC.step === 1) {
+      if (!v.titulo || !v.titulo.trim()) { toast('Título requerido', 'error'); return; }
+      if (!v.tipo) { toast('Seleccioná un tipo', 'error'); return; }
+      if (!v.pais) { toast('Seleccioná un país', 'error'); return; }
+    } else if (EDC.step === 2) {
+      if (!v.resp) { toast('Seleccioná un responsable', 'error'); return; }
+      if (!v.deadline) { toast('Deadline requerido', 'error'); return; }
+    }
+  }
+  EDC.step = n;
+  _crMount();
+}
+
+function edCrearSubmit() {
+  var v = EDC.values;
+  if (!v.titulo || !v.titulo.trim()) { toast('Título requerido', 'error'); return; }
+  if (!v.resp) { toast('Responsable requerido', 'error'); return; }
+  var btn = $('crSubmit'); if (btn) btn.disabled = true;
+  if (typeof showLoader === 'function') showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (btn) btn.disabled = false;
+      if (res && res.success) {
+        toast('Tarea #' + res.id + ' creada', 'success');
+        edCrearClose();
+        if (typeof reload === 'function') reload();
+      } else {
+        toast('Error: ' + ((res && res.error) || 'desconocido'), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (btn) btn.disabled = false;
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .addTask({
+      nombre: v.titulo.trim(),
+      proyectoId: v.proyectoId || '',
+      pais: v.pais || '',
+      priority: v.prioridad || 'Media',
+      tipoTrabajo: v.tipo || '',
+      riesgo: v.riesgo || '',
+      resp: v.resp || '',
+      lider: '',
+      deadline: v.deadline || '',
+      acc: '',
+      notas: (v.descripcion || '').trim()
+    });
+}
+
+// MARKER:EDITORIAL_CREAR_END
 </script>
