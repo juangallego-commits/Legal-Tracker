@@ -2614,8 +2614,13 @@ function goEd(viewId) {
     if (typeof rEdTracker === 'function') rEdTracker(D);
     return;
   }
-  // Aliases sin equivalente legacy: 'agrupadas' → mistareas, 'paises' → resumen
-  var legacy = viewId === 'agrupadas' ? 'mistareas' : (viewId === 'paises' ? 'resumen' : viewId);
+  if (viewId === 'agrupadas') {
+    var v3 = $('vEdAgrupadas'); if (v3) v3.classList.add('active');
+    if (typeof rEdAgrupadas === 'function') rEdAgrupadas(D);
+    return;
+  }
+  // Alias sin equivalente legacy: 'paises' → resumen
+  var legacy = viewId === 'paises' ? 'resumen' : viewId;
   if (typeof go === 'function') go(legacy);
 }
 
@@ -3170,4 +3175,134 @@ function rEdTracker(D) {
 }
 
 // MARKER:EDITORIAL_TRACKER_END
+
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_AGRUPADAS_BEGIN
+// Vista intermedia "Por urgencia" — agrupa tareas activas del USER
+// en franjas (Pendientes / Hoy / Esta semana / Más adelante) con
+// narrativa por bucket. Tabs (prioridad/proyecto/tipo/riesgo) son
+// decorativos en Fase 1 (solo "Por prioridad" funcional).
+// ───────────────────────────────────────────────────────────────
+
+function _agBuckets(tasks) {
+  var overdue = [], today = [], week = [], later = [];
+  for (var i = 0; i < tasks.length; i++) {
+    var t = tasks[i];
+    if (t.status === 'Listo') continue;
+    var d = (typeof t.etaDays === 'number') ? t.etaDays : null;
+    if (d == null) { later.push(t); continue; }
+    if (d < 0) overdue.push(t);
+    else if (d === 0) today.push(t);
+    else if (d <= 5) week.push(t);
+    else later.push(t);
+  }
+  // ordenar por urgencia dentro de cada bucket
+  function sortAsc(a, b) {
+    var aBlk = a.status === 'Bloqueado' ? -1 : 0;
+    var bBlk = b.status === 'Bloqueado' ? -1 : 0;
+    if (aBlk !== bBlk) return aBlk - bBlk;
+    var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
+    var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
+    return ad - bd;
+  }
+  return { overdue: overdue.sort(sortAsc), today: today.sort(sortAsc), week: week.sort(sortAsc), later: later.sort(sortAsc) };
+}
+
+function _agBucketNarr(key, tasks) {
+  // Narrativa contextual por bucket basada en counts y bloqueos reales.
+  if (tasks.length === 0) {
+    if (key === 'overdue') return 'Sin tareas pendientes de cierre. <b>Buen estado.</b>';
+    if (key === 'today') return 'Nada vence hoy. <b>Día limpio.</b>';
+    if (key === 'week') return 'Sin tareas previstas esta semana.';
+    return 'Sin tareas con SLA holgado.';
+  }
+  var blockedCount = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
+  var altaCount = tasks.filter(function(t){ return t.priority === 'Alta'; }).length;
+  if (key === 'overdue') {
+    var blockedFrag = blockedCount ? ('<span class="warn">' + blockedCount + ' en espera externa.</span> ') : '';
+    return blockedFrag + '<b>Acción sugerida:</b> seguimiento o escalación amable.';
+  }
+  if (key === 'today') {
+    return altaCount ? ('Prioridad <b>' + altaCount + ' Alta</b>. Cerrar antes del fin de día.') : 'Cerrar hoy para evitar vencimientos.';
+  }
+  if (key === 'week') {
+    return altaCount
+      ? ('<b>' + altaCount + ' Alta</b> con buen margen. Empezá por la de mayor alcance.')
+      : 'Tareas con buen margen. Planificá tu semana.';
+  }
+  return '<b>SLA holgado.</b> Podés atenderlas con tiempo.';
+}
+
+function rEdAgrupadas(D) {
+  var v = $('vEdAgrupadas'); if (!v) return;
+  var name = (USER && USER.name) || (D && D._user && D._user.name) || '';
+  var tasks = (D && D.tasks) ? D.tasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; }) : [];
+  var b = _agBuckets(tasks);
+  var totalActive = b.overdue.length + b.today.length + b.week.length + b.later.length;
+  var firstName = name ? name.split(/\s+/)[0] : '';
+  var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
+
+  var html = ''
+    + '<div class="ed-eye">' + esc((firstName ? firstName + ' · ' : '') + 'Mis tareas — agrupadas por prioridad' + (todayLine ? ' · ' + todayLine : '')) + '</div>'
+    + '<h1 class="ed-h1">' + esc(String(totalActive).padStart(2,'0')) + ' tareas, cuatro <em>franjas</em><br>de tiempo distintas.</h1>'
+    + '<p class="ed-lede">Antes de meterte a la tabla densa, esta es la lectura rápida: dónde está cada cosa y qué te conviene atender primero. Empezá por las pendientes de cierre, las de "más adelante" pueden esperar tranquilas.</p>'
+    + '<div class="ag-tabs">'
+    +   '<div class="ag-tab active">Por prioridad</div>'
+    +   '<div class="ag-tab" title="Próximamente">Por proyecto</div>'
+    +   '<div class="ag-tab" title="Próximamente">Por tipo</div>'
+    +   '<div class="ag-tab" title="Próximamente">Por riesgo</div>'
+    + '</div>';
+
+  var buckets = [
+    { key: 'overdue', tone: 'warn', title: 'Pendientes de cierre', tasks: b.overdue },
+    { key: 'today',   tone: 'warn', title: 'Vencen hoy',           tasks: b.today },
+    { key: 'week',    tone: '',     title: 'Esta semana',          tasks: b.week },
+    { key: 'later',   tone: '',     title: 'Más adelante',         tasks: b.later }
+  ];
+
+  for (var i = 0; i < buckets.length; i++) {
+    var bk = buckets[i];
+    html += '<div class="ag-bucket">'
+         +    '<div class="ag-bhead">'
+         +      '<div class="ag-btitle ' + bk.tone + '">— ' + esc(bk.title) + '</div>'
+         +      '<div class="ag-bcount">' + String(bk.tasks.length).padStart(2,'0') + '</div>'
+         +      '<div class="ag-bnarr">' + _agBucketNarr(bk.key, bk.tasks) + '</div>'
+         +    '</div>';
+    if (bk.tasks.length === 0) {
+      html += '<div style="padding:14px 0;font-size:12px;color:var(--dim)">Sin tareas en esta franja.</div>';
+    } else {
+      html += '<div class="ag-cards">';
+      for (var k = 0; k < bk.tasks.length; k++) {
+        var t = bk.tasks[k];
+        var tone = _etaToneClass(t.etaDays, t.status);
+        var pn = _projNameForTask(t);
+        var sla = t.slaTarget || '';
+        var actionHtml = t.blockedReason
+          ? '<span class="warn">En espera de ' + esc(t.blockedReason) + '.</span> ' + esc(t.accionable || '')
+          : esc(t.accionable || '');
+        html += '<div class="ag-card" onclick="goEd(\'tracker\')">'
+             +    '<div class="ag-card-meta">'
+             +      '<span>' + esc(t.id) + '</span>'
+             +      '<span class="sep">·</span>'
+             +      '<span>' + esc(pn) + '</span>'
+             +      (sla ? '<span class="sep">·</span><span>SLA ' + esc(sla) + '</span>' : '')
+             +    '</div>'
+             +    '<div class="ag-card-name">' + esc(t.nombre || '') + '</div>'
+             +    '<div class="ag-card-action">' + actionHtml + '</div>'
+             +    '<div class="ag-card-foot">'
+             +      '<span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span>'
+             +      '<span class="ed-pill ' + _statusClass(t.status) + '">' + esc(t.status || '') + '</span>'
+             +      '<span class="ag-card-eta ' + tone + '">' + esc(t.eta || '') + '</span>'
+             +    '</div>'
+             + '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  v.innerHTML = html;
+}
+
+// MARKER:EDITORIAL_AGRUPADAS_END
 </script>
