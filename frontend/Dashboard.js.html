@@ -2789,7 +2789,7 @@ function rEdHomeSpecialist(D) {
     + '</div>'; })()
     // HERO (copy reframeado: orientado a "qué hago AHORA")
     + '<div class="esp-hero">'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">Pendientes de cierre</div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
     +     '<div class="esp-stat-num warn">' + String(overdue).padStart(2,'0') + '</div>'
     +     '<div class="esp-stat-ctx">' + (overdue ? 'Resolver primero' : 'Al día') + '</div></div>'
     +   '<div class="esp-stat"><div class="esp-stat-lbl">Vencen hoy</div>'
@@ -2798,7 +2798,7 @@ function rEdHomeSpecialist(D) {
     +   '<div class="esp-stat"><div class="esp-stat-lbl">Esta semana</div>'
     +     '<div class="esp-stat-num">' + String(thisWeek).padStart(2,'0') + '</div>'
     +     '<div class="esp-stat-ctx">en cola</div></div>'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">En espera externa</div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">En espera</div>'
     +     '<div class="esp-stat-num warn">' + String(blocked).padStart(2,'0') + '</div>'
     +     '<div class="esp-stat-ctx">' + (blocked ? 'Necesitan empuje' : '—') + '</div></div>'
     + '</div>';
@@ -2922,7 +2922,7 @@ function rEdHomeManager(D) {
     + '<h1 class="ed-h1">Tu equipo cargó <em>' + altaActive + ' tareas</em><br>de alta prioridad esta semana.</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
     + '<div class="mgr-hero">'
-    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Necesitan apoyo</div>'
+    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Vencidas</div>'
     +     '<div class="mgr-stat-num warn">' + String(overdue).padStart(2,'0') + '</div>'
     +     '<div class="mgr-stat-ctx">' + (overdue ? 'requieren atención' : 'al día') + '</div></div>'
     +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Vencen hoy</div>'
@@ -3015,13 +3015,13 @@ function rEdHomeHQ(D) {
     +   '<div class="hq-stat"><div class="hq-stat-lbl">Total LATAM</div>'
     +     '<div class="hq-stat-num">' + totalOpen + '</div>'
     +     '<div class="hq-stat-ctx">' + countries.length + ' países</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Atrasadas LATAM</div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Vencidas</div>'
     +     '<div class="hq-stat-num crit">' + String(totalOverdue).padStart(2,'0') + '</div>'
     +     '<div class="hq-stat-ctx">' + (totalOverdue ? 'reasignar' : '—') + '</div></div>'
     +   '<div class="hq-stat"><div class="hq-stat-lbl">SLA promedio</div>'
     +     '<div class="hq-stat-num good">' + (slaAvg || '—') + (slaAvg ? '%' : '') + '</div>'
     +     '<div class="hq-stat-ctx">LATAM</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Necesitan apoyo</div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Países en riesgo</div>'
     +     '<div class="hq-stat-num warn">' + String(atRisk).padStart(2,'0') + '</div>'
     +     '<div class="hq-stat-ctx">' + (atRisk ? 'monitorear' : 'todos OK') + '</div></div>'
     + '</div>';
@@ -3222,10 +3222,10 @@ function rEdTracker(D) {
          + '</button>';
   }
   html += '<div class="tk-toolbar">'
-       +    fBtn('all',     'Todas',                cAll,     null)
-       +    fBtn('overdue', 'Pendientes de cierre', cOverdue, 'critical')
-       +    fBtn('today',   'Vencen hoy',           cToday,   'warn')
-       +    fBtn('blocked', 'En espera',            cBlocked, null)
+       +    fBtn('all',     'Todas',      cAll,     null)
+       +    fBtn('overdue', 'Vencidas',   cOverdue, 'critical')
+       +    fBtn('today',   'Vencen hoy', cToday,   'warn')
+       +    fBtn('blocked', 'En espera',  cBlocked, null)
        +    '<input class="tk-search" type="text" placeholder="⌘F filtrar por proyecto, persona, tipo…" '
        +      'value="' + esc(EDT.search) + '" oninput="edSetSearch(this.value)">'
        + '</div>';
@@ -3368,7 +3368,7 @@ function _agBuckets(tasks) {
 function _agBucketNarr(key, tasks) {
   // Narrativa contextual por bucket basada en counts y bloqueos reales.
   if (tasks.length === 0) {
-    if (key === 'overdue') return 'Sin tareas pendientes de cierre. <b>Buen estado.</b>';
+    if (key === 'overdue') return 'Sin tareas vencidas. <b>Buen estado.</b>';
     if (key === 'today') return 'Nada vence hoy. <b>Día limpio.</b>';
     if (key === 'week') return 'Sin tareas previstas esta semana.';
     return 'Sin tareas con SLA holgado.';
@@ -3411,10 +3411,10 @@ function rEdAgrupadas(D) {
     + '</div>';
 
   var buckets = [
-    { key: 'overdue', tone: 'warn', title: 'Pendientes de cierre', tasks: b.overdue },
-    { key: 'today',   tone: 'warn', title: 'Vencen hoy',           tasks: b.today },
-    { key: 'week',    tone: '',     title: 'Esta semana',          tasks: b.week },
-    { key: 'later',   tone: '',     title: 'Más adelante',         tasks: b.later }
+    { key: 'overdue', tone: 'warn', title: 'Vencidas',     tasks: b.overdue },
+    { key: 'today',   tone: 'warn', title: 'Vencen hoy',   tasks: b.today },
+    { key: 'week',    tone: '',     title: 'Esta semana',  tasks: b.week },
+    { key: 'later',   tone: '',     title: 'Más adelante', tasks: b.later }
   ];
 
   for (var i = 0; i < buckets.length; i++) {
@@ -4209,7 +4209,7 @@ function _piRenderHero(enriched) {
   var dlCls = dl == null ? '' : (dl < 0 ? 'crit' : (dl <= 14 ? 'warn' : ''));
   var lede = p.descripcion
     ? esc(p.descripcion)
-    : ('Proyecto activo con <b>' + enriched.tasks + ' tareas</b>' + (enriched.overdue ? ', <span class="crit">' + enriched.overdue + ' atrasada' + (enriched.overdue === 1 ? '' : 's') + '</span>' : '') + '.');
+    : ('Proyecto activo con <b>' + enriched.tasks + ' tareas</b>' + (enriched.overdue ? ', <span class="crit">' + enriched.overdue + ' vencida' + (enriched.overdue === 1 ? '' : 's') + '</span>' : '') + '.');
   var teamCount = enriched.people.length + enriched.more;
 
   var allTasks = (D && D.tasks) || [];
@@ -4237,7 +4237,7 @@ function _piRenderHero(enriched) {
   }
 
   var heroHeadline = enriched.overdue
-    ? 'Hay <b>' + enriched.overdue + ' atrasada' + (enriched.overdue === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Resolver primero.</span>'
+    ? 'Hay <b>' + enriched.overdue + ' vencida' + (enriched.overdue === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Resolver primero.</span>'
     : (myInProj.length ? 'Tienes <b>' + myInProj.length + ' tarea' + (myInProj.length === 1 ? '' : 's') + ' tuya' + (myInProj.length === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Por urgencia.</span>'
                        : 'Sin tareas tuyas activas. <span style="color:var(--muted);font-weight:600">Solo seguimiento.</span>');
 
@@ -4248,7 +4248,7 @@ function _piRenderHero(enriched) {
        +     '<p class="pi-hero-lede">' + lede + '</p>'
        +     '<div class="pi-hero-meta">'
        +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num">' + String(enriched.tasks).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">tareas activas</div></div>'
-       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num ' + (enriched.overdue ? 'crit' : '') + '">' + String(enriched.overdue).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">atrasada' + (enriched.overdue === 1 ? '' : 's') + '</div></div>'
+       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num ' + (enriched.overdue ? 'crit' : '') + '">' + String(enriched.overdue).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">vencida' + (enriched.overdue === 1 ? '' : 's') + '</div></div>'
        +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num">' + String(teamCount).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">equipo</div></div>'
        +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num ' + dlCls + '">' + (dl == null ? '—' : (dl < 0 ? Math.abs(dl) : dl)) + '<em>d</em></div><div class="pi-hero-stat-lbl">' + (dl != null && dl < 0 ? 'vencido' : 'al cierre') + '</div></div>'
        +     '</div>'
@@ -4295,7 +4295,7 @@ function _piRenderRow(enriched, idx) {
        +       '<div class="pi-prog-seg curso" style="width:' + prog.curso + '%"></div>'
        +       '<div class="pi-prog-seg crit"  style="width:' + prog.crit  + '%"></div>'
        +     '</div>'
-       +     '<div class="pi-prog-pct"><b>' + enriched.pctNum + '%</b> · ' + (enriched.overdue > 0 ? '<span style="color:var(--critical);font-weight:700">' + enriched.overdue + ' atrasada' + (enriched.overdue === 1 ? '' : 's') + '</span>' : 'al día') + '</div>'
+       +     '<div class="pi-prog-pct"><b>' + enriched.pctNum + '%</b> · ' + (enriched.overdue > 0 ? '<span style="color:var(--critical);font-weight:700">' + enriched.overdue + ' vencida' + (enriched.overdue === 1 ? '' : 's') + '</span>' : 'al día') + '</div>'
        +   '</div>'
        +   '<div class="pi-stat-cell">'
        +     '<div class="pi-stat-num ' + dlCls + '">' + dlVal + '<em>d</em></div>'

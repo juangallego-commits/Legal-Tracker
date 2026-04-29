@@ -1144,6 +1144,20 @@ function uploadDocument(kind, itemId, fileData) {
 // Vincula un link existente de Drive (no mueve el archivo).
 function attachDocumentLink(kind, itemId, link) {
   if (!link || !link.url) return { success: false, error: 'URL requerida' };
+  var url = link.url.toString().trim();
+  // Validar esquema: solo http(s). Esto bloquea javascript:, data:, file:, etc.
+  // que podrían ser usados como vector XSS persistente al renderear el link.
+  if (!/^https?:\/\//i.test(url)) {
+    return { success: false, error: 'URL inválida: solo se aceptan https:// o http://' };
+  }
+  // Validar largo razonable (evita DoS por strings gigantes en la celda)
+  if (url.length > 2048) {
+    return { success: false, error: 'URL demasiado larga (máx. 2048 caracteres)' };
+  }
+  // Bloquear caracteres de control que podrían romper el render del atributo HTML
+  if (/[ -]/.test(url)) {
+    return { success: false, error: 'URL contiene caracteres inválidos' };
+  }
   var ctx = _getAuthContext();
   var info = _readDocsFor(kind, itemId);
   if (!info) return { success: false, error: (kind === 'project' ? 'Proyecto' : 'Tarea') + ' #' + itemId + ' no encontrado' };
@@ -1151,9 +1165,9 @@ function attachDocumentLink(kind, itemId, link) {
   else _authorizeProjectWrite(ctx, info.target);
 
   var doc = {
-    name: (link.name || '').toString().trim() || link.url,
-    url: link.url.toString().trim(),
-    id: _extractDriveId(link.url) || '',
+    name: (link.name || '').toString().trim() || url,
+    url: url,
+    id: _extractDriveId(url) || '',
     external: true,
     uploadedBy: ctx.user.name,
     uploadedAt: new Date().toISOString()
