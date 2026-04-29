@@ -2469,6 +2469,53 @@ var ED_NAV_BY_ROLE = {
   ]
 };
 
+// ───────────────────────────────────────────────────────────────
+// DEMO MODE: el head puede simular ver la app como specialist /
+// manager / hq sin cambiar de cuenta. Solo cambia el rendering;
+// el backend sigue ejecutando como el head real (cualquier mutación
+// se registra a su nombre).
+// Persiste en localStorage. Solo visible cuando USER.role === 'head'.
+// ───────────────────────────────────────────────────────────────
+var DEMO_AS = (function(){
+  try { return localStorage.getItem('lt-demo-as') || null; } catch (e) { return null; }
+})();
+function _isHeadReal() { return !!(USER && USER.role === 'head'); }
+function _effectiveRole() {
+  if (DEMO_AS && _isHeadReal()) return DEMO_AS;
+  return _effectiveRole();
+}
+function _effectiveUserName() {
+  if (DEMO_AS && _isHeadReal()) {
+    var equipos = (D && D.equipos) || [];
+    if (DEMO_AS === 'specialist' && equipos[0]) {
+      // Primer member del primer país que NO sea el lider
+      var first = (equipos[0].members || []).find(function(m){ return m && m !== equipos[0].leader; });
+      if (first) return first;
+      if (equipos[0].members && equipos[0].members[0]) return equipos[0].members[0];
+    }
+    if (DEMO_AS === 'manager' && equipos[0] && equipos[0].leader) return equipos[0].leader;
+  }
+  return _effectiveUserName();
+}
+function _effectiveUserCode() {
+  if (DEMO_AS && _isHeadReal()) {
+    var equipos = (D && D.equipos) || [];
+    if ((DEMO_AS === 'specialist' || DEMO_AS === 'manager') && equipos[0]) return equipos[0].code || '';
+    if (DEMO_AS === 'head') return '';
+  }
+  return _effectiveUserCode();
+}
+function setDemoAs(preset) {
+  if (preset === 'real' || preset === '' || preset === null) preset = null;
+  DEMO_AS = preset;
+  try {
+    if (preset) localStorage.setItem('lt-demo-as', preset);
+    else localStorage.removeItem('lt-demo-as');
+  } catch (e) {}
+  if (typeof mountEdShell === 'function') mountEdShell();
+  if (typeof goEd === 'function') goEd('home');
+}
+
 // Helpers editoriales compartidos (usados por sidebar y los 3 homes).
 function _userInitials(name) {
   if (!name) return '··';
@@ -2534,8 +2581,8 @@ function _edTodayQuote() {
 
 function _badgeFor(itemId, role) {
   if (!D || !D.tasks) return null;
-  var userName = (USER && USER.name) || '';
-  var userCode = (USER && USER.code) || '';
+  var userName = _effectiveUserName();
+  var userCode = _effectiveUserCode();
   if (itemId === 'mistareas') {
     return D.tasks.filter(function(t){ return t.resp === userName && t.status !== 'Listo'; }).length || null;
   }
@@ -2553,8 +2600,8 @@ function _badgeFor(itemId, role) {
 function renderEdSidebar(role, activeViewId) {
   var navRole = role === 'head' ? 'head' : (role === 'manager' ? 'manager' : 'specialist');
   var nav = ED_NAV_BY_ROLE[navRole] || ED_NAV_BY_ROLE.specialist;
-  var name = (USER && USER.name) || (D && D._user && D._user.name) || 'Usuario';
-  var code = (USER && USER.code) || (D && D._user && D._user.code) || '';
+  var name = _effectiveUserName() || 'Usuario';
+  var code = _effectiveUserCode();
   var initials = _userInitials(name);
   var subtitle = _roleSubtitle(navRole, code);
   var rolePill = '· ' + _roleLabel(navRole);
@@ -2582,7 +2629,24 @@ function renderEdSidebar(role, activeViewId) {
     }
     html += '</div>';
   }
-  html += '<div class="ed-side-foot">'
+  // Demo switcher (solo visible para el head real). Permite ver la app
+  // como specialist/manager/hq sin cambiar de cuenta.
+  var demoHtml = '';
+  if (_isHeadReal()) {
+    var sel = DEMO_AS || 'real';
+    function _opt(k, lbl) { return '<option value="' + k + '"' + (sel === k ? ' selected' : '') + '>' + esc(lbl) + '</option>'; }
+    demoHtml = '<div class="ed-demo-switch">'
+            +   '<label class="ed-demo-lbl" title="Solo visible para HQ">Demo · Ver como</label>'
+            +   '<select class="ed-demo-sel" onchange="setDemoAs(this.value)">'
+            +     _opt('real',       'Yo (real)')
+            +     _opt('specialist', 'Specialist')
+            +     _opt('manager',    'Manager')
+            +     _opt('head',       'HQ')
+            +   '</select>'
+            + '</div>';
+  }
+  html += demoHtml
+       + '<div class="ed-side-foot">'
        +   '<div class="ed-foot-av">' + esc(initials) + '</div>'
        +   '<div class="ed-foot-meta">'
        +     '<div class="ed-foot-name">' + esc(name) + '</div>'
@@ -2606,7 +2670,7 @@ function renderEdHead() {
 }
 
 function mountEdShell() {
-  var role = (D && D._role) || (USER && USER.role) || 'specialist';
+  var role = _effectiveRole();
   var side = $('edSide'); if (side) side.innerHTML = renderEdSidebar(role, 'home');
   var head = $('edHead'); if (head) head.innerHTML = renderEdHead();
 }
@@ -2618,7 +2682,7 @@ function goEd(viewId) {
   });
   if (viewId === 'home') {
     var v = $('vEdHome'); if (v) v.classList.add('active');
-    var role = (D && D._role) || (USER && USER.role) || 'specialist';
+    var role = _effectiveRole();
     if (role === 'head' && typeof rEdHomeHQ === 'function') rEdHomeHQ(D);
     else if (role === 'manager' && typeof rEdHomeManager === 'function') rEdHomeManager(D);
     else if (typeof rEdHomeSpecialist === 'function') rEdHomeSpecialist(D);
@@ -2649,7 +2713,7 @@ function goEd(viewId) {
 
 function rEdHomeSpecialist(D) {
   var v = $('vEdHome'); if (!v) return;
-  var name = (USER && USER.name) || (D && D._user && D._user.name) || '';
+  var name = _effectiveUserName();
   var firstName = name ? name.split(/\s+/)[0] : 'Hola';
   var tasks = (D && D.tasks) ? D.tasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; }) : [];
   var overdue   = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
@@ -2786,7 +2850,7 @@ function rEdHomeSpecialist(D) {
 
 function rEdHomeManager(D) {
   var v = $('vEdHome'); if (!v) return;
-  var userCode = (USER && USER.code) || (D && D._user && D._user.code) || '';
+  var userCode = _effectiveUserCode();
   var allTasks = (D && D.tasks) || [];
   // Tareas del país del manager
   var paisTasks = allTasks.filter(function(t){ return (t.pais || '') === userCode; });
@@ -3070,9 +3134,9 @@ function _buildEdTimeline(t) {
 
 function rEdTracker(D) {
   var v = $('vEdTracker'); if (!v) return;
-  var role = (D && D._role) || (USER && USER.role) || 'specialist';
-  var userName = (USER && USER.name) || (D && D._user && D._user.name) || '';
-  var userCode = (USER && USER.code) || (D && D._user && D._user.code) || '';
+  var role = _effectiveRole();
+  var userName = _effectiveUserName();
+  var userCode = _effectiveUserCode();
   var allTasks = (D && D.tasks) || [];
   var roleTasks = _edFilterByRole(allTasks, role, userName, userCode);
 
@@ -3276,7 +3340,7 @@ function _agBucketNarr(key, tasks) {
 
 function rEdAgrupadas(D) {
   var v = $('vEdAgrupadas'); if (!v) return;
-  var name = (USER && USER.name) || (D && D._user && D._user.name) || '';
+  var name = _effectiveUserName();
   var tasks = (D && D.tasks) ? D.tasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; }) : [];
   var b = _agBuckets(tasks);
   var totalActive = b.overdue.length + b.today.length + b.week.length + b.later.length;
@@ -4031,7 +4095,7 @@ function _piRenderHero(enriched) {
   var teamCount = enriched.people.length + enriched.more;
 
   var allTasks = (D && D.tasks) || [];
-  var userName = (USER && USER.name) || '';
+  var userName = _effectiveUserName();
   var myInProj = allTasks.filter(function(t){ return t.proyectoId == p.id && t.resp === userName && t.status !== 'Listo'; })
     .sort(function(a, b) {
       var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
@@ -4087,7 +4151,7 @@ function _piRenderRow(enriched, idx) {
   var dlVal = dl == null ? '—' : (dl < 0 ? Math.abs(dl) : dl);
   var isOwner = enriched.role === 'Owner';
   var roleClass = isOwner ? 'role' : 'role muted';
-  var tag = (p.lider && p.lider !== ((USER && USER.name) || '')) ? ('Lidera ' + p.lider) : '';
+  var tag = (p.lider && p.lider !== _effectiveUserName()) ? ('Lidera ' + p.lider) : '';
   var prog = enriched.progress;
   var peopleHtml = '';
   for (var i = 0; i < enriched.people.length; i++) peopleHtml += _piPersonAvatar(enriched.people[i], false);
@@ -4127,7 +4191,7 @@ function edPSetTab(key) { EDP.tab = key; if (D) rEdProyectosIndex(D); }
 
 function rEdProyectosIndex(D) {
   var v = $('vEdProyectosIndex'); if (!v) return;
-  var userName = (USER && USER.name) || (D && D._user && D._user.name) || '';
+  var userName = _effectiveUserName();
   var projects = (D && D.projects) || [];
   var tasks = (D && D.tasks) || [];
 

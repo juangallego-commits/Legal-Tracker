@@ -1698,6 +1698,40 @@ body.role-manager #tabResumen { display: none !important; }
 }
 .theme-toggle:hover { background: var(--paper2); border-color: var(--rule-strong); }
 
+/* Demo switcher (solo visible para HQ real) */
+.ed-demo-switch {
+  margin-top: auto;
+  padding: 12px 0;
+  border-top: 1px dashed var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ed-demo-lbl {
+  font-size: 9px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+  font-weight: 800;
+}
+.ed-demo-sel {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 8px;
+  background: var(--paper2);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ed-demo-sel:hover { border-color: var(--accent); }
+.ed-demo-sel:focus { outline: none; border-color: var(--accent); }
+/* Cuando hay demo switcher, el side-foot deja de tener margin-top:auto
+   (el switcher lo toma). Lo re-aplicamos para que el switcher empuje
+   foot abajo del todo. */
+.ed-demo-switch + .ed-side-foot { margin-top: 0; }
+
 /* ═══════════════════════════════════════════════════════════════
    SPECIALIST HOME (.esp-*)
    ═══════════════════════════════════════════════════════════════ */
