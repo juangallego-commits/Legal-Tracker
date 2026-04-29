@@ -325,7 +325,7 @@
 </div>
 </div>
 
-<button class="fab" id="fabCreate" onclick="openCreate()" aria-label="Crear (atajo: N)" title="Crear tarea o proyecto (N)">+</button>
+<button class="fab" id="fabCreate" onclick="edCrearOpen()" aria-label="Crear tarea (atajo: N)" title="Crear tarea (N)">+</button>
 
 <div class="footer">⚖ Con amor por el Legal Team · Rappi · Tracker v3.3</div>
 </main>
@@ -339,6 +339,8 @@
 <div class="dd-overlay" id="ddO" onclick="closeDD()"></div><div class="dd-menu" id="ddM"></div>
 <!-- EDITORIAL ACTUALIZAR · panel deslizable (avanzar/cerrar/bloquear) -->
 <div id="uaHost"></div>
+<!-- EDITORIAL CREAR · wizard de 3 pasos (versión simplificada) -->
+<div id="crHost"></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
