@@ -2634,6 +2634,14 @@ function goEd(viewId) {
     if (typeof rEdAgrupadas === 'function') rEdAgrupadas(D);
     return;
   }
+  // Editorial Proyectos · Index — disponible para los 3 roles (todos
+  // tienen el item "proyectos" en el sidebar). Si por algún motivo el
+  // renderer no está disponible, caemos al legacy go('proyectos').
+  if (viewId === 'proyectos' && typeof rEdProyectosIndex === 'function') {
+    var v4 = $('vEdProyectosIndex'); if (v4) v4.classList.add('active');
+    rEdProyectosIndex(D);
+    return;
+  }
   // Alias sin equivalente legacy: 'paises' → resumen
   var legacy = viewId === 'paises' ? 'resumen' : viewId;
   if (typeof go === 'function') go(legacy);
@@ -3923,4 +3931,277 @@ function edCrearSubmit() {
 }
 
 // MARKER:EDITORIAL_CREAR_END
+
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_PROYECTOS_BEGIN
+// Lista editorial de proyectos con tabs (Activos / Donde participas
+// / Que lideras / Cerrados). Hero con proyecto destacado más urgente.
+// Lista de filas con rol, métricas, barra de progreso multi-segmento
+// y avatares del equipo. Datos derivados de D.tasks/D.projects.
+// ───────────────────────────────────────────────────────────────
+
+var EDP = { tab: 'activos' };
+
+function _piRoleOf(project, userName, tasks) {
+  if (!project) return 'Observador';
+  if (project.lider === userName) return 'Owner';
+  var hasMyTask = (tasks || []).some(function(t){ return t.proyectoId == project.id && t.resp === userName; });
+  return hasMyTask ? 'Participante' : 'Observador';
+}
+
+function _piEnrichProject(p, D, userName) {
+  var tasks  = (D && D.tasks)     || [];
+  var hist   = (D && D.historial) || [];
+  var pTasks = tasks.filter(function(t){ return t.proyectoId == p.id; });
+  var pHist  = hist.filter(function(t){ return t.proyectoId == p.id; });
+  var mine    = pTasks.filter(function(t){ return t.resp === userName; }).length;
+  var overdue = pTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
+  var done    = pHist.length;
+  var curso   = pTasks.filter(function(t){ return t.status === 'En curso' || t.status === 'En revisión'; }).length;
+  var crit    = pTasks.filter(function(t){ return t.status === 'Bloqueado' || (typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'); }).length;
+  var total   = pTasks.length + done;
+  var pctNum  = total > 0 ? Math.round(done / total * 100) : 0;
+  var donePct  = total > 0 ? Math.round(done / total * 100) : 0;
+  var cursoPct = total > 0 ? Math.round(curso / total * 100) : 0;
+  var critPct  = total > 0 ? Math.round(crit / total * 100) : 0;
+
+  var deadlineDays = null;
+  if (p.deadline && D && D.today) {
+    var m1 = (p.deadline + '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    var m2 = D.today.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m1 && m2) {
+      var d1 = new Date(parseInt(m1[1],10), parseInt(m1[2],10)-1, parseInt(m1[3],10));
+      var d2 = new Date(parseInt(m2[1],10), parseInt(m2[2],10)-1, parseInt(m2[3],10));
+      deadlineDays = Math.round((d1.getTime() - d2.getTime()) / 86400000);
+    }
+  }
+
+  var seen = {}, peopleArr = [], more = 0;
+  for (var i = 0; i < pTasks.length; i++) {
+    var r = pTasks[i].resp;
+    if (!r || seen[r]) continue;
+    seen[r] = true;
+    if (peopleArr.length < 4) peopleArr.push({ name: r, initials: _userInitials(r) });
+    else more++;
+  }
+
+  return {
+    p: p,
+    role: _piRoleOf(p, userName, tasks),
+    tasks: pTasks.length,
+    mine: mine,
+    overdue: overdue,
+    deadlineDays: deadlineDays,
+    progress: { done: donePct, curso: cursoPct, crit: critPct },
+    pctNum: pctNum,
+    people: peopleArr,
+    more: more
+  };
+}
+
+function _piBucket(projects, tab, userName, tasks) {
+  if (!projects || !projects.length) return [];
+  if (tab === 'cerrados') {
+    return projects.filter(function(p){ return p.status === 'Completado' || p.status === 'Cancelado'; });
+  }
+  var open = projects.filter(function(p){ return p.status === 'Activo' || p.status === 'En pausa'; });
+  if (tab === 'lideras')    return open.filter(function(p){ return p.lider === userName; });
+  if (tab === 'participas') return open.filter(function(p){
+    if (p.lider === userName) return false;
+    return tasks.some(function(t){ return t.proyectoId == p.id && t.resp === userName; });
+  });
+  return open;
+}
+
+function _piPersonAvatar(person, isMore) {
+  var bg = isMore ? 'var(--paper3)' : 'var(--accent)';
+  var color = isMore ? 'var(--muted)' : '#fff';
+  var label = person && person.initials ? person.initials : '+';
+  return '<div class="pi-person' + (isMore ? ' more' : '') + '" style="background:' + bg + ';color:' + color + '">' + esc(label) + '</div>';
+}
+
+function _piRenderHero(enriched) {
+  var p = enriched.p;
+  var dl = enriched.deadlineDays;
+  var dlText = dl == null ? '—' : (dl < 0 ? 'venció hace ' + Math.abs(dl) + 'd' : 'en ' + dl + 'd');
+  var dlCls = dl == null ? '' : (dl < 0 ? 'crit' : (dl <= 14 ? 'warn' : ''));
+  var lede = p.descripcion
+    ? esc(p.descripcion)
+    : ('Proyecto activo con <b>' + enriched.tasks + ' tareas</b>' + (enriched.overdue ? ', <span class="crit">' + enriched.overdue + ' atrasada' + (enriched.overdue === 1 ? '' : 's') + '</span>' : '') + '.');
+  var teamCount = enriched.people.length + enriched.more;
+
+  var allTasks = (D && D.tasks) || [];
+  var userName = (USER && USER.name) || '';
+  var myInProj = allTasks.filter(function(t){ return t.proyectoId == p.id && t.resp === userName && t.status !== 'Listo'; })
+    .sort(function(a, b) {
+      var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
+      var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
+      return ad - bd;
+    }).slice(0, 3);
+
+  var miniHtml = '';
+  if (myInProj.length === 0) {
+    miniHtml = '<div style="font-size:12px;color:var(--dim);padding:8px 0">Sin tareas tuyas activas en este proyecto.</div>';
+  } else {
+    for (var i = 0; i < myInProj.length; i++) {
+      var t = myInProj[i];
+      var tone = _etaToneClass(t.etaDays, t.status);
+      miniHtml += '<div class="pi-mini-task">'
+               +   '<span class="pi-mini-id">' + esc(t.id) + '</span>'
+               +   '<span class="pi-mini-name">' + esc(t.nombre || '') + '</span>'
+               +   '<span class="pi-mini-eta ' + tone + '">' + esc(t.eta || '') + '</span>'
+               + '</div>';
+    }
+  }
+
+  var heroHeadline = enriched.overdue
+    ? 'Hay <b>' + enriched.overdue + ' atrasada' + (enriched.overdue === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Resolver primero.</span>'
+    : (myInProj.length ? 'Tienes <b>' + myInProj.length + ' tarea' + (myInProj.length === 1 ? '' : 's') + ' tuya' + (myInProj.length === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Por urgencia.</span>'
+                       : 'Sin tareas tuyas activas. <span style="color:var(--muted);font-weight:600">Solo seguimiento.</span>');
+
+  return '<div class="pi-hero">'
+       +   '<div>'
+       +     '<div class="pi-hero-eye">— ' + (dl != null && dl <= 14 ? 'Más urgente · ' : '') + esc(dlText) + '</div>'
+       +     '<div class="pi-hero-name">' + esc(p.nombre || '') + '</div>'
+       +     '<p class="pi-hero-lede">' + lede + '</p>'
+       +     '<div class="pi-hero-meta">'
+       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num">' + String(enriched.tasks).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">tareas activas</div></div>'
+       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num ' + (enriched.overdue ? 'crit' : '') + '">' + String(enriched.overdue).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">atrasada' + (enriched.overdue === 1 ? '' : 's') + '</div></div>'
+       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num">' + String(teamCount).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">equipo</div></div>'
+       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num ' + dlCls + '">' + (dl == null ? '—' : (dl < 0 ? Math.abs(dl) : dl)) + '<em>d</em></div><div class="pi-hero-stat-lbl">' + (dl != null && dl < 0 ? 'vencido' : 'al cierre') + '</div></div>'
+       +     '</div>'
+       +   '</div>'
+       +   '<div class="pi-hero-card">'
+       +     '<div class="pi-hero-card-eye">— Próximas tareas tuyas</div>'
+       +     '<div class="pi-hero-card-h">' + heroHeadline + '</div>'
+       +     miniHtml
+       +     '<div style="margin-top:14px"><button class="ed-btn primary" onclick="goEd(\'tracker\')">Ver en tracker →</button></div>'
+       +   '</div>'
+       + '</div>';
+}
+
+function _piRenderRow(enriched, idx) {
+  var p = enriched.p;
+  var dl = enriched.deadlineDays;
+  var dlCls = dl == null ? '' : (dl < 0 ? 'crit' : (dl <= 14 ? 'warn' : ''));
+  var dlVal = dl == null ? '—' : (dl < 0 ? Math.abs(dl) : dl);
+  var isOwner = enriched.role === 'Owner';
+  var roleClass = isOwner ? 'role' : 'role muted';
+  var tag = (p.lider && p.lider !== ((USER && USER.name) || '')) ? ('Lidera ' + p.lider) : '';
+  var prog = enriched.progress;
+  var peopleHtml = '';
+  for (var i = 0; i < enriched.people.length; i++) peopleHtml += _piPersonAvatar(enriched.people[i], false);
+  if (enriched.more > 0) peopleHtml += _piPersonAvatar({ initials: '+' + enriched.more }, true);
+
+  return '<div class="pi-row" onclick="goEd(\'tracker\')">'
+       +   '<div class="pi-rank">' + String(idx).padStart(2,'0') + '</div>'
+       +   '<div class="pi-name-block">'
+       +     '<div class="pi-name-eye">'
+       +       '<span class="' + roleClass + '">' + esc(enriched.role) + '</span>'
+       +       (tag ? '<span style="color:var(--dim)">·</span><span>' + esc(tag) + '</span>' : '')
+       +     '</div>'
+       +     '<div class="pi-name">' + esc(p.nombre || '') + '</div>'
+       +     '<div class="pi-sub">' + esc(p.descripcion || '') + '</div>'
+       +   '</div>'
+       +   '<div class="pi-stat-cell">'
+       +     '<div class="pi-stat-num">' + String(enriched.tasks).padStart(2,'0') + '</div>'
+       +     '<div class="pi-stat-lbl">tareas · ' + enriched.mine + ' tuya' + (enriched.mine === 1 ? '' : 's') + '</div>'
+       +   '</div>'
+       +   '<div class="pi-stat-cell">'
+       +     '<div class="pi-prog">'
+       +       '<div class="pi-prog-seg done"  style="width:' + prog.done  + '%"></div>'
+       +       '<div class="pi-prog-seg curso" style="width:' + prog.curso + '%"></div>'
+       +       '<div class="pi-prog-seg crit"  style="width:' + prog.crit  + '%"></div>'
+       +     '</div>'
+       +     '<div class="pi-prog-pct"><b>' + enriched.pctNum + '%</b> · ' + (enriched.overdue > 0 ? '<span style="color:var(--critical);font-weight:700">' + enriched.overdue + ' atrasada' + (enriched.overdue === 1 ? '' : 's') + '</span>' : 'al día') + '</div>'
+       +   '</div>'
+       +   '<div class="pi-stat-cell">'
+       +     '<div class="pi-stat-num ' + dlCls + '">' + dlVal + '<em>d</em></div>'
+       +     '<div class="pi-stat-lbl">' + (dl != null && dl < 0 ? 'vencido' : 'al cierre') + '</div>'
+       +   '</div>'
+       +   '<div class="pi-people">' + peopleHtml + '</div>'
+       + '</div>';
+}
+
+function edPSetTab(key) { EDP.tab = key; if (D) rEdProyectosIndex(D); }
+
+function rEdProyectosIndex(D) {
+  var v = $('vEdProyectosIndex'); if (!v) return;
+  var userName = (USER && USER.name) || (D && D._user && D._user.name) || '';
+  var projects = (D && D.projects) || [];
+  var tasks = (D && D.tasks) || [];
+
+  var open = projects.filter(function(p){ return p.status === 'Activo' || p.status === 'En pausa'; });
+  var cActivos    = open.length;
+  var cParticipas = open.filter(function(p){
+    if (p.lider === userName) return false;
+    return tasks.some(function(t){ return t.proyectoId == p.id && t.resp === userName; });
+  }).length;
+  var cLideras    = open.filter(function(p){ return p.lider === userName; }).length;
+  var cCerrados   = projects.filter(function(p){ return p.status === 'Completado' || p.status === 'Cancelado'; }).length;
+
+  var bucket = _piBucket(projects, EDP.tab, userName, tasks);
+  var enriched = bucket.map(function(p){ return _piEnrichProject(p, D, userName); });
+  enriched.sort(function(a, b) {
+    var ad = (typeof a.deadlineDays === 'number') ? a.deadlineDays : 9999;
+    var bd = (typeof b.deadlineDays === 'number') ? b.deadlineDays : 9999;
+    return ad - bd;
+  });
+
+  var totalOwner       = open.filter(function(p){ return p.lider === userName; }).length;
+  var totalParticipant = open.length - totalOwner;
+  var myTasksInOpen    = open.reduce(function(acc, p){ return acc + tasks.filter(function(t){ return t.proyectoId == p.id && t.resp === userName; }).length; }, 0);
+
+  var html = ''
+    + '<div class="ed-eye">Mis proyectos</div>'
+    + '<h1 class="ed-h1">' + cActivos + ' frente' + (cActivos === 1 ? '' : 's') + ' abiertos. <em>' + totalOwner + ' propio' + (totalOwner === 1 ? '' : 's') + ',</em><br>' + totalParticipant + ' acompañado' + (totalParticipant === 1 ? '' : 's') + '.</h1>'
+    + '<p class="ed-lede">'
+    +   'Estás en <b>' + cActivos + ' proyectos activos</b>. Sos owner de <b>' + totalOwner + '</b> y participante de <b>' + totalParticipant + '</b>. Sumadas, son <b>' + myTasksInOpen + ' tarea' + (myTasksInOpen === 1 ? '' : 's') + ' tuya' + (myTasksInOpen === 1 ? '' : 's') + '</b> repartidas entre ellos.'
+    + '</p>';
+
+  function tab(key, label, count) {
+    var active = EDP.tab === key ? ' active' : '';
+    return '<span class="pi-tab' + active + '" onclick="edPSetTab(\'' + key + '\')">'
+         +    esc(label) + '<span class="pi-tab-c">' + count + '</span>'
+         + '</span>';
+  }
+  html += '<div class="pi-toolbar">'
+       +    '<div class="pi-tabs">'
+       +      tab('activos',    'Activos',          cActivos)
+       +      tab('participas', 'Donde participas', cParticipas)
+       +      tab('lideras',    'Que lideras',      cLideras)
+       +      tab('cerrados',   'Cerrados',         cCerrados)
+       +    '</div>'
+       +    '<div class="pi-sort">Orden: por urgencia ↓</div>'
+       + '</div>';
+
+  if (enriched.length === 0) {
+    html += '<div class="ed-lede" style="text-align:center;padding:40px 0">Sin proyectos en este filtro.</div>';
+  } else {
+    var startIdx = 1;
+    if (EDP.tab !== 'cerrados') {
+      html += _piRenderHero(enriched[0]);
+      startIdx = 2;
+      enriched = enriched.slice(1);
+    }
+    if (enriched.length > 0) {
+      html += '<section class="ed-section" style="margin-bottom:0">'
+           +    '<div class="ed-h2">— Otros proyectos donde estás</div>';
+      for (var i = 0; i < enriched.length; i++) {
+        html += _piRenderRow(enriched[i], startIdx + i);
+      }
+      html += '</section>';
+    }
+  }
+
+  html += '<div class="pi-foot">'
+       +    '<div class="pi-foot-info"><b>' + cActivos + ' activos · ' + cCerrados + ' cerrados.</b> Los proyectos cerrados quedan en historial.</div>'
+       +    '<button class="ed-btn" onclick="goEd(\'historial\')">Ver historial</button>'
+       +    '<button class="ed-btn accent" onclick="if(typeof openCreate===\'function\')openCreate(\'newProj\')">+ Nuevo proyecto</button>'
+       + '</div>';
+
+  v.innerHTML = html;
+}
+
+// MARKER:EDITORIAL_PROYECTOS_END
 </script>
