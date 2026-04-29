@@ -2747,6 +2747,13 @@ function goEd(viewId) {
     rEdProyectosIndex(D);
     return;
   }
+  // Editorial Mis tareas — disponible para los 3 roles. Si el renderer
+  // no está disponible, caemos al legacy go('mistareas').
+  if (viewId === 'mistareas' && typeof rEdMisTareas === 'function') {
+    var v5 = $('vEdMisTareas'); if (v5) v5.classList.add('active');
+    rEdMisTareas(D);
+    return;
+  }
   // Alias sin equivalente legacy: 'paises' → resumen
   var legacy = viewId === 'paises' ? 'resumen' : viewId;
   if (typeof go === 'function') go(legacy);
@@ -4386,4 +4393,138 @@ function rEdProyectosIndex(D) {
 }
 
 // MARKER:EDITORIAL_PROYECTOS_END
+
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_MISTAREAS_BEGIN  (owned by Agente M)
+// Mis tareas editorial: hero stats + perf cells + tabla compacta
+// con las tareas activas del USER efectivo. Cada fila abre la tarea
+// en el tracker editorial via edGoTaskInTracker(id). Reusa clases
+// .esp-hero / .esp-stat / .esp-perf / .tk-table / .tk-row /
+// .cf-dot / .ed-* — no agrega CSS nuevo.
+// ───────────────────────────────────────────────────────────────
+
+function rEdMisTareas(D) {
+  var v = $('vEdMisTareas'); if (!v) return;
+  var name = _effectiveUserName();
+  var allTasks = (D && D.tasks) || [];
+  var mine = allTasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; });
+
+  var overdue = mine.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
+  var dueToday = mine.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; }).length;
+  var blocked = mine.filter(function(t){ return t.status === 'Bloqueado'; }).length;
+  var total = mine.length;
+
+  var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
+  var eyebrow = 'Mis tareas' + (todayLine ? ' · ' + todayLine : '');
+
+  // H1 dinámico (singular/plural/cero)
+  var h1Inner;
+  if (total === 0) {
+    h1Inner = '<em>No tienes tareas</em><br>activas en mesa.';
+  } else if (total === 1) {
+    h1Inner = 'Tienes <em>1 tarea</em><br>activa en mesa.';
+  } else {
+    h1Inner = 'Tienes <em>' + esc(String(total).padStart(2,'0')) + ' tareas</em><br>activas en mesa.';
+  }
+
+  // Lede narrativa según los warns
+  var ledeBits = [];
+  if (overdue) ledeBits.push('<span class="crit">' + overdue + ' vencida' + (overdue === 1 ? '' : 's') + '</span>');
+  if (dueToday) ledeBits.push('<span class="warn">' + dueToday + ' vence' + (dueToday === 1 ? '' : 'n') + ' hoy</span>');
+  if (blocked) ledeBits.push('<span class="crit">' + blocked + ' en espera</span>');
+  var lede;
+  if (total === 0) {
+    lede = 'Día limpio. Aprovechá para adelantar pendientes de proyectos.';
+  } else if (ledeBits.length === 0) {
+    lede = 'Todas en cola, sin urgencias críticas. Avanzá por prioridad.';
+  } else {
+    lede = ledeBits.join(' · ') + '. Cliquea cualquier fila para abrir el detalle en el tracker.';
+  }
+
+  var html = ''
+    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
+    + '<h1 class="ed-h1" style="margin-bottom:8px">' + h1Inner + '</h1>'
+    + '<p class="ed-lede" style="margin-bottom:28px">' + lede + '</p>';
+
+  // HERO stats (4)
+  html += '<div class="esp-hero">'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Total activas</div>'
+       +      '<div class="esp-stat-num">' + String(total).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">en tu mesa</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
+       +      '<div class="esp-stat-num warn">' + String(overdue).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">' + (overdue ? 'Resolver primero' : 'Al día') + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Vencen hoy</div>'
+       +      '<div class="esp-stat-num warn">' + String(dueToday).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">' + (dueToday ? 'Cerrar hoy' : 'Día limpio') + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">En espera</div>'
+       +      '<div class="esp-stat-num warn">' + String(blocked).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">' + (blocked ? 'Necesitan empuje' : '—') + '</div></div>'
+       + '</div>';
+
+  // PERFORMANCE — placeholders por ahora; backend Fase 2.
+  var me = (D && D.team || []).find(function(m){ return m.name === name; }) || {};
+  var streak = (typeof me.streak === 'number' && me.streak > 0) ? me.streak : 0;
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Mi desempeño este mes</div>'
+       +    '<div class="esp-perf">'
+       +      '<div class="esp-stat"><div class="esp-stat-lbl">🔥 Racha on-time</div>'
+       +        '<div class="esp-stat-num good">' + (streak ? String(streak).padStart(2,'0') : '—') + '</div>'
+       +        '<div class="esp-stat-ctx">tareas seguidas a tiempo</div></div>'
+       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Alta</div>'
+       +        '<div class="esp-stat-num">' + esc(me.avgAlta || '—') + '</div>'
+       +        '<div class="esp-stat-ctx">SLA 2d</div></div>'
+       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Media</div>'
+       +        '<div class="esp-stat-num">' + esc(me.avgMedia || '—') + '</div>'
+       +        '<div class="esp-stat-ctx">SLA 5d</div></div>'
+       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Baja</div>'
+       +        '<div class="esp-stat-num">' + esc(me.avgBaja || '—') + '</div>'
+       +        '<div class="esp-stat-ctx">SLA 7d</div></div>'
+       +    '</div>'
+       + '</section>';
+
+  // TABLA "Tus tareas activas"
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Tus tareas activas</div>';
+
+  if (mine.length === 0) {
+    html += '<div class="ed-lede">Sin tareas activas asignadas. '
+         +    '<button class="ed-btn" style="margin-left:12px" onclick="goEd(\'tracker\')">Ver tracker →</button>'
+         +  '</div>';
+  } else {
+    var rows = (typeof _edSortByUrgency === 'function') ? _edSortByUrgency(mine) : mine.slice();
+    html += '<table class="tk-table">'
+         +    '<thead><tr>'
+         +      '<th></th><th>ID</th><th>Tarea</th><th>Proyecto</th>'
+         +      '<th>Prioridad</th><th>Estado</th><th>ETA</th>'
+         +    '</tr></thead><tbody>';
+    for (var i = 0; i < rows.length; i++) {
+      var t = rows[i];
+      var pn = _projNameForTask(t);
+      var meta = (t.tipoTrabajo || '—') + (t.pais ? ' · ' + t.pais : '');
+      var etaTxt = t.eta || (typeof _etaTextFromDays === 'function' ? _etaTextFromDays(t.etaDays) : '');
+      var etaTone = _etaToneClass(t.etaDays, t.status);
+      var cfLvl = _confLevel(t);
+      var cfMeta = ED_CONF_LEVELS[cfLvl];
+      html += '<tr class="tk-row" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
+           +    '<td><span class="cf-dot ' + cfLvl + '" title="' + esc(cfMeta.label) + '"></span></td>'
+           +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
+           +    '<td>'
+           +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
+           +      '<div class="tk-name-meta">' + esc(meta) + '</div>'
+           +    '</td>'
+           +    '<td>' + esc(pn) + '</td>'
+           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span></td>'
+           +    '<td><span class="ed-pill ' + _statusClass(t.status) + '">' + esc(t.status || '') + '</span></td>'
+           +    '<td><span class="tk-eta ' + etaTone + '">' + esc(etaTxt) + '</span></td>'
+           + '</tr>';
+    }
+    html += '</tbody></table>';
+  }
+  html += '</section>';
+
+  v.innerHTML = html;
+}
+
+// MARKER:EDITORIAL_MISTAREAS_END
 </script>
