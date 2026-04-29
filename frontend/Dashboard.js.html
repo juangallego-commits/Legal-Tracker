@@ -1463,9 +1463,23 @@ function fm(id, text, cls) {
 function reload() {
   showLoader();
   google.script.run
-    .withSuccessHandler(function(d){ D = d; render(); hideLoader(); })
+    .withSuccessHandler(function(d){
+      D = d;
+      render();
+      // Re-render de la vista editorial activa para que tareas/proyectos
+      // recién creados se vean con etaDays/eta enriquecidos.
+      var active = document.querySelector('.view.active');
+      if (active && active.id && typeof goEd === 'function') {
+        if (active.id === 'vEdHome') goEd('home');
+        else if (active.id === 'vEdTracker') goEd('tracker');
+        else if (active.id === 'vEdAgrupadas') goEd('agrupadas');
+        else if (active.id === 'vEdProyectosIndex') goEd('proyectos');
+        else if (active.id === 'vEdMisTareas') goEd('mistareas');
+      }
+      hideLoader();
+    })
     .withFailureHandler(function(e){ hideLoader(); toast('Error al recargar: ' + e.message, 'error'); })
-    .getTrackerData();
+    .getEditorialData();
 }
 // ═══ USER SESSION ═══
 // Con SSO de Google no hay login form: el server ya resolvió al visitante
@@ -2237,6 +2251,9 @@ document.addEventListener('click', function(e) {
 // ════════════════════════════════════════════════════════════════
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
+    // Editoriales primero (más nuevos / más prominentes visualmente)
+    if ($('uaHost') && $('uaHost').innerHTML) { if (typeof edUClose === 'function') edUClose(); return; }
+    if ($('crHost') && $('crHost').innerHTML) { if (typeof edCrearClose === 'function') edCrearClose(); return; }
     if ($('ddM') && $('ddM').style.display === 'block') { closeDD(); return; }
     if ($('createOv') && $('createOv').classList.contains('show')) { closeCreate(); return; }
     if ($('editOv') && $('editOv').classList.contains('show')) { closeEdit(); return; }
@@ -2251,9 +2268,12 @@ document.addEventListener('keydown', function(e) {
     if (sInput) { e.preventDefault(); sInput.focus(); sInput.select(); }
     return;
   }
-  // N → abrir modal de creación (no dentro de un input)
+  // N → abrir wizard editorial de crear (con fallback al modal viejo)
   if (e.key === 'n' || e.key === 'N') {
-    if ($('createOv') && !$('createOv').classList.contains('show')) {
+    if (typeof edCrearOpen === 'function') {
+      e.preventDefault();
+      edCrearOpen();
+    } else if ($('createOv') && !$('createOv').classList.contains('show')) {
       e.preventDefault();
       openCreate();
     }
@@ -2487,7 +2507,7 @@ var DEMO_AS = (function(){
 function _isHeadReal() { return !!(USER && USER.role === 'head'); }
 function _effectiveRole() {
   if (DEMO_AS && _isHeadReal()) return DEMO_AS;
-  return _effectiveRole();
+  return (USER && USER.role) || (D && D._role) || 'specialist';
 }
 function _effectiveUserName() {
   if (DEMO_AS && _isHeadReal()) {
@@ -2500,7 +2520,7 @@ function _effectiveUserName() {
     }
     if (DEMO_AS === 'manager' && equipos[0] && equipos[0].leader) return equipos[0].leader;
   }
-  return _effectiveUserName();
+  return (USER && USER.name) || (D && D._user && D._user.name) || '';
 }
 function _effectiveUserCode() {
   if (DEMO_AS && _isHeadReal()) {
@@ -2508,7 +2528,7 @@ function _effectiveUserCode() {
     if ((DEMO_AS === 'specialist' || DEMO_AS === 'manager') && equipos[0]) return equipos[0].code || '';
     if (DEMO_AS === 'head') return '';
   }
-  return _effectiveUserCode();
+  return (USER && USER.code) || (D && D._user && D._user.code) || '';
 }
 // Abre el tracker editorial con la tarea seleccionada (panel detalle visible).
 function edGoTaskInTracker(taskId) {
@@ -2747,6 +2767,13 @@ function goEd(viewId) {
     rEdProyectosIndex(D);
     return;
   }
+  // Editorial Mis tareas — disponible para los 3 roles. Si el renderer
+  // no está disponible, caemos al legacy go('mistareas').
+  if (viewId === 'mistareas' && typeof rEdMisTareas === 'function') {
+    var v5 = $('vEdMisTareas'); if (v5) v5.classList.add('active');
+    rEdMisTareas(D);
+    return;
+  }
   // Alias sin equivalente legacy: 'paises' → resumen
   var legacy = viewId === 'paises' ? 'resumen' : viewId;
   if (typeof go === 'function') go(legacy);
@@ -2789,7 +2816,7 @@ function rEdHomeSpecialist(D) {
     + '</div>'; })()
     // HERO (copy reframeado: orientado a "qué hago AHORA")
     + '<div class="esp-hero">'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">Pendientes de cierre</div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
     +     '<div class="esp-stat-num warn">' + String(overdue).padStart(2,'0') + '</div>'
     +     '<div class="esp-stat-ctx">' + (overdue ? 'Resolver primero' : 'Al día') + '</div></div>'
     +   '<div class="esp-stat"><div class="esp-stat-lbl">Vencen hoy</div>'
@@ -2798,7 +2825,7 @@ function rEdHomeSpecialist(D) {
     +   '<div class="esp-stat"><div class="esp-stat-lbl">Esta semana</div>'
     +     '<div class="esp-stat-num">' + String(thisWeek).padStart(2,'0') + '</div>'
     +     '<div class="esp-stat-ctx">en cola</div></div>'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">En espera externa</div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">En espera</div>'
     +     '<div class="esp-stat-num warn">' + String(blocked).padStart(2,'0') + '</div>'
     +     '<div class="esp-stat-ctx">' + (blocked ? 'Necesitan empuje' : '—') + '</div></div>'
     + '</div>';
@@ -2922,7 +2949,7 @@ function rEdHomeManager(D) {
     + '<h1 class="ed-h1">Tu equipo cargó <em>' + altaActive + ' tareas</em><br>de alta prioridad esta semana.</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
     + '<div class="mgr-hero">'
-    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Necesitan apoyo</div>'
+    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Vencidas</div>'
     +     '<div class="mgr-stat-num warn">' + String(overdue).padStart(2,'0') + '</div>'
     +     '<div class="mgr-stat-ctx">' + (overdue ? 'requieren atención' : 'al día') + '</div></div>'
     +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Vencen hoy</div>'
@@ -2954,7 +2981,6 @@ function rEdHomeManager(D) {
            +      '<div class="mgr-att-name">' + esc(t.nombre || '') + ' — ' + esc(t.eta || '') + '</div>'
            +      '<div class="mgr-att-why">' + why + '</div>'
            +    '</div>'
-           +    '<button class="ed-btn" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">Ver</button>'
            +    '<button class="ed-btn primary" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">Ver detalle</button>'
            + '</div>';
     }
@@ -3015,13 +3041,13 @@ function rEdHomeHQ(D) {
     +   '<div class="hq-stat"><div class="hq-stat-lbl">Total LATAM</div>'
     +     '<div class="hq-stat-num">' + totalOpen + '</div>'
     +     '<div class="hq-stat-ctx">' + countries.length + ' países</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Atrasadas LATAM</div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Vencidas</div>'
     +     '<div class="hq-stat-num crit">' + String(totalOverdue).padStart(2,'0') + '</div>'
     +     '<div class="hq-stat-ctx">' + (totalOverdue ? 'reasignar' : '—') + '</div></div>'
     +   '<div class="hq-stat"><div class="hq-stat-lbl">SLA promedio</div>'
     +     '<div class="hq-stat-num good">' + (slaAvg || '—') + (slaAvg ? '%' : '') + '</div>'
     +     '<div class="hq-stat-ctx">LATAM</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Necesitan apoyo</div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Países en riesgo</div>'
     +     '<div class="hq-stat-num warn">' + String(atRisk).padStart(2,'0') + '</div>'
     +     '<div class="hq-stat-ctx">' + (atRisk ? 'monitorear' : 'todos OK') + '</div></div>'
     + '</div>';
@@ -3222,10 +3248,10 @@ function rEdTracker(D) {
          + '</button>';
   }
   html += '<div class="tk-toolbar">'
-       +    fBtn('all',     'Todas',                cAll,     null)
-       +    fBtn('overdue', 'Pendientes de cierre', cOverdue, 'critical')
-       +    fBtn('today',   'Vencen hoy',           cToday,   'warn')
-       +    fBtn('blocked', 'En espera',            cBlocked, null)
+       +    fBtn('all',     'Todas',      cAll,     null)
+       +    fBtn('overdue', 'Vencidas',   cOverdue, 'critical')
+       +    fBtn('today',   'Vencen hoy', cToday,   'warn')
+       +    fBtn('blocked', 'En espera',  cBlocked, null)
        +    '<input class="tk-search" type="text" placeholder="⌘F filtrar por proyecto, persona, tipo…" '
        +      'value="' + esc(EDT.search) + '" oninput="edSetSearch(this.value)">'
        + '</div>';
@@ -3368,7 +3394,7 @@ function _agBuckets(tasks) {
 function _agBucketNarr(key, tasks) {
   // Narrativa contextual por bucket basada en counts y bloqueos reales.
   if (tasks.length === 0) {
-    if (key === 'overdue') return 'Sin tareas pendientes de cierre. <b>Buen estado.</b>';
+    if (key === 'overdue') return 'Sin tareas vencidas. <b>Buen estado.</b>';
     if (key === 'today') return 'Nada vence hoy. <b>Día limpio.</b>';
     if (key === 'week') return 'Sin tareas previstas esta semana.';
     return 'Sin tareas con SLA holgado.';
@@ -3411,10 +3437,10 @@ function rEdAgrupadas(D) {
     + '</div>';
 
   var buckets = [
-    { key: 'overdue', tone: 'warn', title: 'Pendientes de cierre', tasks: b.overdue },
-    { key: 'today',   tone: 'warn', title: 'Vencen hoy',           tasks: b.today },
-    { key: 'week',    tone: '',     title: 'Esta semana',          tasks: b.week },
-    { key: 'later',   tone: '',     title: 'Más adelante',         tasks: b.later }
+    { key: 'overdue', tone: 'warn', title: 'Vencidas',     tasks: b.overdue },
+    { key: 'today',   tone: 'warn', title: 'Vencen hoy',   tasks: b.today },
+    { key: 'week',    tone: '',     title: 'Esta semana',  tasks: b.week },
+    { key: 'later',   tone: '',     title: 'Más adelante', tasks: b.later }
   ];
 
   for (var i = 0; i < buckets.length; i++) {
@@ -4209,7 +4235,7 @@ function _piRenderHero(enriched) {
   var dlCls = dl == null ? '' : (dl < 0 ? 'crit' : (dl <= 14 ? 'warn' : ''));
   var lede = p.descripcion
     ? esc(p.descripcion)
-    : ('Proyecto activo con <b>' + enriched.tasks + ' tareas</b>' + (enriched.overdue ? ', <span class="crit">' + enriched.overdue + ' atrasada' + (enriched.overdue === 1 ? '' : 's') + '</span>' : '') + '.');
+    : ('Proyecto activo con <b>' + enriched.tasks + ' tareas</b>' + (enriched.overdue ? ', <span class="crit">' + enriched.overdue + ' vencida' + (enriched.overdue === 1 ? '' : 's') + '</span>' : '') + '.');
   var teamCount = enriched.people.length + enriched.more;
 
   var allTasks = (D && D.tasks) || [];
@@ -4237,7 +4263,7 @@ function _piRenderHero(enriched) {
   }
 
   var heroHeadline = enriched.overdue
-    ? 'Hay <b>' + enriched.overdue + ' atrasada' + (enriched.overdue === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Resolver primero.</span>'
+    ? 'Hay <b>' + enriched.overdue + ' vencida' + (enriched.overdue === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Resolver primero.</span>'
     : (myInProj.length ? 'Tienes <b>' + myInProj.length + ' tarea' + (myInProj.length === 1 ? '' : 's') + ' tuya' + (myInProj.length === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Por urgencia.</span>'
                        : 'Sin tareas tuyas activas. <span style="color:var(--muted);font-weight:600">Solo seguimiento.</span>');
 
@@ -4248,7 +4274,7 @@ function _piRenderHero(enriched) {
        +     '<p class="pi-hero-lede">' + lede + '</p>'
        +     '<div class="pi-hero-meta">'
        +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num">' + String(enriched.tasks).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">tareas activas</div></div>'
-       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num ' + (enriched.overdue ? 'crit' : '') + '">' + String(enriched.overdue).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">atrasada' + (enriched.overdue === 1 ? '' : 's') + '</div></div>'
+       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num ' + (enriched.overdue ? 'crit' : '') + '">' + String(enriched.overdue).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">vencida' + (enriched.overdue === 1 ? '' : 's') + '</div></div>'
        +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num">' + String(teamCount).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">equipo</div></div>'
        +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num ' + dlCls + '">' + (dl == null ? '—' : (dl < 0 ? Math.abs(dl) : dl)) + '<em>d</em></div><div class="pi-hero-stat-lbl">' + (dl != null && dl < 0 ? 'vencido' : 'al cierre') + '</div></div>'
        +     '</div>'
@@ -4295,7 +4321,7 @@ function _piRenderRow(enriched, idx) {
        +       '<div class="pi-prog-seg curso" style="width:' + prog.curso + '%"></div>'
        +       '<div class="pi-prog-seg crit"  style="width:' + prog.crit  + '%"></div>'
        +     '</div>'
-       +     '<div class="pi-prog-pct"><b>' + enriched.pctNum + '%</b> · ' + (enriched.overdue > 0 ? '<span style="color:var(--critical);font-weight:700">' + enriched.overdue + ' atrasada' + (enriched.overdue === 1 ? '' : 's') + '</span>' : 'al día') + '</div>'
+       +     '<div class="pi-prog-pct"><b>' + enriched.pctNum + '%</b> · ' + (enriched.overdue > 0 ? '<span style="color:var(--critical);font-weight:700">' + enriched.overdue + ' vencida' + (enriched.overdue === 1 ? '' : 's') + '</span>' : 'al día') + '</div>'
        +   '</div>'
        +   '<div class="pi-stat-cell">'
        +     '<div class="pi-stat-num ' + dlCls + '">' + dlVal + '<em>d</em></div>'
@@ -4386,4 +4412,138 @@ function rEdProyectosIndex(D) {
 }
 
 // MARKER:EDITORIAL_PROYECTOS_END
+
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_MISTAREAS_BEGIN  (owned by Agente M)
+// Mis tareas editorial: hero stats + perf cells + tabla compacta
+// con las tareas activas del USER efectivo. Cada fila abre la tarea
+// en el tracker editorial via edGoTaskInTracker(id). Reusa clases
+// .esp-hero / .esp-stat / .esp-perf / .tk-table / .tk-row /
+// .cf-dot / .ed-* — no agrega CSS nuevo.
+// ───────────────────────────────────────────────────────────────
+
+function rEdMisTareas(D) {
+  var v = $('vEdMisTareas'); if (!v) return;
+  var name = _effectiveUserName();
+  var allTasks = (D && D.tasks) || [];
+  var mine = allTasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; });
+
+  var overdue = mine.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
+  var dueToday = mine.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; }).length;
+  var blocked = mine.filter(function(t){ return t.status === 'Bloqueado'; }).length;
+  var total = mine.length;
+
+  var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
+  var eyebrow = 'Mis tareas' + (todayLine ? ' · ' + todayLine : '');
+
+  // H1 dinámico (singular/plural/cero)
+  var h1Inner;
+  if (total === 0) {
+    h1Inner = '<em>No tienes tareas</em><br>activas en mesa.';
+  } else if (total === 1) {
+    h1Inner = 'Tienes <em>1 tarea</em><br>activa en mesa.';
+  } else {
+    h1Inner = 'Tienes <em>' + esc(String(total).padStart(2,'0')) + ' tareas</em><br>activas en mesa.';
+  }
+
+  // Lede narrativa según los warns
+  var ledeBits = [];
+  if (overdue) ledeBits.push('<span class="crit">' + overdue + ' vencida' + (overdue === 1 ? '' : 's') + '</span>');
+  if (dueToday) ledeBits.push('<span class="warn">' + dueToday + ' vence' + (dueToday === 1 ? '' : 'n') + ' hoy</span>');
+  if (blocked) ledeBits.push('<span class="crit">' + blocked + ' en espera</span>');
+  var lede;
+  if (total === 0) {
+    lede = 'Día limpio. Aprovechá para adelantar pendientes de proyectos.';
+  } else if (ledeBits.length === 0) {
+    lede = 'Todas en cola, sin urgencias críticas. Avanzá por prioridad.';
+  } else {
+    lede = ledeBits.join(' · ') + '. Cliquea cualquier fila para abrir el detalle en el tracker.';
+  }
+
+  var html = ''
+    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
+    + '<h1 class="ed-h1" style="margin-bottom:8px">' + h1Inner + '</h1>'
+    + '<p class="ed-lede" style="margin-bottom:28px">' + lede + '</p>';
+
+  // HERO stats (4)
+  html += '<div class="esp-hero">'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Total activas</div>'
+       +      '<div class="esp-stat-num">' + String(total).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">en tu mesa</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
+       +      '<div class="esp-stat-num warn">' + String(overdue).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">' + (overdue ? 'Resolver primero' : 'Al día') + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Vencen hoy</div>'
+       +      '<div class="esp-stat-num warn">' + String(dueToday).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">' + (dueToday ? 'Cerrar hoy' : 'Día limpio') + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">En espera</div>'
+       +      '<div class="esp-stat-num warn">' + String(blocked).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">' + (blocked ? 'Necesitan empuje' : '—') + '</div></div>'
+       + '</div>';
+
+  // PERFORMANCE — placeholders por ahora; backend Fase 2.
+  var me = (D && D.team || []).find(function(m){ return m.name === name; }) || {};
+  var streak = (typeof me.streak === 'number' && me.streak > 0) ? me.streak : 0;
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Mi desempeño este mes</div>'
+       +    '<div class="esp-perf">'
+       +      '<div class="esp-stat"><div class="esp-stat-lbl">🔥 Racha on-time</div>'
+       +        '<div class="esp-stat-num good">' + (streak ? String(streak).padStart(2,'0') : '—') + '</div>'
+       +        '<div class="esp-stat-ctx">tareas seguidas a tiempo</div></div>'
+       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Alta</div>'
+       +        '<div class="esp-stat-num">' + esc(me.avgAlta || '—') + '</div>'
+       +        '<div class="esp-stat-ctx">SLA 2d</div></div>'
+       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Media</div>'
+       +        '<div class="esp-stat-num">' + esc(me.avgMedia || '—') + '</div>'
+       +        '<div class="esp-stat-ctx">SLA 5d</div></div>'
+       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Baja</div>'
+       +        '<div class="esp-stat-num">' + esc(me.avgBaja || '—') + '</div>'
+       +        '<div class="esp-stat-ctx">SLA 7d</div></div>'
+       +    '</div>'
+       + '</section>';
+
+  // TABLA "Tus tareas activas"
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Tus tareas activas</div>';
+
+  if (mine.length === 0) {
+    html += '<div class="ed-lede">Sin tareas activas asignadas. '
+         +    '<button class="ed-btn" style="margin-left:12px" onclick="goEd(\'tracker\')">Ver tracker →</button>'
+         +  '</div>';
+  } else {
+    var rows = (typeof _edSortByUrgency === 'function') ? _edSortByUrgency(mine) : mine.slice();
+    html += '<table class="tk-table">'
+         +    '<thead><tr>'
+         +      '<th></th><th>ID</th><th>Tarea</th><th>Proyecto</th>'
+         +      '<th>Prioridad</th><th>Estado</th><th>ETA</th>'
+         +    '</tr></thead><tbody>';
+    for (var i = 0; i < rows.length; i++) {
+      var t = rows[i];
+      var pn = _projNameForTask(t);
+      var meta = (t.tipoTrabajo || '—') + (t.pais ? ' · ' + t.pais : '');
+      var etaTxt = t.eta || (typeof _etaTextFromDays === 'function' ? _etaTextFromDays(t.etaDays) : '');
+      var etaTone = _etaToneClass(t.etaDays, t.status);
+      var cfLvl = _confLevel(t);
+      var cfMeta = ED_CONF_LEVELS[cfLvl];
+      html += '<tr class="tk-row" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
+           +    '<td><span class="cf-dot ' + cfLvl + '" title="' + esc(cfMeta.label) + '"></span></td>'
+           +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
+           +    '<td>'
+           +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
+           +      '<div class="tk-name-meta">' + esc(meta) + '</div>'
+           +    '</td>'
+           +    '<td>' + esc(pn) + '</td>'
+           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span></td>'
+           +    '<td><span class="ed-pill ' + _statusClass(t.status) + '">' + esc(t.status || '') + '</span></td>'
+           +    '<td><span class="tk-eta ' + etaTone + '">' + esc(etaTxt) + '</span></td>'
+           + '</tr>';
+    }
+    html += '</tbody></table>';
+  }
+  html += '</section>';
+
+  v.innerHTML = html;
+}
+
+// MARKER:EDITORIAL_MISTAREAS_END
 </script>
