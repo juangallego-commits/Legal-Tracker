@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Legal Tracker — Editorial Deep · Print</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;500;600;700;800;900&family=Fraunces:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Page setup — landscape, slide-like proportions */
+  @page { size: 1600px 1100px; margin: 0; }
+  html, body { margin:0; padding:0; background:#f0eee9; font-family:'Nunito Sans',system-ui,sans-serif; }
+  * { box-sizing: border-box; }
+
+  /* Each .page is one PDF page. We keep a fixed pixel size and use scale for fitting tall artboards. */
+  .page {
+    width: 1600px;
+    height: 1100px;
+    background: #fff;
+    overflow: hidden;
+    position: relative;
+    page-break-after: always;
+    break-after: page;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    display: block;
+  }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+
+  /* Inner artboard wrapper: anchored top-left, can be scaled to fit the page */
+  .artboard {
+    transform-origin: top left;
+    background: #fff;
+    overflow: hidden;
+  }
+
+  /* Page numbering / caption strip across the bottom of each page */
+  .page-meta {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    padding: 10px 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #fff;
+    border-top: 1px solid rgba(0,0,0,.08);
+    font-size: 10px;
+    color: #9a998f;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 800;
+    z-index: 5;
+  }
+  .page-meta .left { color: #1a1a1a; }
+  .page-meta .right { font-family:'JetBrains Mono', monospace; letter-spacing: .5px; }
+
+  /* Print-specific */
+  @media print {
+    html, body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .page { box-shadow: none; margin: 0; }
+  }
+
+  /* Screen-only review: stack pages with a gap so you can verify before printing */
+  @media screen {
+    body { padding: 24px; display: flex; flex-direction: column; gap: 24px; align-items: center; }
+    .page { box-shadow: 0 4px 30px rgba(0,0,0,.08); }
+  }
+
+  .ab-host { width:100%; height:100%; overflow:hidden; background:#fff; }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="shared-components.jsx"></script>
+<script type="text/babel" src="editorial-data.jsx"></script>
+<script type="text/babel" src="editorial-shared.jsx"></script>
+<script type="text/babel" src="ed-cover-close.jsx"></script>
+<script type="text/babel" src="ed-home-specialist.jsx"></script>
+<script type="text/babel" src="ed-home-manager-hq.jsx"></script>
+<script type="text/babel" src="ed-agrupadas.jsx"></script>
+<script type="text/babel" src="ed-tracker.jsx"></script>
+<script type="text/babel" src="ed-crear.jsx"></script>
+<script type="text/babel" src="ed-proyecto.jsx"></script>
+<script type="text/babel" src="ed-proyectos-index.jsx"></script>
+<script type="text/babel" src="ed-actualizar.jsx"></script>
+<script type="text/babel" src="ed-bandeja.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+
+// Each page: title (for caption) + artboard component + native dimensions.
+// Caption gets stripped out of count display; we paginate as N/total (excluding cover/close maybe).
+const PAGES = [
+  { kind:'Portada',          label:'Una herramienta legal que entiende a quien la usa',  W:1280, H:1640, C: () => <EdCover theme="light"/> },
+  { kind:'Home',             label:'Specialist — Juan Camilo',                            W:1280, H:1100, C: () => <EdHomeSpecialist theme="light"/> },
+  { kind:'Home',             label:'Manager — Carlos Fernández',                          W:1280, H:1100, C: () => <EdHomeManager theme="light"/> },
+  { kind:'Home',             label:'HQ — Enrique González (10 países)',                   W:1280, H:1100, C: () => <EdHomeHQ theme="light"/> },
+  { kind:'Agrupadas',        label:'Tus tareas agrupadas — por prioridad',                W:1280, H:1100, C: () => <EdAgrupadas theme="light"/> },
+  { kind:'Tracker',          label:'Tracker Manager — fila T-142 abierta',                W:1480, H:1100, C: () => <EdTracker theme="light" role="manager" selectedId="T-142"/> },
+  { kind:'Tracker',          label:'Tracker Specialist — sus 4 tareas',                   W:1480, H:1100, C: () => <EdTracker theme="light" role="specialist" selectedId="T-138"/> },
+  { kind:'Proyectos',        label:'Índice — 5 proyectos activos',                        W:1380, H:1480, C: () => <EdProyectosIndex theme="light"/> },
+  { kind:'Proyecto',         label:'Renovación contratos críticos — líder Carlos F.',     W:1380, H:1240, C: () => <EdProyecto theme="light"/> },
+  { kind:'Crear tarea',      label:'Paso 1 — lo esencial + sugerencias de nombre',         W:1280, H:980,  C: () => <EdCrear theme="light" step={1}/> },
+  { kind:'Crear tarea',      label:'Paso 2 — sugerencias IA + visibilidad',                W:1280, H:980,  C: () => <EdCrear theme="light" step={2}/> },
+  { kind:'Crear tarea',      label:'Paso 3 — confirmación antes de publicar',             W:1280, H:980,  C: () => <EdCrear theme="light" step={3}/> },
+  { kind:'Actualizar estado',label:'Cerrar — resumen IA + adjunto final + aprendizaje',   W:1380, H:1100, C: () => <EdActualizar theme="light" variant="cerrar"/> },
+  { kind:'Actualizar estado',label:'Bloquear — dependencia, quién destraba, reintentar',  W:1380, H:1100, C: () => <EdActualizar theme="light" variant="bloquear"/> },
+  { kind:'Actualizar estado',label:'Avanzar — mandar a revisión con revisor sugerido',     W:1380, H:1100, C: () => <EdActualizar theme="light" variant="avanzar"/> },
+  { kind:'Bandeja',          label:'Slack + Gmail — 7 pendientes, IA pre-llenó',           W:1380, H:1380, C: () => <EdBandeja theme="light"/> },
+  { kind:'Cierre',           label:'Qué cambia · qué medimos · qué sigue',                  W:1280, H:1480, C: () => <EdClose theme="light"/> },
+];
+
+// Page format
+const PAGE_W = 1600;
+const PAGE_H = 1100;
+const META_H = 38; // bottom caption strip
+const PAD = 24;    // padding around artboard inside page
+
+function PrintPage({ idx, total, page }) {
+  const innerW = PAGE_W - PAD * 2;
+  const innerH = PAGE_H - META_H - PAD * 2;
+  // Fit artboard inside available area (contain)
+  const scale = Math.min(innerW / page.W, innerH / page.H);
+  const scaledW = page.W * scale;
+  const scaledH = page.H * scale;
+  // Center horizontally; top-aligned vertically
+  const offsetX = PAD + (innerW - scaledW) / 2;
+  const offsetY = PAD;
+
+  return (
+    <div className="page">
+      <div className="artboard"
+           style={{
+             width: page.W,
+             height: page.H,
+             transform: `translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
+           }}>
+        <div className="ab-host">{page.C()}</div>
+      </div>
+      <div className="page-meta">
+        <span className="left">{page.kind} · <span style={{color:'#5b5b5b',fontWeight:700}}>{page.label}</span></span>
+        <span className="right">Legal Tracker · Editorial Deep · v1 · abr 2026</span>
+        <span className="right">{String(idx+1).padStart(2,'0')} / {String(total).padStart(2,'0')}</span>
+      </div>
+    </div>
+  );
+}
+
+function PrintApp() {
+  return (
+    <>
+      {PAGES.map((p, i) => <PrintPage key={i} idx={i} total={PAGES.length} page={p}/>)}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<PrintApp/>);
+
+// Auto-print after fonts and Babel-transformed scripts have settled
+(async function autoPrint() {
+  // Wait for fonts
+  if (document.fonts && document.fonts.ready) {
+    try { await document.fonts.ready; } catch (e) {}
+  }
+  // Extra settling time for React mount + lazy CSS in components
+  await new Promise(r => setTimeout(r, 800));
+  // Skip print on review (when ?print=0); default is to print
+  const params = new URLSearchParams(location.search);
+  if (params.get('print') === '0') return;
+  window.print();
+})();
+</script>
+</body>
+</html>
