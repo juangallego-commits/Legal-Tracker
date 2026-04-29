@@ -2601,7 +2601,7 @@ function renderEdHead() {
     + '<div class="ed-head-eye">' + esc(sem + ' · ' + today) + '</div>'
     + '<div class="ed-head-actions">'
     +   '<div class="ed-search">⌘K  Buscar...</div>'
-    +   '<button class="ed-btn accent" onclick="openCreate()">+ Nueva</button>'
+    +   '<button class="ed-btn accent" onclick="edCrearOpen()">+ Nueva</button>'
     + '</div>';
 }
 
@@ -2632,6 +2632,14 @@ function goEd(viewId) {
   if (viewId === 'agrupadas') {
     var v3 = $('vEdAgrupadas'); if (v3) v3.classList.add('active');
     if (typeof rEdAgrupadas === 'function') rEdAgrupadas(D);
+    return;
+  }
+  // Editorial Proyectos · Index — disponible para los 3 roles (todos
+  // tienen el item "proyectos" en el sidebar). Si por algún motivo el
+  // renderer no está disponible, caemos al legacy go('proyectos').
+  if (viewId === 'proyectos' && typeof rEdProyectosIndex === 'function') {
+    var v4 = $('vEdProyectosIndex'); if (v4) v4.classList.add('active');
+    rEdProyectosIndex(D);
     return;
   }
   // Alias sin equivalente legacy: 'paises' → resumen
@@ -3560,4 +3568,640 @@ function edUSubmit() {
 }
 
 // MARKER:EDITORIAL_ACTUALIZAR_END
+
+// MARKER:EDITORIAL_CREAR_BEGIN
+// Wizard editorial de 3 pasos para crear tarea — versión simplificada del
+// rediseño de pendientes/ed-crear.jsx. Mantiene step indicator, pills, resumen
+// final + submit a addTask. Descarta features que requieren backend nuevo:
+// sugerencias IA, banda IA, niveles de confidencialidad, visibilidad multi-
+// persona, adjuntos drive/local. El modal legacy #createOv se mantiene
+// intacto para crear proyectos (openCreate('newProj')).
+// ───────────────────────────────────────────────────────────────
+
+var EDC = {
+  step: 1,
+  values: {
+    titulo: '',
+    descripcion: '',
+    tipo: '',
+    pais: '',
+    prioridad: 'Media',
+    riesgo: '',
+    resp: '',
+    deadline: '',
+    proyectoId: ''
+  }
+};
+
+var _CR_TIPOS  = ['Contractual', 'Regulatorio', 'Contencioso', 'Privacy', 'Operativo'];
+var _CR_PRIOS  = ['Alta', 'Media', 'Baja'];
+var _CR_RIESGOS = ['Legal alto', 'Reputacional', 'Operativo'];
+var _CR_PAIS_FALLBACK = ['CO', 'MX', 'BR', 'AR', 'CL', 'PE'];
+
+function _crCountries() {
+  if (D && D.equipos && D.equipos.length) {
+    var seen = {}, out = [];
+    D.equipos.forEach(function(eq){
+      var c = eq && eq.code;
+      if (c && !seen[c]) { seen[c] = 1; out.push(c); }
+    });
+    if (out.length) return out;
+  }
+  return _CR_PAIS_FALLBACK.slice();
+}
+
+function _crResponsables() {
+  if (typeof getAllMembers === 'function') {
+    var m = getAllMembers();
+    if (m && m.length) return m;
+  }
+  if (D && D.team && D.team.length) {
+    return D.team.map(function(t){ return t && t.name; }).filter(Boolean);
+  }
+  return [];
+}
+
+function _crProjects() {
+  var src = (D && (D.projectList || D.projects)) || [];
+  return src.filter(function(p){
+    if (!p) return false;
+    var s = p.status || p.estado || '';
+    return s !== 'Completado' && s !== 'Cancelado';
+  });
+}
+
+function _crPillsHtml(field, options, activeVal, modCls) {
+  return options.map(function(opt){
+    var val = typeof opt === 'object' ? opt.value : opt;
+    var lbl = typeof opt === 'object' ? opt.label : opt;
+    var active = String(activeVal) === String(val) ? ' active' : '';
+    var mod = modCls ? (' ' + modCls(val)) : '';
+    return '<button type="button" class="cr-pill-btn' + mod + active + '" '
+         + 'onclick="edCrearSetField(\'' + field + '\',\'' + escJs(String(val)) + '\')">'
+         + esc(lbl) + '</button>';
+  }).join('');
+}
+
+function _crPrioMod(val) {
+  if (val === 'Alta') return 'alta';
+  if (val === 'Media') return 'media';
+  if (val === 'Baja') return 'baja';
+  return '';
+}
+function _crRiesgoMod(val) {
+  if (val === 'Legal alto') return 'alta';
+  if (val === 'Reputacional') return 'media';
+  if (val === 'Operativo') return 'baja';
+  return '';
+}
+
+function _crSelectHtml(id, options, current, blankLabel) {
+  var html = '';
+  if (blankLabel != null) {
+    var sel = !current ? ' selected' : '';
+    html += '<option value=""' + sel + '>' + esc(blankLabel) + '</option>';
+  }
+  options.forEach(function(opt){
+    var val = typeof opt === 'object' ? opt.value : opt;
+    var lbl = typeof opt === 'object' ? opt.label : opt;
+    var sel = String(current) === String(val) ? ' selected' : '';
+    html += '<option value="' + esc(String(val)) + '"' + sel + '>' + esc(lbl) + '</option>';
+  });
+  return '<select id="' + id + '" class="cr-input">' + html + '</select>';
+}
+
+function _crProjectName(id) {
+  if (!id) return 'Sin proyecto';
+  var list = (D && (D.projectList || D.projects)) || [];
+  for (var i = 0; i < list.length; i++) {
+    if (String(list[i].id) === String(id)) return list[i].nombre || ('#' + id);
+  }
+  return '#' + id;
+}
+
+function _crRenderStep1() {
+  var v = EDC.values;
+  return ''
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Título de la tarea <span class="req">*</span></div>'
+    +   '<input class="cr-input title" id="crTitulo" maxlength="120" '
+    +     'placeholder="Ej: Revisar contrato proveedor logística — Bogotá" '
+    +     'value="' + esc(v.titulo) + '" '
+    +     'oninput="edCrearSetField(\'titulo\', this.value)">'
+    + '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Descripción / contexto</div>'
+    +   '<textarea class="cr-input cr-textarea" id="crDesc" '
+    +     'placeholder="Contexto, objetivos, links relevantes…" '
+    +     'oninput="edCrearSetField(\'descripcion\', this.value)">' + esc(v.descripcion) + '</textarea>'
+    + '</div>'
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Tipo <span class="req">*</span></div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('tipo', _CR_TIPOS, v.tipo) + '</div>'
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">País <span class="req">*</span></div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
+    +   '</div>'
+    + '</div>';
+}
+
+function _crRenderStep2() {
+  var v = EDC.values;
+  var resp = _crResponsables().map(function(n){ return { value: n, label: n }; });
+  var projs = _crProjects().map(function(p){ return { value: p.id, label: p.nombre }; });
+  return ''
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Prioridad</div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('prioridad', _CR_PRIOS, v.prioridad, _crPrioMod) + '</div>'
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Nivel de riesgo</div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('riesgo', _CR_RIESGOS, v.riesgo, _crRiesgoMod) + '</div>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Responsable <span class="req">*</span></div>'
+    +     _crSelectHtml('crResp', resp, v.resp, 'Seleccionar…').replace('<select id="crResp"', '<select id="crResp" onchange="edCrearSetField(\'resp\', this.value)"')
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Deadline <span class="req">*</span></div>'
+    +     '<input type="date" class="cr-input" id="crDeadline" value="' + esc(v.deadline) + '" '
+    +       'onchange="edCrearSetField(\'deadline\', this.value)">'
+    +   '</div>'
+    + '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Vincular a proyecto</div>'
+    +   _crSelectHtml('crProj', projs, v.proyectoId, 'Sin proyecto').replace('<select id="crProj"', '<select id="crProj" onchange="edCrearSetField(\'proyectoId\', this.value)"')
+    + '</div>';
+}
+
+function _crRenderStep3() {
+  var v = EDC.values;
+  var pills = '';
+  if (v.prioridad) pills += '<span class="ed-pill ' + esc((v.prioridad || '').toLowerCase()) + '">Prioridad ' + esc(v.prioridad) + '</span>';
+  if (v.riesgo) pills += '<span class="ed-pill curso">' + esc(v.riesgo) + '</span>';
+  if (v.tipo) pills += '<span class="ed-pill curso">' + esc(v.tipo) + '</span>';
+  if (v.pais) pills += '<span class="ed-pill curso">' + esc(v.pais) + '</span>';
+  var projName = _crProjectName(v.proyectoId);
+  if (v.proyectoId) pills += '<span class="ed-pill curso">' + esc(projName) + '</span>';
+
+  var html = ''
+    + '<div class="cr-conf-banner">'
+    +   '<div class="cr-conf-mark">✓</div>'
+    +   '<div class="cr-conf-msg">Todo listo para publicar. Una vez confirmes, <b>' + esc(v.resp || 'el responsable') + '</b> recibirá la tarea.</div>'
+    + '</div>'
+    + '<div class="cr-conf-section">'
+    +   '<div class="cr-conf-eye">— Resumen</div>'
+    +   '<div class="cr-conf-title">' + esc(v.titulo || 'Sin título') + '</div>'
+    +   (pills ? '<div class="cr-conf-pills">' + pills + '</div>' : '')
+    +   '<div class="cr-conf-grid">'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Responsable</div><div class="cr-conf-val">' + esc(v.resp || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Deadline</div><div class="cr-conf-val">' + esc(v.deadline || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Tipo</div><div class="cr-conf-val">' + esc(v.tipo || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">País</div><div class="cr-conf-val">' + esc(v.pais || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Proyecto</div><div class="cr-conf-val">' + esc(projName) + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Riesgo</div><div class="cr-conf-val">' + esc(v.riesgo || '—') + '</div></div>'
+    +   '</div>'
+    + '</div>';
+  if (v.descripcion) {
+    html += '<div class="cr-conf-section">'
+         +   '<div class="cr-conf-eye">— Descripción</div>'
+         +   '<div class="cr-conf-desc">' + esc(v.descripcion) + '</div>'
+         + '</div>';
+  }
+  return html;
+}
+
+function _crStepClasses(stepNum, current) {
+  if (current > stepNum) return 'cr-step done';
+  if (current === stepNum) return 'cr-step active';
+  return 'cr-step';
+}
+
+function _crRender(step) {
+  var s = step || EDC.step || 1;
+  var titles = {
+    1: 'Empecemos por lo esencial',
+    2: 'Detalles, equipo y deadline',
+    3: 'Listo para publicar'
+  };
+  var infos = {
+    1: 'Próximo paso: <b>asignación, prioridad y deadline.</b>',
+    2: 'Cuando estés listo, te llevamos a la revisión final antes de publicar.',
+    3: 'Última revisión. Cuando confirmes, la tarea se crea.'
+  };
+  var bodyHtml;
+  if (s === 1) bodyHtml = _crRenderStep1();
+  else if (s === 2) bodyHtml = _crRenderStep2();
+  else bodyHtml = _crRenderStep3();
+
+  var footBtns = '';
+  if (s === 1) {
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearClose()">Cancelar</button>'
+             + '<button type="button" class="ed-btn accent" onclick="edCrearGoStep(2)">Continuar →</button>';
+  } else if (s === 2) {
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearGoStep(1)">← Volver</button>'
+             + '<button type="button" class="ed-btn accent" onclick="edCrearGoStep(3)">Revisar y publicar →</button>';
+  } else {
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearGoStep(2)">← Editar</button>'
+             + '<button type="button" class="ed-btn accent" id="crSubmit" onclick="edCrearSubmit()">Publicar tarea</button>';
+  }
+
+  return '<div class="cr-overlay" onclick="if(event.target===this)edCrearClose()">'
+       +   '<div class="cr-backdrop" onclick="edCrearClose()"></div>'
+       +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Crear tarea">'
+       +     '<div class="cr-head">'
+       +       '<div>'
+       +         '<div class="cr-eye">— Crear nueva tarea</div>'
+       +         '<div class="cr-title">' + esc(titles[s] || '') + '</div>'
+       +       '</div>'
+       +       '<button type="button" class="cr-x" onclick="edCrearClose()" aria-label="Cerrar">×</button>'
+       +     '</div>'
+       +     '<div class="cr-steps">'
+       +       '<div class="' + _crStepClasses(1, s) + '"><span class="cr-step-num">01</span> Esencial</div>'
+       +       '<div class="' + _crStepClasses(2, s) + '"><span class="cr-step-num">02</span> Detalles</div>'
+       +       '<div class="' + _crStepClasses(3, s) + '"><span class="cr-step-num">03</span> Confirmar</div>'
+       +     '</div>'
+       +     '<div class="cr-body">' + bodyHtml + '</div>'
+       +     '<div class="cr-foot">'
+       +       '<div class="cr-foot-info">' + (infos[s] || '') + '</div>'
+       +       footBtns
+       +     '</div>'
+       +   '</div>'
+       + '</div>';
+}
+
+function _crMount() {
+  var host = $('crHost'); if (!host) return;
+  host.innerHTML = _crRender(EDC.step);
+}
+
+function edCrearOpen() {
+  EDC.step = 1;
+  EDC.values = {
+    titulo: '',
+    descripcion: '',
+    tipo: '',
+    pais: '',
+    prioridad: 'Media',
+    riesgo: '',
+    resp: '',
+    deadline: '',
+    proyectoId: ''
+  };
+  _crMount();
+  setTimeout(function() {
+    var input = $('crTitulo');
+    if (input) input.focus();
+  }, 60);
+}
+
+function edCrearClose() {
+  EDC.step = 1;
+  var host = $('crHost'); if (host) host.innerHTML = '';
+}
+
+function edCrearSetField(key, value) {
+  if (!EDC.values || !(key in EDC.values)) return;
+  EDC.values[key] = value;
+  // Para campos texto/select que están dentro del DOM actual, no re-renderizamos
+  // — el valor ya está en EDC.values. Para pills sí re-renderizamos para
+  // reflejar el estado activo.
+  var rerenderFields = { tipo: 1, pais: 1, prioridad: 1, riesgo: 1 };
+  if (rerenderFields[key]) _crMount();
+}
+
+function edCrearGoStep(n) {
+  // Validación del paso actual antes de avanzar
+  var v = EDC.values;
+  if (n > EDC.step) {
+    if (EDC.step === 1) {
+      if (!v.titulo || !v.titulo.trim()) { toast('Título requerido', 'error'); return; }
+      if (!v.tipo) { toast('Seleccioná un tipo', 'error'); return; }
+      if (!v.pais) { toast('Seleccioná un país', 'error'); return; }
+    } else if (EDC.step === 2) {
+      if (!v.resp) { toast('Seleccioná un responsable', 'error'); return; }
+      if (!v.deadline) { toast('Deadline requerido', 'error'); return; }
+    }
+  }
+  EDC.step = n;
+  _crMount();
+}
+
+function edCrearSubmit() {
+  var v = EDC.values;
+  if (!v.titulo || !v.titulo.trim()) { toast('Título requerido', 'error'); return; }
+  if (!v.resp) { toast('Responsable requerido', 'error'); return; }
+  var btn = $('crSubmit'); if (btn) btn.disabled = true;
+  if (typeof showLoader === 'function') showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (btn) btn.disabled = false;
+      if (res && res.success) {
+        toast('Tarea #' + res.id + ' creada', 'success');
+        edCrearClose();
+        if (typeof reload === 'function') reload();
+      } else {
+        toast('Error: ' + ((res && res.error) || 'desconocido'), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (btn) btn.disabled = false;
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .addTask({
+      nombre: v.titulo.trim(),
+      proyectoId: v.proyectoId || '',
+      pais: v.pais || '',
+      priority: v.prioridad || 'Media',
+      tipoTrabajo: v.tipo || '',
+      riesgo: v.riesgo || '',
+      resp: v.resp || '',
+      lider: '',
+      deadline: v.deadline || '',
+      acc: '',
+      notas: (v.descripcion || '').trim()
+    });
+}
+
+// MARKER:EDITORIAL_CREAR_END
+
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_PROYECTOS_BEGIN
+// Lista editorial de proyectos con tabs (Activos / Donde participas
+// / Que lideras / Cerrados). Hero con proyecto destacado más urgente.
+// Lista de filas con rol, métricas, barra de progreso multi-segmento
+// y avatares del equipo. Datos derivados de D.tasks/D.projects.
+// ───────────────────────────────────────────────────────────────
+
+var EDP = { tab: 'activos' };
+
+function _piRoleOf(project, userName, tasks) {
+  if (!project) return 'Observador';
+  if (project.lider === userName) return 'Owner';
+  var hasMyTask = (tasks || []).some(function(t){ return t.proyectoId == project.id && t.resp === userName; });
+  return hasMyTask ? 'Participante' : 'Observador';
+}
+
+function _piEnrichProject(p, D, userName) {
+  var tasks  = (D && D.tasks)     || [];
+  var hist   = (D && D.historial) || [];
+  var pTasks = tasks.filter(function(t){ return t.proyectoId == p.id; });
+  var pHist  = hist.filter(function(t){ return t.proyectoId == p.id; });
+  var mine    = pTasks.filter(function(t){ return t.resp === userName; }).length;
+  var overdue = pTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
+  var done    = pHist.length;
+  var curso   = pTasks.filter(function(t){ return t.status === 'En curso' || t.status === 'En revisión'; }).length;
+  var crit    = pTasks.filter(function(t){ return t.status === 'Bloqueado' || (typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'); }).length;
+  var total   = pTasks.length + done;
+  var pctNum  = total > 0 ? Math.round(done / total * 100) : 0;
+  var donePct  = total > 0 ? Math.round(done / total * 100) : 0;
+  var cursoPct = total > 0 ? Math.round(curso / total * 100) : 0;
+  var critPct  = total > 0 ? Math.round(crit / total * 100) : 0;
+
+  var deadlineDays = null;
+  if (p.deadline && D && D.today) {
+    var m1 = (p.deadline + '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    var m2 = D.today.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m1 && m2) {
+      var d1 = new Date(parseInt(m1[1],10), parseInt(m1[2],10)-1, parseInt(m1[3],10));
+      var d2 = new Date(parseInt(m2[1],10), parseInt(m2[2],10)-1, parseInt(m2[3],10));
+      deadlineDays = Math.round((d1.getTime() - d2.getTime()) / 86400000);
+    }
+  }
+
+  var seen = {}, peopleArr = [], more = 0;
+  for (var i = 0; i < pTasks.length; i++) {
+    var r = pTasks[i].resp;
+    if (!r || seen[r]) continue;
+    seen[r] = true;
+    if (peopleArr.length < 4) peopleArr.push({ name: r, initials: _userInitials(r) });
+    else more++;
+  }
+
+  return {
+    p: p,
+    role: _piRoleOf(p, userName, tasks),
+    tasks: pTasks.length,
+    mine: mine,
+    overdue: overdue,
+    deadlineDays: deadlineDays,
+    progress: { done: donePct, curso: cursoPct, crit: critPct },
+    pctNum: pctNum,
+    people: peopleArr,
+    more: more
+  };
+}
+
+function _piBucket(projects, tab, userName, tasks) {
+  if (!projects || !projects.length) return [];
+  if (tab === 'cerrados') {
+    return projects.filter(function(p){ return p.status === 'Completado' || p.status === 'Cancelado'; });
+  }
+  var open = projects.filter(function(p){ return p.status === 'Activo' || p.status === 'En pausa'; });
+  if (tab === 'lideras')    return open.filter(function(p){ return p.lider === userName; });
+  if (tab === 'participas') return open.filter(function(p){
+    if (p.lider === userName) return false;
+    return tasks.some(function(t){ return t.proyectoId == p.id && t.resp === userName; });
+  });
+  return open;
+}
+
+function _piPersonAvatar(person, isMore) {
+  var bg = isMore ? 'var(--paper3)' : 'var(--accent)';
+  var color = isMore ? 'var(--muted)' : '#fff';
+  var label = person && person.initials ? person.initials : '+';
+  return '<div class="pi-person' + (isMore ? ' more' : '') + '" style="background:' + bg + ';color:' + color + '">' + esc(label) + '</div>';
+}
+
+function _piRenderHero(enriched) {
+  var p = enriched.p;
+  var dl = enriched.deadlineDays;
+  var dlText = dl == null ? '—' : (dl < 0 ? 'venció hace ' + Math.abs(dl) + 'd' : 'en ' + dl + 'd');
+  var dlCls = dl == null ? '' : (dl < 0 ? 'crit' : (dl <= 14 ? 'warn' : ''));
+  var lede = p.descripcion
+    ? esc(p.descripcion)
+    : ('Proyecto activo con <b>' + enriched.tasks + ' tareas</b>' + (enriched.overdue ? ', <span class="crit">' + enriched.overdue + ' atrasada' + (enriched.overdue === 1 ? '' : 's') + '</span>' : '') + '.');
+  var teamCount = enriched.people.length + enriched.more;
+
+  var allTasks = (D && D.tasks) || [];
+  var userName = (USER && USER.name) || '';
+  var myInProj = allTasks.filter(function(t){ return t.proyectoId == p.id && t.resp === userName && t.status !== 'Listo'; })
+    .sort(function(a, b) {
+      var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
+      var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
+      return ad - bd;
+    }).slice(0, 3);
+
+  var miniHtml = '';
+  if (myInProj.length === 0) {
+    miniHtml = '<div style="font-size:12px;color:var(--dim);padding:8px 0">Sin tareas tuyas activas en este proyecto.</div>';
+  } else {
+    for (var i = 0; i < myInProj.length; i++) {
+      var t = myInProj[i];
+      var tone = _etaToneClass(t.etaDays, t.status);
+      miniHtml += '<div class="pi-mini-task">'
+               +   '<span class="pi-mini-id">' + esc(t.id) + '</span>'
+               +   '<span class="pi-mini-name">' + esc(t.nombre || '') + '</span>'
+               +   '<span class="pi-mini-eta ' + tone + '">' + esc(t.eta || '') + '</span>'
+               + '</div>';
+    }
+  }
+
+  var heroHeadline = enriched.overdue
+    ? 'Hay <b>' + enriched.overdue + ' atrasada' + (enriched.overdue === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Resolver primero.</span>'
+    : (myInProj.length ? 'Tienes <b>' + myInProj.length + ' tarea' + (myInProj.length === 1 ? '' : 's') + ' tuya' + (myInProj.length === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Por urgencia.</span>'
+                       : 'Sin tareas tuyas activas. <span style="color:var(--muted);font-weight:600">Solo seguimiento.</span>');
+
+  return '<div class="pi-hero">'
+       +   '<div>'
+       +     '<div class="pi-hero-eye">— ' + (dl != null && dl <= 14 ? 'Más urgente · ' : '') + esc(dlText) + '</div>'
+       +     '<div class="pi-hero-name">' + esc(p.nombre || '') + '</div>'
+       +     '<p class="pi-hero-lede">' + lede + '</p>'
+       +     '<div class="pi-hero-meta">'
+       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num">' + String(enriched.tasks).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">tareas activas</div></div>'
+       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num ' + (enriched.overdue ? 'crit' : '') + '">' + String(enriched.overdue).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">atrasada' + (enriched.overdue === 1 ? '' : 's') + '</div></div>'
+       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num">' + String(teamCount).padStart(2,'0') + '</div><div class="pi-hero-stat-lbl">equipo</div></div>'
+       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num ' + dlCls + '">' + (dl == null ? '—' : (dl < 0 ? Math.abs(dl) : dl)) + '<em>d</em></div><div class="pi-hero-stat-lbl">' + (dl != null && dl < 0 ? 'vencido' : 'al cierre') + '</div></div>'
+       +     '</div>'
+       +   '</div>'
+       +   '<div class="pi-hero-card">'
+       +     '<div class="pi-hero-card-eye">— Próximas tareas tuyas</div>'
+       +     '<div class="pi-hero-card-h">' + heroHeadline + '</div>'
+       +     miniHtml
+       +     '<div style="margin-top:14px"><button class="ed-btn primary" onclick="goEd(\'tracker\')">Ver en tracker →</button></div>'
+       +   '</div>'
+       + '</div>';
+}
+
+function _piRenderRow(enriched, idx) {
+  var p = enriched.p;
+  var dl = enriched.deadlineDays;
+  var dlCls = dl == null ? '' : (dl < 0 ? 'crit' : (dl <= 14 ? 'warn' : ''));
+  var dlVal = dl == null ? '—' : (dl < 0 ? Math.abs(dl) : dl);
+  var isOwner = enriched.role === 'Owner';
+  var roleClass = isOwner ? 'role' : 'role muted';
+  var tag = (p.lider && p.lider !== ((USER && USER.name) || '')) ? ('Lidera ' + p.lider) : '';
+  var prog = enriched.progress;
+  var peopleHtml = '';
+  for (var i = 0; i < enriched.people.length; i++) peopleHtml += _piPersonAvatar(enriched.people[i], false);
+  if (enriched.more > 0) peopleHtml += _piPersonAvatar({ initials: '+' + enriched.more }, true);
+
+  return '<div class="pi-row" onclick="goEd(\'tracker\')">'
+       +   '<div class="pi-rank">' + String(idx).padStart(2,'0') + '</div>'
+       +   '<div class="pi-name-block">'
+       +     '<div class="pi-name-eye">'
+       +       '<span class="' + roleClass + '">' + esc(enriched.role) + '</span>'
+       +       (tag ? '<span style="color:var(--dim)">·</span><span>' + esc(tag) + '</span>' : '')
+       +     '</div>'
+       +     '<div class="pi-name">' + esc(p.nombre || '') + '</div>'
+       +     '<div class="pi-sub">' + esc(p.descripcion || '') + '</div>'
+       +   '</div>'
+       +   '<div class="pi-stat-cell">'
+       +     '<div class="pi-stat-num">' + String(enriched.tasks).padStart(2,'0') + '</div>'
+       +     '<div class="pi-stat-lbl">tareas · ' + enriched.mine + ' tuya' + (enriched.mine === 1 ? '' : 's') + '</div>'
+       +   '</div>'
+       +   '<div class="pi-stat-cell">'
+       +     '<div class="pi-prog">'
+       +       '<div class="pi-prog-seg done"  style="width:' + prog.done  + '%"></div>'
+       +       '<div class="pi-prog-seg curso" style="width:' + prog.curso + '%"></div>'
+       +       '<div class="pi-prog-seg crit"  style="width:' + prog.crit  + '%"></div>'
+       +     '</div>'
+       +     '<div class="pi-prog-pct"><b>' + enriched.pctNum + '%</b> · ' + (enriched.overdue > 0 ? '<span style="color:var(--critical);font-weight:700">' + enriched.overdue + ' atrasada' + (enriched.overdue === 1 ? '' : 's') + '</span>' : 'al día') + '</div>'
+       +   '</div>'
+       +   '<div class="pi-stat-cell">'
+       +     '<div class="pi-stat-num ' + dlCls + '">' + dlVal + '<em>d</em></div>'
+       +     '<div class="pi-stat-lbl">' + (dl != null && dl < 0 ? 'vencido' : 'al cierre') + '</div>'
+       +   '</div>'
+       +   '<div class="pi-people">' + peopleHtml + '</div>'
+       + '</div>';
+}
+
+function edPSetTab(key) { EDP.tab = key; if (D) rEdProyectosIndex(D); }
+
+function rEdProyectosIndex(D) {
+  var v = $('vEdProyectosIndex'); if (!v) return;
+  var userName = (USER && USER.name) || (D && D._user && D._user.name) || '';
+  var projects = (D && D.projects) || [];
+  var tasks = (D && D.tasks) || [];
+
+  var open = projects.filter(function(p){ return p.status === 'Activo' || p.status === 'En pausa'; });
+  var cActivos    = open.length;
+  var cParticipas = open.filter(function(p){
+    if (p.lider === userName) return false;
+    return tasks.some(function(t){ return t.proyectoId == p.id && t.resp === userName; });
+  }).length;
+  var cLideras    = open.filter(function(p){ return p.lider === userName; }).length;
+  var cCerrados   = projects.filter(function(p){ return p.status === 'Completado' || p.status === 'Cancelado'; }).length;
+
+  var bucket = _piBucket(projects, EDP.tab, userName, tasks);
+  var enriched = bucket.map(function(p){ return _piEnrichProject(p, D, userName); });
+  enriched.sort(function(a, b) {
+    var ad = (typeof a.deadlineDays === 'number') ? a.deadlineDays : 9999;
+    var bd = (typeof b.deadlineDays === 'number') ? b.deadlineDays : 9999;
+    return ad - bd;
+  });
+
+  var totalOwner       = open.filter(function(p){ return p.lider === userName; }).length;
+  var totalParticipant = open.length - totalOwner;
+  var myTasksInOpen    = open.reduce(function(acc, p){ return acc + tasks.filter(function(t){ return t.proyectoId == p.id && t.resp === userName; }).length; }, 0);
+
+  var html = ''
+    + '<div class="ed-eye">Mis proyectos</div>'
+    + '<h1 class="ed-h1">' + cActivos + ' frente' + (cActivos === 1 ? '' : 's') + ' abiertos. <em>' + totalOwner + ' propio' + (totalOwner === 1 ? '' : 's') + ',</em><br>' + totalParticipant + ' acompañado' + (totalParticipant === 1 ? '' : 's') + '.</h1>'
+    + '<p class="ed-lede">'
+    +   'Estás en <b>' + cActivos + ' proyectos activos</b>. Sos owner de <b>' + totalOwner + '</b> y participante de <b>' + totalParticipant + '</b>. Sumadas, son <b>' + myTasksInOpen + ' tarea' + (myTasksInOpen === 1 ? '' : 's') + ' tuya' + (myTasksInOpen === 1 ? '' : 's') + '</b> repartidas entre ellos.'
+    + '</p>';
+
+  function tab(key, label, count) {
+    var active = EDP.tab === key ? ' active' : '';
+    return '<span class="pi-tab' + active + '" onclick="edPSetTab(\'' + key + '\')">'
+         +    esc(label) + '<span class="pi-tab-c">' + count + '</span>'
+         + '</span>';
+  }
+  html += '<div class="pi-toolbar">'
+       +    '<div class="pi-tabs">'
+       +      tab('activos',    'Activos',          cActivos)
+       +      tab('participas', 'Donde participas', cParticipas)
+       +      tab('lideras',    'Que lideras',      cLideras)
+       +      tab('cerrados',   'Cerrados',         cCerrados)
+       +    '</div>'
+       +    '<div class="pi-sort">Orden: por urgencia ↓</div>'
+       + '</div>';
+
+  if (enriched.length === 0) {
+    html += '<div class="ed-lede" style="text-align:center;padding:40px 0">Sin proyectos en este filtro.</div>';
+  } else {
+    var startIdx = 1;
+    if (EDP.tab !== 'cerrados') {
+      html += _piRenderHero(enriched[0]);
+      startIdx = 2;
+      enriched = enriched.slice(1);
+    }
+    if (enriched.length > 0) {
+      html += '<section class="ed-section" style="margin-bottom:0">'
+           +    '<div class="ed-h2">— Otros proyectos donde estás</div>';
+      for (var i = 0; i < enriched.length; i++) {
+        html += _piRenderRow(enriched[i], startIdx + i);
+      }
+      html += '</section>';
+    }
+  }
+
+  html += '<div class="pi-foot">'
+       +    '<div class="pi-foot-info"><b>' + cActivos + ' activos · ' + cCerrados + ' cerrados.</b> Los proyectos cerrados quedan en historial.</div>'
+       +    '<button class="ed-btn" onclick="goEd(\'historial\')">Ver historial</button>'
+       +    '<button class="ed-btn accent" onclick="if(typeof openCreate===\'function\')openCreate(\'newProj\')">+ Nuevo proyecto</button>'
+       + '</div>';
+
+  v.innerHTML = html;
+}
+
+// MARKER:EDITORIAL_PROYECTOS_END
 </script>
