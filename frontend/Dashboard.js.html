@@ -2741,6 +2741,12 @@ function goEd(viewId) {
   document.querySelectorAll('.ed-nav-item').forEach(function(n) {
     n.classList.toggle('active', n.dataset && n.dataset.viewid === viewId);
   });
+  // Limpiar el grid 'with-panel' del tracker cuando navegamos a otra vista.
+  // Sino, el contenido de home/agrupadas queda apretado a la derecha
+  // porque #edMain mantiene grid 1fr 440px sin la 2da columna llena.
+  if (viewId !== 'tracker') {
+    var em = $('edMain'); if (em) em.classList.remove('with-panel');
+  }
   if (viewId === 'home') {
     var v = $('vEdHome'); if (v) v.classList.add('active');
     var role = _effectiveRole();
@@ -3022,8 +3028,9 @@ function rEdHomeHQ(D) {
   var v = $('vEdHome'); if (!v) return;
   var countries = (D && D.countries) || [];
   var allTasks = (D && D.tasks) || [];
-  var totalOpen = countries.reduce(function(a, c){ return a + (c.open || 0); }, 0)
-                || allTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
+  // Total siempre desde tasks.active para que coincida con el narrative del backend
+  // (sum(countries.open) deja afuera tareas con pais vacío → inconsistencia con el lede).
+  var totalOpen = allTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
   var totalOverdue = countries.reduce(function(a, c){ return a + (c.overdue || 0); }, 0);
   var slaAvg = 0;
   if (countries.length) {
