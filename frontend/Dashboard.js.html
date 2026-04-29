@@ -2811,9 +2811,32 @@ function goEd(viewId) {
     rEdAnalytics(D);
     return;
   }
-  // Alias sin equivalente legacy: 'paises' → resumen
-  var legacy = viewId === 'paises' ? 'resumen' : viewId;
-  if (typeof go === 'function') go(legacy);
+  // Editorial Resumen · Por país — solo head (HQ). Si el rol efectivo
+  // no es head, mostramos un mensaje claro. Si el renderer no está
+  // disponible, fallback al legacy go('resumen').
+  if (viewId === 'paises') {
+    var roleP = _effectiveRole();
+    if (roleP !== 'head') {
+      var vDeny = $('vEdResumen');
+      if (vDeny) {
+        vDeny.classList.add('active');
+        vDeny.innerHTML = ''
+          + '<div class="ed-eye">Acceso restringido</div>'
+          + '<h1 class="ed-h1">Solo HQ <em>puede ver esta vista</em>.</h1>'
+          + '<p class="ed-lede">La vista <b>Por país</b> está reservada al rol <b>head</b>.</p>'
+          + '<div style="margin-top:18px"><button class="ed-btn primary" onclick="goEd(\'home\')">Volver a inicio →</button></div>';
+      }
+      return;
+    }
+    if (typeof rEdResumen === 'function') {
+      var v9 = $('vEdResumen'); if (v9) v9.classList.add('active');
+      rEdResumen(D);
+      return;
+    }
+    if (typeof go === 'function') go('resumen');
+    return;
+  }
+  if (typeof go === 'function') go(viewId);
 }
 
 function rEdHomeSpecialist(D) {
@@ -5253,4 +5276,184 @@ function rEdAnalytics(D) {
 }
 
 // MARKER:EDITORIAL_ANALYTICS_END
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_RESUMEN_BEGIN  (owned by Agente O4)
+// Vista editorial "Por país" (head only). Hero stats + tabla por
+// país (reusa .hq-* y la lógica de sparkbar slope coloring de
+// rEdHomeHQ) + sección "Proyectos en riesgo" derivada de tasks.
+// ───────────────────────────────────────────────────────────────
+
+function rEdResumen(D) {
+  var v = $('vEdResumen'); if (!v) return;
+  // Defensa adicional: si por alguna razón se llamó directo sin pasar por
+  // goEd('paises'), validamos rol.
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  if (role !== 'head') {
+    v.innerHTML = ''
+      + '<div class="ed-eye">Acceso restringido</div>'
+      + '<h1 class="ed-h1">Solo HQ <em>puede ver esta vista</em>.</h1>'
+      + '<p class="ed-lede">La vista <b>Por país</b> está reservada al rol <b>head</b>.</p>'
+      + '<div style="margin-top:18px"><button class="ed-btn primary" onclick="goEd(\'home\')">Volver a inicio →</button></div>';
+    return;
+  }
+
+  var countries = (D && D.countries) || [];
+  var allTasks  = (D && D.tasks) || [];
+  var projects  = (D && D.projects) || [];
+
+  // ── Hero KPIs (idéntica lógica que rEdHomeHQ para coherencia visual)
+  var totalOpen    = allTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
+  var totalOverdue = countries.reduce(function(a, c){ return a + (c.overdue || 0); }, 0);
+  var slaAvg = 0;
+  if (countries.length) {
+    var slaSum = countries.reduce(function(a, c){ return a + (c.slaPct || 0); }, 0);
+    slaAvg = Math.round(slaSum / countries.length);
+  }
+  var atRiskCountries = countries.filter(function(c){
+    return (c.overdue || 0) > 3 || (c.slaPct || 100) < 85;
+  });
+  var atRisk = atRiskCountries.length;
+
+  // ── Lede narrativo derivado: países en riesgo + países brillando.
+  var briefShine = countries
+    .filter(function(c){ return (c.slaPct || 0) >= 95 && (c.overdue || 0) === 0; })
+    .map(function(c){ return c.code || c.name; })
+    .filter(Boolean)
+    .slice(0, 3);
+  var briefRisk = atRiskCountries
+    .map(function(c){ return c.code || c.name; })
+    .filter(Boolean)
+    .slice(0, 3);
+  var ledeParts = [];
+  ledeParts.push('LATAM acumula <b>' + totalOpen + '</b> tareas activas');
+  if (totalOverdue > 0) ledeParts.push('<span class="crit">' + totalOverdue + ' vencidas</span>');
+  var lede = ledeParts.join(' · ') + '.';
+  if (briefRisk.length) {
+    lede += ' En riesgo: <span class="warn">' + briefRisk.map(esc).join(', ') + '</span>.';
+  }
+  if (briefShine.length) {
+    lede += ' Brillando: <span class="good">' + briefShine.map(esc).join(', ') + '</span>.';
+  }
+
+  var sem = (D && D.semana) ? ('sem ' + D.semana) : '';
+  var eyeBits = ['Por país', countries.length + ' país' + (countries.length === 1 ? '' : 'es') + ' activos'];
+  if (sem) eyeBits.push(sem);
+
+  var html = ''
+    + '<div class="ed-eye">' + esc(eyeBits.join(' · ')) + '</div>'
+    + '<h1 class="ed-h1">LATAM <em>en detalle</em>.</h1>'
+    + '<p class="ed-lede">' + lede + '</p>'
+    + '<div class="hq-hero">'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Total LATAM</div>'
+    +     '<div class="hq-stat-num">' + totalOpen + '</div>'
+    +     '<div class="hq-stat-ctx">' + countries.length + ' país' + (countries.length === 1 ? '' : 'es') + '</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Vencidas</div>'
+    +     '<div class="hq-stat-num crit">' + String(totalOverdue).padStart(2,'0') + '</div>'
+    +     '<div class="hq-stat-ctx">' + (totalOverdue ? 'reasignar' : '—') + '</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">SLA promedio</div>'
+    +     '<div class="hq-stat-num good">' + (slaAvg || '—') + (slaAvg ? '%' : '') + '</div>'
+    +     '<div class="hq-stat-ctx">LATAM</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Países en riesgo</div>'
+    +     '<div class="hq-stat-num warn">' + String(atRisk).padStart(2,'0') + '</div>'
+    +     '<div class="hq-stat-ctx">' + (atRisk ? 'monitorear' : 'todos OK') + '</div></div>'
+    + '</div>';
+
+  // ── Tabla por país (reusa .hq-* y la misma lógica de sparkbar slope).
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Por país</div>';
+  if (countries.length === 0) {
+    html += '<div class="ed-lede">Sin datos de países disponibles.</div>';
+  } else {
+    html += '<div class="hq-country-row" style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;font-weight:700">'
+         +    '<span></span><span>País / Líder</span><span>Abiertas</span><span>Vencidas</span><span>SLA</span><span>Tendencia 30d</span>'
+         + '</div>';
+    var maxTrend = countries.reduce(function(m, c){
+      var arr = c.trend || [];
+      for (var i = 0; i < arr.length; i++) if (arr[i] > m) m = arr[i];
+      return m;
+    }, 1);
+    for (var ci = 0; ci < countries.length; ci++) {
+      var c = countries[ci];
+      var sla = c.slaPct || 0;
+      var slaCls = sla >= 90 ? 'good' : (sla >= 85 ? 'warn' : 'crit');
+      var ovCls  = (c.overdue || 0) > 3 ? 'crit' : ((c.overdue || 0) > 0 ? 'warn' : 'dim');
+      var trend = c.trend || [];
+      var sparkColor = '';
+      if (trend.length >= 3) {
+        var third = Math.floor(trend.length / 3);
+        var firstAvg = 0, lastAvg = 0;
+        for (var fi = 0; fi < third; fi++) firstAvg += trend[fi];
+        for (var li = trend.length - third; li < trend.length; li++) lastAvg += trend[li];
+        firstAvg /= third || 1; lastAvg /= third || 1;
+        var ratio = firstAvg > 0 ? lastAvg / firstAvg : 1;
+        if (ratio > 1.10) sparkColor = 'good';
+        else if (ratio < 0.90) sparkColor = 'crit';
+      }
+      var sparkHtml = '';
+      for (var k = 0; k < trend.length; k++) {
+        var ratioH = maxTrend > 0 ? trend[k] / maxTrend : 0;
+        var h = Math.max(4, Math.round(ratioH * 22));
+        var isHigh = (k === trend.length - 1);
+        sparkHtml += '<span class="bar' + (isHigh ? ' high' : '') + (sparkColor ? ' ' + sparkColor : '') + '" style="height:' + h + 'px"></span>';
+      }
+      // TODO: filtrar el tracker por país (EDT.country) cuando esté implementado.
+      html += '<div class="hq-country-row clickable" onclick="goEd(\'tracker\')">'
+           +    '<div class="hq-flag">' + esc(c.code || '') + '</div>'
+           +    '<div class="hq-country-name"><b>' + esc(c.name || c.code || '') + '</b><span class="lead">' + esc(c.leader || '—') + '</span></div>'
+           +    '<div class="hq-num">' + (c.open || 0) + '</div>'
+           +    '<div class="hq-num ' + ovCls + '">' + (c.overdue || 0) + '</div>'
+           +    '<div class="hq-num ' + slaCls + '">' + (sla || '—') + (sla ? '%' : '') + '</div>'
+           +    '<div class="hq-spark">' + sparkHtml + '</div>'
+           + '</div>';
+    }
+  }
+  html += '</section>';
+
+  // ── Proyectos en riesgo (derivado de tasks; ordenado por % atrasadas).
+  var risky = projects
+    .filter(function(p){ return p.status !== 'Completado' && p.status !== 'Cancelado'; })
+    .map(function(p) {
+      var pTasks = allTasks.filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; });
+      var overdue = pTasks.filter(function(t){
+        return (typeof taskOverdueBySLA === 'function') ? taskOverdueBySLA(t) : false;
+      }).length;
+      var blocked = pTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
+      var total = pTasks.length;
+      var pctOverdue = total > 0 ? (overdue / total) : 0;
+      return { p: p, blocked: blocked, overdue: overdue, total: total, pct: pctOverdue };
+    })
+    .filter(function(x){ return x.overdue > 0; })
+    .sort(function(a, b){
+      if (b.pct !== a.pct) return b.pct - a.pct;
+      return b.overdue - a.overdue;
+    })
+    .slice(0, 12);
+
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Proyectos en riesgo</div>';
+  if (!risky.length) {
+    html += '<div class="ed-lede">Sin proyectos en riesgo. <span class="good">Todo bajo control.</span></div>';
+  } else {
+    for (var ri = 0; ri < risky.length; ri++) {
+      var x = risky[ri];
+      var pais = x.p.pais || '—';
+      var pctTxt = x.total > 0 ? Math.round(x.pct * 100) + '%' : '—';
+      var pillCls = x.pct >= 0.5 ? 'crit' : (x.pct >= 0.25 ? 'warn' : 'dim');
+      html += '<div class="ed-risk-row" onclick="goEd(\'tracker\')">'
+           +    '<div class="ed-risk-name">' + esc(x.p.nombre || ('Proyecto #' + x.p.id)) + '</div>'
+           +    '<div class="ed-risk-meta">' + esc(pais)
+           +      (x.p.responsable ? ' · ' + esc(x.p.responsable.split(' ').slice(0,2).join(' ')) : '')
+           +      ' · ' + x.total + ' activas'
+           +    '</div>'
+           +    '<div class="hq-num crit">' + x.overdue + '</div>'
+           +    '<div class="ed-risk-pill ' + pillCls + '">' + esc(pctTxt) + ' atrasadas</div>'
+           + '</div>';
+    }
+  }
+  html += '</section>';
+
+  v.innerHTML = html;
+}
+
+// MARKER:EDITORIAL_RESUMEN_END
 </script>

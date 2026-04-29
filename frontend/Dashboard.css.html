@@ -2895,6 +2895,7 @@ body.role-manager #tabResumen { display: none !important; }
 .mgr-att-row,
 .esp-proj-row,
 .hq-country-row.clickable,
+.ed-risk-row,
 .pi-mini-task {
   cursor: pointer;
   transition: background .12s;
@@ -2903,10 +2904,55 @@ body.role-manager #tabResumen { display: none !important; }
 .mgr-att-row:hover,
 .esp-proj-row:hover,
 .hq-country-row.clickable:hover,
+.ed-risk-row:hover,
 .pi-mini-task:hover,
 .mgr-team-row.clickable:hover {
   background: var(--paper2);
 }
+
+/* ── Editorial: filas de "Proyectos en riesgo" (vEdResumen) ───── */
+.ed-risk-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+  color: var(--ink);
+}
+.ed-risk-row:last-child { border-bottom: none; }
+.ed-risk-name {
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ed-risk-meta {
+  font-size: 11px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  font-weight: 700;
+  min-width: 140px;
+}
+.ed-risk-pill {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  color: var(--dim);
+  letter-spacing: .4px;
+  white-space: nowrap;
+}
+.ed-risk-pill.warn { color: var(--warn); border-color: var(--warn); }
+.ed-risk-pill.crit { color: var(--critical); border-color: var(--critical); }
+.ed-risk-pill.dim  { color: var(--dim); border-color: var(--rule); }
 .mgr-team-row.clickable {
   cursor: pointer;
   transition: background .12s;
