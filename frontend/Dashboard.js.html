@@ -3164,9 +3164,9 @@ function rEdTracker(D) {
          +      '<div class="tk-timeline">' + tlHtml + '</div>'
          +    '</div>'
          +    '<div class="tk-actions">'
-         +      '<button class="ed-btn primary">Escalar</button>'
-         +      '<button class="ed-btn">Reasignar</button>'
-         +      '<button class="ed-btn">Comentar</button>'
+         +      '<button class="ed-btn primary" onclick="edUOpen(\'' + esc(sel.id) + '\', \'avanzar\')">Avanzar →</button>'
+         +      '<button class="ed-btn" onclick="edUOpen(\'' + esc(sel.id) + '\', \'cerrar\')">Cerrar ✓</button>'
+         +      '<button class="ed-btn" onclick="edUOpen(\'' + esc(sel.id) + '\', \'bloquear\')">Bloquear</button>'
          +    '</div>'
          + '</aside>';
   }
@@ -3305,4 +3305,226 @@ function rEdAgrupadas(D) {
 }
 
 // MARKER:EDITORIAL_AGRUPADAS_END
+
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_ACTUALIZAR_BEGIN
+// Panel deslizable lateral (560px) con 3 variantes:
+//   avanzar  → siguiente estado del flujo
+//   cerrar   → marca Listo + resumen en notas (mueve a Historial)
+//   bloquear → marca Bloqueado + razón en notas
+// Sin: AI, adjuntos, notif preview — Fase 2.
+// ───────────────────────────────────────────────────────────────
+
+var EDU = { taskId: null, variant: null };
+var _UA_FLOW = ['Pendiente', 'En curso', 'En revisión', 'Listo'];
+
+function _uaNextStatus(current) {
+  var idx = _UA_FLOW.indexOf(current);
+  if (idx < 0 || idx >= _UA_FLOW.length - 1) return 'Listo';
+  return _UA_FLOW[idx + 1];
+}
+
+function _uaFlowIndices(current, variant) {
+  var nowIdx = _UA_FLOW.indexOf(current);
+  if (nowIdx < 0) nowIdx = 0;
+  var targetIdx;
+  if (variant === 'cerrar') targetIdx = 3;
+  else if (variant === 'bloquear') targetIdx = -1;
+  else targetIdx = Math.min(nowIdx + 1, 3);
+  return { nowIdx: nowIdx, targetIdx: targetIdx };
+}
+
+function _uaRenderFlow(task, variant) {
+  var idx = _uaFlowIndices(task.status, variant);
+  var html = '<div class="ua-flow">';
+  for (var i = 0; i < _UA_FLOW.length; i++) {
+    var dotCls = i < idx.nowIdx ? 'done' : i === idx.nowIdx ? 'now' : i === idx.targetIdx ? 'target' : '';
+    var lblCls = i === idx.nowIdx ? 'now' : i === idx.targetIdx ? 'target' : '';
+    html += '<div class="ua-flow-step">'
+         +    '<div class="ua-flow-dot ' + dotCls + '"></div>'
+         +    '<div class="ua-flow-lbl ' + lblCls + '">' + esc(_UA_FLOW[i]) + '</div>'
+         + '</div>';
+    if (i < _UA_FLOW.length - 1) {
+      var lineCls = i < idx.nowIdx ? 'done' : '';
+      html += '<div class="ua-flow-line ' + lineCls + '"></div>';
+    }
+  }
+  html += '</div>';
+  return html;
+}
+
+function _uaRenderOptions(variant) {
+  function opt(key, lbl, name) {
+    var active = variant === key ? ' active' : '';
+    return '<button type="button" class="ua-opt' + active + '" onclick="edUSwitchVariant(\'' + key + '\')">'
+         +    '<div class="ua-opt-lbl">' + esc(lbl) + '</div>'
+         +    '<div class="ua-opt-name">' + esc(name) + '</div>'
+         + '</button>';
+  }
+  return '<div class="ua-options">'
+       +    opt('avanzar',  'Avanzar',  '→ siguiente')
+       +    opt('cerrar',   'Cerrar',   'Marcar lista')
+       +    opt('bloquear', 'Bloquear', 'Por dependencia')
+       + '</div>';
+}
+
+function _uaRenderActionCard(variant, task) {
+  if (variant === 'cerrar') {
+    return '<div class="ua-action cerrar">'
+         +   '<div class="ua-action-mark">✓</div>'
+         +   '<div>'
+         +     '<div class="ua-action-h">Estás a punto de cerrar esta tarea.</div>'
+         +     '<div class="ua-action-sub">Pasará a <b>Historial</b> con tu resumen como cierre.</div>'
+         +   '</div>'
+         + '</div>';
+  }
+  if (variant === 'bloquear') {
+    return '<div class="ua-action bloquear">'
+         +   '<div class="ua-action-mark">!</div>'
+         +   '<div>'
+         +     '<div class="ua-action-h">Marcar tarea como bloqueada.</div>'
+         +     '<div class="ua-action-sub">La tarea queda en pausa con la razón documentada. <b>No consume capacidad activa</b> mientras esté bloqueada.</div>'
+         +   '</div>'
+         + '</div>';
+  }
+  var next = _uaNextStatus(task.status);
+  return '<div class="ua-action avanzar">'
+       +   '<div class="ua-action-mark">→</div>'
+       +   '<div>'
+       +     '<div class="ua-action-h">Avanzar a <em>' + esc(next) + '</em>.</div>'
+       +     '<div class="ua-action-sub">Cambia el estado al siguiente paso del flujo. Podés agregar una nota opcional para contexto.</div>'
+       +   '</div>'
+       + '</div>';
+}
+
+function _uaRenderBody(task, variant) {
+  var actionCard = _uaRenderActionCard(variant, task);
+  var fieldHtml;
+  if (variant === 'cerrar') {
+    fieldHtml = '<div class="ua-field">'
+              +   '<div class="ua-label">¿Qué se hizo? <span class="req">*</span></div>'
+              +   '<textarea class="ua-input ua-textarea" id="uaResumen" placeholder="Resumen breve de cómo se cerró"></textarea>'
+              + '</div>';
+  } else if (variant === 'bloquear') {
+    fieldHtml = '<div class="ua-field">'
+              +   '<div class="ua-label">¿Qué te bloquea? <span class="req">*</span></div>'
+              +   '<textarea class="ua-input ua-textarea" id="uaRazon" placeholder="Ej: RR.HH. lleva 4 días sin responder."></textarea>'
+              + '</div>';
+  } else {
+    fieldHtml = '<div class="ua-field">'
+              +   '<div class="ua-label">Nota para el siguiente paso <span class="opt">(opcional)</span></div>'
+              +   '<textarea class="ua-input ua-textarea" id="uaNota" placeholder="Ej: revisar especialmente cláusula 7.2."></textarea>'
+              + '</div>';
+  }
+  return '<div class="ua-body">' + _uaRenderOptions(variant) + actionCard + fieldHtml + '</div>';
+}
+
+function _uaRenderFoot(variant) {
+  var info, btn;
+  if (variant === 'cerrar') {
+    info = '<b>Al cerrar:</b> queda en historial · libera 1 slot en tu carga.';
+    btn = 'Cerrar tarea ✓';
+  } else if (variant === 'bloquear') {
+    info = '<b>Al bloquear:</b> la tarea no consume tu capacidad activa.';
+    btn = 'Marcar bloqueada';
+  } else {
+    info = '<b>Al avanzar:</b> la tarea cambia al siguiente estado del flujo.';
+    btn = 'Avanzar →';
+  }
+  return '<div class="ua-foot">'
+       +   '<div class="ua-foot-info">' + info + '</div>'
+       +   '<button type="button" class="ed-btn" onclick="edUClose()">Cancelar</button>'
+       +   '<button type="button" class="ed-btn accent" onclick="edUSubmit()">' + esc(btn) + '</button>'
+       + '</div>';
+}
+
+function _uaRender(task, variant) {
+  var pn = _projNameForTask(task);
+  return '<div class="ua-overlay" onclick="if(event.target===this)edUClose()">'
+       +   '<div class="ua-backdrop" onclick="edUClose()"></div>'
+       +   '<aside class="ua-panel" role="dialog" aria-modal="true" aria-label="Actualizar tarea">'
+       +     '<div class="ua-head">'
+       +       '<button type="button" class="ua-x" onclick="edUClose()" aria-label="Cerrar">×</button>'
+       +       '<div class="ua-eye">— Actualizar estado</div>'
+       +       '<div class="ua-id">' + esc(task.id + ' · ' + pn) + '</div>'
+       +       '<div class="ua-title">' + esc(task.nombre || '') + '</div>'
+       +     '</div>'
+       +     _uaRenderFlow(task, variant)
+       +     _uaRenderBody(task, variant)
+       +     _uaRenderFoot(variant)
+       +   '</aside>'
+       + '</div>';
+}
+
+function edUOpen(taskId, variant) {
+  if (!D || !D.tasks) { if (typeof toast === 'function') toast('Sin datos cargados', 'error'); return; }
+  var task = D.tasks.find(function(t){ return t.id == taskId; });
+  if (!task) { if (typeof toast === 'function') toast('Tarea no encontrada', 'error'); return; }
+  EDU.taskId = task.id;
+  EDU.variant = variant || 'avanzar';
+  var host = $('uaHost'); if (!host) return;
+  host.innerHTML = _uaRender(task, EDU.variant);
+}
+
+function edUClose() {
+  EDU.taskId = null;
+  EDU.variant = null;
+  var host = $('uaHost'); if (host) host.innerHTML = '';
+}
+
+function edUSwitchVariant(v) {
+  if (!EDU.taskId) return;
+  EDU.variant = v;
+  var task = D.tasks.find(function(t){ return t.id == EDU.taskId; });
+  if (!task) return;
+  var host = $('uaHost'); if (host) host.innerHTML = _uaRender(task, v);
+}
+
+function edUSubmit() {
+  if (!EDU.taskId || !EDU.variant) return;
+  var task = D.tasks.find(function(t){ return t.id == EDU.taskId; });
+  if (!task) return;
+  var fields = {};
+  if (EDU.variant === 'cerrar') {
+    var resumen = ($('uaResumen') && $('uaResumen').value || '').trim();
+    if (!resumen) { if (typeof toast === 'function') toast('Resumen requerido para cerrar', 'error'); return; }
+    fields.status = 'Listo';
+    fields.notas = 'CIERRE: ' + resumen;
+  } else if (EDU.variant === 'bloquear') {
+    var razon = ($('uaRazon') && $('uaRazon').value || '').trim();
+    if (!razon) { if (typeof toast === 'function') toast('Razón requerida para bloquear', 'error'); return; }
+    fields.status = 'Bloqueado';
+    fields.notas = razon;
+  } else {
+    fields.status = _uaNextStatus(task.status);
+    var nota = ($('uaNota') && $('uaNota').value || '').trim();
+    if (nota) fields.notas = nota;
+  }
+  if (typeof showLoader === 'function') showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (res && res.success === false) { if (typeof toast === 'function') toast(res.error || 'Error', 'error'); return; }
+      var msg = EDU.variant === 'cerrar' ? 'Tarea cerrada' : EDU.variant === 'bloquear' ? 'Tarea bloqueada' : 'Tarea avanzada';
+      if (typeof toast === 'function') toast(msg, 'success');
+      edUClose();
+      google.script.run.withSuccessHandler(function(fresh) {
+        if (!fresh) return;
+        D = fresh;
+        if (typeof render === 'function') render();
+        var active = document.querySelector('.view.active');
+        if (!active) return;
+        if (active.id === 'vEdHome' && typeof goEd === 'function') goEd('home');
+        else if (active.id === 'vEdTracker' && typeof goEd === 'function') goEd('tracker');
+        else if (active.id === 'vEdAgrupadas' && typeof goEd === 'function') goEd('agrupadas');
+      }).getEditorialData();
+    })
+    .withFailureHandler(function(e) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (typeof toast === 'function') toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .updateTaskFields(EDU.taskId, fields);
+}
+
+// MARKER:EDITORIAL_ACTUALIZAR_END
 </script>
