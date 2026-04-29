@@ -62,6 +62,7 @@ function setTheme(theme) {
   // Las vistas editoriales no están en VIEWS y se reendrean vía goEd.
   if (active.id === 'vEdHome' && typeof goEd === 'function') { goEd('home'); return; }
   if (active.id === 'vEdTracker' && typeof goEd === 'function') { goEd('tracker'); return; }
+  if (active.id === 'vEdAnalytics' && typeof goEd === 'function') { goEd('analytics'); return; }
   if (typeof go === 'function') {
     var v = active.id.replace(/^v/, '');
     v = v.charAt(0).toLowerCase() + v.slice(1);
@@ -1475,6 +1476,8 @@ function reload() {
         else if (active.id === 'vEdAgrupadas') goEd('agrupadas');
         else if (active.id === 'vEdProyectosIndex') goEd('proyectos');
         else if (active.id === 'vEdMisTareas') goEd('mistareas');
+        else if (active.id === 'vEdAnalytics') goEd('analytics');
+        else if (active.id === 'vEdHistorial') goEd('historial');
       }
       hideLoader();
     })
@@ -2218,6 +2221,11 @@ var ACTIONS = {
     go('tracker');
     render();
   },
+  'miq-open-person': function(el) {
+    // Desde el editorial "Mi equipo / Equipos": placeholder hasta que
+    // exista la vista de detalle de persona. Por ahora, toast suave.
+    if (typeof _miqOpenPerson === 'function') _miqOpenPerson(el.dataset.arg || '');
+  },
   'remove-doc':      function(el){
     var kind = el.dataset.kind;
     var itemId = Number(el.dataset.itemId);
@@ -2780,9 +2788,55 @@ function goEd(viewId) {
     rEdMisTareas(D);
     return;
   }
-  // Alias sin equivalente legacy: 'paises' → resumen
-  var legacy = viewId === 'paises' ? 'resumen' : viewId;
-  if (typeof go === 'function') go(legacy);
+  // Editorial Historial — disponible para los 3 roles. Si el renderer
+  // no está disponible, caemos al legacy go('historial').
+  if (viewId === 'historial' && typeof rEdHistorial === 'function') {
+    var v6 = $('vEdHistorial'); if (v6) v6.classList.add('active');
+    rEdHistorial(D);
+    return;
+  }
+  if (viewId === 'miequipo' && typeof rEdMiequipo === 'function') {
+    var v7 = $('vEdMiequipo'); if (v7) v7.classList.add('active');
+    rEdMiequipo(D);
+    return;
+  }
+  // Editorial Analytics — destruye instances Chart.js antes de re-render
+  if (viewId === 'analytics' && typeof rEdAnalytics === 'function') {
+    if (CH.pa)  { try { CH.pa.destroy();  } catch (e) {} CH.pa  = null; }
+    if (CH.sa)  { try { CH.sa.destroy();  } catch (e) {} CH.sa  = null; }
+    if (CH.eda) { try { CH.eda.destroy(); } catch (e) {} CH.eda = null; }
+    if (CH.edb) { try { CH.edb.destroy(); } catch (e) {} CH.edb = null; }
+    if (CH.edc) { try { CH.edc.destroy(); } catch (e) {} CH.edc = null; }
+    var v8 = $('vEdAnalytics'); if (v8) v8.classList.add('active');
+    rEdAnalytics(D);
+    return;
+  }
+  // Editorial Resumen · Por país — solo head (HQ). Si el rol efectivo
+  // no es head, mostramos un mensaje claro. Si el renderer no está
+  // disponible, fallback al legacy go('resumen').
+  if (viewId === 'paises') {
+    var roleP = _effectiveRole();
+    if (roleP !== 'head') {
+      var vDeny = $('vEdResumen');
+      if (vDeny) {
+        vDeny.classList.add('active');
+        vDeny.innerHTML = ''
+          + '<div class="ed-eye">Acceso restringido</div>'
+          + '<h1 class="ed-h1">Solo HQ <em>puede ver esta vista</em>.</h1>'
+          + '<p class="ed-lede">La vista <b>Por país</b> está reservada al rol <b>head</b>.</p>'
+          + '<div style="margin-top:18px"><button class="ed-btn primary" onclick="goEd(\'home\')">Volver a inicio →</button></div>';
+      }
+      return;
+    }
+    if (typeof rEdResumen === 'function') {
+      var v9 = $('vEdResumen'); if (v9) v9.classList.add('active');
+      rEdResumen(D);
+      return;
+    }
+    if (typeof go === 'function') go('resumen');
+    return;
+  }
+  if (typeof go === 'function') go(viewId);
 }
 
 function rEdHomeSpecialist(D) {
@@ -4591,4 +4645,815 @@ function rEdMisTareas(D) {
 }
 
 // MARKER:EDITORIAL_MISTAREAS_END
+
+// MARKER:EDITORIAL_HISTORIAL_BEGIN  (owned by Agente O1)
+// Historial editorial · "Cerradas" (specialist) / "Historial" (manager/head).
+// Hero stats (total · on-time · tarde · esta semana) + tabla narrativa de
+// tareas cerradas filtradas por rol. Reutiliza .esp-hero / .esp-stat /
+// .tk-table / .ed-pill — no agrega CSS nuevo. Las filas no abren panel
+// detallado todavía (las cerradas no tienen tracker view); click muestra
+// toast informativo. Robust ante D.historial vacío con empty state cálido.
+// ───────────────────────────────────────────────────────────────
+
+function _edHistFilterByRole(D) {
+  var hist = (D && D.historial) || [];
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  if (role === 'specialist') {
+    var name = _effectiveUserName();
+    return hist.filter(function(t){ return t.resp === name; });
+  }
+  if (role === 'manager') {
+    var code = _effectiveUserCode();
+    return hist.filter(function(t){ return t.pais === code; });
+  }
+  // head: todo
+  return hist.slice();
+}
+
+// Días hábiles entre dos Date — replica local del helper usado en rResumen()
+// para no depender del orden de declaración entre archivos editados.
+function _edBizDaysBetween(from, to) {
+  var biz = 0, cur = new Date(from);
+  while (cur < to) {
+    cur.setDate(cur.getDate() + 1);
+    var dy = cur.getDay();
+    if (dy !== 0 && dy !== 6) biz++;
+  }
+  return biz;
+}
+
+// ¿Cerrada dentro de SLA? Devuelve null si no podemos calcular (faltan fechas).
+function _edWasOnTime(t) {
+  if (!t || !t.creado || !t.cerrado) return null;
+  var c = pd(t.creado), f = pd(t.cerrado);
+  if (!c || !f) return null;
+  var biz = _edBizDaysBetween(c, f);
+  var lim = (typeof SLA_LIMITS !== 'undefined' && SLA_LIMITS[t.priority]) || 5;
+  return biz <= lim;
+}
+
+// Días hábiles cerrada vs SLA (negativo = sobró tiempo / on-time).
+function _edDaysVsSla(t) {
+  if (!t || !t.creado || !t.cerrado) return null;
+  var c = pd(t.creado), f = pd(t.cerrado);
+  if (!c || !f) return null;
+  var biz = _edBizDaysBetween(c, f);
+  var lim = (typeof SLA_LIMITS !== 'undefined' && SLA_LIMITS[t.priority]) || 5;
+  return biz - lim;
+}
+
+function _edHistOnClick() {
+  if (typeof toast === 'function') {
+    toast('Tarea cerrada — historial detallado próximamente', 'info');
+  }
+}
+
+function rEdHistorial(D) {
+  var v = $('vEdHistorial'); if (!v) return;
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var hist = _edHistFilterByRole(D);
+  var total = hist.length;
+
+  // Métricas: on-time / tarde / esta semana
+  var onTime = 0, late = 0, unknown = 0;
+  hist.forEach(function(t){
+    var ot = _edWasOnTime(t);
+    if (ot === true) onTime++;
+    else if (ot === false) late++;
+    else unknown++;
+  });
+  var weekCutoff = Date.now() - 7 * 864e5;
+  var thisWeek = hist.filter(function(t){
+    var f = pd(t.cerrado);
+    return f && f.getTime() >= weekCutoff;
+  }).length;
+
+  // Eyebrow/H1/Lede según rol
+  var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
+  var eyebrow;
+  if (role === 'specialist') {
+    eyebrow = 'Tu historial · ' + total + (total === 1 ? ' tarea cerrada' : ' tareas cerradas');
+  } else if (role === 'manager') {
+    eyebrow = 'Historial · ' + total + (total === 1 ? ' tarea cerrada en tu equipo' : ' tareas cerradas en tu equipo');
+  } else {
+    eyebrow = 'Historial global · ' + total + (total === 1 ? ' tarea cerrada LATAM' : ' tareas cerradas LATAM');
+  }
+  if (todayLine) eyebrow += ' · ' + todayLine;
+
+  var h1Inner;
+  if (total === 0) {
+    h1Inner = 'Aún no hay <em>tareas cerradas</em>.';
+  } else if (thisWeek > 0) {
+    h1Inner = '<em>' + esc(String(thisWeek).padStart(2,'0')) + '</em> ' + (thisWeek === 1 ? 'tarea cerrada' : 'tareas cerradas') + '<br>esta semana.';
+  } else {
+    h1Inner = '<em>' + esc(String(total).padStart(2,'0')) + '</em> ' + (total === 1 ? 'tarea cerrada' : 'tareas cerradas') + ' en total.';
+  }
+
+  // Lede narrativa
+  var lede;
+  if (total === 0) {
+    lede = 'Aún no hay tareas cerradas. Cuando cierres tu primera, aparecerá acá.';
+  } else {
+    var ratio = (onTime + late) > 0 ? Math.round(onTime / (onTime + late) * 100) : null;
+    var bits = [];
+    if (ratio !== null) bits.push('<span class="good">' + ratio + '% on-time</span>');
+    if (late > 0) bits.push('<span class="crit">' + late + ' fuera de SLA</span>');
+    if (thisWeek > 0 && total !== thisWeek) bits.push(thisWeek + ' esta semana');
+    if (bits.length === 0) bits.push('Sin datos de SLA suficientes para calcular ritmo.');
+    lede = bits.join(' · ') + '.';
+  }
+
+  var html = ''
+    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
+    + '<h1 class="ed-h1" style="margin-bottom:8px">' + h1Inner + '</h1>'
+    + '<p class="ed-lede" style="margin-bottom:28px">' + lede + '</p>';
+
+  // HERO stats (4)
+  html += '<div class="esp-hero">'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Total cerradas</div>'
+       +      '<div class="esp-stat-num">' + String(total).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">' + (role === 'specialist' ? 'tu historial' : (role === 'manager' ? 'en tu equipo' : 'global LATAM')) + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">On-time</div>'
+       +      '<div class="esp-stat-num good">' + String(onTime).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">dentro de SLA</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Tarde</div>'
+       +      '<div class="esp-stat-num ' + (late > 0 ? 'crit' : '') + '">' + String(late).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">' + (late > 0 ? 'fuera de SLA' : 'sin demoras') + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Esta semana</div>'
+       +      '<div class="esp-stat-num">' + String(thisWeek).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">cerradas en 7d</div></div>'
+       + '</div>';
+
+  // Tabla
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— ' + (role === 'specialist' ? 'Tus cerradas' : (role === 'manager' ? 'Cerradas del equipo' : 'Cerradas LATAM')) + '</div>';
+
+  if (total === 0) {
+    html += '<div class="ed-lede">Aún no hay tareas cerradas. Cuando cierres tu primera, aparecerá acá.</div>';
+  } else {
+    // Orden: más recientes primero (cerrado desc)
+    var rows = hist.slice().sort(function(a, b){
+      var fa = pd(a.cerrado), fb = pd(b.cerrado);
+      var ta = fa ? fa.getTime() : 0;
+      var tb = fb ? fb.getTime() : 0;
+      return tb - ta;
+    });
+
+    var showResp = (role === 'manager' || role === 'head');
+
+    html += '<table class="tk-table">'
+         +    '<thead><tr>'
+         +      '<th>ID</th><th>Tarea</th><th>Proyecto</th>'
+         +      (showResp ? '<th>Resp.</th>' : '')
+         +      '<th>Prioridad</th><th>Cerrada el</th><th>Días vs SLA</th>'
+         +    '</tr></thead><tbody>';
+
+    for (var i = 0; i < rows.length; i++) {
+      var t = rows[i];
+      var pn = _projNameForTask(t);
+      var meta = (t.tipoTrabajo || '—') + (t.pais ? ' · ' + t.pais : '');
+      var dvs = _edDaysVsSla(t);
+      var slaTxt, slaTone;
+      if (dvs === null) {
+        slaTxt = '—'; slaTone = 'dim';
+      } else if (dvs <= 0) {
+        slaTxt = (dvs === 0 ? 'justo' : (Math.abs(dvs) + 'd antes'));
+        slaTone = 'good';
+      } else {
+        slaTxt = '+' + dvs + 'd tarde';
+        slaTone = 'crit';
+      }
+      html += '<tr class="tk-row" onclick="_edHistOnClick()">'
+           +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
+           +    '<td>'
+           +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
+           +      '<div class="tk-name-meta">' + esc(meta) + '</div>'
+           +    '</td>'
+           +    '<td>' + esc(pn) + '</td>'
+           +    (showResp ? '<td>' + esc(t.resp || '—') + '</td>' : '')
+           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span></td>'
+           +    '<td style="font-family:var(--mono);font-size:12px">' + esc(t.cerrado || '—') + '</td>'
+           +    '<td><span class="tk-eta ' + slaTone + '">' + esc(slaTxt) + '</span></td>'
+           + '</tr>';
+    }
+    html += '</tbody></table>';
+  }
+  html += '</section>';
+
+  v.innerHTML = html;
+}
+
+// MARKER:EDITORIAL_HISTORIAL_END
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_MIEQUIPO_BEGIN  (owned by Agente O2)
+// Vista editorial "Mi equipo" (manager) / "Equipos" (head).
+// Reemplaza el legacy vMiequipo (cards azules de hotspots + grid
+// de cards). Aquí: hero stats + tabla equipo con load bars.
+// Para head, agrupa por país con sub-headers .ed-h2.
+// Defensive: si el rol no tiene acceso, muestra mensaje cálido.
+// ───────────────────────────────────────────────────────────────
+function rEdMiequipo(D) {
+  var v = $('vEdMiequipo'); if (!v) return;
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : ((USER && USER.role) || 'specialist');
+  if (role !== 'manager' && role !== 'head') {
+    v.innerHTML = ''
+      + '<div class="ed-eye">Sin acceso</div>'
+      + '<h1 class="ed-h1">Esta vista es para <em>manager o head</em>.</h1>'
+      + '<p class="ed-lede">Si pensás que esto es un error, avisale a quien te dio acceso.</p>';
+    return;
+  }
+
+  var team = (D && D.team) || [];
+  var userCode = _effectiveUserCode();
+
+  // ── Hero metrics + render ─────────────────────────────────────
+  // Cuenta de personas, carga promedio (% utilización), vencidas y
+  // bloqueadas se computan sobre el conjunto visible (manager filtra
+  // por country; head usa todo el team).
+  var visible = (role === 'manager')
+    ? team.filter(function(m){ return m && m.country === userCode; })
+    : team.slice();
+
+  var totalLoad = 0, totalCap = 0, totalOver = 0, totalBlk = 0;
+  visible.forEach(function(m){
+    totalLoad += (m && m.load)     || 0;
+    totalCap  += (m && m.capacity) || 0;
+    totalOver += (m && m.overdue)  || 0;
+    totalBlk  += (m && m.blocked)  || 0;
+  });
+  var loadPct = totalCap > 0 ? Math.round((totalLoad / totalCap) * 100) : 0;
+  // Países distintos (head). Filtra falsy y duplicados.
+  var countries = [];
+  if (role === 'head') {
+    var seenC = {};
+    for (var ci = 0; ci < visible.length; ci++) {
+      var cc = visible[ci] && visible[ci].country;
+      if (!cc || seenC[cc]) continue;
+      seenC[cc] = true; countries.push(cc);
+    }
+    countries.sort();
+  }
+  var atRisk = visible.filter(function(m){
+    if (!m || !m.capacity) return false;
+    var pct = Math.round((m.load || 0) / m.capacity * 100);
+    return pct > 90 || (m.overdue || 0) > 0 || (m.blocked || 0) > 0;
+  }).length;
+
+  // ── Eyebrow + H1 + Lede ───────────────────────────────────────
+  var eyebrow, h1, ledeBits = [];
+  if (role === 'manager') {
+    eyebrow = 'Equipo' + (userCode ? ' · ' + userCode : '');
+    h1 = 'Tu equipo, <em>' + visible.length + ' '
+       + (visible.length === 1 ? 'persona' : 'personas') + '</em>.';
+    ledeBits.push('Carga promedio <b>' + (totalCap ? loadPct + '%' : '—') + '</b>');
+    if (totalOver) ledeBits.push('<span class="crit">' + totalOver + ' vencida' + (totalOver === 1 ? '' : 's') + '</span> en el equipo');
+    if (atRisk)    ledeBits.push('<b>' + atRisk + '</b> ' + (atRisk === 1 ? 'persona' : 'personas') + ' en riesgo');
+    if (ledeBits.length === 0) ledeBits.push('Sin alertas — el equipo está al día');
+  } else {
+    eyebrow = 'Equipos LATAM · ' + countries.length + ' país' + (countries.length === 1 ? '' : 'es');
+    h1 = '<em>' + countries.length + ' equipos</em> activos<br>en LATAM.';
+    ledeBits.push('<b>' + visible.length + '</b> ' + (visible.length === 1 ? 'persona' : 'personas') + ' en total');
+    ledeBits.push('utilización <b>' + (totalCap ? loadPct + '%' : '—') + '</b>');
+    if (totalOver) ledeBits.push('<span class="crit">' + totalOver + ' vencida' + (totalOver === 1 ? '' : 's') + '</span>');
+    if (atRisk)    ledeBits.push('<b>' + atRisk + '</b> en riesgo');
+  }
+
+  var html = ''
+    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
+    + '<h1 class="ed-h1">' + h1 + '</h1>'
+    + '<p class="ed-lede">' + ledeBits.join(' · ') + '.</p>';
+
+  // ── Hero stats (esp-hero, 4 cells) ────────────────────────────
+  var loadCls = totalCap === 0 ? '' : (loadPct > 90 ? 'warn' : '');
+  html += '<div class="esp-hero">'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">' + (role === 'manager' ? 'Personas activas' : 'Personas LATAM') + '</div>'
+       +      '<div class="esp-stat-num">' + visible.length + '</div>'
+       +      '<div class="esp-stat-ctx">' + (role === 'manager'
+                ? (userCode || 'tu país')
+                : (countries.length + ' país' + (countries.length === 1 ? '' : 'es')))
+       +      '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Carga promedio</div>'
+       +      '<div class="esp-stat-num ' + loadCls + '">' + (totalCap ? loadPct + '%' : '—') + '</div>'
+       +      '<div class="esp-stat-ctx">' + totalLoad + '/' + totalCap + ' capacidad</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
+       +      '<div class="esp-stat-num warn">' + String(totalOver).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">' + (totalOver ? 'reasignar' : 'al día') + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Bloqueadas</div>'
+       +      '<div class="esp-stat-num warn">' + String(totalBlk).padStart(2,'0') + '</div>'
+       +      '<div class="esp-stat-ctx">' + (totalBlk ? 'desbloquear' : '—') + '</div></div>'
+       + '</div>';
+
+  // ── Empty state cálido ────────────────────────────────────────
+  if (visible.length === 0) {
+    html += '<section class="ed-section">'
+         +    '<div class="ed-h2">— ' + (role === 'head' ? 'Equipos' : 'Tu equipo') + '</div>'
+         +    '<div class="ed-lede">'
+         +      (role === 'manager'
+                  ? 'No hay miembros visibles para tu país. Si esperabas ver gente acá, avisale a quien gestiona los equipos.'
+                  : 'Aún no hay equipos cargados. Sumá personas desde la hoja de Equipos.')
+         +    '</div>'
+         + '</section>';
+    v.innerHTML = html;
+    return;
+  }
+
+  // ── Render de filas (compartido entre manager y head) ─────────
+  // Builder de una fila reutilizable. mock SLA% (— por ahora).
+  function _miqHeaderRow() {
+    return '<div class="mgr-team-row" style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;font-weight:700">'
+         +   '<span></span><span>Persona</span><span>Carga</span><span>Vencidas</span><span>Bloqueadas</span><span>SLA mes</span>'
+         + '</div>';
+  }
+  function _miqMemberRow(m) {
+    var pct = (m.capacity > 0) ? Math.round((m.load || 0) / m.capacity * 100) : 0;
+    var over = pct > 80;
+    var ov = m.overdue || 0;
+    var bl = m.blocked || 0;
+    var nm = esc(m.name || '');
+    // Usamos data-act para evitar problemas de quoting con nombres que
+    // contengan apóstrofos (D'Angelo, etc). El click se delega vía ACTIONS.
+    return '<div class="mgr-team-row clickable" data-act="miq-open-person" data-arg="' + esc(m.name || '') + '" '
+         +   'tabindex="0" role="button" aria-label="Detalle de ' + nm + '" '
+         +   'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}">'
+         +   '<div class="ed-foot-av" style="background:var(--accent)">' + esc(m.initials || _userInitials(m.name)) + '</div>'
+         +   '<div class="mgr-team-name"><b>' + nm + '</b><span class="role">' + esc(m.country || '—') + '</span></div>'
+         +   '<div class="mgr-load-cell">'
+         +     '<div class="mgr-load-bar"><div class="mgr-load-fill ' + (over ? 'over' : '') + '" style="width:' + Math.min(pct, 100) + '%"></div></div>'
+         +     '<span class="mgr-load-num">' + (m.load || 0) + '/' + (m.capacity || 0) + '</span>'
+         +   '</div>'
+         +   '<div class="mgr-team-num ' + (ov > 0 ? 'crit' : 'dim') + '">' + ov + '</div>'
+         +   '<div class="mgr-team-num ' + (bl > 0 ? 'crit' : 'dim') + '">' + bl + '</div>'
+         +   '<div class="mgr-team-num dim">—</div>'
+         + '</div>';
+  }
+
+  // Sort: vencidas/bloqueadas primero (heat), después por nombre
+  function _miqSorted(arr) {
+    return arr.slice().sort(function(a, b){
+      var heatA = ((a && a.overdue) || 0) * 2 + ((a && a.blocked) || 0);
+      var heatB = ((b && b.overdue) || 0) * 2 + ((b && b.blocked) || 0);
+      if (heatA !== heatB) return heatB - heatA;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }
+
+  if (role === 'manager') {
+    html += '<section class="ed-section">'
+         +    '<div class="ed-h2">— Tu equipo</div>'
+         +    _miqHeaderRow();
+    var sorted = _miqSorted(visible);
+    for (var i = 0; i < sorted.length; i++) html += _miqMemberRow(sorted[i]);
+    html += '</section>';
+  } else {
+    // Head: agrupado por país. Si un miembro no tiene country, va a "—".
+    var groups = {};
+    for (var gi = 0; gi < visible.length; gi++) {
+      var mm = visible[gi];
+      var key = (mm && mm.country) || '—';
+      (groups[key] = groups[key] || []).push(mm);
+    }
+    var keys = Object.keys(groups).sort();
+    for (var ki = 0; ki < keys.length; ki++) {
+      var k = keys[ki];
+      var arr = _miqSorted(groups[k]);
+      // Métricas mini por país para el sub-header
+      var gOver = 0, gBlk = 0, gLoad = 0, gCap = 0;
+      arr.forEach(function(m){
+        gOver += (m.overdue || 0); gBlk += (m.blocked || 0);
+        gLoad += (m.load || 0);    gCap += (m.capacity || 0);
+      });
+      var gPct = gCap > 0 ? Math.round(gLoad / gCap * 100) : 0;
+      html += '<section class="ed-section">'
+           +   '<div class="ed-h2">— ' + esc(k) + ' · ' + arr.length
+           +     ' ' + (arr.length === 1 ? 'persona' : 'personas')
+           +     (gCap ? ' · ' + gPct + '% carga' : '')
+           +     (gOver ? ' · ' + gOver + ' vencida' + (gOver === 1 ? '' : 's') : '')
+           +   '</div>'
+           +   _miqHeaderRow();
+      for (var ri = 0; ri < arr.length; ri++) html += _miqMemberRow(arr[ri]);
+      html += '</section>';
+    }
+  }
+
+  v.innerHTML = html;
+}
+
+// Click en row de equipo: por ahora un toast suave. El detalle de
+// persona aún no está implementado; cuando exista, esto navega.
+function _miqOpenPerson(name) {
+  if (typeof toast === 'function') {
+    toast('Detalle de ' + (name || 'persona') + ' próximamente', 'info');
+  }
+}
+
+// MARKER:EDITORIAL_MIEQUIPO_END
+// MARKER:EDITORIAL_ANALYTICS_BEGIN  (owned by Agente O3)
+// Vista editorial de Analytics para manager y head. Hero con 4 KPIs,
+// charts editoriales (donut prioridad, bar horizontal estado por
+// responsable top 5-6, donut SLA cumplimiento). Reusa CH global y
+// chartTheme(). Robust ante D.kpi/D.sla vacíos.
+// ───────────────────────────────────────────────────────────────
+
+function _edaTopResponsables(team, n) {
+  if (!team || !team.length) return [];
+  // Ordenar por carga activa (total - listo) descendente y tomar top N
+  return team.slice().sort(function(a, b) {
+    var aa = (a.total || 0) - (a.listo || 0);
+    var bb = (b.total || 0) - (b.listo || 0);
+    return bb - aa;
+  }).slice(0, n || 6);
+}
+
+function _edaCerradasMes(tasks) {
+  if (!tasks || !tasks.length) return 0;
+  var now = new Date();
+  var y = now.getFullYear(), m = now.getMonth();
+  var cnt = 0;
+  tasks.forEach(function(t) {
+    if (t.status !== 'Listo') return;
+    var raw = t.cerradoRaw || t.cierreRaw || t.closedRaw || null;
+    if (!raw) return;
+    var d = new Date(raw);
+    if (isNaN(d.getTime())) return;
+    if (d.getFullYear() === y && d.getMonth() === m) cnt++;
+  });
+  return cnt;
+}
+
+function rEdAnalytics(D) {
+  var v = $('vEdAnalytics'); if (!v) return;
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : ((D && D._role) || 'manager');
+  var userCode = (typeof _effectiveUserCode === 'function') ? _effectiveUserCode() : '';
+  var allTasks = (D && D.tasks) || [];
+
+  // Filtrado por rol: manager → su país; head → todo. (El backend ya filtra
+  // tasks por rol/país, pero lo reforzamos por defensa frente a DEMO_AS.)
+  var tasks = allTasks;
+  if (role === 'manager' && userCode) {
+    tasks = allTasks.filter(function(t){ return (t.pais || '') === userCode; });
+  }
+
+  var kpi = (D && D.kpi) || { total: 0, alta: 0, media: 0, baja: 0, listo: 0 };
+  var sla = (D && D.sla) || { onTime: 0, atRisk: 0, overdue: 0 };
+  var totalSla = (sla.onTime || 0) + (sla.atRisk || 0) + (sla.overdue || 0);
+  var slaPct = totalSla > 0 ? Math.round((sla.onTime || 0) / totalSla * 100) : 0;
+
+  // Activas = no Listo. Cerradas mes = Listo cerradas en mes actual.
+  var activas = tasks.filter(function(t){ return t.status !== 'Listo'; }).length;
+  var cerradasMes = _edaCerradasMes(tasks);
+  // On-time %: closed-on-time del histórico si existe, sino aproximamos con SLA.
+  var onTimePct = slaPct;
+
+  var sem = (D && D.semana) ? D.semana : '';
+  var eyebrow = 'Analytics' + (sem ? ' · sem ' + sem : '');
+  var h1 = role === 'head'
+    ? 'LATAM en datos, <em>vista del trimestre</em>.'
+    : 'Cómo va el equipo, <em>en una mirada</em>.';
+
+  // Lede: 2-3 highlights narrativos
+  var altaLede = kpi.alta || 0;
+  var bloquLede = kpi.bloqueado || 0;
+  var lede = '';
+  if (role === 'head') {
+    lede = 'LATAM tiene <b>' + activas + ' tareas activas</b>'
+         + (altaLede ? ', de las cuales <b>' + altaLede + ' son de alta prioridad</b>' : '')
+         + '. Cumplimiento SLA promedio del <b>' + slaPct + '%</b>'
+         + (sla.overdue ? ' — <span class="crit">' + sla.overdue + ' vencidas</span> requieren reasignación.' : '.')
+         + (cerradasMes ? ' Este mes el equipo cerró <b>' + cerradasMes + ' tareas</b>.' : '');
+  } else {
+    lede = 'Tu equipo tiene <b>' + activas + ' tareas activas</b>'
+         + (altaLede ? ' (' + altaLede + ' Alta, ' + (kpi.media || 0) + ' Media, ' + (kpi.baja || 0) + ' Baja)' : '')
+         + '. Cumplimiento SLA del <b>' + slaPct + '%</b>'
+         + (sla.overdue ? ', <span class="crit">' + sla.overdue + ' vencidas</span>' : '')
+         + (bloquLede ? ' y <span class="warn">' + bloquLede + ' bloqueadas</span>.' : '.')
+         + (cerradasMes ? ' Cerraron <b>' + cerradasMes + ' tareas</b> este mes.' : '');
+  }
+
+  var html = ''
+    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
+    + '<h1 class="ed-h1">' + h1 + '</h1>'
+    + '<p class="ed-lede">' + lede + '</p>'
+    // HERO 4 KPIs
+    + '<div class="eda-hero">'
+    +   '<div class="eda-stat"><div class="eda-stat-lbl">Activas</div>'
+    +     '<div class="eda-stat-num">' + String(activas).padStart(2, '0') + '</div>'
+    +     '<div class="eda-stat-ctx">' + (role === 'head' ? 'LATAM' : 'tu equipo') + '</div></div>'
+    +   '<div class="eda-stat"><div class="eda-stat-lbl">Cerradas (mes)</div>'
+    +     '<div class="eda-stat-num good">' + String(cerradasMes).padStart(2, '0') + '</div>'
+    +     '<div class="eda-stat-ctx">' + (cerradasMes ? 'completadas' : 'sin cierres aún') + '</div></div>'
+    +   '<div class="eda-stat"><div class="eda-stat-lbl">On-time</div>'
+    +     '<div class="eda-stat-num ' + (onTimePct >= 90 ? 'good' : (onTimePct >= 75 ? 'warn' : 'crit')) + '">'
+    +       (totalSla ? onTimePct + '%' : '—') + '</div>'
+    +     '<div class="eda-stat-ctx">dentro de SLA</div></div>'
+    +   '<div class="eda-stat"><div class="eda-stat-lbl">SLA cumplido</div>'
+    +     '<div class="eda-stat-num ' + (slaPct >= 90 ? 'good' : (slaPct >= 75 ? 'warn' : 'crit')) + '">'
+    +       (totalSla ? slaPct + '%' : '—') + '</div>'
+    +     '<div class="eda-stat-ctx">' + (sla.overdue ? sla.overdue + ' vencidas' : 'sin vencidas') + '</div></div>'
+    + '</div>';
+
+  // Sección charts: prioridad + estado por responsable (lado a lado)
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Distribución por prioridad</div>'
+       +    '<div class="eda-charts-grid">'
+       +      '<div class="ed-chart-wrap"><canvas id="cEdAPrio" height="220"></canvas></div>'
+       +      '<div class="ed-chart-wrap"><canvas id="cEdAResp" height="220"></canvas></div>'
+       +    '</div>'
+       + '</section>';
+
+  // Sección SLA
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Cumplimiento de SLA</div>'
+       +    '<div class="ed-chart-wrap"><canvas id="cEdASla" height="180"></canvas></div>'
+       + '</section>';
+
+  v.innerHTML = html;
+
+  // Charts.js: destruir instances previas y crear nuevas con tokens editoriales.
+  if (typeof Chart === 'undefined') return;
+  var th = (typeof chartTheme === 'function') ? chartTheme() : null;
+  if (!th) return;
+
+  // ── Donut prioridad (Alta/Media/Baja) ────────────────────────────
+  var c1 = $('cEdAPrio');
+  if (c1) {
+    if (CH.eda) { try { CH.eda.destroy(); } catch (e) {} CH.eda = null; }
+    var alta = 0, media = 0, baja = 0;
+    tasks.forEach(function(t) {
+      if (t.status === 'Listo') return;
+      if (t.priority === 'Alta') alta++;
+      else if (t.priority === 'Media') media++;
+      else baja++;
+    });
+    var totalP = alta + media + baja;
+    if (totalP > 0) {
+      CH.eda = new Chart(c1, {
+        type: 'doughnut',
+        data: {
+          labels: ['Alta', 'Media', 'Baja'],
+          datasets: [{
+            data: [alta, media, baja],
+            backgroundColor: th.prio,
+            borderColor: th.surface,
+            borderWidth: 4
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '68%',
+          plugins: {
+            legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, font: { size: 11 } } },
+            title:  { display: true, text: 'Activas por prioridad', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
+          }
+        }
+      });
+    }
+  }
+
+  // ── Barra horizontal: estado por responsable, top 5-6 ────────────
+  var c2 = $('cEdAResp');
+  if (c2) {
+    if (CH.edb) { try { CH.edb.destroy(); } catch (e) {} CH.edb = null; }
+    var team = (D && D.team) || [];
+    // Para manager filtrar team al país (defensa adicional).
+    if (role === 'manager' && userCode) {
+      team = team.filter(function(m){ return m.country === userCode; });
+    }
+    var top = _edaTopResponsables(team, 6);
+    if (top.length) {
+      CH.edb = new Chart(c2, {
+        type: 'bar',
+        data: {
+          labels: top.map(function(t){ return (t.name || '').split(' ').slice(0, 2).join(' '); }),
+          datasets: [
+            { label: 'Pend.', data: top.map(function(t){ return t.pendiente || 0; }),  backgroundColor: th.dim,     borderRadius: 3, barPercentage: .7 },
+            { label: 'Curso', data: top.map(function(t){ return t.enCurso || 0; }),    backgroundColor: th.info,    borderRadius: 3, barPercentage: .7 },
+            { label: 'Rev.',  data: top.map(function(t){ return t.enRevision || 0; }), backgroundColor: th.accent,  borderRadius: 3, barPercentage: .7 },
+            { label: 'Bloq.', data: top.map(function(t){ return t.bloqueado || 0; }),  backgroundColor: th.prio[0], borderRadius: 3, barPercentage: .7 }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          indexAxis: 'y',
+          scales: {
+            x: { stacked: true, grid: { color: th.ruleSoft }, ticks: { stepSize: 1, font: { size: 10 } } },
+            y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11, weight: '700' } } }
+          },
+          plugins: {
+            legend: { position: 'bottom', labels: { padding: 12, usePointStyle: true, font: { size: 11 } } },
+            title:  { display: true, text: 'Top responsables · estado activo', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
+          }
+        }
+      });
+    }
+  }
+
+  // ── Donut SLA cumplimiento (on-time / atrasadas / bloqueadas) ────
+  var c3 = $('cEdASla');
+  if (c3) {
+    if (CH.edc) { try { CH.edc.destroy(); } catch (e) {} CH.edc = null; }
+    if (totalSla > 0) {
+      CH.edc = new Chart(c3, {
+        type: 'doughnut',
+        data: {
+          labels: ['En tiempo', 'En riesgo', 'Vencidas'],
+          datasets: [{
+            data: [sla.onTime || 0, sla.atRisk || 0, sla.overdue || 0],
+            // tokens editoriales: good / warn / critical
+            backgroundColor: [getTok('--good'), getTok('--warn'), getTok('--critical')],
+            borderColor: th.surface,
+            borderWidth: 4
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '70%',
+          plugins: {
+            legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, font: { size: 11 } } },
+            title:  { display: true, text: slaPct + '% en tiempo · SLA Alta 2d / Media 5d / Baja 7d', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
+          }
+        }
+      });
+    }
+  }
+}
+
+// MARKER:EDITORIAL_ANALYTICS_END
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_RESUMEN_BEGIN  (owned by Agente O4)
+// Vista editorial "Por país" (head only). Hero stats + tabla por
+// país (reusa .hq-* y la lógica de sparkbar slope coloring de
+// rEdHomeHQ) + sección "Proyectos en riesgo" derivada de tasks.
+// ───────────────────────────────────────────────────────────────
+
+function rEdResumen(D) {
+  var v = $('vEdResumen'); if (!v) return;
+  // Defensa adicional: si por alguna razón se llamó directo sin pasar por
+  // goEd('paises'), validamos rol.
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  if (role !== 'head') {
+    v.innerHTML = ''
+      + '<div class="ed-eye">Acceso restringido</div>'
+      + '<h1 class="ed-h1">Solo HQ <em>puede ver esta vista</em>.</h1>'
+      + '<p class="ed-lede">La vista <b>Por país</b> está reservada al rol <b>head</b>.</p>'
+      + '<div style="margin-top:18px"><button class="ed-btn primary" onclick="goEd(\'home\')">Volver a inicio →</button></div>';
+    return;
+  }
+
+  var countries = (D && D.countries) || [];
+  var allTasks  = (D && D.tasks) || [];
+  var projects  = (D && D.projects) || [];
+
+  // ── Hero KPIs (idéntica lógica que rEdHomeHQ para coherencia visual)
+  var totalOpen    = allTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
+  var totalOverdue = countries.reduce(function(a, c){ return a + (c.overdue || 0); }, 0);
+  var slaAvg = 0;
+  if (countries.length) {
+    var slaSum = countries.reduce(function(a, c){ return a + (c.slaPct || 0); }, 0);
+    slaAvg = Math.round(slaSum / countries.length);
+  }
+  var atRiskCountries = countries.filter(function(c){
+    return (c.overdue || 0) > 3 || (c.slaPct || 100) < 85;
+  });
+  var atRisk = atRiskCountries.length;
+
+  // ── Lede narrativo derivado: países en riesgo + países brillando.
+  var briefShine = countries
+    .filter(function(c){ return (c.slaPct || 0) >= 95 && (c.overdue || 0) === 0; })
+    .map(function(c){ return c.code || c.name; })
+    .filter(Boolean)
+    .slice(0, 3);
+  var briefRisk = atRiskCountries
+    .map(function(c){ return c.code || c.name; })
+    .filter(Boolean)
+    .slice(0, 3);
+  var ledeParts = [];
+  ledeParts.push('LATAM acumula <b>' + totalOpen + '</b> tareas activas');
+  if (totalOverdue > 0) ledeParts.push('<span class="crit">' + totalOverdue + ' vencidas</span>');
+  var lede = ledeParts.join(' · ') + '.';
+  if (briefRisk.length) {
+    lede += ' En riesgo: <span class="warn">' + briefRisk.map(esc).join(', ') + '</span>.';
+  }
+  if (briefShine.length) {
+    lede += ' Brillando: <span class="good">' + briefShine.map(esc).join(', ') + '</span>.';
+  }
+
+  var sem = (D && D.semana) ? ('sem ' + D.semana) : '';
+  var eyeBits = ['Por país', countries.length + ' país' + (countries.length === 1 ? '' : 'es') + ' activos'];
+  if (sem) eyeBits.push(sem);
+
+  var html = ''
+    + '<div class="ed-eye">' + esc(eyeBits.join(' · ')) + '</div>'
+    + '<h1 class="ed-h1">LATAM <em>en detalle</em>.</h1>'
+    + '<p class="ed-lede">' + lede + '</p>'
+    + '<div class="hq-hero">'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Total LATAM</div>'
+    +     '<div class="hq-stat-num">' + totalOpen + '</div>'
+    +     '<div class="hq-stat-ctx">' + countries.length + ' país' + (countries.length === 1 ? '' : 'es') + '</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Vencidas</div>'
+    +     '<div class="hq-stat-num crit">' + String(totalOverdue).padStart(2,'0') + '</div>'
+    +     '<div class="hq-stat-ctx">' + (totalOverdue ? 'reasignar' : '—') + '</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">SLA promedio</div>'
+    +     '<div class="hq-stat-num good">' + (slaAvg || '—') + (slaAvg ? '%' : '') + '</div>'
+    +     '<div class="hq-stat-ctx">LATAM</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Países en riesgo</div>'
+    +     '<div class="hq-stat-num warn">' + String(atRisk).padStart(2,'0') + '</div>'
+    +     '<div class="hq-stat-ctx">' + (atRisk ? 'monitorear' : 'todos OK') + '</div></div>'
+    + '</div>';
+
+  // ── Tabla por país (reusa .hq-* y la misma lógica de sparkbar slope).
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Por país</div>';
+  if (countries.length === 0) {
+    html += '<div class="ed-lede">Sin datos de países disponibles.</div>';
+  } else {
+    html += '<div class="hq-country-row" style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;font-weight:700">'
+         +    '<span></span><span>País / Líder</span><span>Abiertas</span><span>Vencidas</span><span>SLA</span><span>Tendencia 30d</span>'
+         + '</div>';
+    var maxTrend = countries.reduce(function(m, c){
+      var arr = c.trend || [];
+      for (var i = 0; i < arr.length; i++) if (arr[i] > m) m = arr[i];
+      return m;
+    }, 1);
+    for (var ci = 0; ci < countries.length; ci++) {
+      var c = countries[ci];
+      var sla = c.slaPct || 0;
+      var slaCls = sla >= 90 ? 'good' : (sla >= 85 ? 'warn' : 'crit');
+      var ovCls  = (c.overdue || 0) > 3 ? 'crit' : ((c.overdue || 0) > 0 ? 'warn' : 'dim');
+      var trend = c.trend || [];
+      var sparkColor = '';
+      if (trend.length >= 3) {
+        var third = Math.floor(trend.length / 3);
+        var firstAvg = 0, lastAvg = 0;
+        for (var fi = 0; fi < third; fi++) firstAvg += trend[fi];
+        for (var li = trend.length - third; li < trend.length; li++) lastAvg += trend[li];
+        firstAvg /= third || 1; lastAvg /= third || 1;
+        var ratio = firstAvg > 0 ? lastAvg / firstAvg : 1;
+        if (ratio > 1.10) sparkColor = 'good';
+        else if (ratio < 0.90) sparkColor = 'crit';
+      }
+      var sparkHtml = '';
+      for (var k = 0; k < trend.length; k++) {
+        var ratioH = maxTrend > 0 ? trend[k] / maxTrend : 0;
+        var h = Math.max(4, Math.round(ratioH * 22));
+        var isHigh = (k === trend.length - 1);
+        sparkHtml += '<span class="bar' + (isHigh ? ' high' : '') + (sparkColor ? ' ' + sparkColor : '') + '" style="height:' + h + 'px"></span>';
+      }
+      // TODO: filtrar el tracker por país (EDT.country) cuando esté implementado.
+      html += '<div class="hq-country-row clickable" onclick="goEd(\'tracker\')">'
+           +    '<div class="hq-flag">' + esc(c.code || '') + '</div>'
+           +    '<div class="hq-country-name"><b>' + esc(c.name || c.code || '') + '</b><span class="lead">' + esc(c.leader || '—') + '</span></div>'
+           +    '<div class="hq-num">' + (c.open || 0) + '</div>'
+           +    '<div class="hq-num ' + ovCls + '">' + (c.overdue || 0) + '</div>'
+           +    '<div class="hq-num ' + slaCls + '">' + (sla || '—') + (sla ? '%' : '') + '</div>'
+           +    '<div class="hq-spark">' + sparkHtml + '</div>'
+           + '</div>';
+    }
+  }
+  html += '</section>';
+
+  // ── Proyectos en riesgo (derivado de tasks; ordenado por % atrasadas).
+  var risky = projects
+    .filter(function(p){ return p.status !== 'Completado' && p.status !== 'Cancelado'; })
+    .map(function(p) {
+      var pTasks = allTasks.filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; });
+      var overdue = pTasks.filter(function(t){
+        return (typeof taskOverdueBySLA === 'function') ? taskOverdueBySLA(t) : false;
+      }).length;
+      var blocked = pTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
+      var total = pTasks.length;
+      var pctOverdue = total > 0 ? (overdue / total) : 0;
+      return { p: p, blocked: blocked, overdue: overdue, total: total, pct: pctOverdue };
+    })
+    .filter(function(x){ return x.overdue > 0; })
+    .sort(function(a, b){
+      if (b.pct !== a.pct) return b.pct - a.pct;
+      return b.overdue - a.overdue;
+    })
+    .slice(0, 12);
+
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Proyectos en riesgo</div>';
+  if (!risky.length) {
+    html += '<div class="ed-lede">Sin proyectos en riesgo. <span class="good">Todo bajo control.</span></div>';
+  } else {
+    for (var ri = 0; ri < risky.length; ri++) {
+      var x = risky[ri];
+      var pais = x.p.pais || '—';
+      var pctTxt = x.total > 0 ? Math.round(x.pct * 100) + '%' : '—';
+      var pillCls = x.pct >= 0.5 ? 'crit' : (x.pct >= 0.25 ? 'warn' : 'dim');
+      html += '<div class="ed-risk-row" onclick="goEd(\'tracker\')">'
+           +    '<div class="ed-risk-name">' + esc(x.p.nombre || ('Proyecto #' + x.p.id)) + '</div>'
+           +    '<div class="ed-risk-meta">' + esc(pais)
+           +      (x.p.responsable ? ' · ' + esc(x.p.responsable.split(' ').slice(0,2).join(' ')) : '')
+           +      ' · ' + x.total + ' activas'
+           +    '</div>'
+           +    '<div class="hq-num crit">' + x.overdue + '</div>'
+           +    '<div class="ed-risk-pill ' + pillCls + '">' + esc(pctTxt) + ' atrasadas</div>'
+           + '</div>';
+    }
+  }
+  html += '</section>';
+
+  v.innerHTML = html;
+}
+
+// MARKER:EDITORIAL_RESUMEN_END
 </script>
