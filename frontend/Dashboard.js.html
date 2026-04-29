@@ -2579,6 +2579,34 @@ function _edTodayQuote() {
   return ED_QUOTES[idx];
 }
 
+// ── CONFIDENCIALIDAD (3 niveles, solo visualización) ──────────────
+// Fase 1: el nivel se muestra en tracker, panel de tarea, wizard de crear
+// y panel de actualizar. NO hay control de acceso real (filtering ACL queda
+// para Fase 2). Default 'estandar' al crear/leer.
+var ED_CONF_LEVELS = {
+  estandar: {
+    label: 'Estándar',
+    short: 'Estándar',
+    desc: 'Visible para todo el equipo legal del país.',
+    cls: 'estandar'
+  },
+  restringido: {
+    label: 'Restringido',
+    short: 'Restringido',
+    desc: 'Visible solo para responsable, lider y manager.',
+    cls: 'restringido'
+  },
+  confidencial: {
+    label: 'Confidencial',
+    short: 'Conf.',
+    desc: 'Visible solo para responsable y autorizados explícitos.',
+    cls: 'confidencial'
+  }
+};
+function _confLevel(t) {
+  return (t && t.confidencialidad && ED_CONF_LEVELS[t.confidencialidad]) ? t.confidencialidad : 'estandar';
+}
+
 function _badgeFor(itemId, role) {
   if (!D || !D.tasks) return null;
   var userName = _effectiveUserName();
@@ -3191,10 +3219,10 @@ function rEdTracker(D) {
   var respCol = role === 'specialist' ? 'Proyecto' : 'Responsable';
   html += '<table class="tk-table">'
        +    '<thead><tr>'
-       +      '<th>ID</th><th>Tarea</th><th>' + respCol + '</th><th>Prioridad</th><th>Estado</th><th>ETA</th>'
+       +      '<th></th><th>ID</th><th>Tarea</th><th>' + respCol + '</th><th>Prioridad</th><th>Estado</th><th>ETA</th>'
        +    '</tr></thead><tbody>';
   if (rows.length === 0) {
-    html += '<tr><td colspan="6" style="padding:32px 14px;color:var(--dim);font-size:13px">Sin tareas para este filtro.</td></tr>';
+    html += '<tr><td colspan="7" style="padding:32px 14px;color:var(--dim);font-size:13px">Sin tareas para este filtro.</td></tr>';
   } else {
     for (var i = 0; i < rows.length; i++) {
       var t = rows[i];
@@ -3203,7 +3231,10 @@ function rEdTracker(D) {
       var etaTxt = t.eta || _etaTextFromDays(t.etaDays);
       var etaTone = _etaToneClass(t.etaDays, t.status);
       var isSel = sel && sel.id == t.id;
+      var cfLvl = _confLevel(t);
+      var cfMeta = ED_CONF_LEVELS[cfLvl];
       html += '<tr class="tk-row' + (isSel ? ' selected' : '') + '" onclick="edSelectTask(\'' + esc(t.id) + '\')">'
+           +    '<td><span class="cf-dot ' + cfLvl + '" title="' + esc(cfMeta.label) + '"></span></td>'
            +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
            +    '<td>'
            +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
@@ -3240,12 +3271,18 @@ function rEdTracker(D) {
              +    '<div class="tk-tl-what">' + it.what + '</div>'
              + '</div>';
     }
+    var selCfLvl = _confLevel(sel);
+    var selCfMeta = ED_CONF_LEVELS[selCfLvl];
     html += '<aside class="tk-panel">'
          +    '<div class="tk-panel-head">'
          +      '<span class="tk-panel-eyebrow">' + esc(sel.id + (sel.pais ? ' · ' + sel.pais : '')) + '</span>'
          +      '<button class="tk-panel-close" onclick="edClosePanel()" aria-label="Cerrar">×</button>'
          +    '</div>'
          +    '<h2 class="tk-panel-title">' + esc(sel.nombre || '') + '</h2>'
+         +    '<div class="cf-band ' + selCfLvl + '">'
+         +      '<span>' + esc(selCfMeta.label) + '</span>'
+         +      '<span class="cf-band-desc">' + esc(selCfMeta.desc) + '</span>'
+         +    '</div>'
          +    '<div class="tk-panel-pills">'
          +      '<span class="ed-pill ' + (sel.priority || '').toLowerCase() + '">' + esc(sel.priority || '') + '</span>'
          +      '<span class="ed-pill ' + _statusClass(sel.status) + '">' + esc(sel.status || '') + '</span>'
@@ -3420,7 +3457,19 @@ function rEdAgrupadas(D) {
 // Sin: AI, adjuntos, notif preview — Fase 2.
 // ───────────────────────────────────────────────────────────────
 
-var EDU = { taskId: null, variant: null };
+var EDU = { taskId: null, variant: null, newConf: null };
+
+// Helper: el usuario puede opcionalmente cambiar el nivel de confidencialidad
+// al cerrar o bloquear. newConf null = no cambia; valor = se incluye en el update.
+function edUSetConf(nivel) {
+  if (!ED_CONF_LEVELS[nivel]) return;
+  // Toggle: si clickea el mismo nivel, lo des-selecciona.
+  EDU.newConf = (EDU.newConf === nivel) ? null : nivel;
+  if (!EDU.taskId) return;
+  var task = D && D.tasks && D.tasks.find(function(t){ return t.id == EDU.taskId; });
+  if (!task) return;
+  var host = $('uaHost'); if (host) host.innerHTML = _uaRender(task, EDU.variant);
+}
 var _UA_FLOW = ['Pendiente', 'En curso', 'En revisión', 'Listo'];
 
 function _uaNextStatus(current) {
@@ -3502,6 +3551,27 @@ function _uaRenderActionCard(variant, task) {
        + '</div>';
 }
 
+function _uaRenderConfField(task) {
+  // Sólo se muestra en variantes cerrar/bloquear: pills opcionales para cambiar
+  // el nivel de confidencialidad. Si EDU.newConf es null, ninguna queda activa.
+  var current = _confLevel(task);
+  var sel = EDU.newConf;
+  function pill(lvl) {
+    var meta = ED_CONF_LEVELS[lvl];
+    var active = (sel === lvl) ? ' active' : '';
+    return '<button type="button" class="cr-pill-btn ' + lvl + active + '" '
+         + 'onclick="edUSetConf(\'' + lvl + '\')">' + esc(meta.label) + '</button>';
+  }
+  var hint = sel
+    ? 'Cambiará a <b>' + esc(ED_CONF_LEVELS[sel].label) + '</b>. Click otra vez para desmarcar.'
+    : 'Actual: <b>' + esc(ED_CONF_LEVELS[current].label) + '</b>. Click un nivel para cambiarlo.';
+  return '<div class="ua-field">'
+       +   '<div class="ua-label">Cambiar confidencialidad <span class="opt">(opcional)</span></div>'
+       +   '<div class="cr-pills-row">' + pill('estandar') + pill('restringido') + pill('confidencial') + '</div>'
+       +   '<div style="font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.45">' + hint + '</div>'
+       + '</div>';
+}
+
 function _uaRenderBody(task, variant) {
   var actionCard = _uaRenderActionCard(variant, task);
   var fieldHtml;
@@ -3521,7 +3591,9 @@ function _uaRenderBody(task, variant) {
               +   '<textarea class="ua-input ua-textarea" id="uaNota" placeholder="Ej: revisar especialmente cláusula 7.2."></textarea>'
               + '</div>';
   }
-  return '<div class="ua-body">' + _uaRenderOptions(variant) + actionCard + fieldHtml + '</div>';
+  // Confidencialidad opcional sólo en cerrar/bloquear (avanzar es transición de estado pura)
+  var confHtml = (variant === 'cerrar' || variant === 'bloquear') ? _uaRenderConfField(task) : '';
+  return '<div class="ua-body">' + _uaRenderOptions(variant) + actionCard + fieldHtml + confHtml + '</div>';
 }
 
 function _uaRenderFoot(variant) {
@@ -3567,6 +3639,7 @@ function edUOpen(taskId, variant) {
   if (!task) { if (typeof toast === 'function') toast('Tarea no encontrada', 'error'); return; }
   EDU.taskId = task.id;
   EDU.variant = variant || 'avanzar';
+  EDU.newConf = null;
   var host = $('uaHost'); if (!host) return;
   host.innerHTML = _uaRender(task, EDU.variant);
 }
@@ -3574,12 +3647,15 @@ function edUOpen(taskId, variant) {
 function edUClose() {
   EDU.taskId = null;
   EDU.variant = null;
+  EDU.newConf = null;
   var host = $('uaHost'); if (host) host.innerHTML = '';
 }
 
 function edUSwitchVariant(v) {
   if (!EDU.taskId) return;
   EDU.variant = v;
+  // Avanzar no muestra el field de confidencialidad — limpiamos para no arrastrar selección.
+  if (v === 'avanzar') EDU.newConf = null;
   var task = D.tasks.find(function(t){ return t.id == EDU.taskId; });
   if (!task) return;
   var host = $('uaHost'); if (host) host.innerHTML = _uaRender(task, v);
@@ -3604,6 +3680,11 @@ function edUSubmit() {
     fields.status = _uaNextStatus(task.status);
     var nota = ($('uaNota') && $('uaNota').value || '').trim();
     if (nota) fields.notas = nota;
+  }
+  // Si el usuario eligió cambiar el nivel de confidencialidad (sólo cerrar/bloquear),
+  // lo incluimos en el batch update.
+  if ((EDU.variant === 'cerrar' || EDU.variant === 'bloquear') && EDU.newConf) {
+    fields.confidencialidad = EDU.newConf;
   }
   if (typeof showLoader === 'function') showLoader();
   google.script.run
@@ -3653,7 +3734,8 @@ var EDC = {
     riesgo: '',
     resp: '',
     deadline: '',
-    proyectoId: ''
+    proyectoId: '',
+    confidencialidad: 'estandar'
   }
 };
 
@@ -3718,6 +3800,18 @@ function _crRiesgoMod(val) {
   if (val === 'Operativo') return 'baja';
   return '';
 }
+function _crConfMod(val) {
+  // Mapea el nivel a la clase de confidencialidad para el pill (.estandar/.restringido/.confidencial)
+  if (val === 'estandar') return 'estandar';
+  if (val === 'restringido') return 'restringido';
+  if (val === 'confidencial') return 'confidencial';
+  return '';
+}
+var _CR_CONF_OPTS = [
+  { value: 'estandar', label: 'Estándar' },
+  { value: 'restringido', label: 'Restringido' },
+  { value: 'confidencial', label: 'Confidencial' }
+];
 
 function _crSelectHtml(id, options, current, blankLabel) {
   var html = '';
@@ -3775,6 +3869,8 @@ function _crRenderStep2() {
   var v = EDC.values;
   var resp = _crResponsables().map(function(n){ return { value: n, label: n }; });
   var projs = _crProjects().map(function(p){ return { value: p.id, label: p.nombre }; });
+  var confLvl = v.confidencialidad || 'estandar';
+  var confDesc = (ED_CONF_LEVELS[confLvl] || ED_CONF_LEVELS.estandar).desc;
   return ''
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
@@ -3800,6 +3896,11 @@ function _crRenderStep2() {
     + '<div class="cr-field">'
     +   '<div class="cr-label">Vincular a proyecto</div>'
     +   _crSelectHtml('crProj', projs, v.proyectoId, 'Sin proyecto').replace('<select id="crProj"', '<select id="crProj" onchange="edCrearSetField(\'proyectoId\', this.value)"')
+    + '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Confidencialidad</div>'
+    +   '<div class="cr-pills-row">' + _crPillsHtml('confidencialidad', _CR_CONF_OPTS, confLvl, _crConfMod) + '</div>'
+    +   '<div style="font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.45">' + esc(confDesc) + '</div>'
     + '</div>';
 }
 
@@ -3915,7 +4016,8 @@ function edCrearOpen() {
     riesgo: '',
     resp: '',
     deadline: '',
-    proyectoId: ''
+    proyectoId: '',
+    confidencialidad: 'estandar'
   };
   _crMount();
   setTimeout(function() {
@@ -3935,7 +4037,7 @@ function edCrearSetField(key, value) {
   // Para campos texto/select que están dentro del DOM actual, no re-renderizamos
   // — el valor ya está en EDC.values. Para pills sí re-renderizamos para
   // reflejar el estado activo.
-  var rerenderFields = { tipo: 1, pais: 1, prioridad: 1, riesgo: 1 };
+  var rerenderFields = { tipo: 1, pais: 1, prioridad: 1, riesgo: 1, confidencialidad: 1 };
   if (rerenderFields[key]) _crMount();
 }
 
@@ -3990,7 +4092,8 @@ function edCrearSubmit() {
       lider: '',
       deadline: v.deadline || '',
       acc: '',
-      notas: (v.descripcion || '').trim()
+      notas: (v.descripcion || '').trim(),
+      confidencialidad: v.confidencialidad || 'estandar'
     });
 }
 
