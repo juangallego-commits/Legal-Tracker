@@ -1463,9 +1463,23 @@ function fm(id, text, cls) {
 function reload() {
   showLoader();
   google.script.run
-    .withSuccessHandler(function(d){ D = d; render(); hideLoader(); })
+    .withSuccessHandler(function(d){
+      D = d;
+      render();
+      // Re-render de la vista editorial activa para que tareas/proyectos
+      // recién creados se vean con etaDays/eta enriquecidos.
+      var active = document.querySelector('.view.active');
+      if (active && active.id && typeof goEd === 'function') {
+        if (active.id === 'vEdHome') goEd('home');
+        else if (active.id === 'vEdTracker') goEd('tracker');
+        else if (active.id === 'vEdAgrupadas') goEd('agrupadas');
+        else if (active.id === 'vEdProyectosIndex') goEd('proyectos');
+        else if (active.id === 'vEdMisTareas') goEd('mistareas');
+      }
+      hideLoader();
+    })
     .withFailureHandler(function(e){ hideLoader(); toast('Error al recargar: ' + e.message, 'error'); })
-    .getTrackerData();
+    .getEditorialData();
 }
 // ═══ USER SESSION ═══
 // Con SSO de Google no hay login form: el server ya resolvió al visitante
@@ -2237,6 +2251,9 @@ document.addEventListener('click', function(e) {
 // ════════════════════════════════════════════════════════════════
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
+    // Editoriales primero (más nuevos / más prominentes visualmente)
+    if ($('uaHost') && $('uaHost').innerHTML) { if (typeof edUClose === 'function') edUClose(); return; }
+    if ($('crHost') && $('crHost').innerHTML) { if (typeof edCrearClose === 'function') edCrearClose(); return; }
     if ($('ddM') && $('ddM').style.display === 'block') { closeDD(); return; }
     if ($('createOv') && $('createOv').classList.contains('show')) { closeCreate(); return; }
     if ($('editOv') && $('editOv').classList.contains('show')) { closeEdit(); return; }
@@ -2251,9 +2268,12 @@ document.addEventListener('keydown', function(e) {
     if (sInput) { e.preventDefault(); sInput.focus(); sInput.select(); }
     return;
   }
-  // N → abrir modal de creación (no dentro de un input)
+  // N → abrir wizard editorial de crear (con fallback al modal viejo)
   if (e.key === 'n' || e.key === 'N') {
-    if ($('createOv') && !$('createOv').classList.contains('show')) {
+    if (typeof edCrearOpen === 'function') {
+      e.preventDefault();
+      edCrearOpen();
+    } else if ($('createOv') && !$('createOv').classList.contains('show')) {
       e.preventDefault();
       openCreate();
     }
@@ -2487,7 +2507,7 @@ var DEMO_AS = (function(){
 function _isHeadReal() { return !!(USER && USER.role === 'head'); }
 function _effectiveRole() {
   if (DEMO_AS && _isHeadReal()) return DEMO_AS;
-  return _effectiveRole();
+  return (USER && USER.role) || (D && D._role) || 'specialist';
 }
 function _effectiveUserName() {
   if (DEMO_AS && _isHeadReal()) {
@@ -2500,7 +2520,7 @@ function _effectiveUserName() {
     }
     if (DEMO_AS === 'manager' && equipos[0] && equipos[0].leader) return equipos[0].leader;
   }
-  return _effectiveUserName();
+  return (USER && USER.name) || (D && D._user && D._user.name) || '';
 }
 function _effectiveUserCode() {
   if (DEMO_AS && _isHeadReal()) {
@@ -2508,7 +2528,7 @@ function _effectiveUserCode() {
     if ((DEMO_AS === 'specialist' || DEMO_AS === 'manager') && equipos[0]) return equipos[0].code || '';
     if (DEMO_AS === 'head') return '';
   }
-  return _effectiveUserCode();
+  return (USER && USER.code) || (D && D._user && D._user.code) || '';
 }
 // Abre el tracker editorial con la tarea seleccionada (panel detalle visible).
 function edGoTaskInTracker(taskId) {
@@ -2961,7 +2981,6 @@ function rEdHomeManager(D) {
            +      '<div class="mgr-att-name">' + esc(t.nombre || '') + ' — ' + esc(t.eta || '') + '</div>'
            +      '<div class="mgr-att-why">' + why + '</div>'
            +    '</div>'
-           +    '<button class="ed-btn" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">Ver</button>'
            +    '<button class="ed-btn primary" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">Ver detalle</button>'
            + '</div>';
     }
