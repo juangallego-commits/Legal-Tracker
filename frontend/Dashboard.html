@@ -337,6 +337,8 @@
 <!-- CONFIRM -->
 <div class="modal-overlay" id="confOv" onclick="if(event.target===this)closeCf()"><div class="modal" style="max-width:400px"><div class="modal-header"><h2>Confirmar</h2><button class="modal-close" onclick="closeCf()" aria-label="Cerrar">✕</button></div><div class="modal-body"><p id="confTxt" style="font-size:14px;color:var(--text-muted)"></p></div><div class="modal-footer"><button class="btn-secondary" onclick="closeCf()">Cancelar</button><button class="btn-submit btn-sm" id="confBtn">Confirmar</button></div></div></div>
 <div class="dd-overlay" id="ddO" onclick="closeDD()"></div><div class="dd-menu" id="ddM"></div>
+<!-- EDITORIAL ACTUALIZAR · panel deslizable (avanzar/cerrar/bloquear) -->
+<div id="uaHost"></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
