@@ -2889,4 +2889,25 @@ body.role-manager #tabResumen { display: none !important; }
 .nav-tab.active { box-shadow: none; }
 .topbar-logo { box-shadow: none; }
 .ambient { display: none; }
+
+/* ── A11y / hover & focus on tabular clickable rows ──────────── */
+.esp-task-row,
+.mgr-att-row,
+.esp-proj-row,
+.hq-country-row.clickable,
+.pi-mini-task {
+  cursor: pointer;
+  transition: background .12s;
+}
+.esp-task-row:hover,
+.mgr-att-row:hover,
+.esp-proj-row:hover,
+.hq-country-row.clickable:hover,
+.pi-mini-task:hover {
+  background: var(--paper2);
+}
+.ed-nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 </style>

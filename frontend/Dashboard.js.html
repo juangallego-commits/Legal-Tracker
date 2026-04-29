@@ -2789,7 +2789,7 @@ function rEdHomeSpecialist(D) {
   var thisWeek  = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= 7; }).length;
   var blocked   = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var apremiantes = overdue + dueToday + blocked;
-  var narrative = (D && D.roleSpecific && D.roleSpecific.narrative) || ('Tienes ' + tasks.length + ' tareas activas.');
+  var narrative = (D && D.roleSpecific && D.roleSpecific.narrative) || ('Tenés ' + tasks.length + ' tareas activas.');
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
   // Top 4 ordenadas por urgencia (etaDays asc, vencidas y bloqueadas primero)
   var top = tasks.slice().sort(function(a, b) {
@@ -2805,8 +2805,8 @@ function rEdHomeSpecialist(D) {
     + '<div class="ed-eye">' + esc('Hoy' + (todayLine ? ' · ' + todayLine : '')) + '</div>'
     + '<h1 class="ed-h1">Buenos días, ' + esc(firstName) + '.<br>'
     +   (apremiantes === 0
-        ? 'Hoy <em>no tienes</em> nada urgente.'
-        : 'Tienes <em>' + esc(String(apremiantes).padStart(2,'0')) + (apremiantes === 1 ? ' cosa' : ' cosas') + '</em> apremiante' + (apremiantes === 1 ? '' : 's') + ' hoy.')
+        ? 'Hoy <em>no tenés</em> nada urgente.'
+        : 'Tenés <em>' + esc(String(apremiantes).padStart(2,'0')) + (apremiantes === 1 ? ' cosa' : ' cosas') + '</em> apremiante' + (apremiantes === 1 ? '' : 's') + ' hoy.')
     + '</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
     // QUOTE rotativa (una frase distinta por día)
@@ -2834,7 +2834,7 @@ function rEdHomeSpecialist(D) {
   html += '<section class="ed-section">'
        +    '<div class="ed-h2">— En tu mesa, por urgencia</div>';
   if (top.length === 0) {
-    html += '<div class="ed-lede">No tienes tareas activas asignadas.</div>';
+    html += '<div class="ed-lede">No tenés tareas activas asignadas.</div>';
   } else {
     for (var i = 0; i < top.length; i++) {
       var t = top[i];
@@ -3092,7 +3092,9 @@ function rEdHomeHQ(D) {
         var isHigh = (k === trend.length - 1);
         sparkHtml += '<span class="bar' + (isHigh ? ' high' : '') + (sparkColor ? ' ' + sparkColor : '') + '" style="height:' + h + 'px"></span>';
       }
-      html += '<div class="hq-country-row">'
+      // TODO: filtrar el tracker por país una vez que EDT.country esté implementado.
+      // Por ahora la fila navega al tracker sin filtro pre-aplicado.
+      html += '<div class="hq-country-row clickable" onclick="goEd(\'tracker\')">'
            +    '<div class="hq-flag">' + esc(c.code || '') + '</div>'
            +    '<div class="hq-country-name"><b>' + esc(c.name || c.code || '') + '</b><span class="lead">' + esc(c.leader || '—') + '</span></div>'
            +    '<div class="hq-num">' + (c.open || 0) + '</div>'
@@ -3164,7 +3166,20 @@ function _edSortByUrgency(tasks) {
 
 // EDT actions wired desde la toolbar / filas del tracker
 function edSetFilter(f) { EDT.filter = f; if (D) rEdTracker(D); }
-function edSetSearch(q) { EDT.search = q || ''; if (D) rEdTracker(D); }
+function edSetSearch(q) {
+  // Debounce 250ms: el re-render destruye el input y se pierde el foco.
+  // Tras re-renderear restauramos foco + caret al final del valor.
+  EDT.search = q || '';
+  clearTimeout(window._tkSearchT);
+  window._tkSearchT = setTimeout(function(){
+    if (D) rEdTracker(D);
+    var newInput = document.querySelector('.tk-search');
+    if (newInput) {
+      newInput.focus();
+      try { newInput.setSelectionRange(EDT.search.length, EDT.search.length); } catch(e){}
+    }
+  }, 250);
+}
 function edSelectTask(id) {
   EDT.selectedId = (EDT.selectedId === id) ? null : id;
   if (D) rEdTracker(D);
@@ -3718,7 +3733,15 @@ function edUSubmit() {
     fields.status = 'Bloqueado';
     fields.notas = razon;
   } else {
-    fields.status = _uaNextStatus(task.status);
+    // Si "Avanzar" llevaría a 'Listo' (cierre), forzamos la variant 'cerrar'
+    // para pedir resumen y respetar la validación de cierre.
+    var next = _uaNextStatus(task.status);
+    if (next === 'Listo') {
+      if (typeof toast === 'function') toast('Para cerrar la tarea, completá el resumen.', 'info');
+      edUSwitchVariant('cerrar');
+      return;
+    }
+    fields.status = next;
     var nota = ($('uaNota') && $('uaNota').value || '').trim();
     if (nota) fields.notas = nota;
   }
@@ -4060,6 +4083,17 @@ function edCrearOpen() {
     proyectoId: '',
     confidencialidad: 'estandar'
   };
+  // Restaurar borrador de localStorage si existe contenido útil (titulo o descripcion)
+  try {
+    var saved = localStorage.getItem('lt-edc-draft');
+    if (saved) {
+      var v = JSON.parse(saved);
+      if (v && (v.titulo || v.descripcion)) {
+        EDC.values = Object.assign(EDC.values, v);
+        if (typeof toast === 'function') toast('Restauré tu borrador anterior.', 'info');
+      }
+    }
+  } catch(e){}
   _crMount();
   setTimeout(function() {
     var input = $('crTitulo');
@@ -4075,6 +4109,8 @@ function edCrearClose() {
 function edCrearSetField(key, value) {
   if (!EDC.values || !(key in EDC.values)) return;
   EDC.values[key] = value;
+  // Persistir borrador en localStorage para no perder el progreso si el modal se cierra accidentalmente.
+  try { localStorage.setItem('lt-edc-draft', JSON.stringify(EDC.values)); } catch(e){}
   // Para campos texto/select que están dentro del DOM actual, no re-renderizamos
   // — el valor ya está en EDC.values. Para pills sí re-renderizamos para
   // reflejar el estado activo.
@@ -4111,6 +4147,8 @@ function edCrearSubmit() {
       if (btn) btn.disabled = false;
       if (res && res.success) {
         toast('Tarea #' + res.id + ' creada', 'success');
+        // Limpiar borrador persistido sólo en éxito
+        try { localStorage.removeItem('lt-edc-draft'); } catch(e){}
         edCrearClose();
         if (typeof reload === 'function') reload();
       } else {
@@ -4264,7 +4302,7 @@ function _piRenderHero(enriched) {
 
   var heroHeadline = enriched.overdue
     ? 'Hay <b>' + enriched.overdue + ' vencida' + (enriched.overdue === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Resolver primero.</span>'
-    : (myInProj.length ? 'Tienes <b>' + myInProj.length + ' tarea' + (myInProj.length === 1 ? '' : 's') + ' tuya' + (myInProj.length === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Por urgencia.</span>'
+    : (myInProj.length ? 'Tenés <b>' + myInProj.length + ' tarea' + (myInProj.length === 1 ? '' : 's') + ' tuya' + (myInProj.length === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">Por urgencia.</span>'
                        : 'Sin tareas tuyas activas. <span style="color:var(--muted);font-weight:600">Solo seguimiento.</span>');
 
   return '<div class="pi-hero">'
@@ -4439,11 +4477,11 @@ function rEdMisTareas(D) {
   // H1 dinámico (singular/plural/cero)
   var h1Inner;
   if (total === 0) {
-    h1Inner = '<em>No tienes tareas</em><br>activas en mesa.';
+    h1Inner = '<em>No tenés tareas</em><br>activas en mesa.';
   } else if (total === 1) {
-    h1Inner = 'Tienes <em>1 tarea</em><br>activa en mesa.';
+    h1Inner = 'Tenés <em>1 tarea</em><br>activa en mesa.';
   } else {
-    h1Inner = 'Tienes <em>' + esc(String(total).padStart(2,'0')) + ' tareas</em><br>activas en mesa.';
+    h1Inner = 'Tenés <em>' + esc(String(total).padStart(2,'0')) + ' tareas</em><br>activas en mesa.';
   }
 
   // Lede narrativa según los warns
