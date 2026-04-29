@@ -1595,22 +1595,35 @@ body.role-manager #tabResumen { display: none !important; }
   height: 100vh;
 }
 /* Cuando el tracker tiene panel sticky abierto, la VIEW del tracker
-   se vuelve grid 1fr+440px para acomodar tabla + aside. Usamos :has()
-   para que se active SOLO cuando el aside.tk-panel está realmente
-   presente en el DOM — nunca queda un grid "fantasma" si el panel
-   se cierra o se navega a otra vista. La clase legacy .ed-main.with-panel
-   queda solo como hint visual; el grid real ahora vive en la view. */
+   se vuelve grid 1fr+440px. CRÍTICO: todos los items que NO son el
+   panel deben ocupar col 1 explícitamente (sino el grid los reparte
+   alternando entre columnas y aplasta tabla/lede a 440px). El panel
+   ocupa col 2 spanning todas las filas para quedar sticky al lado. */
 .view.active:has(> .tk-panel) {
   display: grid;
-  grid-template-columns: 1fr 440px;
-  gap: 0;
+  grid-template-columns: minmax(0, 1fr) 440px;
+  gap: 0 28px;
   align-items: start;
 }
-.ed-main.with-panel {
-  /* No-op visual — el grid lo maneja .view.active:has(> .tk-panel).
-     Lo dejamos por compatibilidad con código legacy que aún toggle
-     este class. */
+.view.active:has(> .tk-panel) > *:not(.tk-panel) {
+  grid-column: 1;
+  min-width: 0;
+}
+.view.active:has(> .tk-panel) > .tk-panel {
+  grid-column: 2;
+  grid-row: 1 / -1;
+}
+/* Cuando el panel está abierto el .ed-main pierde max-width y el
+   padding-right que normalmente respira con la página, para que el
+   panel quede pegado al borde derecho del .ed-main. */
+.ed-main:has(.view.active > .tk-panel) {
   max-width: none;
+  padding-right: 0;
+}
+.ed-main.with-panel {
+  /* Compat con código legacy que aún toggle este class. */
+  max-width: none;
+  padding-right: 0;
 }
 
 .ed-head {
@@ -2207,12 +2220,13 @@ body.role-manager #tabResumen { display: none !important; }
   position: sticky;
   top: 0;
   align-self: start;
-  width: 440px;
+  /* Width lo controla el grid container (440px en col 2). */
   padding: 32px 28px;
   border-left: 1px solid var(--rule);
   background: var(--paper);
   height: 100vh;
   overflow-y: auto;
+  box-sizing: border-box;
 }
 .tk-panel-head {
   display: flex;
