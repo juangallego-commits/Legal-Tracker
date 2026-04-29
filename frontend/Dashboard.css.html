@@ -2051,6 +2051,10 @@ body.role-manager #tabResumen { display: none !important; }
   border-radius: 1px;
 }
 .hq-spark .bar.high { background: var(--ink); }
+.hq-spark .bar.good { background: var(--good); opacity: .85; }
+.hq-spark .bar.good.high { background: var(--good); opacity: 1; }
+.hq-spark .bar.crit { background: var(--critical); opacity: .85; }
+.hq-spark .bar.crit.high { background: var(--critical); opacity: 1; }
 
 /* ═══════════════════════════════════════════════════════════════
    TRACKER (.tk-*)
@@ -2284,6 +2288,37 @@ body.role-manager #tabResumen { display: none !important; }
   gap: 8px;
 }
 .tk-actions .ed-btn { justify-content: center; padding: 9px 14px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ESPECIALIST QUOTE — frase rotativa antes del hero
+   ═══════════════════════════════════════════════════════════════ */
+.esp-quote {
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: 22px 0;
+  margin-bottom: 36px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 20px;
+  align-items: center;
+}
+.esp-quote-text {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--ink);
+  letter-spacing: -.2px;
+}
+.esp-quote-who {
+  font-size: 11px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    AGRUPADAS — vista intermedia "Por urgencia"
