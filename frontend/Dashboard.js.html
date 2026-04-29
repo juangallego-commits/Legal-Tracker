@@ -62,6 +62,7 @@ function setTheme(theme) {
   // Las vistas editoriales no están en VIEWS y se reendrean vía goEd.
   if (active.id === 'vEdHome' && typeof goEd === 'function') { goEd('home'); return; }
   if (active.id === 'vEdTracker' && typeof goEd === 'function') { goEd('tracker'); return; }
+  if (active.id === 'vEdAnalytics' && typeof goEd === 'function') { goEd('analytics'); return; }
   if (typeof go === 'function') {
     var v = active.id.replace(/^v/, '');
     v = v.charAt(0).toLowerCase() + v.slice(1);
@@ -1475,6 +1476,7 @@ function reload() {
         else if (active.id === 'vEdAgrupadas') goEd('agrupadas');
         else if (active.id === 'vEdProyectosIndex') goEd('proyectos');
         else if (active.id === 'vEdMisTareas') goEd('mistareas');
+        else if (active.id === 'vEdAnalytics') goEd('analytics');
         else if (active.id === 'vEdHistorial') goEd('historial');
       }
       hideLoader();
@@ -2796,6 +2798,17 @@ function goEd(viewId) {
   if (viewId === 'miequipo' && typeof rEdMiequipo === 'function') {
     var v7 = $('vEdMiequipo'); if (v7) v7.classList.add('active');
     rEdMiequipo(D);
+    return;
+  }
+  // Editorial Analytics — destruye instances Chart.js antes de re-render
+  if (viewId === 'analytics' && typeof rEdAnalytics === 'function') {
+    if (CH.pa)  { try { CH.pa.destroy();  } catch (e) {} CH.pa  = null; }
+    if (CH.sa)  { try { CH.sa.destroy();  } catch (e) {} CH.sa  = null; }
+    if (CH.eda) { try { CH.eda.destroy(); } catch (e) {} CH.eda = null; }
+    if (CH.edb) { try { CH.edb.destroy(); } catch (e) {} CH.edb = null; }
+    if (CH.edc) { try { CH.edc.destroy(); } catch (e) {} CH.edc = null; }
+    var v8 = $('vEdAnalytics'); if (v8) v8.classList.add('active');
+    rEdAnalytics(D);
     return;
   }
   // Alias sin equivalente legacy: 'paises' → resumen
@@ -5011,4 +5024,233 @@ function _miqOpenPerson(name) {
 }
 
 // MARKER:EDITORIAL_MIEQUIPO_END
+// MARKER:EDITORIAL_ANALYTICS_BEGIN  (owned by Agente O3)
+// Vista editorial de Analytics para manager y head. Hero con 4 KPIs,
+// charts editoriales (donut prioridad, bar horizontal estado por
+// responsable top 5-6, donut SLA cumplimiento). Reusa CH global y
+// chartTheme(). Robust ante D.kpi/D.sla vacíos.
+// ───────────────────────────────────────────────────────────────
+
+function _edaTopResponsables(team, n) {
+  if (!team || !team.length) return [];
+  // Ordenar por carga activa (total - listo) descendente y tomar top N
+  return team.slice().sort(function(a, b) {
+    var aa = (a.total || 0) - (a.listo || 0);
+    var bb = (b.total || 0) - (b.listo || 0);
+    return bb - aa;
+  }).slice(0, n || 6);
+}
+
+function _edaCerradasMes(tasks) {
+  if (!tasks || !tasks.length) return 0;
+  var now = new Date();
+  var y = now.getFullYear(), m = now.getMonth();
+  var cnt = 0;
+  tasks.forEach(function(t) {
+    if (t.status !== 'Listo') return;
+    var raw = t.cerradoRaw || t.cierreRaw || t.closedRaw || null;
+    if (!raw) return;
+    var d = new Date(raw);
+    if (isNaN(d.getTime())) return;
+    if (d.getFullYear() === y && d.getMonth() === m) cnt++;
+  });
+  return cnt;
+}
+
+function rEdAnalytics(D) {
+  var v = $('vEdAnalytics'); if (!v) return;
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : ((D && D._role) || 'manager');
+  var userCode = (typeof _effectiveUserCode === 'function') ? _effectiveUserCode() : '';
+  var allTasks = (D && D.tasks) || [];
+
+  // Filtrado por rol: manager → su país; head → todo. (El backend ya filtra
+  // tasks por rol/país, pero lo reforzamos por defensa frente a DEMO_AS.)
+  var tasks = allTasks;
+  if (role === 'manager' && userCode) {
+    tasks = allTasks.filter(function(t){ return (t.pais || '') === userCode; });
+  }
+
+  var kpi = (D && D.kpi) || { total: 0, alta: 0, media: 0, baja: 0, listo: 0 };
+  var sla = (D && D.sla) || { onTime: 0, atRisk: 0, overdue: 0 };
+  var totalSla = (sla.onTime || 0) + (sla.atRisk || 0) + (sla.overdue || 0);
+  var slaPct = totalSla > 0 ? Math.round((sla.onTime || 0) / totalSla * 100) : 0;
+
+  // Activas = no Listo. Cerradas mes = Listo cerradas en mes actual.
+  var activas = tasks.filter(function(t){ return t.status !== 'Listo'; }).length;
+  var cerradasMes = _edaCerradasMes(tasks);
+  // On-time %: closed-on-time del histórico si existe, sino aproximamos con SLA.
+  var onTimePct = slaPct;
+
+  var sem = (D && D.semana) ? D.semana : '';
+  var eyebrow = 'Analytics' + (sem ? ' · sem ' + sem : '');
+  var h1 = role === 'head'
+    ? 'LATAM en datos, <em>vista del trimestre</em>.'
+    : 'Cómo va el equipo, <em>en una mirada</em>.';
+
+  // Lede: 2-3 highlights narrativos
+  var altaLede = kpi.alta || 0;
+  var bloquLede = kpi.bloqueado || 0;
+  var lede = '';
+  if (role === 'head') {
+    lede = 'LATAM tiene <b>' + activas + ' tareas activas</b>'
+         + (altaLede ? ', de las cuales <b>' + altaLede + ' son de alta prioridad</b>' : '')
+         + '. Cumplimiento SLA promedio del <b>' + slaPct + '%</b>'
+         + (sla.overdue ? ' — <span class="crit">' + sla.overdue + ' vencidas</span> requieren reasignación.' : '.')
+         + (cerradasMes ? ' Este mes el equipo cerró <b>' + cerradasMes + ' tareas</b>.' : '');
+  } else {
+    lede = 'Tu equipo tiene <b>' + activas + ' tareas activas</b>'
+         + (altaLede ? ' (' + altaLede + ' Alta, ' + (kpi.media || 0) + ' Media, ' + (kpi.baja || 0) + ' Baja)' : '')
+         + '. Cumplimiento SLA del <b>' + slaPct + '%</b>'
+         + (sla.overdue ? ', <span class="crit">' + sla.overdue + ' vencidas</span>' : '')
+         + (bloquLede ? ' y <span class="warn">' + bloquLede + ' bloqueadas</span>.' : '.')
+         + (cerradasMes ? ' Cerraron <b>' + cerradasMes + ' tareas</b> este mes.' : '');
+  }
+
+  var html = ''
+    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
+    + '<h1 class="ed-h1">' + h1 + '</h1>'
+    + '<p class="ed-lede">' + lede + '</p>'
+    // HERO 4 KPIs
+    + '<div class="eda-hero">'
+    +   '<div class="eda-stat"><div class="eda-stat-lbl">Activas</div>'
+    +     '<div class="eda-stat-num">' + String(activas).padStart(2, '0') + '</div>'
+    +     '<div class="eda-stat-ctx">' + (role === 'head' ? 'LATAM' : 'tu equipo') + '</div></div>'
+    +   '<div class="eda-stat"><div class="eda-stat-lbl">Cerradas (mes)</div>'
+    +     '<div class="eda-stat-num good">' + String(cerradasMes).padStart(2, '0') + '</div>'
+    +     '<div class="eda-stat-ctx">' + (cerradasMes ? 'completadas' : 'sin cierres aún') + '</div></div>'
+    +   '<div class="eda-stat"><div class="eda-stat-lbl">On-time</div>'
+    +     '<div class="eda-stat-num ' + (onTimePct >= 90 ? 'good' : (onTimePct >= 75 ? 'warn' : 'crit')) + '">'
+    +       (totalSla ? onTimePct + '%' : '—') + '</div>'
+    +     '<div class="eda-stat-ctx">dentro de SLA</div></div>'
+    +   '<div class="eda-stat"><div class="eda-stat-lbl">SLA cumplido</div>'
+    +     '<div class="eda-stat-num ' + (slaPct >= 90 ? 'good' : (slaPct >= 75 ? 'warn' : 'crit')) + '">'
+    +       (totalSla ? slaPct + '%' : '—') + '</div>'
+    +     '<div class="eda-stat-ctx">' + (sla.overdue ? sla.overdue + ' vencidas' : 'sin vencidas') + '</div></div>'
+    + '</div>';
+
+  // Sección charts: prioridad + estado por responsable (lado a lado)
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Distribución por prioridad</div>'
+       +    '<div class="eda-charts-grid">'
+       +      '<div class="ed-chart-wrap"><canvas id="cEdAPrio" height="220"></canvas></div>'
+       +      '<div class="ed-chart-wrap"><canvas id="cEdAResp" height="220"></canvas></div>'
+       +    '</div>'
+       + '</section>';
+
+  // Sección SLA
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Cumplimiento de SLA</div>'
+       +    '<div class="ed-chart-wrap"><canvas id="cEdASla" height="180"></canvas></div>'
+       + '</section>';
+
+  v.innerHTML = html;
+
+  // Charts.js: destruir instances previas y crear nuevas con tokens editoriales.
+  if (typeof Chart === 'undefined') return;
+  var th = (typeof chartTheme === 'function') ? chartTheme() : null;
+  if (!th) return;
+
+  // ── Donut prioridad (Alta/Media/Baja) ────────────────────────────
+  var c1 = $('cEdAPrio');
+  if (c1) {
+    if (CH.eda) { try { CH.eda.destroy(); } catch (e) {} CH.eda = null; }
+    var alta = 0, media = 0, baja = 0;
+    tasks.forEach(function(t) {
+      if (t.status === 'Listo') return;
+      if (t.priority === 'Alta') alta++;
+      else if (t.priority === 'Media') media++;
+      else baja++;
+    });
+    var totalP = alta + media + baja;
+    if (totalP > 0) {
+      CH.eda = new Chart(c1, {
+        type: 'doughnut',
+        data: {
+          labels: ['Alta', 'Media', 'Baja'],
+          datasets: [{
+            data: [alta, media, baja],
+            backgroundColor: th.prio,
+            borderColor: th.surface,
+            borderWidth: 4
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '68%',
+          plugins: {
+            legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, font: { size: 11 } } },
+            title:  { display: true, text: 'Activas por prioridad', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
+          }
+        }
+      });
+    }
+  }
+
+  // ── Barra horizontal: estado por responsable, top 5-6 ────────────
+  var c2 = $('cEdAResp');
+  if (c2) {
+    if (CH.edb) { try { CH.edb.destroy(); } catch (e) {} CH.edb = null; }
+    var team = (D && D.team) || [];
+    // Para manager filtrar team al país (defensa adicional).
+    if (role === 'manager' && userCode) {
+      team = team.filter(function(m){ return m.country === userCode; });
+    }
+    var top = _edaTopResponsables(team, 6);
+    if (top.length) {
+      CH.edb = new Chart(c2, {
+        type: 'bar',
+        data: {
+          labels: top.map(function(t){ return (t.name || '').split(' ').slice(0, 2).join(' '); }),
+          datasets: [
+            { label: 'Pend.', data: top.map(function(t){ return t.pendiente || 0; }),  backgroundColor: th.dim,     borderRadius: 3, barPercentage: .7 },
+            { label: 'Curso', data: top.map(function(t){ return t.enCurso || 0; }),    backgroundColor: th.info,    borderRadius: 3, barPercentage: .7 },
+            { label: 'Rev.',  data: top.map(function(t){ return t.enRevision || 0; }), backgroundColor: th.accent,  borderRadius: 3, barPercentage: .7 },
+            { label: 'Bloq.', data: top.map(function(t){ return t.bloqueado || 0; }),  backgroundColor: th.prio[0], borderRadius: 3, barPercentage: .7 }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          indexAxis: 'y',
+          scales: {
+            x: { stacked: true, grid: { color: th.ruleSoft }, ticks: { stepSize: 1, font: { size: 10 } } },
+            y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11, weight: '700' } } }
+          },
+          plugins: {
+            legend: { position: 'bottom', labels: { padding: 12, usePointStyle: true, font: { size: 11 } } },
+            title:  { display: true, text: 'Top responsables · estado activo', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
+          }
+        }
+      });
+    }
+  }
+
+  // ── Donut SLA cumplimiento (on-time / atrasadas / bloqueadas) ────
+  var c3 = $('cEdASla');
+  if (c3) {
+    if (CH.edc) { try { CH.edc.destroy(); } catch (e) {} CH.edc = null; }
+    if (totalSla > 0) {
+      CH.edc = new Chart(c3, {
+        type: 'doughnut',
+        data: {
+          labels: ['En tiempo', 'En riesgo', 'Vencidas'],
+          datasets: [{
+            data: [sla.onTime || 0, sla.atRisk || 0, sla.overdue || 0],
+            // tokens editoriales: good / warn / critical
+            backgroundColor: [getTok('--good'), getTok('--warn'), getTok('--critical')],
+            borderColor: th.surface,
+            borderWidth: 4
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '70%',
+          plugins: {
+            legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, font: { size: 11 } } },
+            title:  { display: true, text: slaPct + '% en tiempo · SLA Alta 2d / Media 5d / Baja 7d', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
+          }
+        }
+      });
+    }
+  }
+}
+
+// MARKER:EDITORIAL_ANALYTICS_END
 </script>
