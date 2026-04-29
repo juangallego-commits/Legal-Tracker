@@ -1396,12 +1396,17 @@ function cfUp(id, f, v) {
 // ═══ HELPERS ═══
 function $(id){ return document.getElementById(id); }
 
-// Escapa contenido para insertar en innerHTML (HTML entity encoding).
+// Escapa contenido para insertar en innerHTML O en atributos HTML
+// (escapa <, >, &, ", '). Usar siempre antes de inyectar valores
+// derivados de datos del backend o entrada del usuario.
 function esc(s) {
-  if (!s) return '';
-  var d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // NOTA: escJs ya no se usa (reemplazado por event delegation con data-act).
@@ -2505,6 +2510,12 @@ function _effectiveUserCode() {
   }
   return _effectiveUserCode();
 }
+// Abre el tracker editorial con la tarea seleccionada (panel detalle visible).
+function edGoTaskInTracker(taskId) {
+  if (typeof EDT !== 'undefined') EDT.selectedId = taskId;
+  if (typeof goEd === 'function') goEd('tracker');
+}
+
 function setDemoAs(preset) {
   if (preset === 'real' || preset === '' || preset === null) preset = null;
   DEMO_AS = preset;
@@ -2701,6 +2712,8 @@ function mountEdShell() {
   var role = _effectiveRole();
   var side = $('edSide'); if (side) side.innerHTML = renderEdSidebar(role, 'home');
   var head = $('edHead'); if (head) head.innerHTML = renderEdHead();
+  // Esconder el FAB legacy: el header editorial ya tiene "+ Nueva".
+  var fab = $('fabCreate'); if (fab) fab.style.display = 'none';
 }
 
 function goEd(viewId) {
@@ -2764,7 +2777,9 @@ function rEdHomeSpecialist(D) {
   var html = ''
     + '<div class="ed-eye">' + esc('Hoy' + (todayLine ? ' · ' + todayLine : '')) + '</div>'
     + '<h1 class="ed-h1">Buenos días, ' + esc(firstName) + '.<br>'
-    +   'Tienes <em>' + esc(String(apremiantes).padStart(2,'0')) + ' cosas</em> apremiantes hoy.'
+    +   (apremiantes === 0
+        ? 'Hoy <em>no tienes</em> nada urgente.'
+        : 'Tienes <em>' + esc(String(apremiantes).padStart(2,'0')) + (apremiantes === 1 ? ' cosa' : ' cosas') + '</em> apremiante' + (apremiantes === 1 ? '' : 's') + ' hoy.')
     + '</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
     // QUOTE rotativa (una frase distinta por día)
@@ -2805,7 +2820,7 @@ function rEdHomeSpecialist(D) {
       } else {
         actionHtml = esc(t.accionable || '');
       }
-      html += '<div class="esp-task-row" onclick="goEd(\'tracker\')">'
+      html += '<div class="esp-task-row" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
            +   '<div class="esp-task-rank ' + tone + '">' + String(i+1).padStart(2,'0') + '</div>'
            +   '<div class="esp-task-body">'
            +     '<div class="esp-task-meta">' + esc(t.id + ' · ' + pn + (sla ? ' · SLA ' + sla : '')) + '</div>'
@@ -2820,7 +2835,7 @@ function rEdHomeSpecialist(D) {
            + '</div>';
     }
     html += '<div style="padding-top:14px"><button class="ed-btn" onclick="goEd(\'mistareas\')">'
-         +    'Ver todas mis ' + tasks.length + ' tareas →</button></div>';
+         +    (tasks.length === 1 ? 'Ver mi tarea →' : ('Ver todas mis ' + tasks.length + ' tareas →')) + '</button></div>';
   }
   html += '</section>';
 
@@ -2918,7 +2933,7 @@ function rEdHomeManager(D) {
     +     '<div class="mgr-stat-ctx">' + totalLoad + '/' + totalCap + ' capacidad</div></div>'
     +   '<div class="mgr-stat"><div class="mgr-stat-lbl">SLA cumplido</div>'
     +     '<div class="mgr-stat-num good">—</div>'
-    +     '<div class="mgr-stat-ctx">Fase 2</div></div>'
+    +     '<div class="mgr-stat-ctx">próximamente</div></div>'
     + '</div>';
 
   // ATENCIÓN
@@ -2939,8 +2954,8 @@ function rEdHomeManager(D) {
            +      '<div class="mgr-att-name">' + esc(t.nombre || '') + ' — ' + esc(t.eta || '') + '</div>'
            +      '<div class="mgr-att-why">' + why + '</div>'
            +    '</div>'
-           +    '<button class="ed-btn" onclick="goEd(\'tracker\')">Ver</button>'
-           +    '<button class="ed-btn primary">Reasignar</button>'
+           +    '<button class="ed-btn" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">Ver</button>'
+           +    '<button class="ed-btn primary" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">Ver detalle</button>'
            + '</div>';
     }
   }
@@ -3422,7 +3437,7 @@ function rEdAgrupadas(D) {
         var actionHtml = t.blockedReason
           ? '<span class="warn">En espera de ' + esc(t.blockedReason) + '.</span> ' + esc(t.accionable || '')
           : esc(t.accionable || '');
-        html += '<div class="ag-card" onclick="goEd(\'tracker\')">'
+        html += '<div class="ag-card" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
              +    '<div class="ag-card-meta">'
              +      '<span>' + esc(t.id) + '</span>'
              +      '<span class="sep">·</span>'
@@ -4213,7 +4228,7 @@ function _piRenderHero(enriched) {
     for (var i = 0; i < myInProj.length; i++) {
       var t = myInProj[i];
       var tone = _etaToneClass(t.etaDays, t.status);
-      miniHtml += '<div class="pi-mini-task">'
+      miniHtml += '<div class="pi-mini-task" style="cursor:pointer" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
                +   '<span class="pi-mini-id">' + esc(t.id) + '</span>'
                +   '<span class="pi-mini-name">' + esc(t.nombre || '') + '</span>'
                +   '<span class="pi-mini-eta ' + tone + '">' + esc(t.eta || '') + '</span>'
