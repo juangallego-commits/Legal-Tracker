@@ -2346,6 +2346,19 @@ body.role-manager #tabResumen { display: none !important; }
 }
 .tk-actions .ed-btn { justify-content: center; padding: 9px 14px; }
 
+/* Chip de filtro por país (set desde HQ home / resumen) */
+.tk-country-filter {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-bottom: 14px; padding: 6px 12px;
+  background: var(--accent-soft); color: var(--accent);
+  border-radius: 4px; font-size: 12px; font-weight: 700;
+}
+.tk-country-filter button {
+  background: transparent; border: none;
+  color: var(--accent); cursor: pointer; font-size: 14px;
+  padding: 0 4px;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    ESPECIALIST QUOTE — frase rotativa antes del hero
    ═══════════════════════════════════════════════════════════════ */
@@ -2907,6 +2920,12 @@ body.role-manager #tabResumen { display: none !important; }
 .cf-pill.estandar    { background: var(--good-soft);     color: var(--good); }
 .cf-pill.restringido { background: var(--warn-soft);     color: var(--warn); }
 .cf-pill.confidencial{ background: var(--critical-soft); color: var(--critical); }
+
+.ag-tab.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 
 /* === editorial overrides === */
 .nav-tab.active { box-shadow: none; }

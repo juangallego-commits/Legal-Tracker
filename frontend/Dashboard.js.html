@@ -2262,6 +2262,7 @@ document.addEventListener('keydown', function(e) {
     // Editoriales primero (más nuevos / más prominentes visualmente)
     if ($('uaHost') && $('uaHost').innerHTML) { if (typeof edUClose === 'function') edUClose(); return; }
     if ($('crHost') && $('crHost').innerHTML) { if (typeof edCrearClose === 'function') edCrearClose(); return; }
+    if ($('crpHost') && $('crpHost').innerHTML) { if (typeof edCrearProyectoClose === 'function') edCrearProyectoClose(); return; }
     if ($('ddM') && $('ddM').style.display === 'block') { closeDD(); return; }
     if ($('createOv') && $('createOv').classList.contains('show')) { closeCreate(); return; }
     if ($('editOv') && $('editOv').classList.contains('show')) { closeEdit(); return; }
@@ -3008,6 +3009,11 @@ function rEdHomeManager(D) {
     + '<div class="ed-eye">' + esc('Hoy · Equipo ' + (userCode || '')) + '</div>'
     + '<h1 class="ed-h1">Tu equipo cargó <em>' + altaActive + ' tareas</em><br>de alta prioridad esta semana.</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
+    // QUOTE rotativa (una frase distinta por día)
+    + (function(){ var q = _edTodayQuote(); return '<div class="esp-quote">'
+    +   '<div class="esp-quote-text">"' + esc(q.text) + '"</div>'
+    +   '<div class="esp-quote-who">— ' + esc(q.who) + '</div>'
+    + '</div>'; })()
     + '<div class="mgr-hero">'
     +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Vencidas</div>'
     +     '<div class="mgr-stat-num warn">' + String(overdue).padStart(2,'0') + '</div>'
@@ -3098,6 +3104,11 @@ function rEdHomeHQ(D) {
     + '<div class="ed-eye">' + esc('Visión global · ' + countries.length + ' países') + '</div>'
     + '<h1 class="ed-h1">Operación legal global,<br><em>vista de un día</em>.</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
+    // QUOTE rotativa (una frase distinta por día)
+    + (function(){ var q = _edTodayQuote(); return '<div class="esp-quote">'
+    +   '<div class="esp-quote-text">"' + esc(q.text) + '"</div>'
+    +   '<div class="esp-quote-who">— ' + esc(q.who) + '</div>'
+    + '</div>'; })()
     + '<div class="hq-hero">'
     +   '<div class="hq-stat"><div class="hq-stat-lbl">Total LATAM</div>'
     +     '<div class="hq-stat-num">' + totalOpen + '</div>'
@@ -3153,9 +3164,9 @@ function rEdHomeHQ(D) {
         var isHigh = (k === trend.length - 1);
         sparkHtml += '<span class="bar' + (isHigh ? ' high' : '') + (sparkColor ? ' ' + sparkColor : '') + '" style="height:' + h + 'px"></span>';
       }
-      // TODO: filtrar el tracker por país una vez que EDT.country esté implementado.
-      // Por ahora la fila navega al tracker sin filtro pre-aplicado.
-      html += '<div class="hq-country-row clickable" onclick="goEd(\'tracker\')">'
+      // Click en la fila → setear filtro de país en EDT y navegar al tracker.
+      var cCode = (c.code || '').replace(/'/g, "\\'");
+      html += '<div class="hq-country-row clickable" onclick="edSetCountryFilter(\'' + esc(cCode) + '\'); goEd(\'tracker\');">'
            +    '<div class="hq-flag">' + esc(c.code || '') + '</div>'
            +    '<div class="hq-country-name"><b>' + esc(c.name || c.code || '') + '</b><span class="lead">' + esc(c.leader || '—') + '</span></div>'
            +    '<div class="hq-num">' + (c.open || 0) + '</div>'
@@ -3178,7 +3189,7 @@ function rEdHomeHQ(D) {
 // 440px con detalle. Estado local EDT (filter/search/selectedId).
 // ───────────────────────────────────────────────────────────────
 
-var EDT = { filter: 'all', search: '', selectedId: null };
+var EDT = { filter: 'all', search: '', selectedId: null, country: null };
 
 function _etaTextFromDays(d) {
   if (typeof d !== 'number') return '';
@@ -3190,9 +3201,28 @@ function _etaTextFromDays(d) {
 
 function _edFilterByRole(tasks, role, userName, userCode) {
   // Specialist: solo sus tareas. Manager: su país. Head: todo.
-  if (role === 'specialist') return tasks.filter(function(t){ return t.resp === userName; });
-  if (role === 'manager')    return tasks.filter(function(t){ return (t.pais || '') === userCode; });
-  return tasks;
+  var visible;
+  if (role === 'specialist')      visible = tasks.filter(function(t){ return t.resp === userName; });
+  else if (role === 'manager')    visible = tasks.filter(function(t){ return (t.pais || '') === userCode; });
+  else                            visible = tasks;
+  // Filtro por país desde HQ (sólo aplicable cuando el rol no lo restringe ya)
+  if (EDT.country) {
+    visible = visible.filter(function(t){ return (t.pais || '') === EDT.country; });
+  }
+  return visible;
+}
+
+// Helpers para setear/limpiar el filtro de país desde HQ home / resumen.
+function edSetCountryFilter(code) {
+  EDT.country = code || null;
+  // Resetear selección y filtro de estado para no confundir al usuario.
+  EDT.selectedId = null;
+  if (D) rEdTracker(D);
+}
+function edClearCountryFilter() {
+  EDT.country = null;
+  EDT.selectedId = null;
+  if (D) rEdTracker(D);
 }
 
 function _edApplyFilter(tasks, filter) {
@@ -3246,6 +3276,149 @@ function edSelectTask(id) {
   if (D) rEdTracker(D);
 }
 function edClosePanel() { EDT.selectedId = null; if (D) rEdTracker(D); }
+
+// ─── REASIGNAR (manager/head) ────────────────────────────────────
+// Mini-modal que reusa el overlay del wizard de crear (cr-overlay/cr-modal)
+// pero con un layout reducido: select de responsables + Cancelar/Confirmar.
+// El backend (updateTaskField) ya valida permisos.
+var EDR = { taskId: null, value: '' };
+
+function _edReasignarCandidates(role, userCode) {
+  // Manager: sólo equipo de su país. Head: todo el roster.
+  var team = (D && D.team) || [];
+  var pool = team.filter(function(m){ return m && m.name; });
+  if (role === 'manager') {
+    pool = pool.filter(function(m){ return (m.country || '') === userCode; });
+  }
+  // Dedupe por nombre conservando orden.
+  var seen = {}, out = [];
+  for (var i = 0; i < pool.length; i++) {
+    var n = pool[i].name;
+    if (!seen[n]) { seen[n] = 1; out.push(pool[i]); }
+  }
+  return out;
+}
+
+function _edReasignarRender() {
+  var host = $('crHost'); if (!host) return;
+  var role = _effectiveRole();
+  if (role !== 'manager' && role !== 'head') {
+    host.innerHTML = '';
+    return;
+  }
+  var task = (D && D.tasks || []).find(function(t){ return t.id == EDR.taskId; });
+  if (!task) { host.innerHTML = ''; return; }
+
+  var candidates = _edReasignarCandidates(role, _effectiveUserCode());
+  var currentResp = task.resp || '';
+  // Asegurar que el responsable actual esté en el select aunque haya quedado fuera del scope.
+  var hasCurrent = candidates.some(function(m){ return m.name === currentResp; });
+  var optsHtml = '';
+  if (currentResp && !hasCurrent) {
+    optsHtml += '<option value="' + esc(currentResp) + '">' + esc(currentResp) + ' (actual)</option>';
+  }
+  optsHtml += candidates.map(function(m){
+    var sel = (m.name === currentResp) ? ' selected' : '';
+    var ctry = m.country ? ' · ' + m.country : '';
+    return '<option value="' + esc(m.name) + '"' + sel + '>' + esc(m.name) + esc(ctry) + '</option>';
+  }).join('');
+  if (!optsHtml) {
+    optsHtml = '<option value="" disabled selected>Sin responsables disponibles</option>';
+  }
+
+  host.innerHTML = ''
+    + '<div class="cr-overlay" onclick="if(event.target===this)edReasignarClose()">'
+    +   '<div class="cr-backdrop" onclick="edReasignarClose()"></div>'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Reasignar tarea" style="max-width:520px">'
+    +     '<div class="cr-head">'
+    +       '<div>'
+    +         '<div class="cr-eye">— Reasignar tarea</div>'
+    +         '<div class="cr-title">' + esc(task.id) + ' · ' + esc(task.nombre || '') + '</div>'
+    +       '</div>'
+    +       '<button type="button" class="cr-x" onclick="edReasignarClose()" aria-label="Cerrar">×</button>'
+    +     '</div>'
+    +     '<div class="cr-body">'
+    +       '<div class="cr-field">'
+    +         '<div class="cr-label">Responsable actual</div>'
+    +         '<div style="font-size:14px;color:var(--ink);font-weight:600">' + esc(currentResp || '—') + '</div>'
+    +       '</div>'
+    +       '<div class="cr-field">'
+    +         '<div class="cr-label">Reasignar a <span class="req">*</span></div>'
+    +         '<select id="edReasignarSel" class="cr-input" onchange="edReasignarSetValue(this.value)">'
+    +           optsHtml
+    +         '</select>'
+    +         '<div class="cr-foot-info" style="margin-top:8px;padding:0">'
+    + (role === 'manager'
+        ? 'Sólo podés reasignar dentro de tu equipo (' + esc(_effectiveUserCode() || '—') + ').'
+        : 'Como Head podés reasignar a cualquier miembro del roster.')
+    +         '</div>'
+    +       '</div>'
+    +     '</div>'
+    +     '<div class="cr-foot">'
+    +       '<div class="cr-foot-info">El backend valida los permisos antes de aplicar el cambio.</div>'
+    +       '<button type="button" class="ed-btn" onclick="edReasignarClose()">Cancelar</button>'
+    +       '<button type="button" class="ed-btn accent" onclick="edReasignarConfirm()">Confirmar</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+
+  // Inicializar EDR.value con el valor actual del select tras montar.
+  setTimeout(function(){
+    var s = $('edReasignarSel');
+    if (s) EDR.value = s.value || '';
+  }, 0);
+}
+
+function edReasignarOpen(taskId) {
+  var role = _effectiveRole();
+  if (role !== 'manager' && role !== 'head') {
+    if (typeof toast === 'function') toast('No tenés permisos para reasignar.', 'error');
+    return;
+  }
+  EDR.taskId = taskId;
+  EDR.value = '';
+  _edReasignarRender();
+}
+
+function edReasignarClose() {
+  EDR.taskId = null;
+  EDR.value = '';
+  var host = $('crHost'); if (host) host.innerHTML = '';
+}
+
+function edReasignarSetValue(v) { EDR.value = v || ''; }
+
+function edReasignarConfirm() {
+  var taskId = EDR.taskId;
+  var newResp = EDR.value;
+  if (!taskId) { edReasignarClose(); return; }
+  if (!newResp) {
+    if (typeof toast === 'function') toast('Seleccioná un responsable.', 'error');
+    return;
+  }
+  var task = (D && D.tasks || []).find(function(t){ return t.id == taskId; });
+  if (task && task.resp === newResp) {
+    if (typeof toast === 'function') toast('La tarea ya está asignada a ' + newResp + '.', 'info');
+    return;
+  }
+  if (typeof showLoader === 'function') showLoader();
+  google.script.run
+    .withSuccessHandler(function(r){
+      if (typeof hideLoader === 'function') hideLoader();
+      if (r && r.success) {
+        if (typeof toast === 'function') toast('✅ Reasignada a ' + newResp, 'success');
+        edReasignarClose();
+        if (typeof reload === 'function') reload();
+      } else {
+        if (typeof toast === 'function') toast('Error: ' + ((r && r.error) || 'no se pudo reasignar'), 'error');
+      }
+    })
+    .withFailureHandler(function(e){
+      if (typeof hideLoader === 'function') hideLoader();
+      if (typeof toast === 'function') toast('Error: ' + e.message, 'error');
+    })
+    .updateTaskField(taskId, 'resp', newResp);
+}
 
 function _panelCell(lbl, val, valCls) {
   return '<div class="tk-panel-cell">'
@@ -3312,7 +3485,13 @@ function rEdTracker(D) {
   var html = ''
     + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
     + '<h1 class="ed-h1" style="margin-bottom:8px">Tracker</h1>'
-    + '<p class="ed-lede" style="margin-bottom:28px">' + esc(lede) + '</p>';
+    + '<p class="ed-lede" style="margin-bottom:28px">' + esc(lede) + '</p>'
+    + (EDT.country
+        ? '<div class="tk-country-filter">'
+        +   '<span>Filtrando: ' + esc(EDT.country) + '</span>'
+        +   '<button onclick="edClearCountryFilter()" aria-label="Quitar filtro de país">×</button>'
+        + '</div>'
+        : '');
 
   // TOOLBAR
   function fBtn(key, label, count, accent) {
@@ -3426,6 +3605,9 @@ function rEdTracker(D) {
          +      '<button class="ed-btn primary" onclick="edUOpen(\'' + esc(sel.id) + '\', \'avanzar\')">Avanzar →</button>'
          +      '<button class="ed-btn" onclick="edUOpen(\'' + esc(sel.id) + '\', \'cerrar\')">Cerrar ✓</button>'
          +      '<button class="ed-btn" onclick="edUOpen(\'' + esc(sel.id) + '\', \'bloquear\')">Bloquear</button>'
+         +      ((role === 'manager' || role === 'head')
+                  ? '<button class="ed-btn" onclick="edReasignarOpen(\'' + esc(sel.id) + '\')">Reasignar</button>'
+                  : '')
          +    '</div>'
          + '</aside>';
   }
@@ -3507,9 +3689,9 @@ function rEdAgrupadas(D) {
     + '<p class="ed-lede">Antes de meterte a la tabla densa, esta es la lectura rápida: dónde está cada cosa y qué te conviene atender primero. Empezá por las pendientes de cierre, las de "más adelante" pueden esperar tranquilas.</p>'
     + '<div class="ag-tabs">'
     +   '<div class="ag-tab active">Por prioridad</div>'
-    +   '<div class="ag-tab" title="Próximamente">Por proyecto</div>'
-    +   '<div class="ag-tab" title="Próximamente">Por tipo</div>'
-    +   '<div class="ag-tab" title="Próximamente">Por riesgo</div>'
+    +   '<div class="ag-tab disabled" title="Próximamente · disponible en próxima versión" aria-disabled="true">Por proyecto · pronto</div>'
+    +   '<div class="ag-tab disabled" title="Próximamente · disponible en próxima versión" aria-disabled="true">Por tipo · pronto</div>'
+    +   '<div class="ag-tab disabled" title="Próximamente · disponible en próxima versión" aria-disabled="true">Por riesgo · pronto</div>'
     + '</div>';
 
   var buckets = [
@@ -3536,6 +3718,8 @@ function rEdAgrupadas(D) {
         var tone = _etaToneClass(t.etaDays, t.status);
         var pn = _projNameForTask(t);
         var sla = t.slaTarget || '';
+        var cfLvl = _confLevel(t);
+        var cfMeta = ED_CONF_LEVELS[cfLvl];
         var actionHtml = t.blockedReason
           ? '<span class="warn">En espera de ' + esc(t.blockedReason) + '.</span> ' + esc(t.accionable || '')
           : esc(t.accionable || '');
@@ -3545,6 +3729,8 @@ function rEdAgrupadas(D) {
              +      '<span class="sep">·</span>'
              +      '<span>' + esc(pn) + '</span>'
              +      (sla ? '<span class="sep">·</span><span>SLA ' + esc(sla) + '</span>' : '')
+             +      '<span class="sep">·</span>'
+             +      '<span class="cf-dot ' + cfLvl + '" title="Confidencialidad: ' + esc(cfMeta.label) + '"></span>'
              +    '</div>'
              +    '<div class="ag-card-name">' + esc(t.nombre || '') + '</div>'
              +    '<div class="ag-card-action">' + actionHtml + '</div>'
@@ -4504,7 +4690,7 @@ function rEdProyectosIndex(D) {
   html += '<div class="pi-foot">'
        +    '<div class="pi-foot-info"><b>' + cActivos + ' activos · ' + cCerrados + ' cerrados.</b> Los proyectos cerrados quedan en historial.</div>'
        +    '<button class="ed-btn" onclick="goEd(\'historial\')">Ver historial</button>'
-       +    '<button class="ed-btn accent" onclick="if(typeof openCreate===\'function\')openCreate(\'newProj\')">+ Nuevo proyecto</button>'
+       +    '<button class="ed-btn accent" onclick="if(typeof edCrearProyectoOpen===\'function\')edCrearProyectoOpen();else if(typeof openCreate===\'function\')openCreate(\'newProj\')">+ Nuevo proyecto</button>'
        + '</div>';
 
   v.innerHTML = html;
@@ -4803,7 +4989,7 @@ function rEdHistorial(D) {
 
     html += '<table class="tk-table">'
          +    '<thead><tr>'
-         +      '<th>ID</th><th>Tarea</th><th>Proyecto</th>'
+         +      '<th></th><th>ID</th><th>Tarea</th><th>Proyecto</th>'
          +      (showResp ? '<th>Resp.</th>' : '')
          +      '<th>Prioridad</th><th>Cerrada el</th><th>Días vs SLA</th>'
          +    '</tr></thead><tbody>';
@@ -4813,6 +4999,8 @@ function rEdHistorial(D) {
       var pn = _projNameForTask(t);
       var meta = (t.tipoTrabajo || '—') + (t.pais ? ' · ' + t.pais : '');
       var dvs = _edDaysVsSla(t);
+      var cfLvl = _confLevel(t);
+      var cfMeta = ED_CONF_LEVELS[cfLvl];
       var slaTxt, slaTone;
       if (dvs === null) {
         slaTxt = '—'; slaTone = 'dim';
@@ -4824,6 +5012,7 @@ function rEdHistorial(D) {
         slaTone = 'crit';
       }
       html += '<tr class="tk-row" onclick="_edHistOnClick()">'
+           +    '<td><span class="cf-dot ' + cfLvl + '" title="Confidencialidad: ' + esc(cfMeta.label) + '"></span></td>'
            +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
            +    '<td>'
            +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
@@ -5396,8 +5585,9 @@ function rEdResumen(D) {
         var isHigh = (k === trend.length - 1);
         sparkHtml += '<span class="bar' + (isHigh ? ' high' : '') + (sparkColor ? ' ' + sparkColor : '') + '" style="height:' + h + 'px"></span>';
       }
-      // TODO: filtrar el tracker por país (EDT.country) cuando esté implementado.
-      html += '<div class="hq-country-row clickable" onclick="goEd(\'tracker\')">'
+      // Click en la fila → setear filtro de país en EDT y navegar al tracker.
+      var cCode2 = (c.code || '').replace(/'/g, "\\'");
+      html += '<div class="hq-country-row clickable" onclick="edSetCountryFilter(\'' + esc(cCode2) + '\'); goEd(\'tracker\');">'
            +    '<div class="hq-flag">' + esc(c.code || '') + '</div>'
            +    '<div class="hq-country-name"><b>' + esc(c.name || c.code || '') + '</b><span class="lead">' + esc(c.leader || '—') + '</span></div>'
            +    '<div class="hq-num">' + (c.open || 0) + '</div>'
@@ -5456,4 +5646,318 @@ function rEdResumen(D) {
 }
 
 // MARKER:EDITORIAL_RESUMEN_END
+
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_CREAR_PROYECTO_BEGIN  (owned by Agente A3)
+// Wizard editorial de 3 pasos para crear PROYECTO — espejo del de tarea
+// (MARKER:EDITORIAL_CREAR). Reusa CSS .cr-* y helpers del wizard de tarea
+// (_crPillsHtml, _crSelectHtml, _crStepClasses, _crCountries, _crPrioMod,
+// _crRiesgoMod). Submit: google.script.run.addProject(payload). El modal
+// LEGACY (#createOv → openCreate('newProj')) queda accesible para
+// retrocompat aunque el botón de la vista Proyectos editorial ya
+// invoca a edCrearProyectoOpen().
+// ───────────────────────────────────────────────────────────────
+
+var EDCP = {
+  step: 1,
+  values: {
+    nombre: '',
+    descripcion: '',
+    pais: '',
+    priority: 'Media',
+    tipoTrabajo: '',
+    riesgo: '',
+    lider: '',
+    deadline: ''
+  }
+};
+
+// Líderes disponibles según rol y país elegido en paso 1.
+// - head: todos los líderes de todos los equipos.
+// - manager/specialist: el líder del país del usuario; si seleccionó otro país
+//   (poco común, restringido por backend), se devuelve el del país elegido.
+// Si no hay país elegido todavía: lista vacía.
+function _crpLideres(paisCode) {
+  var equipos = (D && D.equipos) || [];
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var out = [];
+  var seen = {};
+  function push(name) {
+    if (name && !seen[name]) { seen[name] = 1; out.push(name); }
+  }
+  if (role === 'head') {
+    equipos.forEach(function(eq){ push(eq && eq.leader); });
+    return out;
+  }
+  // manager/specialist: prioritariamente el lider del pais elegido
+  if (paisCode) {
+    var eq = equipos.find(function(e){ return e && e.code === paisCode; });
+    if (eq) {
+      push(eq.leader);
+      // Plus: cualquier otro miembro del país marcado como leader (caso multi-leader)
+      (eq.members || []).forEach(function(m){
+        if (m && m === eq.leader) push(m);
+      });
+    }
+  }
+  return out;
+}
+
+function _crpRenderStep1() {
+  var v = EDCP.values;
+  return ''
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Nombre del proyecto <span class="req">*</span></div>'
+    +   '<input class="cr-input title" id="crpNombre" maxlength="160" '
+    +     'placeholder="Ej: Programa de cumplimiento data-privacy LATAM" '
+    +     'value="' + esc(v.nombre) + '" '
+    +     'oninput="edCrearProyectoSetField(\'nombre\', this.value)">'
+    + '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Descripción / contexto</div>'
+    +   '<textarea class="cr-input cr-textarea" id="crpDesc" '
+    +     'placeholder="Alcance, objetivos, stakeholders, links…" '
+    +     'oninput="edCrearProyectoSetField(\'descripcion\', this.value)">' + esc(v.descripcion) + '</textarea>'
+    + '</div>'
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">País <span class="req">*</span></div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Prioridad <span class="req">*</span></div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('priority', _CR_PRIOS, v.priority, _crPrioMod) + '</div>'
+    +   '</div>'
+    + '</div>';
+}
+
+function _crpRenderStep2() {
+  var v = EDCP.values;
+  var lideres = _crpLideres(v.pais).map(function(n){ return { value: n, label: n }; });
+  return ''
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Tipo de trabajo</div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('tipoTrabajo', _CR_TIPOS, v.tipoTrabajo) + '</div>'
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Riesgo</div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('riesgo', _CR_RIESGOS, v.riesgo, _crRiesgoMod) + '</div>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Líder <span class="req">*</span></div>'
+    +     _crSelectHtml('crpLider', lideres, v.lider, lideres.length ? 'Seleccionar…' : 'Elegí país en el paso 1').replace('<select id="crpLider"', '<select id="crpLider" onchange="edCrearProyectoSetField(\'lider\', this.value)"')
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Deadline <span class="req">*</span></div>'
+    +     '<input type="date" class="cr-input" id="crpDeadline" value="' + esc(v.deadline) + '" '
+    +       'onchange="edCrearProyectoSetField(\'deadline\', this.value)">'
+    +   '</div>'
+    + '</div>';
+}
+
+function _crpRenderStep3() {
+  var v = EDCP.values;
+  var pills = '';
+  if (v.priority) pills += '<span class="ed-pill ' + esc((v.priority || '').toLowerCase()) + '">Prioridad ' + esc(v.priority) + '</span>';
+  if (v.riesgo) pills += '<span class="ed-pill curso">' + esc(v.riesgo) + '</span>';
+  if (v.tipoTrabajo) pills += '<span class="ed-pill curso">' + esc(v.tipoTrabajo) + '</span>';
+  if (v.pais) pills += '<span class="ed-pill curso">' + esc(v.pais) + '</span>';
+
+  var html = ''
+    + '<div class="cr-conf-banner">'
+    +   '<div class="cr-conf-mark">✓</div>'
+    +   '<div class="cr-conf-msg">Todo listo para publicar. Una vez confirmes, <b>' + esc(v.lider || 'el líder asignado') + '</b> recibirá el proyecto.</div>'
+    + '</div>'
+    + '<div class="cr-conf-section">'
+    +   '<div class="cr-conf-eye">— Resumen</div>'
+    +   '<div class="cr-conf-title">' + esc(v.nombre || 'Sin nombre') + '</div>'
+    +   (pills ? '<div class="cr-conf-pills">' + pills + '</div>' : '')
+    +   '<div class="cr-conf-grid">'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Líder</div><div class="cr-conf-val">' + esc(v.lider || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Deadline</div><div class="cr-conf-val">' + esc(v.deadline || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">País</div><div class="cr-conf-val">' + esc(v.pais || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Prioridad</div><div class="cr-conf-val">' + esc(v.priority || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Tipo</div><div class="cr-conf-val">' + esc(v.tipoTrabajo || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Riesgo</div><div class="cr-conf-val">' + esc(v.riesgo || '—') + '</div></div>'
+    +   '</div>'
+    + '</div>';
+  if (v.descripcion) {
+    html += '<div class="cr-conf-section">'
+         +   '<div class="cr-conf-eye">— Descripción</div>'
+         +   '<div class="cr-conf-desc">' + esc(v.descripcion) + '</div>'
+         + '</div>';
+  }
+  return html;
+}
+
+function _crpRender(step) {
+  var s = step || EDCP.step || 1;
+  var titles = {
+    1: 'Empecemos por lo esencial',
+    2: 'Detalles, líder y deadline',
+    3: 'Listo para publicar'
+  };
+  var infos = {
+    1: 'Próximo paso: <b>tipo, riesgo, líder y deadline.</b>',
+    2: 'Cuando estés listo, te llevamos a la revisión final antes de publicar.',
+    3: 'Última revisión. Cuando confirmes, el proyecto se crea.'
+  };
+  var bodyHtml;
+  if (s === 1) bodyHtml = _crpRenderStep1();
+  else if (s === 2) bodyHtml = _crpRenderStep2();
+  else bodyHtml = _crpRenderStep3();
+
+  var footBtns = '';
+  if (s === 1) {
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoClose()">Cancelar</button>'
+             + '<button type="button" class="ed-btn accent" onclick="edCrearProyectoGoStep(2)">Continuar →</button>';
+  } else if (s === 2) {
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoGoStep(1)">← Volver</button>'
+             + '<button type="button" class="ed-btn accent" onclick="edCrearProyectoGoStep(3)">Revisar y publicar →</button>';
+  } else {
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoGoStep(2)">← Editar</button>'
+             + '<button type="button" class="ed-btn accent" id="crpSubmit" onclick="edCrearProyectoSubmit()">Publicar proyecto</button>';
+  }
+
+  return '<div class="cr-overlay" onclick="if(event.target===this)edCrearProyectoClose()">'
+       +   '<div class="cr-backdrop" onclick="edCrearProyectoClose()"></div>'
+       +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Crear proyecto">'
+       +     '<div class="cr-head">'
+       +       '<div>'
+       +         '<div class="cr-eye">— Crear nuevo proyecto</div>'
+       +         '<div class="cr-title">' + esc(titles[s] || '') + '</div>'
+       +       '</div>'
+       +       '<button type="button" class="cr-x" onclick="edCrearProyectoClose()" aria-label="Cerrar">×</button>'
+       +     '</div>'
+       +     '<div class="cr-steps">'
+       +       '<div class="' + _crStepClasses(1, s) + '"><span class="cr-step-num">01</span> Esencial</div>'
+       +       '<div class="' + _crStepClasses(2, s) + '"><span class="cr-step-num">02</span> Detalles</div>'
+       +       '<div class="' + _crStepClasses(3, s) + '"><span class="cr-step-num">03</span> Confirmar</div>'
+       +     '</div>'
+       +     '<div class="cr-body">' + bodyHtml + '</div>'
+       +     '<div class="cr-foot">'
+       +       '<div class="cr-foot-info">' + (infos[s] || '') + '</div>'
+       +       footBtns
+       +     '</div>'
+       +   '</div>'
+       + '</div>';
+}
+
+function _crpMount() {
+  var host = $('crpHost'); if (!host) return;
+  host.innerHTML = _crpRender(EDCP.step);
+}
+
+function edCrearProyectoOpen() {
+  EDCP.step = 1;
+  EDCP.values = {
+    nombre: '',
+    descripcion: '',
+    pais: '',
+    priority: 'Media',
+    tipoTrabajo: '',
+    riesgo: '',
+    lider: '',
+    deadline: ''
+  };
+  // Restaurar borrador si tiene contenido útil
+  try {
+    var saved = localStorage.getItem('lt-edcp-draft');
+    if (saved) {
+      var v = JSON.parse(saved);
+      if (v && (v.nombre || v.descripcion)) {
+        EDCP.values = Object.assign(EDCP.values, v);
+        if (typeof toast === 'function') toast('Restauré tu borrador anterior.', 'info');
+      }
+    }
+  } catch(e){}
+  _crpMount();
+  setTimeout(function() {
+    var input = $('crpNombre');
+    if (input) input.focus();
+  }, 60);
+}
+
+function edCrearProyectoClose() {
+  EDCP.step = 1;
+  var host = $('crpHost'); if (host) host.innerHTML = '';
+}
+
+function edCrearProyectoSetField(key, value) {
+  if (!EDCP.values || !(key in EDCP.values)) return;
+  EDCP.values[key] = value;
+  // Si cambia el país, invalidar el líder elegido (puede ya no aplicar al nuevo país)
+  if (key === 'pais') {
+    var allowed = _crpLideres(value);
+    if (EDCP.values.lider && allowed.indexOf(EDCP.values.lider) < 0) {
+      EDCP.values.lider = '';
+    }
+  }
+  try { localStorage.setItem('lt-edcp-draft', JSON.stringify(EDCP.values)); } catch(e){}
+  // Re-render para pills (refleja activo) y cuando cambia país (recalcula select de líder)
+  var rerenderFields = { pais: 1, priority: 1, tipoTrabajo: 1, riesgo: 1 };
+  if (rerenderFields[key]) _crpMount();
+}
+
+function edCrearProyectoGoStep(n) {
+  var v = EDCP.values;
+  if (n > EDCP.step) {
+    if (EDCP.step === 1) {
+      if (!v.nombre || !v.nombre.trim()) { toast('Nombre requerido', 'error'); return; }
+      if (!v.pais) { toast('Seleccioná un país', 'error'); return; }
+      if (!v.priority) { toast('Seleccioná una prioridad', 'error'); return; }
+    } else if (EDCP.step === 2) {
+      if (!v.lider) { toast('Seleccioná un líder', 'error'); return; }
+      if (!v.deadline) { toast('Deadline requerido', 'error'); return; }
+    }
+  }
+  EDCP.step = n;
+  _crpMount();
+}
+
+function edCrearProyectoSubmit() {
+  var v = EDCP.values;
+  if (!v.nombre || !v.nombre.trim()) { toast('Nombre requerido', 'error'); return; }
+  if (!v.pais) { toast('País requerido', 'error'); return; }
+  if (!v.lider) { toast('Líder requerido', 'error'); return; }
+  var btn = $('crpSubmit'); if (btn) btn.disabled = true;
+  if (typeof showLoader === 'function') showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (btn) btn.disabled = false;
+      if (res && res.success) {
+        toast('Proyecto #' + res.id + ' creado', 'success');
+        try { localStorage.removeItem('lt-edcp-draft'); } catch(e){}
+        edCrearProyectoClose();
+        if (typeof reload === 'function') reload();
+      } else {
+        toast('Error: ' + ((res && res.error) || 'desconocido'), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (btn) btn.disabled = false;
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .addProject({
+      nombre: v.nombre.trim(),
+      descripcion: (v.descripcion || '').trim(),
+      responsable: v.lider || '',
+      lider: v.lider || '',
+      pais: v.pais || '',
+      priority: v.priority || 'Media',
+      tipoTrabajo: v.tipoTrabajo || '',
+      riesgo: v.riesgo || '',
+      deadline: v.deadline || '',
+      status: 'Activo',
+      notas: '',
+      participantes: ''
+    });
+}
+
+// MARKER:EDITORIAL_CREAR_PROYECTO_END
 </script>
