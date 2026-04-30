@@ -1543,7 +1543,6 @@ function _blockTaskByIdImpl(taskId, reason, slackUser) {
   if (!current) return { success: false, message: 'Tarea #' + taskId + ' no encontrada' };
   _authorizeTaskWrite(ctx, current);
 
-  invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
   // Lock para serializar el read-modify-write de notas (evita perder concurrencia).
   var lock = LockService.getScriptLock();
@@ -1557,6 +1556,7 @@ function _blockTaskByIdImpl(taskId, reason, slackUser) {
     return { success: true, id: taskId, nombre: tn, message: 'Tarea bloqueada: #' + taskId + ' "' + tn + '"' };
   } finally {
     lock.releaseLock();
+    invalidateCache();
   }
 }
 function testData() {
