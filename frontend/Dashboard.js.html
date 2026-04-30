@@ -3547,6 +3547,8 @@ function rEdAgrupadas(D) {
         var tone = _etaToneClass(t.etaDays, t.status);
         var pn = _projNameForTask(t);
         var sla = t.slaTarget || '';
+        var cfLvl = _confLevel(t);
+        var cfMeta = ED_CONF_LEVELS[cfLvl];
         var actionHtml = t.blockedReason
           ? '<span class="warn">En espera de ' + esc(t.blockedReason) + '.</span> ' + esc(t.accionable || '')
           : esc(t.accionable || '');
@@ -3556,6 +3558,8 @@ function rEdAgrupadas(D) {
              +      '<span class="sep">·</span>'
              +      '<span>' + esc(pn) + '</span>'
              +      (sla ? '<span class="sep">·</span><span>SLA ' + esc(sla) + '</span>' : '')
+             +      '<span class="sep">·</span>'
+             +      '<span class="cf-dot ' + cfLvl + '" title="Confidencialidad: ' + esc(cfMeta.label) + '"></span>'
              +    '</div>'
              +    '<div class="ag-card-name">' + esc(t.nombre || '') + '</div>'
              +    '<div class="ag-card-action">' + actionHtml + '</div>'
@@ -4814,7 +4818,7 @@ function rEdHistorial(D) {
 
     html += '<table class="tk-table">'
          +    '<thead><tr>'
-         +      '<th>ID</th><th>Tarea</th><th>Proyecto</th>'
+         +      '<th></th><th>ID</th><th>Tarea</th><th>Proyecto</th>'
          +      (showResp ? '<th>Resp.</th>' : '')
          +      '<th>Prioridad</th><th>Cerrada el</th><th>Días vs SLA</th>'
          +    '</tr></thead><tbody>';
@@ -4824,6 +4828,8 @@ function rEdHistorial(D) {
       var pn = _projNameForTask(t);
       var meta = (t.tipoTrabajo || '—') + (t.pais ? ' · ' + t.pais : '');
       var dvs = _edDaysVsSla(t);
+      var cfLvl = _confLevel(t);
+      var cfMeta = ED_CONF_LEVELS[cfLvl];
       var slaTxt, slaTone;
       if (dvs === null) {
         slaTxt = '—'; slaTone = 'dim';
@@ -4835,6 +4841,7 @@ function rEdHistorial(D) {
         slaTone = 'crit';
       }
       html += '<tr class="tk-row" onclick="_edHistOnClick()">'
+           +    '<td><span class="cf-dot ' + cfLvl + '" title="Confidencialidad: ' + esc(cfMeta.label) + '"></span></td>'
            +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
            +    '<td>'
            +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
