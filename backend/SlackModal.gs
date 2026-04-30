@@ -120,7 +120,7 @@ function doPost(e) {
     // Si el secret no está seteado, permite (modo dev) con warning.
     // Si está seteado pero los headers no están disponibles, soft-fail según _SLACK_SIG_ENFORCED.
     if (!_verifySlackSignature(e)) {
-      logSlackError('doPost', { message: 'Slack signature verification failed', stack: '' });
+      logSlackError('doPost', { message: 'Slack signature verification failed', stack: '' }, 'doPost');
       return jsonResponse({ error: 'unauthorized' });
     }
 
@@ -149,7 +149,7 @@ function doPost(e) {
     return jsonResponse({ ok: true });
 
   } catch (err) {
-    logSlackError('doPost', err);
+    logSlackError('doPost', err, 'doPost');
     return jsonResponse({ ok: false, error: err.message });
   }
 }
@@ -514,7 +514,7 @@ function submitCreateTask(payload) {
     return jsonResponse({ response_action: 'clear' });
 
   } catch (err) {
-    logSlackError('submitCreateTask', err);
+    logSlackError('submitCreateTask', err, 'submitCreateTask');
     // Mostrar error inline en el modal
     return jsonResponse({
       response_action : 'errors',
@@ -555,7 +555,7 @@ function submitBlockTask(payload) {
     return jsonResponse({ response_action: 'clear' });
 
   } catch (err) {
-    logSlackError('submitBlockTask', err);
+    logSlackError('submitBlockTask', err, 'submitBlockTask');
     return jsonResponse({
       response_action : 'errors',
       errors          : { reason: 'Error al bloquear: ' + err.message }
@@ -630,8 +630,16 @@ function sendConfirmPrompt(userId, channel, ts, actionType, candidates) {
 function callSlackAPI(method, body) {
   if (!SLACK_BOT_TOKEN) {
     const errMsg = 'SLACK_BOT_TOKEN no configurado en Script Properties (Apps Script → ⚙ Project Settings → Script Properties).';
-    logSlackError('Slack API / ' + method, { message: errMsg, stack: '' });
+    logSlackError('Slack API / ' + method, { message: errMsg, stack: '' }, _callerName());
     return { ok: false, error: errMsg };
+  }
+  // Sanitizar blocks antes de enviar (evita invalid_blocks por section.text >3000, items sin type, etc.)
+  if (body && body.blocks) {
+    body.blocks = _sanitizeBlocks(body.blocks);
+    // Si tras sanitizar quedan vacíos, removemos el campo y dejamos solo `text` como fallback.
+    if (!body.blocks || body.blocks.length === 0) {
+      delete body.blocks;
+    }
   }
   const resp = UrlFetchApp.fetch('https://slack.com/api/' + method, {
     method         : 'post',
@@ -641,8 +649,71 @@ function callSlackAPI(method, body) {
     muteHttpExceptions: true
   });
   const data = JSON.parse(resp.getContentText());
-  if (!data.ok) logSlackError('Slack API / ' + method, { message: data.error, stack: JSON.stringify(body).substring(0, 200) });
+  if (!data.ok) {
+    var caller = _callerName();
+    logSlackError('Slack API / ' + method, { message: data.error, stack: JSON.stringify(body).substring(0, 200) }, caller);
+  }
   return data;
+}
+
+// Intenta extraer el call site (función que invocó callSlackAPI) parseando un stack trace.
+// En Apps Script `new Error().stack` da algo como "at functionName (file:line)".
+// Si no se puede determinar, retorna ''.
+function _callerName() {
+  try {
+    var stack = new Error().stack || '';
+    var lines = stack.split('\n');
+    // Saltar el frame de _callerName y el de callSlackAPI; tomamos el siguiente que tenga "at ".
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (line.indexOf('_callerName') >= 0 || line.indexOf('callSlackAPI') >= 0) continue;
+      var m = line.match(/at\s+([A-Za-z0-9_$.]+)/);
+      if (m && m[1] && m[1] !== 'Error') return m[1];
+    }
+  } catch (e) {}
+  return '';
+}
+
+// Sanitiza un array de Slack blocks para prevenir errores `invalid_blocks`:
+//  - filtra elementos sin `type` o no-objetos
+//  - trunca strings de section.text.text y header.text.text a 2900 chars (límite Slack: 3000)
+//  - trunca también context elements de tipo mrkdwn/plain_text a 2900
+//  - garantiza que el array no esté vacío (retorna [] si todo se filtró → caller decide qué hacer)
+function _sanitizeBlocks(blocks) {
+  if (!blocks || !Array.isArray(blocks)) return [];
+  var MAX = 2900;
+  var clean = [];
+  for (var i = 0; i < blocks.length; i++) {
+    var b = blocks[i];
+    if (!b || typeof b !== 'object' || !b.type) continue;
+    // section.text.text
+    if (b.type === 'section' && b.text && typeof b.text.text === 'string' && b.text.text.length > MAX) {
+      b.text.text = b.text.text.substring(0, MAX - 1) + '…';
+    }
+    // section.fields[].text
+    if (b.type === 'section' && Array.isArray(b.fields)) {
+      for (var f = 0; f < b.fields.length; f++) {
+        if (b.fields[f] && typeof b.fields[f].text === 'string' && b.fields[f].text.length > MAX) {
+          b.fields[f].text = b.fields[f].text.substring(0, MAX - 1) + '…';
+        }
+      }
+    }
+    // header.text.text (límite real Slack 150, pero usamos MAX como tope superior)
+    if (b.type === 'header' && b.text && typeof b.text.text === 'string' && b.text.text.length > MAX) {
+      b.text.text = b.text.text.substring(0, MAX - 1) + '…';
+    }
+    // context.elements[].text
+    if (b.type === 'context' && Array.isArray(b.elements)) {
+      for (var c = 0; c < b.elements.length; c++) {
+        var el = b.elements[c];
+        if (el && typeof el.text === 'string' && el.text.length > MAX) {
+          el.text = el.text.substring(0, MAX - 1) + '…';
+        }
+      }
+    }
+    clean.push(b);
+  }
+  return clean;
 }
 
 /**
@@ -663,19 +734,56 @@ function fetchMessageText(channel, ts) {
       return resp.messages[0].text || '';
     }
   } catch (e) {
-    logSlackError('fetchMessageText', e);
+    logSlackError('fetchMessageText', e, 'fetchMessageText');
   }
   return '';
 }
 
-/** Responde en el hilo del mensaje original */
+/**
+ * Resuelve el `thread_ts` correcto para responder en hilo.
+ * Si el mensaje (channel, ts) es ya un *reply* dentro de un thread,
+ * Slack devuelve `cannot_reply_to_message` cuando intentamos usar SU `ts` como `thread_ts`.
+ * En ese caso debemos usar el `thread_ts` del padre (raíz del thread).
+ * Retorna el ts a usar como `thread_ts`, o null si no se puede determinar
+ * (en cuyo caso el caller debe postear top-level sin thread_ts).
+ */
+function _resolveThreadTs(channel, ts) {
+  try {
+    const resp = callSlackAPI('conversations.history', {
+      channel   : channel,
+      latest    : ts,
+      oldest    : ts,
+      limit     : 1,
+      inclusive : true
+    });
+    if (resp && resp.ok && resp.messages && resp.messages.length > 0) {
+      var msg = resp.messages[0];
+      // Si tiene thread_ts y es DISTINTO de ts → es un reply: usar el del padre.
+      if (msg.thread_ts && msg.thread_ts !== ts) return msg.thread_ts;
+      // Si thread_ts == ts → es la raíz del thread: ts es válido.
+      // Si no hay thread_ts → mensaje suelto: ts es válido como root del nuevo thread.
+      return ts;
+    }
+  } catch (e) {
+    logSlackError('_resolveThreadTs', e, '_resolveThreadTs');
+  }
+  // No pudimos verificar — null indica al caller que postee top-level
+  return null;
+}
+
+/** Responde en el hilo del mensaje original.
+ *  Si el mensaje fuente es un reply, usa el thread_ts del padre.
+ *  Si no se puede determinar parent válido, postea top-level (sin thread_ts).
+ */
 function postThreadReply(channel, ts, text) {
-  callSlackAPI('chat.postMessage', {
-    channel   : channel,
-    thread_ts : ts,
-    text      : text,
-    mrkdwn    : true
-  });
+  var threadTs = _resolveThreadTs(channel, ts);
+  var payload = {
+    channel : channel,
+    text    : text,
+    mrkdwn  : true
+  };
+  if (threadTs) payload.thread_ts = threadTs;
+  callSlackAPI('chat.postMessage', payload);
 }
 
 /** Lee la lista de miembros del equipo desde la hoja Config del sheet */
@@ -730,12 +838,15 @@ function logSlackEvent(data) {
   }
 }
 
-function logSlackError(context, err) {
+function logSlackError(context, err, callSite) {
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const ws = ss.getSheetByName(SLACK_LOG_SHEET);
     if (ws) {
-      ws.appendRow([new Date(), 'ERROR: ' + context, err.message || '', '', '', err.stack || '']);
+      // Incluimos el call site (función originaria) en la columna "User" para tener
+      // visibilidad sin romper el schema del sheet. El stack queda en la última col.
+      var label = 'ERROR: ' + context + (callSite ? ' [from ' + callSite + ']' : '');
+      ws.appendRow([new Date(), label, err.message || '', callSite || '', '', err.stack || '']);
     }
   } catch (e) {
     console.error('logSlackError failed:', e);
