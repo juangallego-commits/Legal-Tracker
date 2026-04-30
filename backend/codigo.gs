@@ -675,7 +675,7 @@ function _authorizeTaskWrite(ctx, target) {
     return;
   }
   // specialist: solo sus propias tareas
-  if (!target || target.resp !== ctx.user.name) {
+  if (!target || _normalizeName(target.resp) !== _normalizeName(ctx.user.name)) {
     throw new Error('Sin permiso: solo puedes modificar tus tareas');
   }
 }
@@ -773,7 +773,6 @@ function _addProjectImpl(obj) {
     responsable: obj.responsable || ctx.user.name,
     participantes: (obj.participantes || '').toString().split(',').map(function(s){ return s.trim(); }).filter(Boolean)
   });
-  invalidateCache();
   var ss = ctx.ss;
   var ws = ss.getSheetByName(SHEET_PROYECTOS);
   if (!ws) {
@@ -805,6 +804,7 @@ function _addProjectImpl(obj) {
     return {success:true, id:newId, nombre:obj.nombre||''};
   } finally {
     lock.releaseLock();
+    invalidateCache();
   }
 }
 
@@ -814,7 +814,6 @@ function _updateProjectFieldImpl(projId, field, value) {
   var current = _readProjectById(ctx.ss, projId);
   if (!current) return { success: false, error: 'Project #' + projId + ' not found' };
   _authorizeProjectWrite(ctx, current);
-  invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
   var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
   var col = fieldMap[field];
@@ -827,6 +826,7 @@ function _updateProjectFieldImpl(projId, field, value) {
     return { success: true };
   } finally {
     lock.releaseLock();
+    invalidateCache();
   }
 }
 
@@ -854,7 +854,6 @@ function _updateProjectFieldsImpl(projId, fields) {
     }
   }
 
-  invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
   var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
   var row = current.row;
@@ -874,6 +873,7 @@ function _updateProjectFieldsImpl(projId, fields) {
     return { success: true };
   } finally {
     lock.releaseLock();
+    invalidateCache();
   }
 }
 
@@ -926,7 +926,6 @@ function _addTaskImpl(taskObj) {
   // manager solo dentro de su país; head sin restricción.
   _authorizeTaskWrite(ctx, { resp: proposedResp, pais: proposedPais });
 
-  invalidateCache();
   var ss = ctx.ss, ws = ss.getSheetByName(SHEET_ACTIVO);
   // Lock para que nextTaskId + appendRow sean atómicos frente a creaciones concurrentes.
   var lock = LockService.getScriptLock();
@@ -958,6 +957,7 @@ function _addTaskImpl(taskObj) {
     return {success:true, id:newId};
   } finally {
     lock.releaseLock();
+    invalidateCache();
   }
 }
 
@@ -985,7 +985,6 @@ function _updateTaskFieldImpl(taskId, field, value) {
     throw new Error('Sin permiso: solo manager o head pueden cambiar confidencialidad');
   }
 
-  invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
   // Normalizar proyectoId a entero (o vacío)
   if (field === 'proyectoId' || field === 'proyecto') {
@@ -1009,8 +1008,10 @@ function _updateTaskFieldImpl(taskId, field, value) {
   }
   if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, current.row);
+    invalidateCache();
     return { success: true, moved: true, message: 'Tarea movida a Historial' };
   }
+  invalidateCache();
   return { success: true };
 }
 function updateTaskStatus(taskId, newStatus) { return updateTaskField(taskId, 'status', newStatus); }
@@ -1041,7 +1042,6 @@ function _updateTaskFieldsImpl(taskId, fields) {
     throw new Error('Sin permiso: solo manager o head pueden cambiar confidencialidad');
   }
 
-  invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
   var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18};
   var row = current.row;
@@ -1078,8 +1078,10 @@ function _updateTaskFieldsImpl(taskId, fields) {
   }
   if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, row);
+    invalidateCache();
     return { success: true, moved: true, message: 'Tarea movida a Historial' };
   }
+  invalidateCache();
   return { success: true };
 }
 
@@ -1511,7 +1513,6 @@ function _closeTaskByIdImpl(taskId, slackUser) {
   if (!current) return { success: false, message: 'Tarea #' + taskId + ' no encontrada' };
   _authorizeTaskWrite(ctx, current);
 
-  invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
   // Lock para serializar la mutación. moveToHistorial se llama fuera (tiene su
   // propio lock interno; no asumimos reentrancia del lock de Apps Script).
@@ -1526,6 +1527,7 @@ function _closeTaskByIdImpl(taskId, slackUser) {
     lock.releaseLock();
   }
   moveToHistorial(ctx.ss, ws, current.row);
+  invalidateCache();
   return { success: true, id: taskId, nombre: tn, message: 'Tarea #' + taskId + ' "' + tn + '" cerrada y movida a Historial' };
 }
 

@@ -105,6 +105,29 @@ function _verifySlackSignature(e) {
   return true;
 }
 
+// ── DEDUP de eventos Slack ──────────────────────────────────────
+// Slack reintenta cualquier request que no responda 200 en <3s. Como `processEvent`
+// crea tareas, sin dedup cada retry duplica la tarea (caso real observado en Slack Log:
+// task #3/#4, #5/#6, #7/#8, #11/#12 con mismo nombre + mismo user + ~15s de diferencia).
+// Usamos CacheService.getScriptCache() como llave canónica por `event_id` (TTL 5 min,
+// que cubre la ventana de retries de Slack: 3 retries con backoff exponencial ~30s total).
+// Si `eventId` viene vacío/null retornamos false (no deduplicar) — preferible procesar
+// dos veces que perder un evento legítimo.
+function _isDuplicateEvent(eventId) {
+  if (!eventId) return false;
+  try {
+    var cache = CacheService.getScriptCache();
+    var key = 'slack_evt_' + eventId;
+    if (cache.get(key)) return true;
+    cache.put(key, '1', 300); // 5 min TTL
+    return false;
+  } catch (e) {
+    // Si el cache falla, no bloqueamos el procesamiento — log y seguimos.
+    try { console.warn('_isDuplicateEvent cache error: ' + (e && e.message)); } catch(_e) {}
+    return false;
+  }
+}
+
 // Emojis que disparan acciones
 const EMOJI_CREATE = 'scales';              // ⚖️  → crear tarea (con formulario)
 const EMOJI_CLOSE  = 'white_check_mark';   // ✅  → cerrar tarea directamente
@@ -137,6 +160,24 @@ function doPost(e) {
       return ContentService
         .createTextOutput(body.challenge)
         .setMimeType(ContentService.MimeType.TEXT);
+    }
+
+    // ── DEDUP de eventos: Slack reintenta si no respondemos 200 en <3s,
+    //    y cada retry vuelve a invocar processEvent → tareas duplicadas.
+    //    Llave canónica = body.event_id. Header x-slack-retry-num es solo informativo.
+    if (body.event_id) {
+      if (_isDuplicateEvent(body.event_id)) {
+        try {
+          var retryNum = '';
+          if (e && e.headers) {
+            retryNum = e.headers['x-slack-retry-num'] || e.headers['X-Slack-Retry-Num'] || '';
+          } else if (e && e.parameter) {
+            retryNum = e.parameter['x-slack-retry-num'] || '';
+          }
+          console.info('Skipped duplicate Slack event: ' + body.event_id + (retryNum ? ' (retry #' + retryNum + ')' : ''));
+        } catch (_e) {}
+        return jsonResponse({ ok: true, deduped: true });
+      }
     }
 
     // ── Event Callbacks (reacciones, mensajes, etc.) ─────────────
