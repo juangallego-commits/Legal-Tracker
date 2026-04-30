@@ -95,16 +95,26 @@ function include(f){ return HtmlService.createHtmlOutputFromFile(f).getContent()
 // Arma un mapa (email lowercase) → {name, code, isLeader} a partir de la hoja Equipos.
 // - leaderEmail se mapea a leader
 // - emails[i] se asume paralelo a members[i] (mismo orden)
+// - First-wins: si un email aparece en varios equipos (ej. Eduardo es leader
+//   de CO y CR), se queda con el primero del Sheet. Sin esto, la última
+//   iteración pisa el código de país y el manager queda en el equipo
+//   equivocado. Multi-country real queda para Fase 2.
 function buildEmailAllowlist(equipos) {
   var map = {};
   equipos.forEach(function(eq) {
     if (eq.leaderEmail) {
-      map[eq.leaderEmail.toString().toLowerCase().trim()] = { name: eq.leader, code: eq.code, isLeader: true };
+      var le = eq.leaderEmail.toString().toLowerCase().trim();
+      if (le && !map[le]) {
+        map[le] = { name: eq.leader, code: eq.code, isLeader: true };
+      }
     }
     for (var i = 0; i < (eq.members || []).length; i++) {
       var email = (eq.emails || [])[i];
       if (email) {
-        map[email.toString().toLowerCase().trim()] = { name: eq.members[i], code: eq.code, isLeader: false };
+        var em = email.toString().toLowerCase().trim();
+        if (em && !map[em]) {
+          map[em] = { name: eq.members[i], code: eq.code, isLeader: false };
+        }
       }
     }
   });
@@ -1245,22 +1255,37 @@ function _extractDriveId(urlOrId) {
 }
 
 // Resuelve la carpeta raíz configurada en Config!DriveFolder. Lanza si no
-// está configurada o no es accesible.
+// está configurada o no es accesible. Los mensajes de error apuntan al admin
+// (primer email en Config!Heads) cuando es posible — así el usuario sabe
+// a quién pedirle que arregle la config en lugar de quedar trabado.
 function _getRootFolder() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var config = readConfig(ss);
   var cfgValue = config['DriveFolder'] || config['driveFolder'] || '';
   if (!cfgValue) {
-    throw new Error('Configura la carpeta raíz en Config!DriveFolder (pega la URL o el ID de una carpeta de Drive).');
+    // Tomamos el primer email de Heads como contacto para el usuario.
+    // Si no hay Heads configurados, mensaje genérico (sigue siendo accionable).
+    var headsRaw = (config['Heads'] || '').toString();
+    var firstHead = headsRaw.split(',').map(function(s){ return s.trim(); }).filter(Boolean)[0] || '';
+    if (firstHead) {
+      throw new Error('Pedile a ' + firstHead + ' que configure Config!DriveFolder con la URL de la carpeta de Drive raíz.');
+    }
+    throw new Error('Falta configurar Config!DriveFolder: pega la URL o el ID de la carpeta de Drive raíz en la hoja Config.');
   }
   var folderId = _extractDriveId(cfgValue);
   if (!folderId) {
-    throw new Error('El valor de Config!DriveFolder no es una URL o ID de Drive válidos.');
+    // Truncamos el valor recibido para no inflar el error con strings largos
+    // (la URL o el ID típicos no superan 80 chars; valores raros se ven igual).
+    var preview = cfgValue.toString();
+    if (preview.length > 80) preview = preview.substring(0, 80) + '...';
+    throw new Error("El valor de Config!DriveFolder no parece una URL de Drive ni un ID. Recibido: '" + preview + "'.");
   }
   try {
     return DriveApp.getFolderById(folderId);
   } catch (e) {
-    throw new Error('No puedo acceder a la carpeta de Drive. Verifica permisos del owner del webapp sobre ' + folderId + '.');
+    // Caso típico: el usuario perdió el scope de Drive (reautorización pendiente)
+    // o el dueño del webapp no aprobó el scope. Mensaje accionable en lugar de raw.
+    throw new Error('No tengo permiso para acceder a la carpeta de Drive. Pedile al dueño del script que apruebe los permisos.');
   }
 }
 
@@ -1368,7 +1393,13 @@ var _UPLOAD_ALLOWED_MIME = {
   'image/jpg': 1,
   'text/plain': 1
 };
+// Wrapper público: garantiza que cualquier excepción (Drive cuota, permisos,
+// scope no autorizado) llegue al cliente como {success:false, error} y NO
+// rompa el failureHandler del frontend.
 function uploadDocument(kind, itemId, fileData) {
+  return _safeMutation(function() { return _uploadDocumentImpl(kind, itemId, fileData); });
+}
+function _uploadDocumentImpl(kind, itemId, fileData) {
   if (!fileData || !fileData.data || !fileData.name) {
     return { success: false, error: 'Datos de archivo inválidos' };
   }
@@ -1409,6 +1440,9 @@ function uploadDocument(kind, itemId, fileData) {
 
 // Vincula un link existente de Drive (no mueve el archivo).
 function attachDocumentLink(kind, itemId, link) {
+  return _safeMutation(function() { return _attachDocumentLinkImpl(kind, itemId, link); });
+}
+function _attachDocumentLinkImpl(kind, itemId, link) {
   if (!link || !link.url) return { success: false, error: 'URL requerida' };
   var url = link.url.toString().trim();
   // Validar esquema: solo http(s). Esto bloquea javascript:, data:, file:, etc.
@@ -1446,6 +1480,9 @@ function attachDocumentLink(kind, itemId, link) {
 
 // Quita la referencia del tracker (NO borra el archivo en Drive).
 function removeDocument(kind, itemId, docIndex) {
+  return _safeMutation(function() { return _removeDocumentImpl(kind, itemId, docIndex); });
+}
+function _removeDocumentImpl(kind, itemId, docIndex) {
   var ctx = _getAuthContext();
   var info = _readDocsFor(kind, itemId);
   if (!info) return { success: false, error: 'No encontrado' };
@@ -1466,7 +1503,13 @@ function removeDocument(kind, itemId, docIndex) {
 // ── Busca candidatos por fuzzy match. Retorna top 3 ordenados por score.
 // Cada candidato: {id, nombre, row, score, ratio, confidence: 'high'|'low'|'none'}
 // high: ≥3 matches y ratio ≥0.5   low: ≥1 match   none: sin coincidencia útil
+// Aunque es un read-only, lo envolvemos en _safeMutation para que un sheet
+// lockup u otro error transitorio se propague al frontend como
+// {success:false, error} y caiga en los failureHandlers existentes.
 function findTaskCandidates(text) {
+  return _safeMutation(function() { return _findTaskCandidatesImpl(text); });
+}
+function _findTaskCandidatesImpl(text) {
   var ss = SpreadsheetApp.openById(SHEET_ID), ws = ss.getSheetByName(SHEET_ACTIVO);
   var lr = ws.getLastRow();
   if (lr < 4) return {candidates: [], confidence: 'none'};
