@@ -3164,9 +3164,9 @@ function rEdHomeHQ(D) {
         var isHigh = (k === trend.length - 1);
         sparkHtml += '<span class="bar' + (isHigh ? ' high' : '') + (sparkColor ? ' ' + sparkColor : '') + '" style="height:' + h + 'px"></span>';
       }
-      // TODO: filtrar el tracker por país una vez que EDT.country esté implementado.
-      // Por ahora la fila navega al tracker sin filtro pre-aplicado.
-      html += '<div class="hq-country-row clickable" onclick="goEd(\'tracker\')">'
+      // Click en la fila → setear filtro de país en EDT y navegar al tracker.
+      var cCode = (c.code || '').replace(/'/g, "\\'");
+      html += '<div class="hq-country-row clickable" onclick="edSetCountryFilter(\'' + esc(cCode) + '\'); goEd(\'tracker\');">'
            +    '<div class="hq-flag">' + esc(c.code || '') + '</div>'
            +    '<div class="hq-country-name"><b>' + esc(c.name || c.code || '') + '</b><span class="lead">' + esc(c.leader || '—') + '</span></div>'
            +    '<div class="hq-num">' + (c.open || 0) + '</div>'
@@ -3189,7 +3189,7 @@ function rEdHomeHQ(D) {
 // 440px con detalle. Estado local EDT (filter/search/selectedId).
 // ───────────────────────────────────────────────────────────────
 
-var EDT = { filter: 'all', search: '', selectedId: null };
+var EDT = { filter: 'all', search: '', selectedId: null, country: null };
 
 function _etaTextFromDays(d) {
   if (typeof d !== 'number') return '';
@@ -3201,9 +3201,28 @@ function _etaTextFromDays(d) {
 
 function _edFilterByRole(tasks, role, userName, userCode) {
   // Specialist: solo sus tareas. Manager: su país. Head: todo.
-  if (role === 'specialist') return tasks.filter(function(t){ return t.resp === userName; });
-  if (role === 'manager')    return tasks.filter(function(t){ return (t.pais || '') === userCode; });
-  return tasks;
+  var visible;
+  if (role === 'specialist')      visible = tasks.filter(function(t){ return t.resp === userName; });
+  else if (role === 'manager')    visible = tasks.filter(function(t){ return (t.pais || '') === userCode; });
+  else                            visible = tasks;
+  // Filtro por país desde HQ (sólo aplicable cuando el rol no lo restringe ya)
+  if (EDT.country) {
+    visible = visible.filter(function(t){ return (t.pais || '') === EDT.country; });
+  }
+  return visible;
+}
+
+// Helpers para setear/limpiar el filtro de país desde HQ home / resumen.
+function edSetCountryFilter(code) {
+  EDT.country = code || null;
+  // Resetear selección y filtro de estado para no confundir al usuario.
+  EDT.selectedId = null;
+  if (D) rEdTracker(D);
+}
+function edClearCountryFilter() {
+  EDT.country = null;
+  EDT.selectedId = null;
+  if (D) rEdTracker(D);
 }
 
 function _edApplyFilter(tasks, filter) {
@@ -3257,6 +3276,149 @@ function edSelectTask(id) {
   if (D) rEdTracker(D);
 }
 function edClosePanel() { EDT.selectedId = null; if (D) rEdTracker(D); }
+
+// ─── REASIGNAR (manager/head) ────────────────────────────────────
+// Mini-modal que reusa el overlay del wizard de crear (cr-overlay/cr-modal)
+// pero con un layout reducido: select de responsables + Cancelar/Confirmar.
+// El backend (updateTaskField) ya valida permisos.
+var EDR = { taskId: null, value: '' };
+
+function _edReasignarCandidates(role, userCode) {
+  // Manager: sólo equipo de su país. Head: todo el roster.
+  var team = (D && D.team) || [];
+  var pool = team.filter(function(m){ return m && m.name; });
+  if (role === 'manager') {
+    pool = pool.filter(function(m){ return (m.country || '') === userCode; });
+  }
+  // Dedupe por nombre conservando orden.
+  var seen = {}, out = [];
+  for (var i = 0; i < pool.length; i++) {
+    var n = pool[i].name;
+    if (!seen[n]) { seen[n] = 1; out.push(pool[i]); }
+  }
+  return out;
+}
+
+function _edReasignarRender() {
+  var host = $('crHost'); if (!host) return;
+  var role = _effectiveRole();
+  if (role !== 'manager' && role !== 'head') {
+    host.innerHTML = '';
+    return;
+  }
+  var task = (D && D.tasks || []).find(function(t){ return t.id == EDR.taskId; });
+  if (!task) { host.innerHTML = ''; return; }
+
+  var candidates = _edReasignarCandidates(role, _effectiveUserCode());
+  var currentResp = task.resp || '';
+  // Asegurar que el responsable actual esté en el select aunque haya quedado fuera del scope.
+  var hasCurrent = candidates.some(function(m){ return m.name === currentResp; });
+  var optsHtml = '';
+  if (currentResp && !hasCurrent) {
+    optsHtml += '<option value="' + esc(currentResp) + '">' + esc(currentResp) + ' (actual)</option>';
+  }
+  optsHtml += candidates.map(function(m){
+    var sel = (m.name === currentResp) ? ' selected' : '';
+    var ctry = m.country ? ' · ' + m.country : '';
+    return '<option value="' + esc(m.name) + '"' + sel + '>' + esc(m.name) + esc(ctry) + '</option>';
+  }).join('');
+  if (!optsHtml) {
+    optsHtml = '<option value="" disabled selected>Sin responsables disponibles</option>';
+  }
+
+  host.innerHTML = ''
+    + '<div class="cr-overlay" onclick="if(event.target===this)edReasignarClose()">'
+    +   '<div class="cr-backdrop" onclick="edReasignarClose()"></div>'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Reasignar tarea" style="max-width:520px">'
+    +     '<div class="cr-head">'
+    +       '<div>'
+    +         '<div class="cr-eye">— Reasignar tarea</div>'
+    +         '<div class="cr-title">' + esc(task.id) + ' · ' + esc(task.nombre || '') + '</div>'
+    +       '</div>'
+    +       '<button type="button" class="cr-x" onclick="edReasignarClose()" aria-label="Cerrar">×</button>'
+    +     '</div>'
+    +     '<div class="cr-body">'
+    +       '<div class="cr-field">'
+    +         '<div class="cr-label">Responsable actual</div>'
+    +         '<div style="font-size:14px;color:var(--ink);font-weight:600">' + esc(currentResp || '—') + '</div>'
+    +       '</div>'
+    +       '<div class="cr-field">'
+    +         '<div class="cr-label">Reasignar a <span class="req">*</span></div>'
+    +         '<select id="edReasignarSel" class="cr-input" onchange="edReasignarSetValue(this.value)">'
+    +           optsHtml
+    +         '</select>'
+    +         '<div class="cr-foot-info" style="margin-top:8px;padding:0">'
+    + (role === 'manager'
+        ? 'Sólo podés reasignar dentro de tu equipo (' + esc(_effectiveUserCode() || '—') + ').'
+        : 'Como Head podés reasignar a cualquier miembro del roster.')
+    +         '</div>'
+    +       '</div>'
+    +     '</div>'
+    +     '<div class="cr-foot">'
+    +       '<div class="cr-foot-info">El backend valida los permisos antes de aplicar el cambio.</div>'
+    +       '<button type="button" class="ed-btn" onclick="edReasignarClose()">Cancelar</button>'
+    +       '<button type="button" class="ed-btn accent" onclick="edReasignarConfirm()">Confirmar</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+
+  // Inicializar EDR.value con el valor actual del select tras montar.
+  setTimeout(function(){
+    var s = $('edReasignarSel');
+    if (s) EDR.value = s.value || '';
+  }, 0);
+}
+
+function edReasignarOpen(taskId) {
+  var role = _effectiveRole();
+  if (role !== 'manager' && role !== 'head') {
+    if (typeof toast === 'function') toast('No tenés permisos para reasignar.', 'error');
+    return;
+  }
+  EDR.taskId = taskId;
+  EDR.value = '';
+  _edReasignarRender();
+}
+
+function edReasignarClose() {
+  EDR.taskId = null;
+  EDR.value = '';
+  var host = $('crHost'); if (host) host.innerHTML = '';
+}
+
+function edReasignarSetValue(v) { EDR.value = v || ''; }
+
+function edReasignarConfirm() {
+  var taskId = EDR.taskId;
+  var newResp = EDR.value;
+  if (!taskId) { edReasignarClose(); return; }
+  if (!newResp) {
+    if (typeof toast === 'function') toast('Seleccioná un responsable.', 'error');
+    return;
+  }
+  var task = (D && D.tasks || []).find(function(t){ return t.id == taskId; });
+  if (task && task.resp === newResp) {
+    if (typeof toast === 'function') toast('La tarea ya está asignada a ' + newResp + '.', 'info');
+    return;
+  }
+  if (typeof showLoader === 'function') showLoader();
+  google.script.run
+    .withSuccessHandler(function(r){
+      if (typeof hideLoader === 'function') hideLoader();
+      if (r && r.success) {
+        if (typeof toast === 'function') toast('✅ Reasignada a ' + newResp, 'success');
+        edReasignarClose();
+        if (typeof reload === 'function') reload();
+      } else {
+        if (typeof toast === 'function') toast('Error: ' + ((r && r.error) || 'no se pudo reasignar'), 'error');
+      }
+    })
+    .withFailureHandler(function(e){
+      if (typeof hideLoader === 'function') hideLoader();
+      if (typeof toast === 'function') toast('Error: ' + e.message, 'error');
+    })
+    .updateTaskField(taskId, 'resp', newResp);
+}
 
 function _panelCell(lbl, val, valCls) {
   return '<div class="tk-panel-cell">'
@@ -3323,7 +3485,13 @@ function rEdTracker(D) {
   var html = ''
     + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
     + '<h1 class="ed-h1" style="margin-bottom:8px">Tracker</h1>'
-    + '<p class="ed-lede" style="margin-bottom:28px">' + esc(lede) + '</p>';
+    + '<p class="ed-lede" style="margin-bottom:28px">' + esc(lede) + '</p>'
+    + (EDT.country
+        ? '<div class="tk-country-filter">'
+        +   '<span>Filtrando: ' + esc(EDT.country) + '</span>'
+        +   '<button onclick="edClearCountryFilter()" aria-label="Quitar filtro de país">×</button>'
+        + '</div>'
+        : '');
 
   // TOOLBAR
   function fBtn(key, label, count, accent) {
@@ -3437,6 +3605,9 @@ function rEdTracker(D) {
          +      '<button class="ed-btn primary" onclick="edUOpen(\'' + esc(sel.id) + '\', \'avanzar\')">Avanzar →</button>'
          +      '<button class="ed-btn" onclick="edUOpen(\'' + esc(sel.id) + '\', \'cerrar\')">Cerrar ✓</button>'
          +      '<button class="ed-btn" onclick="edUOpen(\'' + esc(sel.id) + '\', \'bloquear\')">Bloquear</button>'
+         +      ((role === 'manager' || role === 'head')
+                  ? '<button class="ed-btn" onclick="edReasignarOpen(\'' + esc(sel.id) + '\')">Reasignar</button>'
+                  : '')
          +    '</div>'
          + '</aside>';
   }
@@ -5414,8 +5585,9 @@ function rEdResumen(D) {
         var isHigh = (k === trend.length - 1);
         sparkHtml += '<span class="bar' + (isHigh ? ' high' : '') + (sparkColor ? ' ' + sparkColor : '') + '" style="height:' + h + 'px"></span>';
       }
-      // TODO: filtrar el tracker por país (EDT.country) cuando esté implementado.
-      html += '<div class="hq-country-row clickable" onclick="goEd(\'tracker\')">'
+      // Click en la fila → setear filtro de país en EDT y navegar al tracker.
+      var cCode2 = (c.code || '').replace(/'/g, "\\'");
+      html += '<div class="hq-country-row clickable" onclick="edSetCountryFilter(\'' + esc(cCode2) + '\'); goEd(\'tracker\');">'
            +    '<div class="hq-flag">' + esc(c.code || '') + '</div>'
            +    '<div class="hq-country-name"><b>' + esc(c.name || c.code || '') + '</b><span class="lead">' + esc(c.leader || '—') + '</span></div>'
            +    '<div class="hq-num">' + (c.open || 0) + '</div>'
