@@ -3008,6 +3008,11 @@ function rEdHomeManager(D) {
     + '<div class="ed-eye">' + esc('Hoy · Equipo ' + (userCode || '')) + '</div>'
     + '<h1 class="ed-h1">Tu equipo cargó <em>' + altaActive + ' tareas</em><br>de alta prioridad esta semana.</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
+    // QUOTE rotativa (una frase distinta por día)
+    + (function(){ var q = _edTodayQuote(); return '<div class="esp-quote">'
+    +   '<div class="esp-quote-text">"' + esc(q.text) + '"</div>'
+    +   '<div class="esp-quote-who">— ' + esc(q.who) + '</div>'
+    + '</div>'; })()
     + '<div class="mgr-hero">'
     +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Vencidas</div>'
     +     '<div class="mgr-stat-num warn">' + String(overdue).padStart(2,'0') + '</div>'
@@ -3098,6 +3103,11 @@ function rEdHomeHQ(D) {
     + '<div class="ed-eye">' + esc('Visión global · ' + countries.length + ' países') + '</div>'
     + '<h1 class="ed-h1">Operación legal global,<br><em>vista de un día</em>.</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
+    // QUOTE rotativa (una frase distinta por día)
+    + (function(){ var q = _edTodayQuote(); return '<div class="esp-quote">'
+    +   '<div class="esp-quote-text">"' + esc(q.text) + '"</div>'
+    +   '<div class="esp-quote-who">— ' + esc(q.who) + '</div>'
+    + '</div>'; })()
     + '<div class="hq-hero">'
     +   '<div class="hq-stat"><div class="hq-stat-lbl">Total LATAM</div>'
     +     '<div class="hq-stat-num">' + totalOpen + '</div>'
@@ -3507,9 +3517,9 @@ function rEdAgrupadas(D) {
     + '<p class="ed-lede">Antes de meterte a la tabla densa, esta es la lectura rápida: dónde está cada cosa y qué te conviene atender primero. Empezá por las pendientes de cierre, las de "más adelante" pueden esperar tranquilas.</p>'
     + '<div class="ag-tabs">'
     +   '<div class="ag-tab active">Por prioridad</div>'
-    +   '<div class="ag-tab" title="Próximamente">Por proyecto</div>'
-    +   '<div class="ag-tab" title="Próximamente">Por tipo</div>'
-    +   '<div class="ag-tab" title="Próximamente">Por riesgo</div>'
+    +   '<div class="ag-tab disabled" title="Próximamente · disponible en próxima versión" aria-disabled="true">Por proyecto · pronto</div>'
+    +   '<div class="ag-tab disabled" title="Próximamente · disponible en próxima versión" aria-disabled="true">Por tipo · pronto</div>'
+    +   '<div class="ag-tab disabled" title="Próximamente · disponible en próxima versión" aria-disabled="true">Por riesgo · pronto</div>'
     + '</div>';
 
   var buckets = [

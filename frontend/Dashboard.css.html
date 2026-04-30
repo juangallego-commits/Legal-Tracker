@@ -2908,6 +2908,12 @@ body.role-manager #tabResumen { display: none !important; }
 .cf-pill.restringido { background: var(--warn-soft);     color: var(--warn); }
 .cf-pill.confidencial{ background: var(--critical-soft); color: var(--critical); }
 
+.ag-tab.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* === editorial overrides === */
 .nav-tab.active { box-shadow: none; }
 .topbar-logo { box-shadow: none; }
