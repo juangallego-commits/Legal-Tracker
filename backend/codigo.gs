@@ -675,7 +675,7 @@ function _authorizeTaskWrite(ctx, target) {
     return;
   }
   // specialist: solo sus propias tareas
-  if (!target || target.resp !== ctx.user.name) {
+  if (!target || _normalizeName(target.resp) !== _normalizeName(ctx.user.name)) {
     throw new Error('Sin permiso: solo puedes modificar tus tareas');
   }
 }
@@ -773,7 +773,6 @@ function _addProjectImpl(obj) {
     responsable: obj.responsable || ctx.user.name,
     participantes: (obj.participantes || '').toString().split(',').map(function(s){ return s.trim(); }).filter(Boolean)
   });
-  invalidateCache();
   var ss = ctx.ss;
   var ws = ss.getSheetByName(SHEET_PROYECTOS);
   if (!ws) {
@@ -805,6 +804,7 @@ function _addProjectImpl(obj) {
     return {success:true, id:newId, nombre:obj.nombre||''};
   } finally {
     lock.releaseLock();
+    invalidateCache();
   }
 }
 
@@ -814,7 +814,6 @@ function _updateProjectFieldImpl(projId, field, value) {
   var current = _readProjectById(ctx.ss, projId);
   if (!current) return { success: false, error: 'Project #' + projId + ' not found' };
   _authorizeProjectWrite(ctx, current);
-  invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
   var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
   var col = fieldMap[field];
@@ -827,6 +826,7 @@ function _updateProjectFieldImpl(projId, field, value) {
     return { success: true };
   } finally {
     lock.releaseLock();
+    invalidateCache();
   }
 }
 
@@ -854,7 +854,6 @@ function _updateProjectFieldsImpl(projId, fields) {
     }
   }
 
-  invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
   var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
   var row = current.row;
@@ -874,6 +873,7 @@ function _updateProjectFieldsImpl(projId, fields) {
     return { success: true };
   } finally {
     lock.releaseLock();
+    invalidateCache();
   }
 }
 
@@ -926,7 +926,6 @@ function _addTaskImpl(taskObj) {
   // manager solo dentro de su país; head sin restricción.
   _authorizeTaskWrite(ctx, { resp: proposedResp, pais: proposedPais });
 
-  invalidateCache();
   var ss = ctx.ss, ws = ss.getSheetByName(SHEET_ACTIVO);
   // Lock para que nextTaskId + appendRow sean atómicos frente a creaciones concurrentes.
   var lock = LockService.getScriptLock();
@@ -958,6 +957,7 @@ function _addTaskImpl(taskObj) {
     return {success:true, id:newId};
   } finally {
     lock.releaseLock();
+    invalidateCache();
   }
 }
 
@@ -985,7 +985,6 @@ function _updateTaskFieldImpl(taskId, field, value) {
     throw new Error('Sin permiso: solo manager o head pueden cambiar confidencialidad');
   }
 
-  invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
   // Normalizar proyectoId a entero (o vacío)
   if (field === 'proyectoId' || field === 'proyecto') {
@@ -1009,8 +1008,10 @@ function _updateTaskFieldImpl(taskId, field, value) {
   }
   if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, current.row);
+    invalidateCache();
     return { success: true, moved: true, message: 'Tarea movida a Historial' };
   }
+  invalidateCache();
   return { success: true };
 }
 function updateTaskStatus(taskId, newStatus) { return updateTaskField(taskId, 'status', newStatus); }
@@ -1041,7 +1042,6 @@ function _updateTaskFieldsImpl(taskId, fields) {
     throw new Error('Sin permiso: solo manager o head pueden cambiar confidencialidad');
   }
 
-  invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
   var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18};
   var row = current.row;
@@ -1078,8 +1078,10 @@ function _updateTaskFieldsImpl(taskId, fields) {
   }
   if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, row);
+    invalidateCache();
     return { success: true, moved: true, message: 'Tarea movida a Historial' };
   }
+  invalidateCache();
   return { success: true };
 }
 
@@ -1089,7 +1091,87 @@ function _updateTaskFieldsImpl(taskId, fields) {
 function readEquipos(ss){var ws=ss.getSheetByName(SHEET_EQUIPOS);if(!ws)return getDefaultEquipos();var lr=ws.getLastRow();if(lr<2)return getDefaultEquipos();var data=ws.getRange(2,1,lr-1,8).getValues();var eq=[];data.forEach(function(r){var c=(r[0]||'').toString().trim();if(!c)return;eq.push({code:c,country:(r[1]||'').toString().trim(),leader:(r[2]||'').toString().trim().replace(/\n/g,''),leaderEmail:(r[3]||'').toString().trim(),members:(r[4]||'').toString().split(',').map(function(s){return s.trim()}).filter(Boolean),emails:(r[5]||'').toString().split(',').map(function(s){return s.trim()}).filter(Boolean),slackChannel:(r[6]||'').toString().trim(),notes:(r[7]||'').toString().trim()})});return eq.length>0?eq:getDefaultEquipos()}
 function getDefaultEquipos(){return [{code:'CO',country:'Colombia',leader:'Carlos Eduardo Fernández',leaderEmail:'',members:['Isabela Zuluaga','Nicolás Naranjo','Juan Manuel Caicedo','Juan Camilo Gallego','Valeria Rangel','David Gaviria'],emails:[],slackChannel:'',notes:''}]}
 function getAllMembers(eq){var n={};eq.forEach(function(e){if(e.leader)n[e.leader]=1;e.members.forEach(function(m){n[m]=1})});return Object.keys(n).sort()}
-function getCountryForMember(name,eq){if(!name)return '';for(var i=0;i<eq.length;i++){if(eq[i].leader===name)return eq[i].code;if(eq[i].members.indexOf(name)>=0)return eq[i].code}return ''}
+// Cache module-level de normalizaciones: evita reprocesar miles de veces el mismo nombre
+// en stats/refresh. La clave es el string crudo; el value es el normalizado.
+// También cacheamos el "índice" de equipos (por identidad de array) para no retokenizar
+// en cada call durante el mismo request.
+var _NAME_NORM_CACHE = {};
+var _EQUIPOS_INDEX_CACHE = { ref: null, idx: null };
+function _normalizeName(s){
+  if(s==null) return '';
+  var raw = s.toString();
+  if(_NAME_NORM_CACHE.hasOwnProperty(raw)) return _NAME_NORM_CACHE[raw];
+  var out = raw;
+  // Rango Unicode de diacríticos combinantes U+0300..U+036F. Construimos el regex con
+  // \u-escapes vía RegExp() para ser independientes del encoding del archivo fuente.
+  try { out = out.normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]','g'),''); } catch(e) {}
+  out = out.toLowerCase().replace(/\s+/g,' ').replace(/^ +| +$/g,'');
+  _NAME_NORM_CACHE[raw] = out;
+  return out;
+}
+// Construye (o reutiliza) un índice {entries:[{code,name,norm,tokens,isLeader,email}], ...}
+// para una lista de equipos dada. Cacheado por identidad del array eq.
+function _buildEquiposIndex(eq){
+  if(_EQUIPOS_INDEX_CACHE.ref === eq && _EQUIPOS_INDEX_CACHE.idx) return _EQUIPOS_INDEX_CACHE.idx;
+  var entries = [];
+  for(var i=0;i<eq.length;i++){
+    var team = eq[i];
+    if(team.leader){
+      var ln = _normalizeName(team.leader);
+      entries.push({code:team.code,name:team.leader,norm:ln,tokens:ln.split(' ').filter(Boolean),isLeader:true,email:team.leaderEmail||'',order:entries.length});
+    }
+    var mem = team.members||[], emails = team.emails||[];
+    for(var j=0;j<mem.length;j++){
+      var mn = _normalizeName(mem[j]);
+      entries.push({code:team.code,name:mem[j],norm:mn,tokens:mn.split(' ').filter(Boolean),isLeader:false,email:emails[j]||'',order:entries.length});
+    }
+  }
+  var idx = {entries:entries};
+  _EQUIPOS_INDEX_CACHE = {ref:eq, idx:idx};
+  return idx;
+}
+// Busca el entry que corresponde a `name` aplicando: (1) match exacto normalizado,
+// (2) match por tokens (todos los tokens del query ⊂ tokens del candidato).
+// Desempate: exacto > nombre más corto (menos tokens) > primer orden de aparición.
+function _findMemberEntry(name, eq){
+  if(!name) return null;
+  var idx = _buildEquiposIndex(eq);
+  var qNorm = _normalizeName(name);
+  if(!qNorm) return null;
+  var entries = idx.entries;
+  // 1) Exacto normalizado
+  for(var i=0;i<entries.length;i++){
+    if(entries[i].norm === qNorm) return entries[i];
+  }
+  // 2) Match por tokens
+  var qTokens = qNorm.split(' ').filter(Boolean);
+  if(!qTokens.length) return null;
+  var best = null;
+  for(var k=0;k<entries.length;k++){
+    var e = entries[k];
+    var et = e.tokens; if(!et.length) continue;
+    var allIn = true;
+    for(var t=0;t<qTokens.length;t++){
+      if(et.indexOf(qTokens[t])<0){ allIn = false; break; }
+    }
+    if(!allIn) continue;
+    if(!best){ best = e; continue; }
+    // Preferir nombre más corto (menos tokens); empate → primero en el sheet (ya está por order).
+    if(e.tokens.length < best.tokens.length) best = e;
+  }
+  return best;
+}
+function getCountryForMember(name,eq){
+  var hit = _findMemberEntry(name, eq);
+  return hit ? hit.code : '';
+}
+// Resuelve un miembro/líder por nombre con normalización tolerante.
+// Devuelve {name, code, email, isLeader} o null. Útil para resolver email al notificar.
+function getMemberByName(name, eq){
+  var hit = _findMemberEntry(name, eq);
+  if(!hit) return null;
+  return {name:hit.name, code:hit.code, email:hit.email||'', isLeader:!!hit.isLeader};
+}
 function getLeaderForCountry(code,eq){for(var i=0;i<eq.length;i++){if(eq[i].code===code)return eq[i].leader}return ''}
 function readConfig(ss){var ws=ss.getSheetByName(SHEET_CONFIG);if(!ws)return {};var lr=ws.getLastRow();if(lr<3)return {};var data=ws.getRange(3,1,lr-2,2).getValues(),c={};data.forEach(function(r){if(r[0])c[r[0]]=r[1]});return c}
 function countBizDays(start,end){var count=0,cur=new Date(start);while(cur<end){cur.setDate(cur.getDate()+1);var d=cur.getDay();if(d!==0&&d!==6)count++}return count}
@@ -1431,7 +1513,6 @@ function _closeTaskByIdImpl(taskId, slackUser) {
   if (!current) return { success: false, message: 'Tarea #' + taskId + ' no encontrada' };
   _authorizeTaskWrite(ctx, current);
 
-  invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
   // Lock para serializar la mutación. moveToHistorial se llama fuera (tiene su
   // propio lock interno; no asumimos reentrancia del lock de Apps Script).
@@ -1446,6 +1527,7 @@ function _closeTaskByIdImpl(taskId, slackUser) {
     lock.releaseLock();
   }
   moveToHistorial(ctx.ss, ws, current.row);
+  invalidateCache();
   return { success: true, id: taskId, nombre: tn, message: 'Tarea #' + taskId + ' "' + tn + '" cerrada y movida a Historial' };
 }
 
@@ -1461,7 +1543,6 @@ function _blockTaskByIdImpl(taskId, reason, slackUser) {
   if (!current) return { success: false, message: 'Tarea #' + taskId + ' no encontrada' };
   _authorizeTaskWrite(ctx, current);
 
-  invalidateCache();
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
   // Lock para serializar el read-modify-write de notas (evita perder concurrencia).
   var lock = LockService.getScriptLock();
@@ -1475,6 +1556,7 @@ function _blockTaskByIdImpl(taskId, reason, slackUser) {
     return { success: true, id: taskId, nombre: tn, message: 'Tarea bloqueada: #' + taskId + ' "' + tn + '"' };
   } finally {
     lock.releaseLock();
+    invalidateCache();
   }
 }
 function testData() {

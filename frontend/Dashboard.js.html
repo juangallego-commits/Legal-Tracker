@@ -4014,6 +4014,10 @@ function edUSubmit() {
         if (active.id === 'vEdHome' && typeof goEd === 'function') goEd('home');
         else if (active.id === 'vEdTracker' && typeof goEd === 'function') goEd('tracker');
         else if (active.id === 'vEdAgrupadas' && typeof goEd === 'function') goEd('agrupadas');
+      }).withFailureHandler(function(e) {
+        console.error(e);
+        if (typeof hideLoader === 'function') hideLoader();
+        if (typeof toast === 'function') toast('Error al refrescar: ' + (e && e.message || 'desconocido'), 'error');
       }).getEditorialData();
     })
     .withFailureHandler(function(e) {
