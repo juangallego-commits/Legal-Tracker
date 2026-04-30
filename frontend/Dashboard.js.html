@@ -2262,6 +2262,7 @@ document.addEventListener('keydown', function(e) {
     // Editoriales primero (más nuevos / más prominentes visualmente)
     if ($('uaHost') && $('uaHost').innerHTML) { if (typeof edUClose === 'function') edUClose(); return; }
     if ($('crHost') && $('crHost').innerHTML) { if (typeof edCrearClose === 'function') edCrearClose(); return; }
+    if ($('crpHost') && $('crpHost').innerHTML) { if (typeof edCrearProyectoClose === 'function') edCrearProyectoClose(); return; }
     if ($('ddM') && $('ddM').style.display === 'block') { closeDD(); return; }
     if ($('createOv') && $('createOv').classList.contains('show')) { closeCreate(); return; }
     if ($('editOv') && $('editOv').classList.contains('show')) { closeEdit(); return; }
@@ -4514,7 +4515,7 @@ function rEdProyectosIndex(D) {
   html += '<div class="pi-foot">'
        +    '<div class="pi-foot-info"><b>' + cActivos + ' activos · ' + cCerrados + ' cerrados.</b> Los proyectos cerrados quedan en historial.</div>'
        +    '<button class="ed-btn" onclick="goEd(\'historial\')">Ver historial</button>'
-       +    '<button class="ed-btn accent" onclick="if(typeof openCreate===\'function\')openCreate(\'newProj\')">+ Nuevo proyecto</button>'
+       +    '<button class="ed-btn accent" onclick="if(typeof edCrearProyectoOpen===\'function\')edCrearProyectoOpen();else if(typeof openCreate===\'function\')openCreate(\'newProj\')">+ Nuevo proyecto</button>'
        + '</div>';
 
   v.innerHTML = html;
@@ -5466,4 +5467,318 @@ function rEdResumen(D) {
 }
 
 // MARKER:EDITORIAL_RESUMEN_END
+
+// ───────────────────────────────────────────────────────────────
+// MARKER:EDITORIAL_CREAR_PROYECTO_BEGIN  (owned by Agente A3)
+// Wizard editorial de 3 pasos para crear PROYECTO — espejo del de tarea
+// (MARKER:EDITORIAL_CREAR). Reusa CSS .cr-* y helpers del wizard de tarea
+// (_crPillsHtml, _crSelectHtml, _crStepClasses, _crCountries, _crPrioMod,
+// _crRiesgoMod). Submit: google.script.run.addProject(payload). El modal
+// LEGACY (#createOv → openCreate('newProj')) queda accesible para
+// retrocompat aunque el botón de la vista Proyectos editorial ya
+// invoca a edCrearProyectoOpen().
+// ───────────────────────────────────────────────────────────────
+
+var EDCP = {
+  step: 1,
+  values: {
+    nombre: '',
+    descripcion: '',
+    pais: '',
+    priority: 'Media',
+    tipoTrabajo: '',
+    riesgo: '',
+    lider: '',
+    deadline: ''
+  }
+};
+
+// Líderes disponibles según rol y país elegido en paso 1.
+// - head: todos los líderes de todos los equipos.
+// - manager/specialist: el líder del país del usuario; si seleccionó otro país
+//   (poco común, restringido por backend), se devuelve el del país elegido.
+// Si no hay país elegido todavía: lista vacía.
+function _crpLideres(paisCode) {
+  var equipos = (D && D.equipos) || [];
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var out = [];
+  var seen = {};
+  function push(name) {
+    if (name && !seen[name]) { seen[name] = 1; out.push(name); }
+  }
+  if (role === 'head') {
+    equipos.forEach(function(eq){ push(eq && eq.leader); });
+    return out;
+  }
+  // manager/specialist: prioritariamente el lider del pais elegido
+  if (paisCode) {
+    var eq = equipos.find(function(e){ return e && e.code === paisCode; });
+    if (eq) {
+      push(eq.leader);
+      // Plus: cualquier otro miembro del país marcado como leader (caso multi-leader)
+      (eq.members || []).forEach(function(m){
+        if (m && m === eq.leader) push(m);
+      });
+    }
+  }
+  return out;
+}
+
+function _crpRenderStep1() {
+  var v = EDCP.values;
+  return ''
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Nombre del proyecto <span class="req">*</span></div>'
+    +   '<input class="cr-input title" id="crpNombre" maxlength="160" '
+    +     'placeholder="Ej: Programa de cumplimiento data-privacy LATAM" '
+    +     'value="' + esc(v.nombre) + '" '
+    +     'oninput="edCrearProyectoSetField(\'nombre\', this.value)">'
+    + '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Descripción / contexto</div>'
+    +   '<textarea class="cr-input cr-textarea" id="crpDesc" '
+    +     'placeholder="Alcance, objetivos, stakeholders, links…" '
+    +     'oninput="edCrearProyectoSetField(\'descripcion\', this.value)">' + esc(v.descripcion) + '</textarea>'
+    + '</div>'
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">País <span class="req">*</span></div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Prioridad <span class="req">*</span></div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('priority', _CR_PRIOS, v.priority, _crPrioMod) + '</div>'
+    +   '</div>'
+    + '</div>';
+}
+
+function _crpRenderStep2() {
+  var v = EDCP.values;
+  var lideres = _crpLideres(v.pais).map(function(n){ return { value: n, label: n }; });
+  return ''
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Tipo de trabajo</div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('tipoTrabajo', _CR_TIPOS, v.tipoTrabajo) + '</div>'
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Riesgo</div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('riesgo', _CR_RIESGOS, v.riesgo, _crRiesgoMod) + '</div>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Líder <span class="req">*</span></div>'
+    +     _crSelectHtml('crpLider', lideres, v.lider, lideres.length ? 'Seleccionar…' : 'Elegí país en el paso 1').replace('<select id="crpLider"', '<select id="crpLider" onchange="edCrearProyectoSetField(\'lider\', this.value)"')
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Deadline <span class="req">*</span></div>'
+    +     '<input type="date" class="cr-input" id="crpDeadline" value="' + esc(v.deadline) + '" '
+    +       'onchange="edCrearProyectoSetField(\'deadline\', this.value)">'
+    +   '</div>'
+    + '</div>';
+}
+
+function _crpRenderStep3() {
+  var v = EDCP.values;
+  var pills = '';
+  if (v.priority) pills += '<span class="ed-pill ' + esc((v.priority || '').toLowerCase()) + '">Prioridad ' + esc(v.priority) + '</span>';
+  if (v.riesgo) pills += '<span class="ed-pill curso">' + esc(v.riesgo) + '</span>';
+  if (v.tipoTrabajo) pills += '<span class="ed-pill curso">' + esc(v.tipoTrabajo) + '</span>';
+  if (v.pais) pills += '<span class="ed-pill curso">' + esc(v.pais) + '</span>';
+
+  var html = ''
+    + '<div class="cr-conf-banner">'
+    +   '<div class="cr-conf-mark">✓</div>'
+    +   '<div class="cr-conf-msg">Todo listo para publicar. Una vez confirmes, <b>' + esc(v.lider || 'el líder asignado') + '</b> recibirá el proyecto.</div>'
+    + '</div>'
+    + '<div class="cr-conf-section">'
+    +   '<div class="cr-conf-eye">— Resumen</div>'
+    +   '<div class="cr-conf-title">' + esc(v.nombre || 'Sin nombre') + '</div>'
+    +   (pills ? '<div class="cr-conf-pills">' + pills + '</div>' : '')
+    +   '<div class="cr-conf-grid">'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Líder</div><div class="cr-conf-val">' + esc(v.lider || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Deadline</div><div class="cr-conf-val">' + esc(v.deadline || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">País</div><div class="cr-conf-val">' + esc(v.pais || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Prioridad</div><div class="cr-conf-val">' + esc(v.priority || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Tipo</div><div class="cr-conf-val">' + esc(v.tipoTrabajo || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Riesgo</div><div class="cr-conf-val">' + esc(v.riesgo || '—') + '</div></div>'
+    +   '</div>'
+    + '</div>';
+  if (v.descripcion) {
+    html += '<div class="cr-conf-section">'
+         +   '<div class="cr-conf-eye">— Descripción</div>'
+         +   '<div class="cr-conf-desc">' + esc(v.descripcion) + '</div>'
+         + '</div>';
+  }
+  return html;
+}
+
+function _crpRender(step) {
+  var s = step || EDCP.step || 1;
+  var titles = {
+    1: 'Empecemos por lo esencial',
+    2: 'Detalles, líder y deadline',
+    3: 'Listo para publicar'
+  };
+  var infos = {
+    1: 'Próximo paso: <b>tipo, riesgo, líder y deadline.</b>',
+    2: 'Cuando estés listo, te llevamos a la revisión final antes de publicar.',
+    3: 'Última revisión. Cuando confirmes, el proyecto se crea.'
+  };
+  var bodyHtml;
+  if (s === 1) bodyHtml = _crpRenderStep1();
+  else if (s === 2) bodyHtml = _crpRenderStep2();
+  else bodyHtml = _crpRenderStep3();
+
+  var footBtns = '';
+  if (s === 1) {
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoClose()">Cancelar</button>'
+             + '<button type="button" class="ed-btn accent" onclick="edCrearProyectoGoStep(2)">Continuar →</button>';
+  } else if (s === 2) {
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoGoStep(1)">← Volver</button>'
+             + '<button type="button" class="ed-btn accent" onclick="edCrearProyectoGoStep(3)">Revisar y publicar →</button>';
+  } else {
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoGoStep(2)">← Editar</button>'
+             + '<button type="button" class="ed-btn accent" id="crpSubmit" onclick="edCrearProyectoSubmit()">Publicar proyecto</button>';
+  }
+
+  return '<div class="cr-overlay" onclick="if(event.target===this)edCrearProyectoClose()">'
+       +   '<div class="cr-backdrop" onclick="edCrearProyectoClose()"></div>'
+       +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Crear proyecto">'
+       +     '<div class="cr-head">'
+       +       '<div>'
+       +         '<div class="cr-eye">— Crear nuevo proyecto</div>'
+       +         '<div class="cr-title">' + esc(titles[s] || '') + '</div>'
+       +       '</div>'
+       +       '<button type="button" class="cr-x" onclick="edCrearProyectoClose()" aria-label="Cerrar">×</button>'
+       +     '</div>'
+       +     '<div class="cr-steps">'
+       +       '<div class="' + _crStepClasses(1, s) + '"><span class="cr-step-num">01</span> Esencial</div>'
+       +       '<div class="' + _crStepClasses(2, s) + '"><span class="cr-step-num">02</span> Detalles</div>'
+       +       '<div class="' + _crStepClasses(3, s) + '"><span class="cr-step-num">03</span> Confirmar</div>'
+       +     '</div>'
+       +     '<div class="cr-body">' + bodyHtml + '</div>'
+       +     '<div class="cr-foot">'
+       +       '<div class="cr-foot-info">' + (infos[s] || '') + '</div>'
+       +       footBtns
+       +     '</div>'
+       +   '</div>'
+       + '</div>';
+}
+
+function _crpMount() {
+  var host = $('crpHost'); if (!host) return;
+  host.innerHTML = _crpRender(EDCP.step);
+}
+
+function edCrearProyectoOpen() {
+  EDCP.step = 1;
+  EDCP.values = {
+    nombre: '',
+    descripcion: '',
+    pais: '',
+    priority: 'Media',
+    tipoTrabajo: '',
+    riesgo: '',
+    lider: '',
+    deadline: ''
+  };
+  // Restaurar borrador si tiene contenido útil
+  try {
+    var saved = localStorage.getItem('lt-edcp-draft');
+    if (saved) {
+      var v = JSON.parse(saved);
+      if (v && (v.nombre || v.descripcion)) {
+        EDCP.values = Object.assign(EDCP.values, v);
+        if (typeof toast === 'function') toast('Restauré tu borrador anterior.', 'info');
+      }
+    }
+  } catch(e){}
+  _crpMount();
+  setTimeout(function() {
+    var input = $('crpNombre');
+    if (input) input.focus();
+  }, 60);
+}
+
+function edCrearProyectoClose() {
+  EDCP.step = 1;
+  var host = $('crpHost'); if (host) host.innerHTML = '';
+}
+
+function edCrearProyectoSetField(key, value) {
+  if (!EDCP.values || !(key in EDCP.values)) return;
+  EDCP.values[key] = value;
+  // Si cambia el país, invalidar el líder elegido (puede ya no aplicar al nuevo país)
+  if (key === 'pais') {
+    var allowed = _crpLideres(value);
+    if (EDCP.values.lider && allowed.indexOf(EDCP.values.lider) < 0) {
+      EDCP.values.lider = '';
+    }
+  }
+  try { localStorage.setItem('lt-edcp-draft', JSON.stringify(EDCP.values)); } catch(e){}
+  // Re-render para pills (refleja activo) y cuando cambia país (recalcula select de líder)
+  var rerenderFields = { pais: 1, priority: 1, tipoTrabajo: 1, riesgo: 1 };
+  if (rerenderFields[key]) _crpMount();
+}
+
+function edCrearProyectoGoStep(n) {
+  var v = EDCP.values;
+  if (n > EDCP.step) {
+    if (EDCP.step === 1) {
+      if (!v.nombre || !v.nombre.trim()) { toast('Nombre requerido', 'error'); return; }
+      if (!v.pais) { toast('Seleccioná un país', 'error'); return; }
+      if (!v.priority) { toast('Seleccioná una prioridad', 'error'); return; }
+    } else if (EDCP.step === 2) {
+      if (!v.lider) { toast('Seleccioná un líder', 'error'); return; }
+      if (!v.deadline) { toast('Deadline requerido', 'error'); return; }
+    }
+  }
+  EDCP.step = n;
+  _crpMount();
+}
+
+function edCrearProyectoSubmit() {
+  var v = EDCP.values;
+  if (!v.nombre || !v.nombre.trim()) { toast('Nombre requerido', 'error'); return; }
+  if (!v.pais) { toast('País requerido', 'error'); return; }
+  if (!v.lider) { toast('Líder requerido', 'error'); return; }
+  var btn = $('crpSubmit'); if (btn) btn.disabled = true;
+  if (typeof showLoader === 'function') showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (btn) btn.disabled = false;
+      if (res && res.success) {
+        toast('Proyecto #' + res.id + ' creado', 'success');
+        try { localStorage.removeItem('lt-edcp-draft'); } catch(e){}
+        edCrearProyectoClose();
+        if (typeof reload === 'function') reload();
+      } else {
+        toast('Error: ' + ((res && res.error) || 'desconocido'), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (btn) btn.disabled = false;
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .addProject({
+      nombre: v.nombre.trim(),
+      descripcion: (v.descripcion || '').trim(),
+      responsable: v.lider || '',
+      lider: v.lider || '',
+      pais: v.pais || '',
+      priority: v.priority || 'Media',
+      tipoTrabajo: v.tipoTrabajo || '',
+      riesgo: v.riesgo || '',
+      deadline: v.deadline || '',
+      status: 'Activo',
+      notas: '',
+      participantes: ''
+    });
+}
+
+// MARKER:EDITORIAL_CREAR_PROYECTO_END
 </script>
