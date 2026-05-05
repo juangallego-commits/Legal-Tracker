@@ -150,24 +150,21 @@ function runPilotSmokeTest() {
   });
   _assert(tasksWithoutCountry.length === 0, 'todas las tareas resuelven a un país');
 
-  // 5) Calidad de datos — tareas con responsable que no resuelve a ningún email del allowlist
-  // Buscamos el resp (nombre) en allowlist por user.name.
-  var allowedNames = {};
-  Object.keys(allowlist).forEach(function(em) {
-    var u = allowlist[em];
-    if (u && u.name) allowedNames[u.name] = 1;
-  });
+  // 5) Calidad de datos — tareas con responsable que no resuelve a ningún
+  // miembro de Equipos. Usa getMemberByName (normalización por tokens),
+  // así "Carlos Fernandez" matchea "Carlos Eduardo Fernández" cuando los
+  // tokens son subset.
   var tasksOrphanResp = [];
   (raw.tasks || []).forEach(function(t) {
-    if (t.resp && !allowedNames[t.resp]) {
+    if (t.resp && !getMemberByName(t.resp, equipos)) {
       tasksOrphanResp.push({ id: t.id, resp: t.resp, nombre: t.nombre });
     }
   });
-  Logger.log('  Tareas con resp sin email en allowlist: ' + tasksOrphanResp.length);
+  Logger.log('  Tareas con resp que no resuelve a Equipos: ' + tasksOrphanResp.length);
   tasksOrphanResp.forEach(function(t) {
     Logger.log('   · ' + t.id + ' · resp="' + t.resp + '" · ' + t.nombre);
   });
-  _assert(tasksOrphanResp.length === 0, 'todos los responsables tienen email en allowlist');
+  _assert(tasksOrphanResp.length === 0, 'todos los responsables resuelven a un miembro de Equipos');
 
   Logger.log('═══════════════════════════════════════════════════');
   Logger.log('SMOKE TEST FINALIZADO');
