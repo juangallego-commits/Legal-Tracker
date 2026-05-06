@@ -2909,6 +2909,82 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
+// ════════════════════════════════════════════════════════════════
+// NAVEGACIÓN POR TECLADO EN EL TRACKER
+// ↓/↑ navegan filas, Enter abre actualizar (variant 'avanzar'),
+// Escape cierra el panel. Solo activo cuando vEdTracker es la vista
+// activa, no hay foco en input/textarea/select y no hay ningún
+// modal abierto. Capture phase para poder consumir Escape antes que
+// el handler global cuando corresponde (con stopImmediatePropagation).
+// ════════════════════════════════════════════════════════════════
+function _anyModalOpen() {
+  if ($('uaHost')      && $('uaHost').innerHTML)                       return true;
+  if ($('crHost')      && $('crHost').innerHTML)                       return true;
+  if ($('crpHost')     && $('crpHost').innerHTML)                      return true;
+  if ($('ddM')         && $('ddM').style.display === 'block')          return true;
+  if ($('createOv')    && $('createOv').classList.contains('show'))    return true;
+  if ($('editOv')      && $('editOv').classList.contains('show'))      return true;
+  if ($('confOv')      && $('confOv').classList.contains('show'))      return true;
+  if ($('edSearchOv')  && $('edSearchOv').classList.contains('show'))  return true;
+  return false;
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter' && e.key !== 'Escape') return;
+
+  var active = document.querySelector('.view.active');
+  if (!active || active.id !== 'vEdTracker') return;
+
+  var ae = document.activeElement;
+  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return;
+
+  // Capture phase: si hay un modal abierto, dejamos que su handler
+  // (o el global) lo cierre y nosotros no actuamos.
+  if (_anyModalOpen()) return;
+
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    var rows = document.querySelectorAll('#vEdTracker .tk-row[data-task-id]');
+    if (!rows.length) return;
+    e.preventDefault();
+    var ids = Array.prototype.map.call(rows, function(r){ return r.dataset.taskId; });
+    var curIdx = (typeof EDT !== 'undefined' && EDT.selectedId != null)
+      ? ids.indexOf(String(EDT.selectedId)) : -1;
+    var nextIdx;
+    if (e.key === 'ArrowDown') {
+      nextIdx = (curIdx === -1) ? 0 : Math.min(curIdx + 1, ids.length - 1);
+    } else {
+      nextIdx = (curIdx === -1) ? 0 : Math.max(curIdx - 1, 0);
+    }
+    if (nextIdx === curIdx) return;
+    EDT.selectedId = ids[nextIdx];
+    if (D && typeof rEdTracker === 'function') rEdTracker(D);
+    // Scroll en el siguiente tick (rEdTracker reemplazó el DOM).
+    setTimeout(function() {
+      var newRow = document.querySelector('#vEdTracker .tk-row[data-task-id="' + ids[nextIdx] + '"]');
+      if (newRow && newRow.scrollIntoView) newRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, 0);
+    return;
+  }
+
+  if (e.key === 'Enter') {
+    if (typeof EDT !== 'undefined' && EDT.selectedId != null && typeof edUOpen === 'function') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      edUOpen(EDT.selectedId, 'avanzar');
+    }
+    return;
+  }
+
+  if (e.key === 'Escape') {
+    if (typeof EDT !== 'undefined' && EDT.selectedId != null && typeof edClosePanel === 'function') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      edClosePanel();
+    }
+    return;
+  }
+}, true);
+
 function goEd(viewId) {
   document.querySelectorAll('.view').forEach(function(v) { v.classList.remove('active'); });
   document.querySelectorAll('.ed-nav-item').forEach(function(n) {
@@ -3849,7 +3925,7 @@ function rEdTracker(D) {
       var isSel = sel && sel.id == t.id;
       var cfLvl = _confLevel(t);
       var cfMeta = ED_CONF_LEVELS[cfLvl];
-      html += '<tr class="tk-row' + (isSel ? ' selected' : '') + '" onclick="edSelectTask(\'' + esc(t.id) + '\')">'
+      html += '<tr class="tk-row' + (isSel ? ' selected' : '') + '" data-task-id="' + esc(t.id) + '" onclick="edSelectTask(\'' + esc(t.id) + '\')">'
            +    '<td><span class="cf-dot ' + cfLvl + '" title="' + esc(cfMeta.label) + '"></span></td>'
            +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
            +    '<td>'
