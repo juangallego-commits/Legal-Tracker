@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════════
 // Legal Team Tracker · Google Apps Script · Web App
-// RappiPlus · Global Legal · v3.2 (Projects)
+// RappiPlus · Global Legal · v3.4 (Editorial Final)
 // ════════════════════════════════════════════════════════════════
 
 const SHEET_ID        = '19eR-pXzVLTSEdCADeBZ8fsd5x4f2t0GowUJiJm2X6ms';
