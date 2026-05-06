@@ -2734,7 +2734,7 @@ function renderEdHead() {
   return ''
     + '<div class="ed-head-eye">' + esc(sem + ' · ' + today) + '</div>'
     + '<div class="ed-head-actions">'
-    +   '<div class="ed-search">⌘K  Buscar...</div>'
+    +   '<div class="ed-search" role="button" tabindex="0" onclick="edSearchOpen()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();edSearchOpen();}">⌘K  Buscar...</div>'
     +   '<button class="ed-btn accent" onclick="edCrearOpen()">+ Nueva</button>'
     + '</div>';
 }
@@ -2746,6 +2746,168 @@ function mountEdShell() {
   // Esconder el FAB legacy: el header editorial ya tiene "+ Nueva".
   var fab = $('fabCreate'); if (fab) fab.style.display = 'none';
 }
+
+// ════════════════════════════════════════════════════════════════
+// BÚSQUEDA GLOBAL (Cmd/Ctrl+K)
+// Modal centrado con input grande + lista de resultados (debounce
+// 150ms). Filtra D.tasks + D.projects por nombre, responsable,
+// líder, proyecto, notas, tipoTrabajo, país. Click en tarea →
+// goEd('tracker') + EDT.selectedId; click en proyecto → goEd
+// ('proyectos'). Esc o click fuera cierra.
+// ════════════════════════════════════════════════════════════════
+var EDS = { mounted: false, query: '' };
+var _edSearchDebounced = null;
+
+function _edSearchEnsureMounted() {
+  if (EDS.mounted) return;
+  var ov = document.createElement('div');
+  ov.className = 'ed-search-overlay';
+  ov.id = 'edSearchOv';
+  ov.onclick = function(e) { if (e.target === ov) edSearchClose(); };
+  ov.innerHTML =
+      '<div class="ed-search-modal" role="dialog" aria-label="Búsqueda global">'
+    +   '<input type="text" class="ed-search-input" id="edSearchInput" placeholder="Buscar tareas, proyectos, responsables..." autocomplete="off" spellcheck="false">'
+    +   '<div class="ed-search-results" id="edSearchResults"></div>'
+    +   '<div class="ed-search-hint">Esc para cerrar · Enter para abrir el primero</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  var input = ov.querySelector('#edSearchInput');
+  if (!_edSearchDebounced) {
+    _edSearchDebounced = debounce(function(q) {
+      EDS.query = q;
+      _edSearchRender();
+    }, 150);
+  }
+  input.oninput = function() { _edSearchDebounced(input.value || ''); };
+  input.onkeydown = function(e) {
+    if (e.key === 'Escape') {
+      // stopPropagation para que el handler global de Escape no
+      // cierre además otros modales que casualmente estén abiertos.
+      e.stopPropagation();
+      edSearchClose();
+    } else if (e.key === 'Enter') {
+      var first = ov.querySelector('.ed-search-result');
+      if (first) first.click();
+    }
+  };
+  EDS.mounted = true;
+}
+
+function edSearchOpen() {
+  _edSearchEnsureMounted();
+  var ov = $('edSearchOv'); if (!ov) return;
+  ov.classList.add('show');
+  var inp = $('edSearchInput');
+  if (inp) {
+    inp.value = EDS.query || '';
+    setTimeout(function(){ inp.focus(); inp.select(); }, 0);
+  }
+  _edSearchRender();
+}
+
+function edSearchClose() {
+  var ov = $('edSearchOv'); if (ov) ov.classList.remove('show');
+}
+
+function _edSearchFilter(query) {
+  var q = (query || '').trim().toLowerCase();
+  if (!q) return [];
+  var tasks = (D && D.tasks) || [];
+  var projects = (D && D.projects) || [];
+  var pMap = {};
+  projects.forEach(function(p){ pMap[p.id] = p.nombre; });
+  var out = [];
+  for (var i = 0; i < tasks.length && out.length < 50; i++) {
+    var t = tasks[i];
+    var pn = (t.proyectoId && pMap[t.proyectoId]) ? pMap[t.proyectoId] : '';
+    var hay = [t.nombre, t.resp, t.notas, t.tipoTrabajo, t.pais, pn].join(' ').toLowerCase();
+    if (hay.indexOf(q) >= 0) out.push({ kind: 'task', item: t, projectName: pn });
+  }
+  for (var j = 0; j < projects.length && out.length < 60; j++) {
+    var p = projects[j];
+    var hay2 = [p.nombre, p.responsable, p.lider, p.notas, p.tipoTrabajo, p.pais].join(' ').toLowerCase();
+    if (hay2.indexOf(q) >= 0) out.push({ kind: 'project', item: p });
+  }
+  return out;
+}
+
+function _edSearchHighlight(text, query) {
+  var safe = esc(text || '');
+  if (!query) return safe;
+  var qSafe = esc(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!qSafe) return safe;
+  return safe.replace(new RegExp(qSafe, 'gi'), function(m) { return '<mark>' + m + '</mark>'; });
+}
+
+function _edSearchRender() {
+  var host = $('edSearchResults'); if (!host) return;
+  var q = (EDS.query || '').trim();
+  if (!q) {
+    host.innerHTML = '<div class="ed-search-empty">Empezá a escribir para buscar...</div>';
+    return;
+  }
+  var results = _edSearchFilter(q);
+  // Cap total a 10, priorizando tareas.
+  var taskShow = results.filter(function(r){ return r.kind === 'task'; }).slice(0, 10);
+  var remaining = Math.max(0, 10 - taskShow.length);
+  var projShow = results.filter(function(r){ return r.kind === 'project'; }).slice(0, remaining);
+
+  if (!taskShow.length && !projShow.length) {
+    host.innerHTML = '<div class="ed-search-empty">Sin resultados para "' + esc(q) + '"</div>';
+    return;
+  }
+
+  var html = '';
+  if (taskShow.length) {
+    html += '<div class="ed-search-section">Tareas</div>';
+    taskShow.forEach(function(r) {
+      var t = r.item;
+      var statusCls = (typeof _statusClass === 'function') ? _statusClass(t.status) : '';
+      html += '<div class="ed-search-result" onclick="edSearchPickTask(\'' + esc(t.id) + '\')">'
+           +    '<span class="ed-search-r-kind">tarea</span>'
+           +    '<span class="ed-search-r-id">' + esc(t.id) + '</span>'
+           +    '<span class="ed-search-r-name">' + _edSearchHighlight(t.nombre || '', q) + '</span>'
+           +    '<span class="ed-search-r-resp">' + _edSearchHighlight(t.resp || '—', q) + '</span>'
+           +    '<span class="ed-pill ' + statusCls + '">' + esc(t.status || '') + '</span>'
+           +    '<span class="ed-search-r-eta">' + esc(t.eta || '') + '</span>'
+           +  '</div>';
+    });
+  }
+  if (projShow.length) {
+    html += '<div class="ed-search-section">Proyectos</div>';
+    projShow.forEach(function(r) {
+      var p = r.item;
+      html += '<div class="ed-search-result" onclick="edSearchPickProject(\'' + esc(p.id) + '\')">'
+           +    '<span class="ed-search-r-kind">proyecto</span>'
+           +    '<span class="ed-search-r-id">#' + esc(p.id) + '</span>'
+           +    '<span class="ed-search-r-name">' + _edSearchHighlight(p.nombre || '', q) + '</span>'
+           +    '<span class="ed-search-r-resp">' + _edSearchHighlight(p.lider || p.responsable || '—', q) + '</span>'
+           +    '<span class="ed-pill">' + esc(p.status || 'Activo') + '</span>'
+           +    '<span class="ed-search-r-eta">' + esc(p.deadline || '') + '</span>'
+           +  '</div>';
+    });
+  }
+  host.innerHTML = html;
+}
+
+function edSearchPickTask(taskId) {
+  if (typeof EDT !== 'undefined') EDT.selectedId = taskId;
+  edSearchClose();
+  if (typeof goEd === 'function') goEd('tracker');
+}
+function edSearchPickProject(projectId) {
+  edSearchClose();
+  if (typeof goEd === 'function') goEd('proyectos');
+}
+
+// Listener global de Cmd/Ctrl+K. Aparte del handler general para
+// que funcione también con foco en otros inputs (atajo universal).
+document.addEventListener('keydown', function(e) {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    edSearchOpen();
+  }
+});
 
 function goEd(viewId) {
   document.querySelectorAll('.view').forEach(function(v) { v.classList.remove('active'); });
