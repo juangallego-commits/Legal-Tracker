@@ -1410,6 +1410,33 @@ function esc(s) {
     .replace(/'/g, '&#39;');
 }
 
+// Skeleton loader: N filas grises animadas con shimmer. Disponible
+// para renderers que carguen data async; los renders sync locales
+// son tan rápidos que rara vez lo usan.
+function _skeleton(lines) {
+  lines = lines || 4;
+  var out = '<div class="ed-skel-wrap">';
+  for (var i = 0; i < lines; i++) {
+    var w = 60 + Math.floor(Math.random() * 40); // 60-99%
+    out += '<div class="ed-skel" style="width:' + w + '%"></div>';
+  }
+  return out + '</div>';
+}
+
+// Empty state con personalidad: ícono grande + título serif italic +
+// subtítulo + CTA opcional. Usar cuando una lista está completamente
+// vacía (no como mensaje de "filtro sin resultados").
+function _emptyState(icon, title, subtitle, ctaLabel, ctaOnclick) {
+  var html = '<div class="ed-empty-state">'
+           +   '<div class="ed-empty-icon">' + (icon || '📋') + '</div>'
+           +   '<div class="ed-empty-title">' + esc(title || '') + '</div>';
+  if (subtitle) html += '<div class="ed-empty-sub">' + esc(subtitle) + '</div>';
+  if (ctaLabel) {
+    html += '<button class="ed-btn primary" onclick="' + esc(ctaOnclick || '') + '" style="margin-top:14px">' + esc(ctaLabel) + '</button>';
+  }
+  return html + '</div>';
+}
+
 // NOTA: escJs ya no se usa (reemplazado por event delegation con data-act).
 // Se conserva por si algún hotfix futuro lo necesita.
 function escJs(s) {
@@ -1449,8 +1476,13 @@ function pd(s) {
 }
 function toast(msg, type) {
   var e = $('toast');
-  e.textContent = msg;
-  e.className = 'toast toast-' + (type || 'info') + ' show';
+  type = type || 'info';
+  var icons = { success: '✓', error: '✕', info: 'ℹ' };
+  var icon = icons[type] || icons.info;
+  e.innerHTML = '<span class="toast-icon">' + icon + '</span>'
+              + '<span class="toast-msg"></span>';
+  e.querySelector('.toast-msg').textContent = msg;
+  e.className = 'toast toast-' + type + ' show';
   clearTimeout(e._t);
   e._t = setTimeout(function(){ e.classList.remove('show'); }, 3000);
 }
@@ -2689,13 +2721,28 @@ function renderEdSidebar(role, activeViewId) {
       var it = sec.items[j];
       var isActive = it.id === activeViewId;
       var badge = _badgeFor(it.id, navRole);
+      // Alert: dot rojo pulsante si el item representa tareas con
+      // overdue. Solo aplica a tracker/mistareas (las pantallas que
+      // exponen tareas urgentes accionables).
+      var alert = false;
+      if ((it.id === 'tracker' || it.id === 'mistareas') && D && D.tasks) {
+        var userN = _effectiveUserName();
+        var userC = _effectiveUserCode();
+        alert = D.tasks.some(function(t) {
+          if (!(typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo')) return false;
+          if (it.id === 'mistareas') return t.resp === userN;
+          if (navRole === 'manager') return (t.pais || '') === userC;
+          return true;
+        });
+      }
       var initial = ((it.label || '?').trim().charAt(0) || '?').toUpperCase();
       html += '<div class="ed-nav-item' + (isActive ? ' active' : '')
            +  '" role="link" tabindex="0"' + (isActive ? ' aria-current="page"' : '')
            +  ' data-viewid="' + esc(it.id) + '" data-initial="' + esc(initial) + '" onclick="goEd(\'' + esc(it.id) + '\')"'
            +  ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();goEd(\'' + esc(it.id) + '\')}">';
       html +=   '<span>' + esc(it.label) + '</span>';
-      if (badge != null) html += '<span class="ed-nav-badge">' + esc(String(badge)) + '</span>';
+      if (badge != null) html += '<span class="ed-nav-badge' + (alert ? ' alert' : '') + '">' + esc(String(badge)) + '</span>';
+      else if (alert) html += '<span class="ed-nav-badge alert" aria-label="Hay tareas vencidas"></span>';
       html += '</div>';
     }
     html += '</div>';
@@ -5157,7 +5204,9 @@ function rEdProyectosIndex(D) {
        + '</div>';
 
   if (enriched.length === 0) {
-    html += '<div class="ed-lede" style="text-align:center;padding:40px 0">Sin proyectos en este filtro.</div>';
+    html += _emptyState('📁', 'Sin proyectos por acá',
+                        'Probá cambiar el filtro o creá uno nuevo desde + Nueva.',
+                        null, null);
   } else {
     var startIdx = 1;
     if (EDP.tab !== 'cerrados') {
