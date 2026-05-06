@@ -2492,13 +2492,12 @@ body.role-manager #tabResumen { display: none !important; }
   font-size: 13px;
   width: 100%;
 }
-/* Grid de 7 columnas: cf-dot, ID, Tarea, Resp, Prioridad, Estado, ETA.
-   Aplicado al thead row y al tbody row para que los headers alineen
-   con las celdas. Antes el grid era de 6 cols y la 7ma celda (ETA)
-   se caía a la línea siguiente. */
+/* Grid de 8 columnas: checkbox, cf-dot, ID, Tarea, Resp, Prioridad,
+   Estado, ETA. Aplicado a thead y tbody para que los headers alineen
+   con las celdas. */
 .tk-table thead tr {
   display: grid;
-  grid-template-columns: 32px 50px minmax(0, 1.5fr) minmax(0, 1fr) 90px 110px 90px;
+  grid-template-columns: 28px 32px 50px minmax(0, 1.5fr) minmax(0, 1fr) 90px 110px 90px;
   align-items: end;
   gap: 12px;
   padding: 0 0 10px 0;
@@ -2515,7 +2514,7 @@ body.role-manager #tabResumen { display: none !important; }
 }
 .tk-row {
   display: grid;
-  grid-template-columns: 32px 50px minmax(0, 1.5fr) minmax(0, 1fr) 90px 110px 90px;
+  grid-template-columns: 28px 32px 50px minmax(0, 1.5fr) minmax(0, 1fr) 90px 110px 90px;
   align-items: center;
   gap: 12px;
   padding: 12px 0;
@@ -2523,7 +2522,82 @@ body.role-manager #tabResumen { display: none !important; }
   cursor: pointer;
   transition: background .12s;
 }
+.tk-row-check {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+/* ── Bulk action bar (sticky cuando hay tareas seleccionadas) ──── */
+.tk-bulk-bar {
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  margin-bottom: 8px;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 12px;
+  border-radius: 3px;
+}
+.tk-bulk-bar.show { display: flex; }
+.tk-bulk-count {
+  font-weight: 700;
+  margin-right: 8px;
+}
+.tk-bulk-btn {
+  background: transparent;
+  color: var(--bg);
+  border: 1px solid rgba(255, 255, 255, .25);
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  letter-spacing: .3px;
+  transition: background .12s, border-color .12s;
+}
+.tk-bulk-btn:hover { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .45); }
+.tk-bulk-btn.ghost { margin-left: auto; opacity: .7; }
+.tk-bulk-btn.ghost:hover { opacity: 1; }
+
+/* ── Hover preview (tooltip tras 400ms en una fila) ────────────── */
+.tk-preview {
+  position: absolute;
+  z-index: 200;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--ink);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
+  pointer-events: none;
+  max-width: 360px;
+  border-radius: 3px;
+}
+.tk-preview-row { margin-bottom: 4px; line-height: 1.4; }
+.tk-preview-row:last-child { margin-bottom: 0; }
+.tk-preview .lbl {
+  display: inline-block;
+  min-width: 60px;
+  color: var(--dim);
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  margin-right: 6px;
+}
 .tk-row:hover { background: var(--paper2); }
+/* Zebra striping sutil para escaneo visual de tablas largas. Pares
+   ligeramente más grises. .selected y :hover ganan especificidad. */
+.tk-row:nth-child(even) { background: color-mix(in srgb, var(--paper2) 40%, transparent); }
+.tk-row:nth-child(even):hover { background: var(--paper2); }
 .tk-row.selected {
   background: var(--accent-soft);
   box-shadow: inset 3px 0 0 var(--accent);
