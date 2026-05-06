@@ -1427,6 +1427,55 @@ function edSpMenuClose() {
   document.querySelectorAll('.esp-task-menu-wrap.open').forEach(function(w){ w.classList.remove('open'); });
 }
 
+// Tiempo relativo humano: "hoy", "ayer", "hace 3d", "hace 2 sem".
+function _relativeAgo(ms) {
+  if (!ms) return '';
+  var diff = Date.now() - ms;
+  if (diff < 0) return 'hoy';
+  var days = Math.floor(diff / 86400000);
+  if (days < 1) return 'hoy';
+  if (days === 1) return 'ayer';
+  if (days < 7) return 'hace ' + days + 'd';
+  var weeks = Math.floor(days / 7);
+  if (weeks < 5) return 'hace ' + weeks + ' sem';
+  var months = Math.floor(days / 30);
+  return 'hace ' + months + 'm';
+}
+
+// Feed de actividad reciente para el sidebar editorial. Combina las
+// últimas tareas cerradas (✓) y creadas (+), sorted por timestamp
+// desc, top 5. Se monta solo si D existe y hay datos.
+function _edActivityFeed() {
+  if (!D || (!D.tasks && !D.historial)) return '';
+  var items = [];
+  (D.historial || []).forEach(function(t) {
+    if (!t.cerrado) return;
+    var p = t.cerrado.split('/');
+    var ms = new Date(parseInt(p[2],10), parseInt(p[1],10)-1, parseInt(p[0],10)).getTime();
+    if (!isNaN(ms)) items.push({ kind: 'closed', name: t.nombre || '?', when: ms });
+  });
+  (D.tasks || []).forEach(function(t) {
+    if (!t.creadoRaw) return;
+    var ms = new Date(t.creadoRaw).getTime();
+    if (!isNaN(ms)) items.push({ kind: 'created', name: t.nombre || '?', when: ms });
+  });
+  items.sort(function(a, b){ return b.when - a.when; });
+  items = items.slice(0, 5);
+  if (!items.length) return '';
+  var icons = { closed: '✓', created: '+' };
+  var html = '<div class="ed-feed">'
+           + '<div class="ed-feed-head">Actividad reciente</div>';
+  items.forEach(function(it) {
+    var truncated = it.name.length > 20 ? (it.name.slice(0, 20) + '…') : it.name;
+    html += '<div class="ed-feed-row" title="' + esc(it.name) + '">'
+         +    '<span class="ed-feed-icon ' + it.kind + '">' + icons[it.kind] + '</span>'
+         +    '<span class="ed-feed-name">' + esc(truncated) + '</span>'
+         +    '<span class="ed-feed-when">' + _relativeAgo(it.when) + '</span>'
+         + '</div>';
+  });
+  return html + '</div>';
+}
+
 // Días hábiles entre dos Dates (excluye sáb y dom). Implementación
 // frontend que matchea backend/codigo.gs#countBizDays. Usado para
 // mostrar duración de cierres en la sección "Reciente" del home.
@@ -2800,6 +2849,7 @@ function renderEdSidebar(role, activeViewId) {
             + '</div>';
   }
   html += demoHtml
+       + _edActivityFeed()
        + '<div class="ed-side-foot">'
        +   '<div class="ed-foot-av">' + esc(initials) + '</div>'
        +   '<div class="ed-foot-meta">'
@@ -5230,7 +5280,18 @@ function edCrearSubmit() {
 // y avatares del equipo. Datos derivados de D.tasks/D.projects.
 // ───────────────────────────────────────────────────────────────
 
-var EDP = { tab: 'activos' };
+var EDP = { tab: 'activos', detailId: null };
+function edPiOpen(projectId) {
+  EDP.detailId = projectId;
+  if (D) rEdProyectosIndex(D);
+  // Scroll arriba para que el header del detalle sea lo primero
+  // que el usuario vea, sin importar dónde estaba scrolleando.
+  var em = $('edMain'); if (em) em.scrollTop = 0;
+}
+function edPiClose() {
+  EDP.detailId = null;
+  if (D) rEdProyectosIndex(D);
+}
 
 function _piRoleOf(project, userName, tasks) {
   if (!project) return 'Observador';
@@ -5365,7 +5426,7 @@ function _piRenderHero(enriched) {
        +     '<div class="pi-hero-card-eye">— Próximas tareas tuyas</div>'
        +     '<div class="pi-hero-card-h">' + heroHeadline + '</div>'
        +     miniHtml
-       +     '<div style="margin-top:14px"><button class="ed-btn primary" onclick="goEd(\'tracker\')">Ver en tracker →</button></div>'
+       +     '<div style="margin-top:14px"><button class="ed-btn primary" onclick="edPiOpen(\'' + esc(p.id) + '\')">Abrir proyecto →</button></div>'
        +   '</div>'
        + '</div>';
 }
@@ -5383,7 +5444,7 @@ function _piRenderRow(enriched, idx) {
   for (var i = 0; i < enriched.people.length; i++) peopleHtml += _piPersonAvatar(enriched.people[i], false);
   if (enriched.more > 0) peopleHtml += _piPersonAvatar({ initials: '+' + enriched.more }, true);
 
-  return '<div class="pi-row" onclick="goEd(\'tracker\')">'
+  return '<div class="pi-row" onclick="edPiOpen(\'' + esc(p.id) + '\')">'
        +   '<div class="pi-rank">' + String(idx).padStart(2,'0') + '</div>'
        +   '<div class="pi-name-block">'
        +     '<div class="pi-name-eye">'
@@ -5415,8 +5476,142 @@ function _piRenderRow(enriched, idx) {
 
 function edPSetTab(key) { EDP.tab = key; if (D) rEdProyectosIndex(D); }
 
+// ─── PROYECTO · DETALLE ─────────────────────────────────────────
+// Render dentro de vEdProyectosIndex cuando EDP.detailId está set.
+// Header (nombre + pills + meta), barra multi-segmento por estado,
+// 3 KPIs (totales, %completado, próximo deadline) y tabla de tareas.
+function _piRenderDetail(p, D) {
+  var allTasks = (D && D.tasks) || [];
+  var hist     = (D && D.historial) || [];
+  var pTasksActive = allTasks.filter(function(t){ return t.proyectoId == p.id; });
+  var pTasksDone   = hist.filter(function(t){ return t.proyectoId == p.id; });
+  var allP = pTasksActive.concat(pTasksDone);
+
+  // Conteo por status (Pendiente, En curso, En revisión, Bloqueado, Listo)
+  var byStatus = { 'Pendiente': 0, 'En curso': 0, 'En revisión': 0, 'Bloqueado': 0, 'Listo': 0 };
+  pTasksActive.forEach(function(t){ if (byStatus[t.status] != null) byStatus[t.status]++; });
+  byStatus['Listo'] = pTasksDone.length;
+  var total = allP.length;
+  var pct = total ? Math.round((byStatus['Listo'] / total) * 100) : 0;
+
+  // Próximo deadline: tarea activa con deadlineISO más cercano (futuro o pasado).
+  var nextDl = null;
+  pTasksActive.forEach(function(t) {
+    if (!t.deadlineISO) return;
+    if (!nextDl || t.deadlineISO < nextDl.deadlineISO) nextDl = t;
+  });
+  var nextDlText = nextDl ? (nextDl.deadline + (nextDl.eta ? ' · ' + nextDl.eta : '')) : '—';
+
+  // Avatares de participantes
+  var people = (p.participantes || []).slice(0, 6);
+  var moreP = (p.participantes || []).length - people.length;
+  var avHtml = '';
+  people.forEach(function(name) {
+    var ini = name.split(/\s+/).slice(0, 2).map(function(w){ return (w[0] || '').toUpperCase(); }).join('');
+    avHtml += '<span class="pi-detail-av" title="' + esc(name) + '">' + esc(ini || '?') + '</span>';
+  });
+  if (moreP > 0) avHtml += '<span class="pi-detail-av more" title="' + moreP + ' más">+' + moreP + '</span>';
+
+  // Barra multi-segmento (porcentajes)
+  function segPct(n) { return total ? (n / total * 100) : 0; }
+  var segPend = segPct(byStatus['Pendiente']);
+  var segCur  = segPct(byStatus['En curso']);
+  var segRev  = segPct(byStatus['En revisión']);
+  var segBlk  = segPct(byStatus['Bloqueado']);
+  var segLis  = segPct(byStatus['Listo']);
+
+  var html = ''
+    + '<button class="ed-btn pi-detail-back" onclick="edPiClose()">← Volver a proyectos</button>'
+    + '<div class="pi-detail-head">'
+    +   '<h1 class="pi-detail-name">' + esc(p.nombre || '') + '</h1>'
+    +   '<div class="pi-detail-pills">'
+    +     '<span class="ed-pill ' + (p.priority || '').toLowerCase() + '">' + esc(p.priority || '') + '</span>'
+    +     '<span class="ed-pill">' + esc(p.status || 'Activo') + '</span>'
+    +   '</div>'
+    +   '<div class="pi-detail-meta">'
+    +     '<span><span class="lbl">Líder</span>' + esc(p.lider || '—') + '</span>'
+    +     '<span><span class="lbl">Deadline</span>' + esc(p.deadline || '—') + '</span>'
+    +     (p.pais ? '<span><span class="lbl">País</span>' + esc(p.pais) + '</span>' : '')
+    +     (p.tipoTrabajo ? '<span><span class="lbl">Tipo</span>' + esc(p.tipoTrabajo) + '</span>' : '')
+    +   '</div>'
+    +   (p.descripcion ? '<p class="pi-detail-desc">' + esc(p.descripcion) + '</p>' : '')
+    +   (avHtml ? '<div class="pi-detail-people">' + avHtml + '</div>' : '')
+    + '</div>';
+
+  // Barra multi-segmento por estado
+  html += '<div class="pi-detail-progress">'
+       +    '<div class="pi-detail-bar">'
+       +      '<div class="pi-detail-seg pend"  style="width:' + segPend + '%" title="Pendiente: ' + byStatus['Pendiente'] + '"></div>'
+       +      '<div class="pi-detail-seg curso" style="width:' + segCur + '%" title="En curso: ' + byStatus['En curso'] + '"></div>'
+       +      '<div class="pi-detail-seg rev"   style="width:' + segRev + '%" title="En revisión: ' + byStatus['En revisión'] + '"></div>'
+       +      '<div class="pi-detail-seg blk"   style="width:' + segBlk + '%" title="Bloqueado: ' + byStatus['Bloqueado'] + '"></div>'
+       +      '<div class="pi-detail-seg done"  style="width:' + segLis + '%" title="Listo: ' + byStatus['Listo'] + '"></div>'
+       +    '</div>'
+       +    '<div class="pi-detail-legend">'
+       +      '<span><i class="dot pend"></i>Pendiente · ' + byStatus['Pendiente'] + '</span>'
+       +      '<span><i class="dot curso"></i>En curso · ' + byStatus['En curso'] + '</span>'
+       +      '<span><i class="dot rev"></i>Revisión · ' + byStatus['En revisión'] + '</span>'
+       +      '<span><i class="dot blk"></i>Bloqueada · ' + byStatus['Bloqueado'] + '</span>'
+       +      '<span><i class="dot done"></i>Listo · ' + byStatus['Listo'] + '</span>'
+       +    '</div>'
+       + '</div>';
+
+  // KPIs (3)
+  html += '<div class="pi-detail-kpis">'
+       +    '<div class="pi-detail-kpi"><div class="num">' + (total ? total : '—') + '</div><div class="lbl">Tareas totales</div></div>'
+       +    '<div class="pi-detail-kpi"><div class="num">' + pct + '<em>%</em></div><div class="lbl">Completado</div></div>'
+       +    '<div class="pi-detail-kpi"><div class="num small">' + esc(nextDlText) + '</div><div class="lbl">Próximo deadline</div></div>'
+       + '</div>';
+
+  // Tabla de tareas del proyecto
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Tareas del proyecto</div>';
+  if (allP.length === 0) {
+    html += _emptyState('📋', 'Sin tareas asignadas todavía',
+                        'Cuando se creen tareas para este proyecto, aparecerán acá.', null, null);
+  } else {
+    // Activas primero, luego cerradas. Dentro de cada grupo, por etaDays asc.
+    var activeSorted = pTasksActive.slice().sort(function(a, b) {
+      var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
+      var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
+      return ad - bd;
+    });
+    var rows = activeSorted.concat(pTasksDone);
+    html += '<table class="tk-table" style="margin-top:12px">'
+         +    '<thead><tr>'
+         +      '<th></th><th></th><th>ID</th><th>Tarea</th><th>Resp.</th><th>Prioridad</th><th>Estado</th><th>ETA</th>'
+         +    '</tr></thead><tbody>';
+    rows.forEach(function(t) {
+      var etaTxt = t.eta || _etaTextFromDays(t.etaDays);
+      var etaTone = _etaToneClass(t.etaDays, t.status);
+      var cfLvl = (typeof _confLevel === 'function') ? _confLevel(t) : 'estandar';
+      var cfMeta = (typeof ED_CONF_LEVELS !== 'undefined') ? ED_CONF_LEVELS[cfLvl] : { label: '' };
+      html += '<tr class="tk-row" data-task-id="' + esc(t.id) + '" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
+           +    '<td></td>'
+           +    '<td><span class="cf-dot ' + cfLvl + '" title="' + esc(cfMeta.label || '') + '"></span></td>'
+           +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
+           +    '<td><div class="tk-name">' + esc(t.nombre || '') + '</div></td>'
+           +    '<td>' + esc(t.resp || '—') + '</td>'
+           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span></td>'
+           +    '<td><span class="ed-pill ' + _statusClass(t.status) + '">' + esc(t.status || '') + '</span></td>'
+           +    '<td><span class="tk-eta ' + etaTone + '">' + esc(etaTxt) + '</span></td>'
+           + '</tr>';
+    });
+    html += '</tbody></table>';
+  }
+  html += '</section>';
+
+  return html;
+}
+
 function rEdProyectosIndex(D) {
   var v = $('vEdProyectosIndex'); if (!v) return;
+  // Si hay un proyecto seleccionado, render del detalle; sino, index.
+  if (EDP.detailId) {
+    var detailP = ((D && D.projects) || []).find(function(p){ return String(p.id) === String(EDP.detailId); });
+    if (detailP) { v.innerHTML = _piRenderDetail(detailP, D); return; }
+    EDP.detailId = null; // proyecto eliminado o invalido — fallback a index
+  }
   var userName = _effectiveUserName();
   var projects = (D && D.projects) || [];
   var tasks = (D && D.tasks) || [];
