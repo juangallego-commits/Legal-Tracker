@@ -259,12 +259,54 @@ function _getEditorialDataImpl() {
 
   // Enriquecer countries (open, overdue, slaPct, trend)
   if (data.countries && data.countries.length) {
+    var SLA_BY_PRIO_C = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
+    var nowMs = new Date().getTime();
+    var THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    var WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
     data.countries.forEach(function(c) {
       var countryTasks = (data.tasks || []).filter(function(t){ return t.pais === c.code; });
       c.open    = countryTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
       c.overdue = countryTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
-      c.slaPct  = 100; // TODO Fase 2: calcular contra historial real
-      c.trend   = [3, 4, 2, 5, 3, 4, 6, 4, 3, 5, 4, 3]; // TODO Fase 2: tareas por semana, últimas 12
+
+      // Historial del país con cerrado parseado (dd/MM/yyyy → Date) y bizDays.
+      var countryHist = (data.historial || [])
+        .filter(function(t){ return t.pais === c.code && t.creadoRaw && t.cerrado; })
+        .map(function(t) {
+          var p = t.cerrado.split('/');
+          var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+          return {
+            priority: t.priority,
+            cerradoMs: cerradoDate.getTime(),
+            bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate)
+          };
+        });
+
+      // slaPct: % de cierres dentro de SLA en los últimos 30 días.
+      // Sin historial reciente → 100 (no penalizar países sin cierres).
+      var recent = countryHist.filter(function(h){ return (nowMs - h.cerradoMs) <= THIRTY_DAYS_MS; });
+      if (recent.length === 0) {
+        c.slaPct = 100;
+      } else {
+        var onTime = 0;
+        recent.forEach(function(h) {
+          var sla = SLA_BY_PRIO_C[h.priority] || 5;
+          if (h.bizDays <= sla) onTime++;
+        });
+        c.slaPct = Math.round((onTime / recent.length) * 100);
+      }
+
+      // trend: 12 buckets semanales, índice 11 = semana actual.
+      // Proxy autorizado: cerradas por semana (throughput) en lugar de
+      // tareas activas en stock. Lectura visual = velocidad de cierre.
+      var trend = [0,0,0,0,0,0,0,0,0,0,0,0];
+      countryHist.forEach(function(h) {
+        var weeksAgo = Math.floor((nowMs - h.cerradoMs) / WEEK_MS);
+        if (weeksAgo >= 0 && weeksAgo < 12) {
+          trend[11 - weeksAgo]++;
+        }
+      });
+      c.trend = trend;
     });
   }
 
