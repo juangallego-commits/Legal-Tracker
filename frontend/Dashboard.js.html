@@ -3805,15 +3805,48 @@ function edPanelEditCell(taskId, fieldKey) {
   if (inp) inp.focus();
 }
 
+// Reload diferido (1.5s): si el usuario hace varias ediciones seguidas,
+// solo dispara un reload completo al final. Sin esto, cada cambio
+// pegaba un round-trip al server (~1-2s) y la app se sentía trabada.
+var _edSaveReloadTimer = null;
+function _edScheduleReload() {
+  if (_edSaveReloadTimer) clearTimeout(_edSaveReloadTimer);
+  _edSaveReloadTimer = setTimeout(function() {
+    _edSaveReloadTimer = null;
+    if (typeof reload === 'function') reload();
+  }, 1500);
+}
+
 function edPanelSaveField(taskId, fieldKey, value) {
-  showLoader();
   google.script.run
     .withSuccessHandler(function(res) {
-      hideLoader();
-      if (res && res.success) { toast('✅ Guardado', 'success'); reload(); }
-      else { toast('Error: ' + ((res && res.error) || 'no se pudo guardar'), 'error'); reload(); }
+      if (res && res.success) {
+        // Optimistic local update: el usuario ve el cambio aplicado de
+        // inmediato; el reload diferido sincroniza stats derivadas
+        // (eta, slaPct, team load, etc.) sin bloquear la UI.
+        if (D && D.tasks) {
+          var t = D.tasks.find(function(x){ return x.id == taskId; });
+          if (t) {
+            if (fieldKey === 'proyectoId' || fieldKey === 'proyecto') {
+              var n = parseInt(value, 10);
+              t.proyectoId = isNaN(n) ? '' : n;
+            } else {
+              t[fieldKey] = value;
+            }
+          }
+        }
+        if (typeof rEdTracker === 'function') rEdTracker(D);
+        toast('✅ Guardado', 'success');
+        _edScheduleReload();
+      } else {
+        toast('Error: ' + ((res && res.error) || 'no se pudo guardar'), 'error');
+        if (typeof reload === 'function') reload();
+      }
     })
-    .withFailureHandler(function(e) { hideLoader(); toast('Error: ' + e.message, 'error'); reload(); })
+    .withFailureHandler(function(e) {
+      toast('Error: ' + e.message, 'error');
+      if (typeof reload === 'function') reload();
+    })
     .updateTaskField(taskId, fieldKey, value);
 }
 

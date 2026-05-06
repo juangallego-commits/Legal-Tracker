@@ -2407,9 +2407,30 @@ body.role-manager #tabResumen { display: none !important; }
   font-size: 13.5px;
   width: 100%;
 }
+/* Grid de 7 columnas: cf-dot, ID, Tarea, Resp, Prioridad, Estado, ETA.
+   Aplicado al thead row y al tbody row para que los headers alineen
+   con las celdas. Antes el grid era de 6 cols y la 7ma celda (ETA)
+   se caía a la línea siguiente. */
+.tk-table thead tr {
+  display: grid;
+  grid-template-columns: 32px 50px minmax(0, 1.5fr) minmax(0, 1fr) 90px 110px 90px;
+  align-items: end;
+  gap: 12px;
+  padding: 0 0 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.tk-table thead th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--dim);
+  font-family: var(--font);
+}
 .tk-row {
   display: grid;
-  grid-template-columns: 60px 1.5fr 1fr 90px 110px 90px;
+  grid-template-columns: 32px 50px minmax(0, 1.5fr) minmax(0, 1fr) 90px 110px 90px;
   align-items: center;
   gap: 12px;
   padding: 12px 0;
