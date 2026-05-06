@@ -215,10 +215,45 @@ function _getEditorialDataImpl() {
       member.capacity = 5; // TODO Fase 2: leer de hoja Config
       member.overdue  = memberTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
       member.blocked  = memberTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
-      member.streak   = 0;   // TODO Fase 2: calcular del historial real
-      member.avgAlta  = '—'; // TODO Fase 2
-      member.avgMedia = '—';
-      member.avgBaja  = '—';
+
+      // Historial del miembro con bizDays + fecha de cierre parseada.
+      // creadoRaw viene como ISO; cerrado viene como 'dd/MM/yyyy' (no hay cerradoRaw).
+      var SLA_BY_PRIO = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
+      var memberHist = (data.historial || [])
+        .filter(function(t){ return t.resp === member.name && t.creadoRaw && t.cerrado; })
+        .map(function(t) {
+          var p = t.cerrado.split('/');
+          var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+          return {
+            priority: t.priority,
+            bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate),
+            cerradoDate: cerradoDate
+          };
+        });
+
+      // streak: tareas cerradas a tiempo consecutivamente, de más reciente
+      // a más antigua. "A tiempo" = bizDays <= SLA de su prioridad.
+      var streak = 0;
+      var sortedDesc = memberHist.slice().sort(function(a, b){ return b.cerradoDate - a.cerradoDate; });
+      for (var i = 0; i < sortedDesc.length; i++) {
+        var sla = SLA_BY_PRIO[sortedDesc[i].priority] || 5;
+        if (sortedDesc[i].bizDays <= sla) streak++;
+        else break;
+      }
+      member.streak = streak;
+
+      // avgAlta / avgMedia / avgBaja: promedio de bizDays de cierre por prioridad.
+      // "—" si no hay tareas cerradas de esa prioridad. Entero → "3d", decimal → "1.5d".
+      function avgFor(prio) {
+        var arr = memberHist.filter(function(h){ return h.priority === prio; });
+        if (!arr.length) return '—';
+        var sum = arr.reduce(function(s, h){ return s + h.bizDays; }, 0);
+        var avg = sum / arr.length;
+        return (avg === Math.floor(avg) ? avg.toString() : avg.toFixed(1)) + 'd';
+      }
+      member.avgAlta  = avgFor('Alta');
+      member.avgMedia = avgFor('Media');
+      member.avgBaja  = avgFor('Baja');
     });
   }
 
