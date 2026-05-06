@@ -1410,6 +1410,42 @@ function esc(s) {
     .replace(/'/g, '&#39;');
 }
 
+// Mini dropdown del three-dots en esp-task-row. Click toggle, click
+// fuera cierra. Solo un menú abierto a la vez.
+function edSpMenuToggle(button) {
+  var wrap = button.parentElement; if (!wrap) return;
+  var isOpen = wrap.classList.contains('open');
+  edSpMenuClose();
+  if (!isOpen) {
+    wrap.classList.add('open');
+    setTimeout(function() {
+      document.addEventListener('click', edSpMenuClose, { once: true });
+    }, 0);
+  }
+}
+function edSpMenuClose() {
+  document.querySelectorAll('.esp-task-menu-wrap.open').forEach(function(w){ w.classList.remove('open'); });
+}
+
+// Días hábiles entre dos Dates (excluye sáb y dom). Implementación
+// frontend que matchea backend/codigo.gs#countBizDays. Usado para
+// mostrar duración de cierres en la sección "Reciente" del home.
+function _bizDays(start, end) {
+  if (!start || !end) return null;
+  var s = (start instanceof Date) ? start : new Date(start);
+  var e = (end instanceof Date) ? end : new Date(end);
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) return null;
+  var count = 0;
+  var cur = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  var endDate = new Date(e.getFullYear(), e.getMonth(), e.getDate());
+  while (cur < endDate) {
+    cur.setDate(cur.getDate() + 1);
+    var d = cur.getDay();
+    if (d !== 0 && d !== 6) count++;
+  }
+  return count;
+}
+
 // Skeleton loader: N filas grises animadas con shimmer. Disponible
 // para renderers que carguen data async; los renders sync locales
 // son tan rápidos que rara vez lo usan.
@@ -3183,11 +3219,17 @@ function rEdHomeSpecialist(D) {
         : 'Tenés <em>' + esc(String(apremiantes).padStart(2,'0')) + (apremiantes === 1 ? ' cosa' : ' cosas') + '</em> apremiante' + (apremiantes === 1 ? '' : 's') + ' hoy.')
     + '</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
-    // QUOTE rotativa (una frase distinta por día)
-    + (function(){ var q = _edTodayQuote(); return '<div class="esp-quote">'
-    +   '<div class="esp-quote-text">"' + esc(q.text) + '"</div>'
-    +   '<div class="esp-quote-who">— ' + esc(q.who) + '</div>'
-    + '</div>'; })()
+    // BANNER de urgencia (solo si hay overdue o dueToday). Reemplaza
+    // el quote rotativo por algo accionable. Si no hay urgencias, no
+    // se renderiza nada (que respire).
+    + (function(){
+        var urg = overdue + dueToday;
+        if (!urg) return '';
+        return '<div class="esp-urg-banner">'
+             +   '<span class="esp-urg-text">Tenés <b>' + urg + ' tarea' + (urg === 1 ? '' : 's') + '</b> que necesitan atención hoy.</span>'
+             +   '<button class="esp-urg-cta" onclick="goEd(\'tracker\')">Ir al tracker →</button>'
+             + '</div>';
+      })()
     // HERO (copy reframeado: orientado a "qué hago AHORA")
     + '<div class="esp-hero">'
     +   '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
@@ -3221,17 +3263,29 @@ function rEdHomeSpecialist(D) {
       } else {
         actionHtml = esc(t.accionable || '');
       }
-      html += '<div class="esp-task-row" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
+      var taskIdEsc = esc(t.id);
+      html += '<div class="esp-task-row" onclick="edGoTaskInTracker(\'' + taskIdEsc + '\')">'
            +   '<div class="esp-task-rank ' + tone + '">' + String(i+1).padStart(2,'0') + '</div>'
            +   '<div class="esp-task-body">'
-           +     '<div class="esp-task-meta">' + esc(t.id + ' · ' + pn + (sla ? ' · SLA ' + sla : '')) + '</div>'
+           +     '<div class="esp-task-meta">'
+           +       esc(t.id + ' · ' + pn + (sla ? ' · SLA ' + sla : ''))
+           +       '<span class="ed-pill ' + (t.priority || '').toLowerCase() + '" style="margin-left:8px">' + esc(t.priority || '') + '</span>'
+           +       '<span class="ed-pill ' + _statusClass(t.status) + '" style="margin-left:4px">' + esc(t.status || '') + '</span>'
+           +     '</div>'
            +     '<div class="esp-task-name">' + esc(t.nombre || '') + '</div>'
            +     '<div class="esp-task-action">' + actionHtml + '</div>'
            +   '</div>'
            +   '<div class="esp-task-eta ' + tone + '">' + esc(t.eta || '') + '</div>'
-           +   '<div class="esp-task-pills">'
-           +     '<span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span>'
-           +     '<span class="ed-pill ' + _statusClass(t.status) + '">' + esc(t.status || '') + '</span>'
+           +   '<div class="esp-task-actions">'
+           +     '<button class="esp-task-btn primary" onclick="event.stopPropagation();edUOpen(\'' + taskIdEsc + '\',\'avanzar\')">Avanzar →</button>'
+           +     '<div class="esp-task-menu-wrap">'
+           +       '<button class="esp-task-btn dots" onclick="event.stopPropagation();edSpMenuToggle(this)" aria-label="Más acciones">⋯</button>'
+           +       '<div class="esp-menu" role="menu">'
+           +         '<div class="esp-menu-item" onclick="event.stopPropagation();edSpMenuClose();edUOpen(\'' + taskIdEsc + '\',\'cerrar\')">Cerrar</div>'
+           +         '<div class="esp-menu-item" onclick="event.stopPropagation();edSpMenuClose();edUOpen(\'' + taskIdEsc + '\',\'bloquear\')">Bloquear</div>'
+           +         '<div class="esp-menu-item" onclick="event.stopPropagation();edSpMenuClose();edGoTaskInTracker(\'' + taskIdEsc + '\')">Ver en tracker</div>'
+           +       '</div>'
+           +     '</div>'
            +   '</div>'
            + '</div>';
     }
@@ -3240,26 +3294,33 @@ function rEdHomeSpecialist(D) {
   }
   html += '</section>';
 
-  // PERFORMANCE (campos mock por ahora — Fase 2)
+  // PERFORMANCE — solo si hay datos reales. Si streak=0 y todos los
+  // promedios son "—", la sección no aporta y mostrarla es ruido.
   var me = (D && D.team || []).find(function(m){ return m.name === name; }) || {};
   var streak = (typeof me.streak === 'number' && me.streak > 0) ? me.streak : 0;
-  html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Tu desempeño este mes</div>'
-       +    '<div class="esp-perf">'
-       +      '<div class="esp-stat"><div class="esp-stat-lbl">🔥 Racha on-time</div>'
-       +        '<div class="esp-stat-num good">' + (streak ? String(streak) : '—') + '</div>'
-       +        '<div class="esp-stat-ctx">tareas seguidas a tiempo</div></div>'
-       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Alta</div>'
-       +        '<div class="esp-stat-num">' + esc(me.avgAlta || '—') + '</div>'
-       +        '<div class="esp-stat-ctx">SLA 2d</div></div>'
-       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Media</div>'
-       +        '<div class="esp-stat-num">' + esc(me.avgMedia || '—') + '</div>'
-       +        '<div class="esp-stat-ctx">SLA 5d</div></div>'
-       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Baja</div>'
-       +        '<div class="esp-stat-num">' + esc(me.avgBaja || '—') + '</div>'
-       +        '<div class="esp-stat-ctx">SLA 7d</div></div>'
-       +    '</div>'
-       + '</section>';
+  var hasPerf = streak > 0
+             || (me.avgAlta && me.avgAlta !== '—')
+             || (me.avgMedia && me.avgMedia !== '—')
+             || (me.avgBaja && me.avgBaja !== '—');
+  if (hasPerf) {
+    html += '<section class="ed-section">'
+         +    '<div class="ed-h2">— Tu desempeño este mes</div>'
+         +    '<div class="esp-perf">'
+         +      '<div class="esp-stat"><div class="esp-stat-lbl">🔥 Racha on-time</div>'
+         +        '<div class="esp-stat-num good">' + (streak ? String(streak) : '—') + '</div>'
+         +        '<div class="esp-stat-ctx">tareas seguidas a tiempo</div></div>'
+         +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Alta</div>'
+         +        '<div class="esp-stat-num">' + esc(me.avgAlta || '—') + '</div>'
+         +        '<div class="esp-stat-ctx">SLA 2d</div></div>'
+         +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Media</div>'
+         +        '<div class="esp-stat-num">' + esc(me.avgMedia || '—') + '</div>'
+         +        '<div class="esp-stat-ctx">SLA 5d</div></div>'
+         +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Baja</div>'
+         +        '<div class="esp-stat-num">' + esc(me.avgBaja || '—') + '</div>'
+         +        '<div class="esp-stat-ctx">SLA 7d</div></div>'
+         +    '</div>'
+         + '</section>';
+  }
 
   // PROYECTOS
   var projs = (D && D.projects) ? D.projects.filter(function(p){
@@ -3276,18 +3337,57 @@ function rEdHomeSpecialist(D) {
       var role = p.lider === name ? 'Owner' : 'Participante';
       var done = (D.historial || []).filter(function(t){ return t.proyectoId == p.id; }).length;
       var openP = (D.tasks || []).filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; }).length;
+      var totalP = done + openP;
+      var pct = totalP > 0 ? Math.round((done / totalP) * 100) : 0;
+      var fillCls = pct >= 80 ? 'good' : (pct >= 40 ? 'warn' : 'crit');
       html += '<div class="esp-proj-row">'
            +    '<div class="esp-proj-role">' + esc(role) + '</div>'
            +    '<div>'
            +      '<div class="esp-proj-name">' + esc(p.nombre || '') + '</div>'
            +      '<div class="esp-proj-lead">Líder: ' + esc(p.lider || '—') + '</div>'
            +    '</div>'
-           +    '<div class="esp-proj-prog">' + done + '/' + (done + openP) + '</div>'
+           +    '<div class="esp-proj-prog">'
+           +      '<div class="esp-proj-bar"><div class="esp-proj-bar-fill ' + fillCls + '" style="width:' + pct + '%"></div></div>'
+           +      '<div class="esp-proj-prog-text">' + done + '/' + totalP + '</div>'
+           +    '</div>'
            +    '<div class="esp-proj-eta">' + esc(p.deadline || '') + '</div>'
            + '</div>';
     }
   }
   html += '</section>';
+
+  // RECIENTE — últimas 3 cerradas del usuario, con duración bizDays.
+  // Da sensación de progreso. Si no hay historial, omitir la sección.
+  var myHist = ((D && D.historial) || [])
+    .filter(function(t){ return t.resp === name && t.creadoRaw && t.cerrado; })
+    .map(function(t) {
+      var p = t.cerrado.split('/'); // dd/MM/yyyy
+      var cerradoDate = new Date(parseInt(p[2],10), parseInt(p[1],10)-1, parseInt(p[0],10));
+      return {
+        nombre: t.nombre,
+        priority: t.priority,
+        cerrado: t.cerrado,
+        cerradoMs: cerradoDate.getTime(),
+        bizDays: _bizDays(new Date(t.creadoRaw), cerradoDate)
+      };
+    })
+    .sort(function(a, b){ return b.cerradoMs - a.cerradoMs; })
+    .slice(0, 3);
+  if (myHist.length) {
+    html += '<section class="ed-section">'
+         +    '<div class="ed-h2">— Reciente</div>';
+    myHist.forEach(function(h) {
+      var dur = (h.bizDays != null) ? (h.bizDays + 'd hábiles') : '';
+      html += '<div class="esp-recent-row">'
+           +    '<div class="esp-recent-icon">✓</div>'
+           +    '<div>'
+           +      '<div class="esp-recent-name">' + esc(h.nombre || '') + '</div>'
+           +      '<div class="esp-recent-meta">' + esc((h.priority || '') + ' · cerrada ' + h.cerrado + (dur ? ' · ' + dur : '')) + '</div>'
+           +    '</div>'
+           + '</div>';
+    });
+    html += '</section>';
+  }
 
   v.innerHTML = html;
 }
