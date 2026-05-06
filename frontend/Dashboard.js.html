@@ -2689,9 +2689,10 @@ function renderEdSidebar(role, activeViewId) {
       var it = sec.items[j];
       var isActive = it.id === activeViewId;
       var badge = _badgeFor(it.id, navRole);
+      var initial = ((it.label || '?').trim().charAt(0) || '?').toUpperCase();
       html += '<div class="ed-nav-item' + (isActive ? ' active' : '')
            +  '" role="link" tabindex="0"' + (isActive ? ' aria-current="page"' : '')
-           +  ' data-viewid="' + esc(it.id) + '" onclick="goEd(\'' + esc(it.id) + '\')"'
+           +  ' data-viewid="' + esc(it.id) + '" data-initial="' + esc(initial) + '" onclick="goEd(\'' + esc(it.id) + '\')"'
            +  ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();goEd(\'' + esc(it.id) + '\')}">';
       html +=   '<span>' + esc(it.label) + '</span>';
       if (badge != null) html += '<span class="ed-nav-badge">' + esc(String(badge)) + '</span>';
@@ -2732,11 +2733,31 @@ function renderEdHead() {
   var sem = D && D.semana ? ('Sem ' + D.semana) : 'Sem 17';
   var today = (D && D.today) ? _todayHumanStr(D.today) : '23 abr';
   return ''
+    + '<button class="ed-burger" type="button" aria-label="Abrir menú" onclick="edToggleSidebar()">≡</button>'
     + '<div class="ed-head-eye">' + esc(sem + ' · ' + today) + '</div>'
     + '<div class="ed-head-actions">'
     +   '<div class="ed-search" role="button" tabindex="0" onclick="edSearchOpen()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();edSearchOpen();}">⌘K  Buscar...</div>'
     +   '<button class="ed-btn accent" onclick="edCrearOpen()">+ Nueva</button>'
     + '</div>';
+}
+
+// Toggle del sidebar móvil (<=768px). force=true abre, false cierra,
+// undefined alterna. El backdrop se monta lazy la primera vez.
+function edToggleSidebar(force) {
+  var b = document.body;
+  var open = (typeof force === 'boolean') ? force : !b.classList.contains('sidebar-open');
+  if (open) {
+    if (!$('edSideBackdrop')) {
+      var bd = document.createElement('div');
+      bd.id = 'edSideBackdrop';
+      bd.className = 'ed-side-backdrop';
+      bd.onclick = function() { edToggleSidebar(false); };
+      document.body.appendChild(bd);
+    }
+    b.classList.add('sidebar-open');
+  } else {
+    b.classList.remove('sidebar-open');
+  }
 }
 
 function mountEdShell() {
@@ -2990,6 +3011,11 @@ function goEd(viewId) {
   document.querySelectorAll('.ed-nav-item').forEach(function(n) {
     n.classList.toggle('active', n.dataset && n.dataset.viewid === viewId);
   });
+  // Cerrar sidebar móvil al navegar (en desktop el body class no
+  // existe, así que es no-op).
+  if (document.body.classList.contains('sidebar-open')) {
+    document.body.classList.remove('sidebar-open');
+  }
   // Limpiar el grid 'with-panel' del tracker cuando navegamos a otra vista.
   // Sino, el contenido de home/agrupadas queda apretado a la derecha
   // porque #edMain mantiene grid 1fr 440px sin la 2da columna llena.

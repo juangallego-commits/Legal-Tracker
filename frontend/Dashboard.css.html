@@ -1626,6 +1626,135 @@ body.role-manager #tabResumen { display: none !important; }
   padding-right: 0;
 }
 
+/* ── Hamburguesa + backdrop (sidebar móvil) ────────────────────── */
+.ed-burger {
+  display: none;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink);
+  font-family: inherit;
+  padding: 0;
+}
+.ed-burger:hover { border-color: var(--rule-strong); }
+.ed-burger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.ed-side-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .4);
+  z-index: 99;
+}
+
+/* ── Responsive: tablet (≤1024px) ──────────────────────────────── */
+/* Sidebar colapsa a 56px y se expande on-hover como overlay (sin
+   empujar el main). Tracker panel pasa a overlay en lugar de
+   side-by-side. */
+@media (max-width: 1024px) {
+  .ed-root { grid-template-columns: 56px 1fr; }
+  .ed-side {
+    width: 56px;
+    padding: 28px 6px;
+    position: fixed;
+    left: 0; top: 0; bottom: 0;
+    height: 100vh;
+    z-index: 100;
+    transition: width 200ms ease, padding 200ms ease, box-shadow 200ms ease;
+    overflow: hidden;
+  }
+  .ed-side:hover {
+    width: 218px;
+    padding: 28px 20px;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, .12);
+    overflow-y: auto;
+  }
+  /* Modo colapsado: ocultar texto y mostrar inicial centrada */
+  .ed-side:not(:hover) .ed-nav-item { justify-content: center; padding: 8px 4px; }
+  .ed-side:not(:hover) .ed-nav-item span { display: none; }
+  .ed-side:not(:hover) .ed-nav-item::before {
+    content: attr(data-initial);
+    font-weight: 700;
+    font-size: 14px;
+    width: 100%;
+    text-align: center;
+  }
+  .ed-side:not(:hover) .ed-nav-label { display: none; }
+  .ed-side:not(:hover) .ed-side-brand .ed-brand-sub,
+  .ed-side:not(:hover) .ed-side-brand .ed-role-pill { display: none; }
+  .ed-side:not(:hover) .ed-side-brand { text-align: center; padding-bottom: 12px; margin-bottom: 12px; }
+  .ed-side:not(:hover) .ed-side-brand .ed-brand { font-size: 18px; }
+  .ed-side:not(:hover) .ed-side-foot .ed-foot-meta { display: none; }
+  .ed-side:not(:hover) .ed-side-foot { justify-content: center; }
+
+  /* Tracker panel: overlay en vez de side-by-side. Override del :has() */
+  .view.active:has(> .tk-panel) { display: block; }
+  .view.active:has(> .tk-panel) > *:not(.tk-panel) { grid-column: auto; }
+  .view.active:has(> .tk-panel) > .tk-panel {
+    position: fixed;
+    right: 0; top: 0; bottom: 0;
+    width: min(100%, 480px);
+    z-index: 90;
+    background: var(--paper);
+    box-shadow: -4px 0 24px rgba(0, 0, 0, .16);
+    overflow-y: auto;
+    padding: 24px;
+    grid-column: auto;
+    grid-row: auto;
+  }
+  .ed-main { padding: 32px 28px 60px; }
+}
+
+/* ── Responsive: móvil (≤768px) ────────────────────────────────── */
+/* Sidebar oculto, hamburguesa visible, sidebar entra como drawer
+   con backdrop al activar body.sidebar-open. */
+@media (max-width: 768px) {
+  .ed-root { grid-template-columns: 1fr; }
+  .ed-side {
+    width: 218px;
+    padding: 28px 20px;
+    transform: translateX(-100%);
+    transition: transform 200ms ease;
+    overflow-y: auto;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, .16);
+  }
+  .ed-side:hover { width: 218px; padding: 28px 20px; box-shadow: 4px 0 24px rgba(0, 0, 0, .16); }
+  body.sidebar-open .ed-side { transform: translateX(0); }
+  body.sidebar-open .ed-side-backdrop { display: block; }
+
+  /* En móvil el sidebar siempre muestra labels completos */
+  .ed-side .ed-nav-item { justify-content: flex-start; padding: 6px 8px; }
+  .ed-side .ed-nav-item span { display: inline; }
+  .ed-side .ed-nav-item::before { content: none; }
+  .ed-side .ed-nav-label,
+  .ed-side .ed-side-brand .ed-brand-sub,
+  .ed-side .ed-side-brand .ed-role-pill,
+  .ed-side .ed-side-foot .ed-foot-meta { display: revert; }
+  .ed-side .ed-side-brand { text-align: left; }
+  .ed-side .ed-side-foot { justify-content: flex-start; }
+
+  .ed-burger { display: inline-flex; }
+  .ed-main { padding: 20px 16px 40px; }
+
+  /* Panel del tracker full-width en móvil */
+  .view.active:has(> .tk-panel) > .tk-panel {
+    width: 100%;
+    max-width: 100%;
+    padding: 20px 16px;
+  }
+
+  /* Header: el search visual del header ocupa demasiado en móvil.
+     Dejarlo solo como botón cuadrado con el ícono ⌘. */
+  .ed-head .ed-search { min-width: 0; padding: 6px 8px; }
+}
+
 .ed-head {
   display: flex;
   align-items: center;
