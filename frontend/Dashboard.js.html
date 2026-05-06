@@ -3483,6 +3483,108 @@ function _panelCell(lbl, val, valCls) {
        + '</div>';
 }
 
+// Variante editable: click en el .val abre el editor inline (select/input).
+// fieldKey identifica el campo del backend (resp, deadline, riesgo, proyectoId).
+function _panelCellEditable(lbl, val, valCls, taskId, fieldKey) {
+  var cellId = 'pcell-' + taskId + '-' + fieldKey;
+  var displayVal = (val == null || val === '') ? '—' : val;
+  return '<div class="tk-panel-cell editable" data-pcell-id="' + esc(cellId) + '" title="Click para editar">'
+       +   '<div class="lbl">' + esc(lbl) + '</div>'
+       +   '<div class="val' + (valCls ? ' ' + valCls : '') + '" onclick="edPanelEditCell(\'' + esc(taskId) + '\', \'' + fieldKey + '\')">' + esc(displayVal) + '</div>'
+       + '</div>';
+}
+
+// ─── EDICIÓN INLINE DEL PANEL ───────────────────────────────────
+// Convierte la celda en un editor (select/input). Onchange dispara
+// guardado y reload(). Onblur cancela y re-renderiza con la data
+// actual. Para evitar doble-fire (change + blur), onchange limpia
+// onblur antes de guardar.
+function edPanelEditCell(taskId, fieldKey) {
+  var task = (D && D.tasks || []).find(function(t){ return t.id == taskId; });
+  if (!task) return;
+  var cell = document.querySelector('[data-pcell-id="pcell-' + taskId + '-' + fieldKey + '"]');
+  if (!cell) return;
+  var valEl = cell.querySelector('.val');
+  if (!valEl || valEl.querySelector('select, input')) return; // ya en edición
+
+  var html = '';
+  var saveAttr = 'onchange="this.onblur=null;edPanelSaveField(\'' + esc(taskId) + '\', \'' + fieldKey + '\', this.value)" onblur="edPanelCancelEdit()"';
+
+  if (fieldKey === 'resp') {
+    var members = (typeof getAllMembers === 'function') ? getAllMembers() : [];
+    var opts = '<option value="">—</option>' + members.map(function(m) {
+      var n = (typeof m === 'string') ? m : (m.name || m.label || '');
+      return '<option value="' + esc(n) + '"' + (n === task.resp ? ' selected' : '') + '>' + esc(n) + '</option>';
+    }).join('');
+    html = '<select class="tk-pcell-edit" ' + saveAttr + '>' + opts + '</select>';
+  } else if (fieldKey === 'deadline') {
+    html = '<input type="date" class="tk-pcell-edit" value="' + esc(task.deadlineISO || '') + '" ' + saveAttr + '>';
+  } else if (fieldKey === 'riesgo') {
+    var risks = ['', 'Legal alto', 'Reputacional', 'Operativo'];
+    var opts2 = risks.map(function(r) {
+      var label = r || 'Sin definir';
+      return '<option value="' + esc(r) + '"' + (r === (task.riesgo || '') ? ' selected' : '') + '>' + esc(label) + '</option>';
+    }).join('');
+    html = '<select class="tk-pcell-edit" ' + saveAttr + '>' + opts2 + '</select>';
+  } else if (fieldKey === 'proyectoId') {
+    var projects = (D && D.projectList) || [];
+    var opts3 = '<option value="">Sin proyecto</option>' + projects.map(function(p) {
+      var sel = (String(p.id) === String(task.proyectoId)) ? ' selected' : '';
+      return '<option value="' + esc(p.id) + '"' + sel + '>' + esc(p.nombre || ('#' + p.id)) + '</option>';
+    }).join('');
+    html = '<select class="tk-pcell-edit" ' + saveAttr + '>' + opts3 + '</select>';
+  }
+
+  if (!html) return;
+  valEl.innerHTML = html;
+  var inp = valEl.querySelector('select, input');
+  if (inp) inp.focus();
+}
+
+function edPanelSaveField(taskId, fieldKey, value) {
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      hideLoader();
+      if (res && res.success) { toast('✅ Guardado', 'success'); reload(); }
+      else { toast('Error: ' + ((res && res.error) || 'no se pudo guardar'), 'error'); reload(); }
+    })
+    .withFailureHandler(function(e) { hideLoader(); toast('Error: ' + e.message, 'error'); reload(); })
+    .updateTaskField(taskId, fieldKey, value);
+}
+
+function edPanelCancelEdit() {
+  // Re-render del tracker para volver a estado read-only sin cambios.
+  setTimeout(function(){ if (D && typeof rEdTracker === 'function') rEdTracker(D); }, 100);
+}
+
+function edPanelEditTitle(el) {
+  if (!el || el.querySelector('input')) return;
+  var taskId = el.dataset.taskId;
+  var current = el.textContent || '';
+  el.innerHTML = '<input type="text" class="tk-title-edit" value="' + esc(current) + '" '
+              + 'onkeydown="if(event.key===\'Enter\'){this.blur();}else if(event.key===\'Escape\'){this.dataset.cancel=\'1\';this.blur();}" '
+              + 'onblur="edPanelSaveTitle(this, \'' + esc(taskId) + '\')">';
+  var inp = el.querySelector('input');
+  if (inp) { inp.focus(); inp.select(); }
+}
+
+function edPanelSaveTitle(input, taskId) {
+  if (input.dataset.cancel === '1') { edPanelCancelEdit(); return; }
+  var newVal = (input.value || '').trim();
+  var task = (D && D.tasks || []).find(function(t){ return t.id == taskId; });
+  if (!newVal || (task && newVal === (task.nombre || ''))) { edPanelCancelEdit(); return; }
+  edPanelSaveField(taskId, 'nombre', newVal);
+}
+
+function edPanelSaveNotes(el) {
+  var taskId = el.dataset.taskId;
+  var newVal = el.value || '';
+  var task = (D && D.tasks || []).find(function(t){ return t.id == taskId; });
+  if (task && newVal === (task.notas || '')) return; // sin cambios
+  edPanelSaveField(taskId, 'notas', newVal);
+}
+
 function _buildEdTimeline(t) {
   // Timeline sintética desde campos disponibles. No tocamos backend en Fase 1.
   var items = [];
@@ -3630,7 +3732,7 @@ function rEdTracker(D) {
          +      '<span class="tk-panel-eyebrow">' + esc(sel.id + (sel.pais ? ' · ' + sel.pais : '')) + '</span>'
          +      '<button class="tk-panel-close" onclick="edClosePanel()" aria-label="Cerrar">×</button>'
          +    '</div>'
-         +    '<h2 class="tk-panel-title">' + esc(sel.nombre || '') + '</h2>'
+         +    '<h2 class="tk-panel-title editable" data-task-id="' + esc(sel.id) + '" ondblclick="edPanelEditTitle(this)" title="Doble-click para editar">' + esc(sel.nombre || '') + '</h2>'
          +    '<div class="cf-band ' + selCfLvl + '">'
          +      '<span>' + esc(selCfMeta.label) + '</span>'
          +      '<span class="cf-band-desc">' + esc(selCfMeta.desc) + '</span>'
@@ -3645,13 +3747,19 @@ function rEdTracker(D) {
          +      '<div class="blk-body">' + stateBody + '</div>'
          +    '</div>'
          +    '<div class="tk-panel-grid">'
-         +      _panelCell('Responsable', sel.resp)
+         +      _panelCellEditable('Responsable', sel.resp, '', sel.id, 'resp')
          +      _panelCell('Líder', sel.lider)
-         +      _panelCell('Deadline', sel.deadline + (sel.eta ? ' · ' + sel.eta : ''),
-                            (typeof sel.etaDays === 'number' && sel.etaDays < 0) ? 'crit' : '')
+         +      _panelCellEditable('Deadline', sel.deadline + (sel.eta ? ' · ' + sel.eta : ''),
+                            (typeof sel.etaDays === 'number' && sel.etaDays < 0) ? 'crit' : '',
+                            sel.id, 'deadline')
          +      _panelCell('SLA', sel.slaTarget)
-         +      _panelCell('Riesgo', sel.riesgo, sel.riesgo === 'Legal alto' ? 'crit' : '')
-         +      _panelCell('Proyecto', pn2)
+         +      _panelCellEditable('Riesgo', sel.riesgo, sel.riesgo === 'Legal alto' ? 'crit' : '',
+                            sel.id, 'riesgo')
+         +      _panelCellEditable('Proyecto', pn2, '', sel.id, 'proyectoId')
+         +    '</div>'
+         +    '<div class="tk-panel-block">'
+         +      '<div class="blk-lbl">— Notas</div>'
+         +      '<textarea class="tk-notas-edit" data-task-id="' + esc(sel.id) + '" placeholder="Sin notas..." onblur="edPanelSaveNotes(this)">' + esc(sel.notas || '') + '</textarea>'
          +    '</div>'
          +    '<div class="tk-panel-block">'
          +      '<div class="blk-lbl">— Historial</div>'

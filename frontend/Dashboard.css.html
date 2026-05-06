@@ -2288,6 +2288,64 @@ body.role-manager #tabResumen { display: none !important; }
 }
 .tk-panel-cell .val { font-size: 14px; color: var(--ink); }
 
+/* ── Edición inline del panel ─────────────────────────────────── */
+.tk-panel-cell.editable .val {
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  transition: border-color .15s;
+  padding-bottom: 1px;
+}
+.tk-panel-cell.editable:hover .val { border-bottom-color: var(--rule-strong); }
+.tk-pcell-edit {
+  width: 100%;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  padding: 4px 6px;
+  box-sizing: border-box;
+}
+.tk-pcell-edit:focus { outline: none; border-color: var(--accent); }
+
+.tk-panel-title.editable { cursor: pointer; }
+.tk-panel-title.editable:hover {
+  border-bottom: 1px dashed var(--rule-strong);
+  margin-bottom: 11px; /* compensar el border-bottom para no shiftear layout */
+}
+.tk-title-edit {
+  width: 100%;
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 1.18;
+  color: var(--ink);
+  background: var(--bg);
+  border: none;
+  border-bottom: 1px solid var(--rule-strong);
+  padding: 0 0 2px 0;
+  letter-spacing: -.3px;
+}
+.tk-title-edit:focus { outline: none; border-bottom-color: var(--accent); }
+
+.tk-notas-edit {
+  width: 100%;
+  min-height: 70px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+.tk-notas-edit:focus { outline: none; border-color: var(--accent); }
+.tk-notas-edit::placeholder { color: var(--dim); font-style: italic; }
+
 .tk-panel-block {
   border: 1px solid var(--rule);
   padding: 16px;
