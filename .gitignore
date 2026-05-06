@@ -12,6 +12,11 @@ Thumbs.db
 
 # Archivos pesados de handoff
 *.zip
+*.xlsx
+
+# Artefactos de iteración del rediseño editorial (no subir)
+pendientes/uploads/
+pendientes/export/
 
 # Claude Code session state (worktrees, plans, transcripts locales)
 .claude/

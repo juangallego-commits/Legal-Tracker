@@ -1478,6 +1478,8 @@ function reload() {
         else if (active.id === 'vEdMisTareas') goEd('mistareas');
         else if (active.id === 'vEdAnalytics') goEd('analytics');
         else if (active.id === 'vEdHistorial') goEd('historial');
+        else if (active.id === 'vEdMiequipo') goEd('miequipo');
+        else if (active.id === 'vEdResumen') goEd('paises');
       }
       hideLoader();
     })
@@ -2687,9 +2689,10 @@ function renderEdSidebar(role, activeViewId) {
       var it = sec.items[j];
       var isActive = it.id === activeViewId;
       var badge = _badgeFor(it.id, navRole);
+      var initial = ((it.label || '?').trim().charAt(0) || '?').toUpperCase();
       html += '<div class="ed-nav-item' + (isActive ? ' active' : '')
            +  '" role="link" tabindex="0"' + (isActive ? ' aria-current="page"' : '')
-           +  ' data-viewid="' + esc(it.id) + '" onclick="goEd(\'' + esc(it.id) + '\')"'
+           +  ' data-viewid="' + esc(it.id) + '" data-initial="' + esc(initial) + '" onclick="goEd(\'' + esc(it.id) + '\')"'
            +  ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();goEd(\'' + esc(it.id) + '\')}">';
       html +=   '<span>' + esc(it.label) + '</span>';
       if (badge != null) html += '<span class="ed-nav-badge">' + esc(String(badge)) + '</span>';
@@ -2730,11 +2733,31 @@ function renderEdHead() {
   var sem = D && D.semana ? ('Sem ' + D.semana) : 'Sem 17';
   var today = (D && D.today) ? _todayHumanStr(D.today) : '23 abr';
   return ''
+    + '<button class="ed-burger" type="button" aria-label="Abrir menú" onclick="edToggleSidebar()">≡</button>'
     + '<div class="ed-head-eye">' + esc(sem + ' · ' + today) + '</div>'
     + '<div class="ed-head-actions">'
-    +   '<div class="ed-search">⌘K  Buscar...</div>'
+    +   '<div class="ed-search" role="button" tabindex="0" onclick="edSearchOpen()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();edSearchOpen();}">⌘K  Buscar...</div>'
     +   '<button class="ed-btn accent" onclick="edCrearOpen()">+ Nueva</button>'
     + '</div>';
+}
+
+// Toggle del sidebar móvil (<=768px). force=true abre, false cierra,
+// undefined alterna. El backdrop se monta lazy la primera vez.
+function edToggleSidebar(force) {
+  var b = document.body;
+  var open = (typeof force === 'boolean') ? force : !b.classList.contains('sidebar-open');
+  if (open) {
+    if (!$('edSideBackdrop')) {
+      var bd = document.createElement('div');
+      bd.id = 'edSideBackdrop';
+      bd.className = 'ed-side-backdrop';
+      bd.onclick = function() { edToggleSidebar(false); };
+      document.body.appendChild(bd);
+    }
+    b.classList.add('sidebar-open');
+  } else {
+    b.classList.remove('sidebar-open');
+  }
 }
 
 function mountEdShell() {
@@ -2745,11 +2768,254 @@ function mountEdShell() {
   var fab = $('fabCreate'); if (fab) fab.style.display = 'none';
 }
 
+// ════════════════════════════════════════════════════════════════
+// BÚSQUEDA GLOBAL (Cmd/Ctrl+K)
+// Modal centrado con input grande + lista de resultados (debounce
+// 150ms). Filtra D.tasks + D.projects por nombre, responsable,
+// líder, proyecto, notas, tipoTrabajo, país. Click en tarea →
+// goEd('tracker') + EDT.selectedId; click en proyecto → goEd
+// ('proyectos'). Esc o click fuera cierra.
+// ════════════════════════════════════════════════════════════════
+var EDS = { mounted: false, query: '' };
+var _edSearchDebounced = null;
+
+function _edSearchEnsureMounted() {
+  if (EDS.mounted) return;
+  var ov = document.createElement('div');
+  ov.className = 'ed-search-overlay';
+  ov.id = 'edSearchOv';
+  ov.onclick = function(e) { if (e.target === ov) edSearchClose(); };
+  ov.innerHTML =
+      '<div class="ed-search-modal" role="dialog" aria-label="Búsqueda global">'
+    +   '<input type="text" class="ed-search-input" id="edSearchInput" placeholder="Buscar tareas, proyectos, responsables..." autocomplete="off" spellcheck="false">'
+    +   '<div class="ed-search-results" id="edSearchResults"></div>'
+    +   '<div class="ed-search-hint">Esc para cerrar · Enter para abrir el primero</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  var input = ov.querySelector('#edSearchInput');
+  if (!_edSearchDebounced) {
+    _edSearchDebounced = debounce(function(q) {
+      EDS.query = q;
+      _edSearchRender();
+    }, 150);
+  }
+  input.oninput = function() { _edSearchDebounced(input.value || ''); };
+  input.onkeydown = function(e) {
+    if (e.key === 'Escape') {
+      // stopPropagation para que el handler global de Escape no
+      // cierre además otros modales que casualmente estén abiertos.
+      e.stopPropagation();
+      edSearchClose();
+    } else if (e.key === 'Enter') {
+      var first = ov.querySelector('.ed-search-result');
+      if (first) first.click();
+    }
+  };
+  EDS.mounted = true;
+}
+
+function edSearchOpen() {
+  _edSearchEnsureMounted();
+  var ov = $('edSearchOv'); if (!ov) return;
+  ov.classList.add('show');
+  var inp = $('edSearchInput');
+  if (inp) {
+    inp.value = EDS.query || '';
+    setTimeout(function(){ inp.focus(); inp.select(); }, 0);
+  }
+  _edSearchRender();
+}
+
+function edSearchClose() {
+  var ov = $('edSearchOv'); if (ov) ov.classList.remove('show');
+}
+
+function _edSearchFilter(query) {
+  var q = (query || '').trim().toLowerCase();
+  if (!q) return [];
+  var tasks = (D && D.tasks) || [];
+  var projects = (D && D.projects) || [];
+  var pMap = {};
+  projects.forEach(function(p){ pMap[p.id] = p.nombre; });
+  var out = [];
+  for (var i = 0; i < tasks.length && out.length < 50; i++) {
+    var t = tasks[i];
+    var pn = (t.proyectoId && pMap[t.proyectoId]) ? pMap[t.proyectoId] : '';
+    var hay = [t.nombre, t.resp, t.notas, t.tipoTrabajo, t.pais, pn].join(' ').toLowerCase();
+    if (hay.indexOf(q) >= 0) out.push({ kind: 'task', item: t, projectName: pn });
+  }
+  for (var j = 0; j < projects.length && out.length < 60; j++) {
+    var p = projects[j];
+    var hay2 = [p.nombre, p.responsable, p.lider, p.notas, p.tipoTrabajo, p.pais].join(' ').toLowerCase();
+    if (hay2.indexOf(q) >= 0) out.push({ kind: 'project', item: p });
+  }
+  return out;
+}
+
+function _edSearchHighlight(text, query) {
+  var safe = esc(text || '');
+  if (!query) return safe;
+  var qSafe = esc(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!qSafe) return safe;
+  return safe.replace(new RegExp(qSafe, 'gi'), function(m) { return '<mark>' + m + '</mark>'; });
+}
+
+function _edSearchRender() {
+  var host = $('edSearchResults'); if (!host) return;
+  var q = (EDS.query || '').trim();
+  if (!q) {
+    host.innerHTML = '<div class="ed-search-empty">Empezá a escribir para buscar...</div>';
+    return;
+  }
+  var results = _edSearchFilter(q);
+  // Cap total a 10, priorizando tareas.
+  var taskShow = results.filter(function(r){ return r.kind === 'task'; }).slice(0, 10);
+  var remaining = Math.max(0, 10 - taskShow.length);
+  var projShow = results.filter(function(r){ return r.kind === 'project'; }).slice(0, remaining);
+
+  if (!taskShow.length && !projShow.length) {
+    host.innerHTML = '<div class="ed-search-empty">Sin resultados para "' + esc(q) + '"</div>';
+    return;
+  }
+
+  var html = '';
+  if (taskShow.length) {
+    html += '<div class="ed-search-section">Tareas</div>';
+    taskShow.forEach(function(r) {
+      var t = r.item;
+      var statusCls = (typeof _statusClass === 'function') ? _statusClass(t.status) : '';
+      html += '<div class="ed-search-result" onclick="edSearchPickTask(\'' + esc(t.id) + '\')">'
+           +    '<span class="ed-search-r-kind">tarea</span>'
+           +    '<span class="ed-search-r-id">' + esc(t.id) + '</span>'
+           +    '<span class="ed-search-r-name">' + _edSearchHighlight(t.nombre || '', q) + '</span>'
+           +    '<span class="ed-search-r-resp">' + _edSearchHighlight(t.resp || '—', q) + '</span>'
+           +    '<span class="ed-pill ' + statusCls + '">' + esc(t.status || '') + '</span>'
+           +    '<span class="ed-search-r-eta">' + esc(t.eta || '') + '</span>'
+           +  '</div>';
+    });
+  }
+  if (projShow.length) {
+    html += '<div class="ed-search-section">Proyectos</div>';
+    projShow.forEach(function(r) {
+      var p = r.item;
+      html += '<div class="ed-search-result" onclick="edSearchPickProject(\'' + esc(p.id) + '\')">'
+           +    '<span class="ed-search-r-kind">proyecto</span>'
+           +    '<span class="ed-search-r-id">#' + esc(p.id) + '</span>'
+           +    '<span class="ed-search-r-name">' + _edSearchHighlight(p.nombre || '', q) + '</span>'
+           +    '<span class="ed-search-r-resp">' + _edSearchHighlight(p.lider || p.responsable || '—', q) + '</span>'
+           +    '<span class="ed-pill">' + esc(p.status || 'Activo') + '</span>'
+           +    '<span class="ed-search-r-eta">' + esc(p.deadline || '') + '</span>'
+           +  '</div>';
+    });
+  }
+  host.innerHTML = html;
+}
+
+function edSearchPickTask(taskId) {
+  if (typeof EDT !== 'undefined') EDT.selectedId = taskId;
+  edSearchClose();
+  if (typeof goEd === 'function') goEd('tracker');
+}
+function edSearchPickProject(projectId) {
+  edSearchClose();
+  if (typeof goEd === 'function') goEd('proyectos');
+}
+
+// Listener global de Cmd/Ctrl+K. Aparte del handler general para
+// que funcione también con foco en otros inputs (atajo universal).
+document.addEventListener('keydown', function(e) {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    edSearchOpen();
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+// NAVEGACIÓN POR TECLADO EN EL TRACKER
+// ↓/↑ navegan filas, Enter abre actualizar (variant 'avanzar'),
+// Escape cierra el panel. Solo activo cuando vEdTracker es la vista
+// activa, no hay foco en input/textarea/select y no hay ningún
+// modal abierto. Capture phase para poder consumir Escape antes que
+// el handler global cuando corresponde (con stopImmediatePropagation).
+// ════════════════════════════════════════════════════════════════
+function _anyModalOpen() {
+  if ($('uaHost')      && $('uaHost').innerHTML)                       return true;
+  if ($('crHost')      && $('crHost').innerHTML)                       return true;
+  if ($('crpHost')     && $('crpHost').innerHTML)                      return true;
+  if ($('ddM')         && $('ddM').style.display === 'block')          return true;
+  if ($('createOv')    && $('createOv').classList.contains('show'))    return true;
+  if ($('editOv')      && $('editOv').classList.contains('show'))      return true;
+  if ($('confOv')      && $('confOv').classList.contains('show'))      return true;
+  if ($('edSearchOv')  && $('edSearchOv').classList.contains('show'))  return true;
+  return false;
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter' && e.key !== 'Escape') return;
+
+  var active = document.querySelector('.view.active');
+  if (!active || active.id !== 'vEdTracker') return;
+
+  var ae = document.activeElement;
+  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return;
+
+  // Capture phase: si hay un modal abierto, dejamos que su handler
+  // (o el global) lo cierre y nosotros no actuamos.
+  if (_anyModalOpen()) return;
+
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    var rows = document.querySelectorAll('#vEdTracker .tk-row[data-task-id]');
+    if (!rows.length) return;
+    e.preventDefault();
+    var ids = Array.prototype.map.call(rows, function(r){ return r.dataset.taskId; });
+    var curIdx = (typeof EDT !== 'undefined' && EDT.selectedId != null)
+      ? ids.indexOf(String(EDT.selectedId)) : -1;
+    var nextIdx;
+    if (e.key === 'ArrowDown') {
+      nextIdx = (curIdx === -1) ? 0 : Math.min(curIdx + 1, ids.length - 1);
+    } else {
+      nextIdx = (curIdx === -1) ? 0 : Math.max(curIdx - 1, 0);
+    }
+    if (nextIdx === curIdx) return;
+    EDT.selectedId = ids[nextIdx];
+    if (D && typeof rEdTracker === 'function') rEdTracker(D);
+    // Scroll en el siguiente tick (rEdTracker reemplazó el DOM).
+    setTimeout(function() {
+      var newRow = document.querySelector('#vEdTracker .tk-row[data-task-id="' + ids[nextIdx] + '"]');
+      if (newRow && newRow.scrollIntoView) newRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, 0);
+    return;
+  }
+
+  if (e.key === 'Enter') {
+    if (typeof EDT !== 'undefined' && EDT.selectedId != null && typeof edUOpen === 'function') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      edUOpen(EDT.selectedId, 'avanzar');
+    }
+    return;
+  }
+
+  if (e.key === 'Escape') {
+    if (typeof EDT !== 'undefined' && EDT.selectedId != null && typeof edClosePanel === 'function') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      edClosePanel();
+    }
+    return;
+  }
+}, true);
+
 function goEd(viewId) {
   document.querySelectorAll('.view').forEach(function(v) { v.classList.remove('active'); });
   document.querySelectorAll('.ed-nav-item').forEach(function(n) {
     n.classList.toggle('active', n.dataset && n.dataset.viewid === viewId);
   });
+  // Cerrar sidebar móvil al navegar (en desktop el body class no
+  // existe, así que es no-op).
+  if (document.body.classList.contains('sidebar-open')) {
+    document.body.classList.remove('sidebar-open');
+  }
   // Limpiar el grid 'with-panel' del tracker cuando navegamos a otra vista.
   // Sino, el contenido de home/agrupadas queda apretado a la derecha
   // porque #edMain mantiene grid 1fr 440px sin la 2da columna llena.
@@ -3277,6 +3543,60 @@ function edSelectTask(id) {
 }
 function edClosePanel() { EDT.selectedId = null; if (D) rEdTracker(D); }
 
+// ─── DOCUMENTOS DEL PANEL (tracker side panel) ──────────────────
+// Reusa los endpoints uploadDocument / attachDocumentLink ya
+// existentes, pero con refresh vía reload() en vez del flujo del
+// modal de edición. Mantiene la lista actualizada después de
+// adjuntar/subir sin cerrar el panel.
+function edTkToggleLinkForm() {
+  var f = $('tkLinkForm'); if (!f) return;
+  var isHidden = f.style.display === 'none' || !f.style.display;
+  f.style.display = isHidden ? 'flex' : 'none';
+  if (isHidden) { var u = $('tkLinkUrl'); if (u) u.focus(); }
+}
+function edTkAttachLink(taskId) {
+  var url  = ($('tkLinkUrl')  && $('tkLinkUrl').value  || '').trim();
+  var name = ($('tkLinkName') && $('tkLinkName').value || '').trim();
+  if (!url) { toast('Pegá un link primero', 'error'); return; }
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      hideLoader();
+      if (res && res.success) { toast('✅ Link vinculado', 'success'); reload(); }
+      else { toast('Error: ' + ((res && res.error) || ''), 'error'); }
+    })
+    .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
+    .attachDocumentLink('task', taskId, { url: url, name: name });
+}
+function edTkUploadFile(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var taskId = input.dataset.taskId;
+  if (file.size > 45 * 1024 * 1024) {
+    toast('Archivo muy grande (máx 45 MB en Apps Script)', 'error');
+    input.value = ''; return;
+  }
+  var reader = new FileReader();
+  reader.onerror = function(){ toast('Error leyendo archivo', 'error'); input.value = ''; };
+  reader.onload = function() {
+    var base64 = String(reader.result).split(',')[1];
+    toast('Subiendo ' + file.name + '...', 'info');
+    showLoader();
+    google.script.run
+      .withSuccessHandler(function(res) {
+        hideLoader(); input.value = '';
+        if (res && res.success) { toast('✅ ' + file.name + ' subido', 'success'); reload(); }
+        else { toast('Error: ' + ((res && res.error) || 'upload falló'), 'error'); }
+      })
+      .withFailureHandler(function(e) {
+        hideLoader(); input.value = '';
+        toast('Error: ' + e.message, 'error');
+      })
+      .uploadDocument('task', taskId, { name: file.name, mimeType: file.type, data: base64 });
+  };
+  reader.readAsDataURL(file);
+}
+
 // ─── REASIGNAR (manager/head) ────────────────────────────────────
 // Mini-modal que reusa el overlay del wizard de crear (cr-overlay/cr-modal)
 // pero con un layout reducido: select de responsables + Cancelar/Confirmar.
@@ -3427,6 +3747,108 @@ function _panelCell(lbl, val, valCls) {
        + '</div>';
 }
 
+// Variante editable: click en el .val abre el editor inline (select/input).
+// fieldKey identifica el campo del backend (resp, deadline, riesgo, proyectoId).
+function _panelCellEditable(lbl, val, valCls, taskId, fieldKey) {
+  var cellId = 'pcell-' + taskId + '-' + fieldKey;
+  var displayVal = (val == null || val === '') ? '—' : val;
+  return '<div class="tk-panel-cell editable" data-pcell-id="' + esc(cellId) + '" title="Click para editar">'
+       +   '<div class="lbl">' + esc(lbl) + '</div>'
+       +   '<div class="val' + (valCls ? ' ' + valCls : '') + '" onclick="edPanelEditCell(\'' + esc(taskId) + '\', \'' + fieldKey + '\')">' + esc(displayVal) + '</div>'
+       + '</div>';
+}
+
+// ─── EDICIÓN INLINE DEL PANEL ───────────────────────────────────
+// Convierte la celda en un editor (select/input). Onchange dispara
+// guardado y reload(). Onblur cancela y re-renderiza con la data
+// actual. Para evitar doble-fire (change + blur), onchange limpia
+// onblur antes de guardar.
+function edPanelEditCell(taskId, fieldKey) {
+  var task = (D && D.tasks || []).find(function(t){ return t.id == taskId; });
+  if (!task) return;
+  var cell = document.querySelector('[data-pcell-id="pcell-' + taskId + '-' + fieldKey + '"]');
+  if (!cell) return;
+  var valEl = cell.querySelector('.val');
+  if (!valEl || valEl.querySelector('select, input')) return; // ya en edición
+
+  var html = '';
+  var saveAttr = 'onchange="this.onblur=null;edPanelSaveField(\'' + esc(taskId) + '\', \'' + fieldKey + '\', this.value)" onblur="edPanelCancelEdit()"';
+
+  if (fieldKey === 'resp') {
+    var members = (typeof getAllMembers === 'function') ? getAllMembers() : [];
+    var opts = '<option value="">—</option>' + members.map(function(m) {
+      var n = (typeof m === 'string') ? m : (m.name || m.label || '');
+      return '<option value="' + esc(n) + '"' + (n === task.resp ? ' selected' : '') + '>' + esc(n) + '</option>';
+    }).join('');
+    html = '<select class="tk-pcell-edit" ' + saveAttr + '>' + opts + '</select>';
+  } else if (fieldKey === 'deadline') {
+    html = '<input type="date" class="tk-pcell-edit" value="' + esc(task.deadlineISO || '') + '" ' + saveAttr + '>';
+  } else if (fieldKey === 'riesgo') {
+    var risks = ['', 'Legal alto', 'Reputacional', 'Operativo'];
+    var opts2 = risks.map(function(r) {
+      var label = r || 'Sin definir';
+      return '<option value="' + esc(r) + '"' + (r === (task.riesgo || '') ? ' selected' : '') + '>' + esc(label) + '</option>';
+    }).join('');
+    html = '<select class="tk-pcell-edit" ' + saveAttr + '>' + opts2 + '</select>';
+  } else if (fieldKey === 'proyectoId') {
+    var projects = (D && D.projectList) || [];
+    var opts3 = '<option value="">Sin proyecto</option>' + projects.map(function(p) {
+      var sel = (String(p.id) === String(task.proyectoId)) ? ' selected' : '';
+      return '<option value="' + esc(p.id) + '"' + sel + '>' + esc(p.nombre || ('#' + p.id)) + '</option>';
+    }).join('');
+    html = '<select class="tk-pcell-edit" ' + saveAttr + '>' + opts3 + '</select>';
+  }
+
+  if (!html) return;
+  valEl.innerHTML = html;
+  var inp = valEl.querySelector('select, input');
+  if (inp) inp.focus();
+}
+
+function edPanelSaveField(taskId, fieldKey, value) {
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      hideLoader();
+      if (res && res.success) { toast('✅ Guardado', 'success'); reload(); }
+      else { toast('Error: ' + ((res && res.error) || 'no se pudo guardar'), 'error'); reload(); }
+    })
+    .withFailureHandler(function(e) { hideLoader(); toast('Error: ' + e.message, 'error'); reload(); })
+    .updateTaskField(taskId, fieldKey, value);
+}
+
+function edPanelCancelEdit() {
+  // Re-render del tracker para volver a estado read-only sin cambios.
+  setTimeout(function(){ if (D && typeof rEdTracker === 'function') rEdTracker(D); }, 100);
+}
+
+function edPanelEditTitle(el) {
+  if (!el || el.querySelector('input')) return;
+  var taskId = el.dataset.taskId;
+  var current = el.textContent || '';
+  el.innerHTML = '<input type="text" class="tk-title-edit" value="' + esc(current) + '" '
+              + 'onkeydown="if(event.key===\'Enter\'){this.blur();}else if(event.key===\'Escape\'){this.dataset.cancel=\'1\';this.blur();}" '
+              + 'onblur="edPanelSaveTitle(this, \'' + esc(taskId) + '\')">';
+  var inp = el.querySelector('input');
+  if (inp) { inp.focus(); inp.select(); }
+}
+
+function edPanelSaveTitle(input, taskId) {
+  if (input.dataset.cancel === '1') { edPanelCancelEdit(); return; }
+  var newVal = (input.value || '').trim();
+  var task = (D && D.tasks || []).find(function(t){ return t.id == taskId; });
+  if (!newVal || (task && newVal === (task.nombre || ''))) { edPanelCancelEdit(); return; }
+  edPanelSaveField(taskId, 'nombre', newVal);
+}
+
+function edPanelSaveNotes(el) {
+  var taskId = el.dataset.taskId;
+  var newVal = el.value || '';
+  var task = (D && D.tasks || []).find(function(t){ return t.id == taskId; });
+  if (task && newVal === (task.notas || '')) return; // sin cambios
+  edPanelSaveField(taskId, 'notas', newVal);
+}
+
 function _buildEdTimeline(t) {
   // Timeline sintética desde campos disponibles. No tocamos backend en Fase 1.
   var items = [];
@@ -3529,7 +3951,7 @@ function rEdTracker(D) {
       var isSel = sel && sel.id == t.id;
       var cfLvl = _confLevel(t);
       var cfMeta = ED_CONF_LEVELS[cfLvl];
-      html += '<tr class="tk-row' + (isSel ? ' selected' : '') + '" onclick="edSelectTask(\'' + esc(t.id) + '\')">'
+      html += '<tr class="tk-row' + (isSel ? ' selected' : '') + '" data-task-id="' + esc(t.id) + '" onclick="edSelectTask(\'' + esc(t.id) + '\')">'
            +    '<td><span class="cf-dot ' + cfLvl + '" title="' + esc(cfMeta.label) + '"></span></td>'
            +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
            +    '<td>'
@@ -3574,7 +3996,7 @@ function rEdTracker(D) {
          +      '<span class="tk-panel-eyebrow">' + esc(sel.id + (sel.pais ? ' · ' + sel.pais : '')) + '</span>'
          +      '<button class="tk-panel-close" onclick="edClosePanel()" aria-label="Cerrar">×</button>'
          +    '</div>'
-         +    '<h2 class="tk-panel-title">' + esc(sel.nombre || '') + '</h2>'
+         +    '<h2 class="tk-panel-title editable" data-task-id="' + esc(sel.id) + '" ondblclick="edPanelEditTitle(this)" title="Doble-click para editar">' + esc(sel.nombre || '') + '</h2>'
          +    '<div class="cf-band ' + selCfLvl + '">'
          +      '<span>' + esc(selCfMeta.label) + '</span>'
          +      '<span class="cf-band-desc">' + esc(selCfMeta.desc) + '</span>'
@@ -3589,17 +4011,46 @@ function rEdTracker(D) {
          +      '<div class="blk-body">' + stateBody + '</div>'
          +    '</div>'
          +    '<div class="tk-panel-grid">'
-         +      _panelCell('Responsable', sel.resp)
+         +      _panelCellEditable('Responsable', sel.resp, '', sel.id, 'resp')
          +      _panelCell('Líder', sel.lider)
-         +      _panelCell('Deadline', sel.deadline + (sel.eta ? ' · ' + sel.eta : ''),
-                            (typeof sel.etaDays === 'number' && sel.etaDays < 0) ? 'crit' : '')
+         +      _panelCellEditable('Deadline', sel.deadline + (sel.eta ? ' · ' + sel.eta : ''),
+                            (typeof sel.etaDays === 'number' && sel.etaDays < 0) ? 'crit' : '',
+                            sel.id, 'deadline')
          +      _panelCell('SLA', sel.slaTarget)
-         +      _panelCell('Riesgo', sel.riesgo, sel.riesgo === 'Legal alto' ? 'crit' : '')
-         +      _panelCell('Proyecto', pn2)
+         +      _panelCellEditable('Riesgo', sel.riesgo, sel.riesgo === 'Legal alto' ? 'crit' : '',
+                            sel.id, 'riesgo')
+         +      _panelCellEditable('Proyecto', pn2, '', sel.id, 'proyectoId')
+         +    '</div>'
+         +    '<div class="tk-panel-block">'
+         +      '<div class="blk-lbl">— Notas</div>'
+         +      '<textarea class="tk-notas-edit" data-task-id="' + esc(sel.id) + '" placeholder="Sin notas..." onblur="edPanelSaveNotes(this)">' + esc(sel.notas || '') + '</textarea>'
          +    '</div>'
          +    '<div class="tk-panel-block">'
          +      '<div class="blk-lbl">— Historial</div>'
          +      '<div class="tk-timeline">' + tlHtml + '</div>'
+         +    '</div>'
+         +    '<div class="tk-panel-block">'
+         +      '<div class="blk-lbl">— Documentos</div>'
+         +      '<div class="tk-docs">' + (function() {
+                  var docs = sel.documentos || [];
+                  if (!docs.length) return '<span class="tk-doc-empty">Sin documentos adjuntos</span>';
+                  return docs.map(function(d) {
+                    var tip = d.uploadedBy ? 'Subido por ' + d.uploadedBy : 'Link externo';
+                    return '<a class="tk-doc-chip" href="' + esc(d.url || '#') + '" target="_blank" rel="noopener" title="' + esc(tip) + '">📄 ' + esc(d.name || 'Documento') + '</a>';
+                  }).join('');
+                })() + '</div>'
+         +      '<div class="tk-docs-actions">'
+         +        '<button class="ed-btn" onclick="edTkToggleLinkForm()">+ Adjuntar link</button>'
+         +        '<label class="ed-btn tk-doc-upload-label">'
+         +          '+ Subir archivo'
+         +          '<input type="file" id="tkDocFileInput" data-task-id="' + esc(sel.id) + '" style="display:none" onchange="edTkUploadFile(this)">'
+         +        '</label>'
+         +      '</div>'
+         +      '<div class="tk-docs-link-form" id="tkLinkForm" style="display:none">'
+         +        '<input type="text" id="tkLinkUrl" placeholder="Pegar link de Drive" class="tk-doc-input">'
+         +        '<input type="text" id="tkLinkName" placeholder="Nombre (opcional)" class="tk-doc-input">'
+         +        '<button class="ed-btn primary" onclick="edTkAttachLink(\'' + esc(sel.id) + '\')">Vincular</button>'
+         +      '</div>'
          +    '</div>'
          +    '<div class="tk-actions">'
          +      '<button class="ed-btn primary" onclick="edUOpen(\'' + esc(sel.id) + '\', \'avanzar\')">Avanzar →</button>'

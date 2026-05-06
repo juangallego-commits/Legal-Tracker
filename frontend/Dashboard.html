@@ -55,7 +55,26 @@
 <!-- ═══ EDITORIAL POR PAÍS / RESUMEN (head only) ═══ -->
 <div class="view" id="vEdResumen"></div>
 
-<!-- ═══ VIEW: TRACKER ═══ -->
+<!--
+  ═══ VISTAS LEGACY · NO BORRAR ═══════════════════════════════════
+  Las vistas que siguen (vTracker, vResumen, vProyectos, vMiequipo,
+  vAnalytics, vHistorial, vMistareas) NO son código muerto: son
+  fallback activo del UI editorial. La función render() en
+  Dashboard.js.html popula sus IDs cada vez que llegan datos, y
+  goEd() cae a go(viewId) cuando una contraparte rEd* todavía no
+  existe (p.ej. goEd('paises') → go('resumen') para HQ).
+  Onclicks inline (fSt, tSort, fPSt) viven dentro de estos bloques.
+
+  Antes de eliminar cualquiera de estos bloques se necesita:
+    1. Implementar todas las contrapartes editoriales (rEd*) que
+       falten para cubrir el rol/dato que la vista legacy maneja.
+    2. Migrar los onclicks inline a handlers editoriales.
+    3. Refactorizar render() para tolerar la ausencia de los IDs.
+  Ver plan/IMPLEMENTATION-PLAN.md para el roadmap.
+  ═════════════════════════════════════════════════════════════════
+-->
+
+<!-- ═══ VIEW: TRACKER (legacy fallback) ═══ -->
 <div class="view" id="vTracker">
   <div class="hero-grid">
     <div class="card anim d2"><div class="card-header"><span class="card-title">Distribución por prioridad</span><span class="card-badge" id="totalB">0</span></div><div class="card-body"><canvas id="cPrio"></canvas></div></div>
@@ -339,7 +358,7 @@
 
 <button class="fab" id="fabCreate" onclick="edCrearOpen()" aria-label="Crear tarea (atajo: N)" title="Crear tarea (N)">+</button>
 
-<div class="footer">⚖ Con amor por el Legal Team · Rappi · Tracker v3.3</div>
+<div class="footer">⚖ Con amor por el Legal Team · Rappi · Tracker v3.4</div>
 </main>
 </div><!-- /.ed-root -->
 </div><!-- /.app -->

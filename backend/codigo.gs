@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════════
 // Legal Team Tracker · Google Apps Script · Web App
-// RappiPlus · Global Legal · v3.2 (Projects)
+// RappiPlus · Global Legal · v3.4 (Editorial Final)
 // ════════════════════════════════════════════════════════════════
 
 const SHEET_ID        = '19eR-pXzVLTSEdCADeBZ8fsd5x4f2t0GowUJiJm2X6ms';
@@ -215,21 +215,98 @@ function _getEditorialDataImpl() {
       member.capacity = 5; // TODO Fase 2: leer de hoja Config
       member.overdue  = memberTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
       member.blocked  = memberTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
-      member.streak   = 0;   // TODO Fase 2: calcular del historial real
-      member.avgAlta  = '—'; // TODO Fase 2
-      member.avgMedia = '—';
-      member.avgBaja  = '—';
+
+      // Historial del miembro con bizDays + fecha de cierre parseada.
+      // creadoRaw viene como ISO; cerrado viene como 'dd/MM/yyyy' (no hay cerradoRaw).
+      var SLA_BY_PRIO = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
+      var memberHist = (data.historial || [])
+        .filter(function(t){ return t.resp === member.name && t.creadoRaw && t.cerrado; })
+        .map(function(t) {
+          var p = t.cerrado.split('/');
+          var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+          return {
+            priority: t.priority,
+            bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate),
+            cerradoDate: cerradoDate
+          };
+        });
+
+      // streak: tareas cerradas a tiempo consecutivamente, de más reciente
+      // a más antigua. "A tiempo" = bizDays <= SLA de su prioridad.
+      var streak = 0;
+      var sortedDesc = memberHist.slice().sort(function(a, b){ return b.cerradoDate - a.cerradoDate; });
+      for (var i = 0; i < sortedDesc.length; i++) {
+        var sla = SLA_BY_PRIO[sortedDesc[i].priority] || 5;
+        if (sortedDesc[i].bizDays <= sla) streak++;
+        else break;
+      }
+      member.streak = streak;
+
+      // avgAlta / avgMedia / avgBaja: promedio de bizDays de cierre por prioridad.
+      // "—" si no hay tareas cerradas de esa prioridad. Entero → "3d", decimal → "1.5d".
+      function avgFor(prio) {
+        var arr = memberHist.filter(function(h){ return h.priority === prio; });
+        if (!arr.length) return '—';
+        var sum = arr.reduce(function(s, h){ return s + h.bizDays; }, 0);
+        var avg = sum / arr.length;
+        return (avg === Math.floor(avg) ? avg.toString() : avg.toFixed(1)) + 'd';
+      }
+      member.avgAlta  = avgFor('Alta');
+      member.avgMedia = avgFor('Media');
+      member.avgBaja  = avgFor('Baja');
     });
   }
 
   // Enriquecer countries (open, overdue, slaPct, trend)
   if (data.countries && data.countries.length) {
+    var SLA_BY_PRIO_C = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
+    var nowMs = new Date().getTime();
+    var THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    var WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
     data.countries.forEach(function(c) {
       var countryTasks = (data.tasks || []).filter(function(t){ return t.pais === c.code; });
       c.open    = countryTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
       c.overdue = countryTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
-      c.slaPct  = 100; // TODO Fase 2: calcular contra historial real
-      c.trend   = [3, 4, 2, 5, 3, 4, 6, 4, 3, 5, 4, 3]; // TODO Fase 2: tareas por semana, últimas 12
+
+      // Historial del país con cerrado parseado (dd/MM/yyyy → Date) y bizDays.
+      var countryHist = (data.historial || [])
+        .filter(function(t){ return t.pais === c.code && t.creadoRaw && t.cerrado; })
+        .map(function(t) {
+          var p = t.cerrado.split('/');
+          var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+          return {
+            priority: t.priority,
+            cerradoMs: cerradoDate.getTime(),
+            bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate)
+          };
+        });
+
+      // slaPct: % de cierres dentro de SLA en los últimos 30 días.
+      // Sin historial reciente → 100 (no penalizar países sin cierres).
+      var recent = countryHist.filter(function(h){ return (nowMs - h.cerradoMs) <= THIRTY_DAYS_MS; });
+      if (recent.length === 0) {
+        c.slaPct = 100;
+      } else {
+        var onTime = 0;
+        recent.forEach(function(h) {
+          var sla = SLA_BY_PRIO_C[h.priority] || 5;
+          if (h.bizDays <= sla) onTime++;
+        });
+        c.slaPct = Math.round((onTime / recent.length) * 100);
+      }
+
+      // trend: 12 buckets semanales, índice 11 = semana actual.
+      // Proxy autorizado: cerradas por semana (throughput) en lugar de
+      // tareas activas en stock. Lectura visual = velocidad de cierre.
+      var trend = [0,0,0,0,0,0,0,0,0,0,0,0];
+      countryHist.forEach(function(h) {
+        var weeksAgo = Math.floor((nowMs - h.cerradoMs) / WEEK_MS);
+        if (weeksAgo >= 0 && weeksAgo < 12) {
+          trend[11 - weeksAgo]++;
+        }
+      });
+      c.trend = trend;
     });
   }
 

@@ -1626,6 +1626,135 @@ body.role-manager #tabResumen { display: none !important; }
   padding-right: 0;
 }
 
+/* ── Hamburguesa + backdrop (sidebar móvil) ────────────────────── */
+.ed-burger {
+  display: none;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink);
+  font-family: inherit;
+  padding: 0;
+}
+.ed-burger:hover { border-color: var(--rule-strong); }
+.ed-burger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.ed-side-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .4);
+  z-index: 99;
+}
+
+/* ── Responsive: tablet (≤1024px) ──────────────────────────────── */
+/* Sidebar colapsa a 56px y se expande on-hover como overlay (sin
+   empujar el main). Tracker panel pasa a overlay en lugar de
+   side-by-side. */
+@media (max-width: 1024px) {
+  .ed-root { grid-template-columns: 56px 1fr; }
+  .ed-side {
+    width: 56px;
+    padding: 28px 6px;
+    position: fixed;
+    left: 0; top: 0; bottom: 0;
+    height: 100vh;
+    z-index: 100;
+    transition: width 200ms ease, padding 200ms ease, box-shadow 200ms ease;
+    overflow: hidden;
+  }
+  .ed-side:hover {
+    width: 218px;
+    padding: 28px 20px;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, .12);
+    overflow-y: auto;
+  }
+  /* Modo colapsado: ocultar texto y mostrar inicial centrada */
+  .ed-side:not(:hover) .ed-nav-item { justify-content: center; padding: 8px 4px; }
+  .ed-side:not(:hover) .ed-nav-item span { display: none; }
+  .ed-side:not(:hover) .ed-nav-item::before {
+    content: attr(data-initial);
+    font-weight: 700;
+    font-size: 14px;
+    width: 100%;
+    text-align: center;
+  }
+  .ed-side:not(:hover) .ed-nav-label { display: none; }
+  .ed-side:not(:hover) .ed-side-brand .ed-brand-sub,
+  .ed-side:not(:hover) .ed-side-brand .ed-role-pill { display: none; }
+  .ed-side:not(:hover) .ed-side-brand { text-align: center; padding-bottom: 12px; margin-bottom: 12px; }
+  .ed-side:not(:hover) .ed-side-brand .ed-brand { font-size: 18px; }
+  .ed-side:not(:hover) .ed-side-foot .ed-foot-meta { display: none; }
+  .ed-side:not(:hover) .ed-side-foot { justify-content: center; }
+
+  /* Tracker panel: overlay en vez de side-by-side. Override del :has() */
+  .view.active:has(> .tk-panel) { display: block; }
+  .view.active:has(> .tk-panel) > *:not(.tk-panel) { grid-column: auto; }
+  .view.active:has(> .tk-panel) > .tk-panel {
+    position: fixed;
+    right: 0; top: 0; bottom: 0;
+    width: min(100%, 480px);
+    z-index: 90;
+    background: var(--paper);
+    box-shadow: -4px 0 24px rgba(0, 0, 0, .16);
+    overflow-y: auto;
+    padding: 24px;
+    grid-column: auto;
+    grid-row: auto;
+  }
+  .ed-main { padding: 32px 28px 60px; }
+}
+
+/* ── Responsive: móvil (≤768px) ────────────────────────────────── */
+/* Sidebar oculto, hamburguesa visible, sidebar entra como drawer
+   con backdrop al activar body.sidebar-open. */
+@media (max-width: 768px) {
+  .ed-root { grid-template-columns: 1fr; }
+  .ed-side {
+    width: 218px;
+    padding: 28px 20px;
+    transform: translateX(-100%);
+    transition: transform 200ms ease;
+    overflow-y: auto;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, .16);
+  }
+  .ed-side:hover { width: 218px; padding: 28px 20px; box-shadow: 4px 0 24px rgba(0, 0, 0, .16); }
+  body.sidebar-open .ed-side { transform: translateX(0); }
+  body.sidebar-open .ed-side-backdrop { display: block; }
+
+  /* En móvil el sidebar siempre muestra labels completos */
+  .ed-side .ed-nav-item { justify-content: flex-start; padding: 6px 8px; }
+  .ed-side .ed-nav-item span { display: inline; }
+  .ed-side .ed-nav-item::before { content: none; }
+  .ed-side .ed-nav-label,
+  .ed-side .ed-side-brand .ed-brand-sub,
+  .ed-side .ed-side-brand .ed-role-pill,
+  .ed-side .ed-side-foot .ed-foot-meta { display: revert; }
+  .ed-side .ed-side-brand { text-align: left; }
+  .ed-side .ed-side-foot { justify-content: flex-start; }
+
+  .ed-burger { display: inline-flex; }
+  .ed-main { padding: 20px 16px 40px; }
+
+  /* Panel del tracker full-width en móvil */
+  .view.active:has(> .tk-panel) > .tk-panel {
+    width: 100%;
+    max-width: 100%;
+    padding: 20px 16px;
+  }
+
+  /* Header: el search visual del header ocupa demasiado en móvil.
+     Dejarlo solo como botón cuadrado con el ícono ⌘. */
+  .ed-head .ed-search { min-width: 0; padding: 6px 8px; }
+}
+
 .ed-head {
   display: flex;
   align-items: center;
@@ -1658,6 +1787,112 @@ body.role-manager #tabResumen { display: none !important; }
   border-radius: 4px;
   background: transparent;
   min-width: 220px;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.ed-head .ed-search:hover { border-color: var(--rule-strong); color: var(--ink); }
+.ed-head .ed-search:focus { outline: none; border-color: var(--accent); color: var(--ink); }
+
+/* ── Búsqueda global (Cmd/Ctrl+K) ──────────────────────────────── */
+.ed-search-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .45);
+  display: none;
+  z-index: 9999;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 16px 16px;
+  box-sizing: border-box;
+}
+.ed-search-overlay.show { display: flex; }
+.ed-search-modal {
+  width: 100%;
+  max-width: 640px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  max-height: 76vh;
+}
+.ed-search-input {
+  width: 100%;
+  padding: 18px 20px;
+  font-family: var(--font);
+  font-size: 18px;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--rule);
+  box-sizing: border-box;
+}
+.ed-search-input:focus { outline: none; border-bottom-color: var(--accent); }
+.ed-search-input::placeholder {
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--dim);
+}
+.ed-search-results {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.ed-search-section {
+  font-family: var(--font);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--dim);
+  padding: 12px 20px 6px;
+  background: var(--paper2);
+}
+.ed-search-result {
+  display: grid;
+  grid-template-columns: 60px 70px 1fr 140px 90px 80px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  font-size: 13px;
+  cursor: pointer;
+  border-top: 1px solid var(--rule);
+}
+.ed-search-result:first-of-type { border-top: none; }
+.ed-search-result:hover { background: var(--paper2); }
+.ed-search-r-kind {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--dim);
+}
+.ed-search-r-id {
+  font-family: var(--mono, monospace);
+  font-size: 11.5px;
+  color: var(--dim);
+}
+.ed-search-r-name { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-search-r-resp { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-search-r-eta { font-size: 11.5px; color: var(--dim); text-align: right; }
+.ed-search-result mark {
+  background: var(--accent-soft, rgba(255, 200, 0, .35));
+  color: inherit;
+  padding: 0 1px;
+}
+.ed-search-empty {
+  padding: 32px 20px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--dim);
+  text-align: center;
+}
+.ed-search-hint {
+  padding: 10px 20px;
+  font-size: 11px;
+  color: var(--dim);
+  border-top: 1px solid var(--rule);
+  text-align: right;
+  background: var(--paper2);
 }
 
 /* ── Sidebar nav ──────────────────────────────────────────────── */
@@ -2288,6 +2523,64 @@ body.role-manager #tabResumen { display: none !important; }
 }
 .tk-panel-cell .val { font-size: 14px; color: var(--ink); }
 
+/* ── Edición inline del panel ─────────────────────────────────── */
+.tk-panel-cell.editable .val {
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  transition: border-color .15s;
+  padding-bottom: 1px;
+}
+.tk-panel-cell.editable:hover .val { border-bottom-color: var(--rule-strong); }
+.tk-pcell-edit {
+  width: 100%;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  padding: 4px 6px;
+  box-sizing: border-box;
+}
+.tk-pcell-edit:focus { outline: none; border-color: var(--accent); }
+
+.tk-panel-title.editable { cursor: pointer; }
+.tk-panel-title.editable:hover {
+  border-bottom: 1px dashed var(--rule-strong);
+  margin-bottom: 11px; /* compensar el border-bottom para no shiftear layout */
+}
+.tk-title-edit {
+  width: 100%;
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 1.18;
+  color: var(--ink);
+  background: var(--bg);
+  border: none;
+  border-bottom: 1px solid var(--rule-strong);
+  padding: 0 0 2px 0;
+  letter-spacing: -.3px;
+}
+.tk-title-edit:focus { outline: none; border-bottom-color: var(--accent); }
+
+.tk-notas-edit {
+  width: 100%;
+  min-height: 70px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+.tk-notas-edit:focus { outline: none; border-color: var(--accent); }
+.tk-notas-edit::placeholder { color: var(--dim); font-style: italic; }
+
 .tk-panel-block {
   border: 1px solid var(--rule);
   padding: 16px;
@@ -2345,6 +2638,61 @@ body.role-manager #tabResumen { display: none !important; }
   gap: 8px;
 }
 .tk-actions .ed-btn { justify-content: center; padding: 9px 14px; }
+
+/* ── Documentos del panel del tracker ──────────────────────────── */
+.tk-docs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.tk-doc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--bg-soft, var(--accent-soft));
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  text-decoration: none;
+  line-height: 1.3;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tk-doc-chip:hover { border-color: var(--rule-strong); background: var(--accent-soft); }
+.tk-doc-empty { font-size: 12.5px; color: var(--dim); font-style: italic; }
+.tk-docs-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.tk-docs-actions .ed-btn { font-size: 12px; padding: 6px 10px; }
+.tk-doc-upload-label { cursor: pointer; }
+.tk-docs-link-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--accent-soft);
+  border-radius: 4px;
+  margin-top: 4px;
+}
+.tk-doc-input {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: inherit;
+}
+.tk-doc-input:focus { outline: none; border-color: var(--accent); }
+.tk-docs-link-form .ed-btn { align-self: flex-end; font-size: 12px; padding: 6px 12px; }
 
 /* Chip de filtro por país (set desde HQ home / resumen) */
 .tk-country-filter {

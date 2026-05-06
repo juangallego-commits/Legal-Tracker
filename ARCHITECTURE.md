@@ -6,7 +6,7 @@
 
 ## 1. Qué es
 
-Web app interna del equipo Global Legal de Rappi+ para hacer seguimiento de tareas y proyectos legales por país, líder, prioridad y estado. **Pre-producción**: piloto Colombia previsto 4/5/2026.
+Web app interna del equipo Global Legal de Rappi+ para hacer seguimiento de tareas y proyectos legales por país, líder, prioridad y estado. **Producción · Piloto Colombia (lanzado 4/5/2026)**. Versión actual: `v3.4 (Editorial Final)`.
 
 ---
 
@@ -31,13 +31,13 @@ Web app interna del equipo Global Legal de Rappi+ para hacer seguimiento de tare
 ```
 /
 ├── backend/            # Apps Script (.gs)
-│   ├── codigo.gs           # 1633 LOC — engine principal (auth, CRUD, cache, render)
+│   ├── codigo.gs           # 1710 LOC — engine principal (auth, CRUD, cache, render, stats)
 │   ├── SlackModal.gs       # 928 LOC  — integración Slack
 │   └── tests.gs            # 221 LOC  — smoke tests
 ├── frontend/           # Templates HtmlService
-│   ├── Dashboard.html      # 366 LOC  — shell
-│   ├── Dashboard.css.html  # 3070 LOC — estilos (tokens, dark mode)
-│   ├── Dashboard.js.html   # 5967 LOC — render imperativo, eventos, modales
+│   ├── Dashboard.html      # 366 LOC  — shell + vistas legacy (fallback)
+│   ├── Dashboard.css.html  # 3418 LOC — estilos (tokens, dark mode, responsive)
+│   ├── Dashboard.js.html   # 6418 LOC — render imperativo, eventos, modales, búsqueda, edición inline
 │   └── StandaloneDemo.html # 179 LOC  — demo standalone
 ├── plan/               # Docs vivas
 │   ├── PRD.md
@@ -46,10 +46,12 @@ Web app interna del equipo Global Legal de Rappi+ para hacer seguimiento de tare
 │   └── analysis/
 │       ├── CURRENT-STATE-AUDIT.md
 │       └── PROPOSAL-MAPPING.md
-├── pendientes/         # ⚠️ 3.7 MB de drafts JSX/HTML (rediseño editorial — no producción)
+├── pendientes/         # Drafts del rediseño editorial (source de portación)
+├── ARCHITECTURE.md     # Este archivo
 ├── .github/workflows/deploy-appsscript.yml
 ├── appsscript.json
 ├── .clasp.json.example
+├── .gitignore
 └── README.md
 ```
 
@@ -58,21 +60,25 @@ Web app interna del equipo Global Legal de Rappi+ para hacer seguimiento de tare
 ## 4. Backend — funciones clave (`backend/codigo.gs`)
 
 ```
-doGet(e)                    // Web app entry; auth + render Dashboard
+doGet(e)                    // Web app entry; auth + render Dashboard; ?page=demo expone standalone
 getTrackerData()            // Endpoint lectura único; snapshot JSON; cache 30s
-getEditorialData()          // Extiende getTrackerData con campos derivados (rediseño)
-addTask() / updateTaskFields() / blockTaskById() / closeTaskById()
+getEditorialData()          // Extiende getTrackerData con campos derivados:
+                            //   tasks/historial: eta, etaDays, accionable, blockedReason, slaTarget
+                            //   team: load, capacity, overdue, blocked, streak, avgAlta/Media/Baja
+                            //   countries: open, overdue, slaPct, trend (12 semanas)
+addTask() / updateTaskField() / updateTaskFields() / blockTaskById() / closeTaskById()
 addProject() / updateProjectFields()
 uploadDocument() / attachDocumentLink() / removeDocument()
 resolveVisitor()            // Auth contra hoja Equipos
 determineRole()             // head | manager | specialist
 readEquipos() / readConfig()
 invalidateCache()           // Limpia snapshot tras writes
+_safeMutation()             // Wrapper que invalida cache post-write
 ```
 
-**Shape de `getTrackerData()`**: `{ tasks, historial, projects, kpi, sla, teamGrid, countries, config, _role, _user }`.
+**Shape de `getTrackerData()`**: `{ tasks, historial, projects, projectList, kpi, sla, teamGrid, countries, config, semana, today, _role, _user }`.
 
-**Cache**: TTL 30s. Invalidación manual tras cada write — riesgo si un dev olvida llamarla.
+**Cache**: TTL 30s. Invalidado vía `_safeMutation()` automáticamente; los entry-points wrappeados son `getEditorialData`, `addTask`, `updateTaskFields`, `closeTaskById`, `blockTaskById`. Otros (`updateTaskField`, `addProject`, `uploadDocument`) llaman `invalidateCache()` manualmente.
 
 ---
 
@@ -88,16 +94,25 @@ invalidateCache()           // Limpia snapshot tras writes
 
 ---
 
-## 6. Frontend — vistas principales (`Dashboard.js.html`)
+## 6. Frontend — vistas y features (`Dashboard.js.html`)
 
-- `rTrackerView()` — tabla tareas + filtros
-- `rKPIView()` — dashboard ejecutivo (head/manager)
-- `rProjectsView()` — listado proyectos
-- `rModalCreate()` — crear tarea (wizard)
-- `rModalBlockTask()` — bloquear con razón
-- `sendToSlack()` — disparar notificación
+**Vistas editoriales** (rEd*):
+- `rEdHome()` — landing por rol (specialist/manager/HQ)
+- `rEdTracker()` — tabla de tareas + side panel editable
+- `rEdAgrupadas()` — tareas por urgencia (overdue/today/week/later)
+- `rEdProyectosIndex()` — listado de proyectos
+- `rEdMisTareas()`, `rEdMiequipo()`, `rEdAnalytics()`, `rEdHistorial()`, `rEdResumen()`
 
-Estado global en variables JS, render con `innerHTML`. **No hay framework**.
+**Features cross-cutting**:
+- **Búsqueda global ⌘K** — modal centrado con debounce 150ms; filtra `D.tasks` + `D.projects` por nombre, responsable, líder, notas, tipoTrabajo, país; highlight con `<mark>`; click en tarea → tracker + select; click en proyecto → vista proyectos.
+- **Side panel del tracker editable inline** — click en celda (Responsable, Deadline, Riesgo, Proyecto) abre select/input; doble-click en título; textarea para notas con blur-to-save. Cada cambio dispara `updateTaskField` + `reload()`.
+- **Documentos en panel del tracker** — chips clicables para docs adjuntos; "Adjuntar link" (form inline URL+nombre) y "Subir archivo" (input file → base64 → `uploadDocument`); on-success refresca con `reload()`.
+- **Navegación por teclado en tracker** — ↓/↑ mueven selección con scroll automático; Enter abre `edUOpen` con variant 'avanzar'; Esc cierra el panel. Listener en capture phase con `_anyModalOpen()` check.
+- **Responsive** — sidebar colapsa a 56px en ≤1024px (hover-expand overlay); en ≤768px se oculta y aparece hamburguesa con drawer + backdrop; tracker panel pasa a overlay full-height en ≤1024px.
+
+**Estado global**: variables JS (`D`, `EDT`, `EDS`, `USER`, `F`); render con `innerHTML`. **No hay framework.**
+
+**Vistas legacy (fallback activo, no muerto)**: `vTracker`, `vResumen`, `vProyectos`, `vMiequipo`, `vAnalytics`, `vHistorial`, `vMistareas`. Pobladas por `render()` legacy en cada llegada de datos. `goEd(viewId)` cae a `go(viewId)` cuando una contraparte editorial todavía no existe (p.ej. `goEd('paises')` → `go('resumen')` para HQ). Onclicks inline (`fSt`, `tSort`, `fPSt`) viven dentro de estos bloques. **No borrar sin antes implementar todas las contrapartes editoriales.**
 
 ---
 
@@ -110,6 +125,8 @@ Estado global en variables JS, render con `innerHTML`. **No hay framework**.
 | `specialist` | Ve sus tareas asignadas |
 
 Resolución en `resolveVisitor()` → `determineRole()` consultando hoja `Equipos` (first-wins en allowlist tras fix `a038820`).
+
+Backend valida en cada write: specialist no puede reasignar `resp` a otros, manager no puede mover tareas a otro país, solo manager/head pueden cambiar `confidencialidad`.
 
 ---
 
@@ -131,44 +148,48 @@ Pasos: checkout → Node 20 → `npm i -g @google/clasp` → escribe `~/.clasprc
 
 ---
 
-## 10. Deuda técnica detectada
+## 10. Deuda técnica
 
-| # | Ítem | Impacto | Acción sugerida |
-|---|------|---------|-----------------|
-| 1 | 2 archivos `.xlsx` en raíz (`legal_tracker_config (2).xlsx`, `Legal_Team_Tracker_v2 (5).xlsx`) | Bajo | Mover a Drive, borrar del repo |
-| 2 | `pendientes/` = 3.7 MB de JSX/HTML de diseño | Medio (ruido, infla repo) | Mover a rama `design/*` o carpeta fuera del repo |
-| 3 | `pendientes/uploads/` con artefactos de iteración (CSS/JS versionados, screenshots pegados) | Medio | Limpiar |
-| 4 | Cache invalidation manual — depende de que el dev recuerde `invalidateCache()` post-write | Alto (riesgo prod) | Wrapper único para writes que invalide automáticamente |
-| 5 | Mezcla `snake_case` / `camelCase` en `codigo.gs` | Bajo | Estandarizar (post-piloto) |
-| 6 | `_funcionPrivada` por convención débil (no hay módulos) | Bajo | Aceptable para Apps Script |
-| 7 | TODO en `codigo.gs` sobre X-Frame-Options para embed Notion/Confluence | Bajo | Diferir |
-| 8 | `Dashboard.js.html` = 5967 LOC en un solo archivo | Medio | Aceptable mientras no haya bundler; documentar secciones |
+| # | Ítem | Estado |
+|---|------|--------|
+| 1 | `.xlsx` en raíz | ✅ Resuelto (borrados, en `.gitignore`) |
+| 2 | `pendientes/uploads/` y `pendientes/export/` con artefactos de iteración | ✅ Resuelto (borrados, en `.gitignore`) |
+| 3 | Cache invalidation manual | 🟡 Parcial: `_safeMutation()` cubre 5 entry-points; resto sigue manual |
+| 4 | `pendientes/` con drafts JSX/HTML del rediseño | 🟡 Mantenido (source de portación + demo standalone planeado) |
+| 5 | Mezcla `snake_case` / `camelCase` en `codigo.gs` | ⏸ Diferido (post-producción) |
+| 6 | `_funcionPrivada` por convención débil | ⏸ Aceptable para Apps Script |
+| 7 | TODO X-Frame-Options para embed Notion/Confluence | ⏸ Diferido |
+| 8 | `Dashboard.js.html` = 6418 LOC en un solo archivo | 🟡 Aceptable sin bundler; secciones documentadas con MARKER comments |
+| 9 | Vistas legacy duplicadas (vTracker, vResumen, etc.) que sirven de fallback al editorial | 🟡 Documentado en HTML; eliminación requiere implementar todas las contrapartes `rEd*` |
+| 10 | `streak`, `avgAlta/Media/Baja`, `slaPct`, `trend` antes hardcodeados | ✅ Resuelto (calculados del historial real) |
 
 ---
 
 ## 11. Estado de git
 
 - Rama actual: `claude/audit-and-roadmap-fdNpp`
-- Working tree: clean
-- Últimos 5 commits relevantes:
-  - `a038820` fix(allowlist,docs): first-wins en buildEmailAllowlist + safeMutation
-  - `1e41444` fix(cache): mover `invalidateCache()` post-write
-  - `0f5ce7a` fix: dedup Slack events + matching robusto en specialist auth
-  - `3d10930` fix(slack,equipos): preparar piloto CO con fixes y smoke tests
-  - `40046cc` feat(tracker): filtro por país desde HQ + acción Reasignar
-
-**Dirección actual**: estabilización pre-piloto Colombia + rediseño editorial en paralelo.
+- Working tree: limpio (al cierre de cada commit)
+- Hitos recientes en esta rama:
+  - `c97f66b` feat(responsive): sidebar colapsable y panel overlay
+  - `fb624c9` feat(tracker): navegación por teclado (↓/↑/Enter/Esc)
+  - `719e9d4` feat(search): búsqueda global Cmd/Ctrl+K
+  - `4a6bc4e` feat(tracker-panel): edición inline de campos y notas
+  - `78fa946` feat(tracker-panel): documentos en side panel
+  - `5666578` feat(countries): slaPct y trend reales del historial
+  - `b167c32` feat(team): streak y avgAlta/Media/Baja del historial real
+  - `aceb80c` fix(reload): re-render vEdMiequipo y vEdResumen
+  - `fc9c621` chore: cleanup `.xlsx` y artefactos de iteración
 
 ---
 
-## 12. Lo que falta para versión final (gaps conocidos)
+## 12. Lo que falta (gaps conocidos)
 
-1. **Cleanup repo**: borrar `.xlsx`, mover/eliminar `pendientes/`.
-2. **Refactor cache**: wrapper de writes que invalide automáticamente.
-3. **Integración rediseño editorial**: los drafts en `pendientes/` deben portarse a `Dashboard.*.html` (ver `plan/IMPLEMENTATION-PLAN.md` — 5 agentes paralelos).
-4. **Smoke tests**: ampliar `tests.gs` para cubrir los 3 roles y el path Slack.
-5. **Runbook piloto**: validar `plan/PILOT-RUNBOOK.md` antes del 4/5/2026.
-6. **Documentación deploy**: secrets GitHub + permisos Drive del usuario que ejecuta `clasp`.
+1. **Refactor cache completo**: extender `_safeMutation()` a `updateTaskField`, `addProject`, `uploadDocument`, etc.
+2. **Implementar contrapartes editoriales faltantes** (`rEdResumen`, etc.) para poder retirar las vistas legacy.
+3. **Smoke tests**: ampliar `tests.gs` para cubrir los 3 roles y el path Slack.
+4. **Demo standalone** (`?page=demo`): el endpoint ya está en `doGet`; verificar que el HTML sirve bien.
+5. **Documentación deploy**: secrets GitHub + permisos Drive del usuario que ejecuta `clasp`.
+6. **Touch UX en breakpoint 1024px**: hover-expand del sidebar no funciona bien en tablets; considerar tap-to-expand.
 
 ---
 
@@ -180,7 +201,7 @@ Cuando subas este archivo a Claude.ai, incluye también:
 - `plan/IMPLEMENTATION-PLAN.md`
 - `backend/codigo.gs` (si cabe) o las primeras 200 líneas
 
-Y formula peticiones atómicas. Ejemplos:
-- *"Genera el wrapper `safeMutation()` que envuelve todo write y llama `invalidateCache()` al final. Aplícalo a `addTask`, `updateTaskFields`, `blockTaskById`, `closeTaskById`."*
-- *"Diseña la migración del componente `ed-tracker.jsx` (en `pendientes/`) a `Dashboard.js.html`, manteniendo la API actual de `getTrackerData()`."*
+Peticiones atómicas funcionan mejor. Ejemplos:
+- *"Extendé `_safeMutation()` para wrappear `updateTaskField`, `addProject`, `uploadDocument` y `attachDocumentLink`."*
+- *"Implementá `rEdResumen()` en `Dashboard.js.html` cubriendo los IDs que `rResumen()` legacy popula (rxActivas, rxVencidas, rxOnTime, rxProyectos, rxCountriesBody, rxRiskList, rxTrend)."*
 - *"Amplía `tests.gs` con un smoke test por rol (head, manager, specialist) que valide visibilidad de tareas según país."*
