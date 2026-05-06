@@ -3279,6 +3279,60 @@ function edSelectTask(id) {
 }
 function edClosePanel() { EDT.selectedId = null; if (D) rEdTracker(D); }
 
+// ─── DOCUMENTOS DEL PANEL (tracker side panel) ──────────────────
+// Reusa los endpoints uploadDocument / attachDocumentLink ya
+// existentes, pero con refresh vía reload() en vez del flujo del
+// modal de edición. Mantiene la lista actualizada después de
+// adjuntar/subir sin cerrar el panel.
+function edTkToggleLinkForm() {
+  var f = $('tkLinkForm'); if (!f) return;
+  var isHidden = f.style.display === 'none' || !f.style.display;
+  f.style.display = isHidden ? 'flex' : 'none';
+  if (isHidden) { var u = $('tkLinkUrl'); if (u) u.focus(); }
+}
+function edTkAttachLink(taskId) {
+  var url  = ($('tkLinkUrl')  && $('tkLinkUrl').value  || '').trim();
+  var name = ($('tkLinkName') && $('tkLinkName').value || '').trim();
+  if (!url) { toast('Pegá un link primero', 'error'); return; }
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      hideLoader();
+      if (res && res.success) { toast('✅ Link vinculado', 'success'); reload(); }
+      else { toast('Error: ' + ((res && res.error) || ''), 'error'); }
+    })
+    .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
+    .attachDocumentLink('task', taskId, { url: url, name: name });
+}
+function edTkUploadFile(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var taskId = input.dataset.taskId;
+  if (file.size > 45 * 1024 * 1024) {
+    toast('Archivo muy grande (máx 45 MB en Apps Script)', 'error');
+    input.value = ''; return;
+  }
+  var reader = new FileReader();
+  reader.onerror = function(){ toast('Error leyendo archivo', 'error'); input.value = ''; };
+  reader.onload = function() {
+    var base64 = String(reader.result).split(',')[1];
+    toast('Subiendo ' + file.name + '...', 'info');
+    showLoader();
+    google.script.run
+      .withSuccessHandler(function(res) {
+        hideLoader(); input.value = '';
+        if (res && res.success) { toast('✅ ' + file.name + ' subido', 'success'); reload(); }
+        else { toast('Error: ' + ((res && res.error) || 'upload falló'), 'error'); }
+      })
+      .withFailureHandler(function(e) {
+        hideLoader(); input.value = '';
+        toast('Error: ' + e.message, 'error');
+      })
+      .uploadDocument('task', taskId, { name: file.name, mimeType: file.type, data: base64 });
+  };
+  reader.readAsDataURL(file);
+}
+
 // ─── REASIGNAR (manager/head) ────────────────────────────────────
 // Mini-modal que reusa el overlay del wizard de crear (cr-overlay/cr-modal)
 // pero con un layout reducido: select de responsables + Cancelar/Confirmar.
@@ -3602,6 +3656,29 @@ function rEdTracker(D) {
          +    '<div class="tk-panel-block">'
          +      '<div class="blk-lbl">— Historial</div>'
          +      '<div class="tk-timeline">' + tlHtml + '</div>'
+         +    '</div>'
+         +    '<div class="tk-panel-block">'
+         +      '<div class="blk-lbl">— Documentos</div>'
+         +      '<div class="tk-docs">' + (function() {
+                  var docs = sel.documentos || [];
+                  if (!docs.length) return '<span class="tk-doc-empty">Sin documentos adjuntos</span>';
+                  return docs.map(function(d) {
+                    var tip = d.uploadedBy ? 'Subido por ' + d.uploadedBy : 'Link externo';
+                    return '<a class="tk-doc-chip" href="' + esc(d.url || '#') + '" target="_blank" rel="noopener" title="' + esc(tip) + '">📄 ' + esc(d.name || 'Documento') + '</a>';
+                  }).join('');
+                })() + '</div>'
+         +      '<div class="tk-docs-actions">'
+         +        '<button class="ed-btn" onclick="edTkToggleLinkForm()">+ Adjuntar link</button>'
+         +        '<label class="ed-btn tk-doc-upload-label">'
+         +          '+ Subir archivo'
+         +          '<input type="file" id="tkDocFileInput" data-task-id="' + esc(sel.id) + '" style="display:none" onchange="edTkUploadFile(this)">'
+         +        '</label>'
+         +      '</div>'
+         +      '<div class="tk-docs-link-form" id="tkLinkForm" style="display:none">'
+         +        '<input type="text" id="tkLinkUrl" placeholder="Pegar link de Drive" class="tk-doc-input">'
+         +        '<input type="text" id="tkLinkName" placeholder="Nombre (opcional)" class="tk-doc-input">'
+         +        '<button class="ed-btn primary" onclick="edTkAttachLink(\'' + esc(sel.id) + '\')">Vincular</button>'
+         +      '</div>'
          +    '</div>'
          +    '<div class="tk-actions">'
          +      '<button class="ed-btn primary" onclick="edUOpen(\'' + esc(sel.id) + '\', \'avanzar\')">Avanzar →</button>'
