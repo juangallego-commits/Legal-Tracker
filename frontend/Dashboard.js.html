@@ -3477,7 +3477,7 @@ function rEdHomeManager(D) {
   teamMine.forEach(function(m){ totalLoad += (m.load || 0); totalCap += (m.capacity || 0); });
   var loadPct = totalCap ? Math.round((totalLoad / totalCap) * 100) : 0;
   // Narrativa LOCAL (ver nota en rEdHomeSpecialist).
-  var narrative = 'Tu equipo tiene ' + active.length + ' tarea' + (active.length === 1 ? '' : 's') + ' activa' + (active.length === 1 ? '' : 's') + '.';
+  var narrative = 'Your team has ' + active.length + ' active task' + (active.length === 1 ? '' : 's') + '.';
   // Top atención: bloqueadas y vencidas, top 4
   var att = active.slice().sort(function(a, b) {
     var aBlk = a.status === 'Bloqueado' ? -1 : 0;
@@ -3489,39 +3489,44 @@ function rEdHomeManager(D) {
   }).slice(0, 4);
 
   var html = ''
-    + '<div class="ed-eye">' + esc('Hoy · Equipo ' + (userCode || '')) + '</div>'
-    + '<h1 class="ed-h1">Tu equipo cargó <em>' + altaActive + ' tareas</em><br>de alta prioridad esta semana.</h1>'
+    + '<div class="ed-eye">' + esc('Today · Team ' + (userCode || '')) + '</div>'
+    + '<h1 class="ed-h1">Your team is carrying <em>' + altaActive + ' high-priority</em><br>tasks this week.</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
-    // QUOTE rotativa (una frase distinta por día)
-    + (function(){ var q = _edTodayQuote(); return '<div class="esp-quote">'
-    +   '<div class="esp-quote-text">"' + esc(q.text) + '"</div>'
-    +   '<div class="esp-quote-who">— ' + esc(q.who) + '</div>'
-    + '</div>'; })()
+    // Banner de urgencia (reemplaza el quote rotativo) — solo si hay
+    // algo accionable. Sino, no se renderiza nada.
+    + (function(){
+        var urg = overdue + dueToday;
+        if (!urg) return '';
+        return '<div class="esp-urg-banner">'
+             +   '<span class="esp-urg-text">Your team has <b>' + urg + ' task' + (urg === 1 ? '' : 's') + '</b> needing attention today.</span>'
+             +   '<button class="esp-urg-cta" onclick="goEd(\'tracker\')">Open team tracker →</button>'
+             + '</div>';
+      })()
     + '<div class="mgr-hero">'
-    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Vencidas</div>'
+    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Overdue</div>'
     +     '<div class="mgr-stat-num crit">' + (overdue ? String(overdue) : "—") + '</div>'
-    +     '<div class="mgr-stat-ctx">' + (overdue ? 'requieren atención' : 'al día') + '</div></div>'
-    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Vencen hoy</div>'
+    +     '<div class="mgr-stat-ctx">' + (overdue ? 'need attention' : 'all clear') + '</div></div>'
+    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Due today</div>'
     +     '<div class="mgr-stat-num warn">' + (dueToday ? String(dueToday) : "—") + '</div>'
-    +     '<div class="mgr-stat-ctx">' + (dueToday ? 'cerrar hoy' : 'día limpio') + '</div></div>'
-    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Carga del equipo</div>'
+    +     '<div class="mgr-stat-ctx">' + (dueToday ? 'close today' : 'clean day') + '</div></div>'
+    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">Team load</div>'
     +     '<div class="mgr-stat-num">' + (totalCap ? loadPct + '%' : '—') + '</div>'
-    +     '<div class="mgr-stat-ctx">' + totalLoad + '/' + totalCap + ' capacidad</div></div>'
-    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">SLA cumplido</div>'
+    +     '<div class="mgr-stat-ctx">' + totalLoad + '/' + totalCap + ' capacity</div></div>'
+    +   '<div class="mgr-stat"><div class="mgr-stat-lbl">SLA on time</div>'
     +     '<div class="mgr-stat-num good">—</div>'
-    +     '<div class="mgr-stat-ctx">próximamente</div></div>'
+    +     '<div class="mgr-stat-ctx">coming soon</div></div>'
     + '</div>';
 
-  // ATENCIÓN
+  // ATTENTION
   html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Pide tu atención, ahora</div>';
+       +    '<div class="ed-h2">— Needs your attention</div>';
   if (att.length === 0) {
-    html += '<div class="ed-lede">El equipo está al día. Nada urgente.</div>';
+    html += '<div class="ed-lede">Your team is all clear. Nothing urgent.</div>';
   } else {
     for (var i = 0; i < att.length; i++) {
       var t = att[i];
       var tone = _etaToneClass(t.etaDays, t.status);
-      var why = t.blockedReason ? ('<span class="crit">Bloqueada: ' + esc(t.blockedReason) + '.</span> ' + esc(t.accionable || ''))
+      var why = t.blockedReason ? ('<span class="crit">Blocked: ' + esc(t.blockedReason) + '.</span> ' + esc(t.accionable || ''))
                                 : esc(t.accionable || '');
       html += '<div class="mgr-att-row">'
            +    '<div class="mgr-att-rank ' + tone + '">' + String(i+1).padStart(2,'0') + '</div>'
@@ -3530,20 +3535,20 @@ function rEdHomeManager(D) {
            +      '<div class="mgr-att-name">' + esc(t.nombre || '') + ' — ' + esc(t.eta || '') + '</div>'
            +      '<div class="mgr-att-why">' + why + '</div>'
            +    '</div>'
-           +    '<button class="ed-btn primary" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">Ver detalle</button>'
+           +    '<button class="ed-btn primary" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">View detail</button>'
            + '</div>';
     }
   }
   html += '</section>';
 
-  // EQUIPO
+  // TEAM
   html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Tu equipo de un vistazo</div>';
+       +    '<div class="ed-h2">— Your team at a glance</div>';
   if (teamMine.length === 0) {
-    html += '<div class="ed-lede">No hay miembros visibles para tu país.</div>';
+    html += '<div class="ed-lede">No team members visible for your country.</div>';
   } else {
     html += '<div class="mgr-team-row" style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;font-weight:700">'
-         +    '<span></span><span>Persona</span><span>Carga</span><span>Vencidas</span><span>Bloqueadas</span><span>SLA mes</span>'
+         +    '<span></span><span>Person</span><span>Load</span><span>Overdue</span><span>On hold</span><span>SLA month</span>'
          + '</div>';
     for (var k = 0; k < teamMine.length; k++) {
       var m = teamMine[k];
@@ -3582,40 +3587,43 @@ function rEdHomeHQ(D) {
   }
   var atRisk = countries.filter(function(c){ return (c.overdue || 0) > 3 || (c.slaPct || 100) < 85; }).length;
   // Narrativa LOCAL (ver nota en rEdHomeSpecialist).
-  var narrative = 'LATAM tiene ' + totalOpen + ' tarea' + (totalOpen === 1 ? '' : 's') + ' activa' + (totalOpen === 1 ? '' : 's') + ' en ' + countries.length + ' país' + (countries.length === 1 ? '' : 'es') + '.';
+  var narrative = 'LATAM has ' + totalOpen + ' active task' + (totalOpen === 1 ? '' : 's') + ' across ' + countries.length + ' countr' + (countries.length === 1 ? 'y' : 'ies') + '.';
 
   var html = ''
-    + '<div class="ed-eye">' + esc('Visión global · ' + countries.length + ' países') + '</div>'
-    + '<h1 class="ed-h1">Operación legal global,<br><em>vista de un día</em>.</h1>'
+    + '<div class="ed-eye">' + esc('Global · ' + countries.length + ' countries') + '</div>'
+    + '<h1 class="ed-h1">Global legal operations,<br><em>at a glance</em>.</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
-    // QUOTE rotativa (una frase distinta por día)
-    + (function(){ var q = _edTodayQuote(); return '<div class="esp-quote">'
-    +   '<div class="esp-quote-text">"' + esc(q.text) + '"</div>'
-    +   '<div class="esp-quote-who">— ' + esc(q.who) + '</div>'
-    + '</div>'; })()
+    // Banner de urgencia: si hay países en riesgo, decirlo claramente.
+    + (function(){
+        if (!atRisk) return '';
+        return '<div class="esp-urg-banner">'
+             +   '<span class="esp-urg-text"><b>' + atRisk + '</b> countr' + (atRisk === 1 ? 'y is' : 'ies are') + ' showing risk indicators.</span>'
+             +   '<button class="esp-urg-cta" onclick="goEd(\'paises\')">Open by country →</button>'
+             + '</div>';
+      })()
     + '<div class="hq-hero">'
     +   '<div class="hq-stat"><div class="hq-stat-lbl">Total LATAM</div>'
-    +     '<div class="hq-stat-num">' + totalOpen + '</div>'
-    +     '<div class="hq-stat-ctx">' + countries.length + ' países</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Vencidas</div>'
+    +     '<div class="hq-stat-num">' + (totalOpen ? totalOpen : '—') + '</div>'
+    +     '<div class="hq-stat-ctx">' + countries.length + ' countries</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Overdue</div>'
     +     '<div class="hq-stat-num crit">' + (totalOverdue ? String(totalOverdue) : "—") + '</div>'
-    +     '<div class="hq-stat-ctx">' + (totalOverdue ? 'reasignar' : '—') + '</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">SLA promedio</div>'
+    +     '<div class="hq-stat-ctx">' + (totalOverdue ? 'reassign' : 'all clear') + '</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Avg SLA</div>'
     +     '<div class="hq-stat-num good">' + (slaAvg || '—') + (slaAvg ? '%' : '') + '</div>'
     +     '<div class="hq-stat-ctx">LATAM</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Países en riesgo</div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Countries at risk</div>'
     +     '<div class="hq-stat-num crit">' + (atRisk ? String(atRisk) : "—") + '</div>'
-    +     '<div class="hq-stat-ctx">' + (atRisk ? 'monitorear' : 'todos OK') + '</div></div>'
+    +     '<div class="hq-stat-ctx">' + (atRisk ? 'monitor' : 'all OK') + '</div></div>'
     + '</div>';
 
-  // POR PAÍS
+  // BY COUNTRY
   html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Por país</div>';
+       +    '<div class="ed-h2">— By country</div>';
   if (countries.length === 0) {
-    html += '<div class="ed-lede">Sin datos de países disponibles.</div>';
+    html += '<div class="ed-lede">No country data available.</div>';
   } else {
     html += '<div class="hq-country-row" style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;font-weight:700">'
-         +    '<span></span><span>País / Líder</span><span>Abiertas</span><span>Vencidas</span><span>SLA</span><span>Tendencia 30d</span>'
+         +    '<span></span><span>Country / Lead</span><span>Open</span><span>Overdue</span><span>SLA</span><span>30d trend</span>'
          + '</div>';
     var maxTrend = countries.reduce(function(m, c){
       var arr = c.trend || [];
@@ -4558,28 +4566,28 @@ function _agBuckets(tasks) {
 }
 
 function _agBucketNarr(key, tasks) {
-  // Narrativa contextual por bucket basada en counts y bloqueos reales.
+  // Contextual bucket narrative based on real counts and blocks.
   if (tasks.length === 0) {
-    if (key === 'overdue') return 'Sin tareas vencidas. <b>Buen estado.</b>';
-    if (key === 'today') return 'Nada vence hoy. <b>Día limpio.</b>';
-    if (key === 'week') return 'Sin tareas previstas esta semana.';
-    return 'Sin tareas con SLA holgado.';
+    if (key === 'overdue') return 'No overdue tasks. <b>You\'re in good shape.</b>';
+    if (key === 'today') return 'Nothing due today. <b>Clean day.</b>';
+    if (key === 'week') return 'No tasks scheduled this week.';
+    return 'No tasks with comfortable SLA.';
   }
   var blockedCount = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var altaCount = tasks.filter(function(t){ return t.priority === 'Alta'; }).length;
   if (key === 'overdue') {
-    var blockedFrag = blockedCount ? ('<span class="warn">' + blockedCount + ' en espera externa.</span> ') : '';
-    return blockedFrag + '<b>Acción sugerida:</b> seguimiento o escalación amable.';
+    var blockedFrag = blockedCount ? ('<span class="warn">' + blockedCount + ' waiting on external.</span> ') : '';
+    return blockedFrag + '<b>Suggested:</b> follow up or gentle escalation.';
   }
   if (key === 'today') {
-    return altaCount ? ('Prioridad <b>' + altaCount + ' Alta</b>. Cerrar antes del fin de día.') : 'Cerrar hoy para evitar vencimientos.';
+    return altaCount ? ('<b>' + altaCount + ' High priority</b>. Close before end of day.') : 'Close today to avoid breaches.';
   }
   if (key === 'week') {
     return altaCount
-      ? ('<b>' + altaCount + ' Alta</b> con buen margen. Empezá por la de mayor alcance.')
-      : 'Tareas con buen margen. Planificá tu semana.';
+      ? ('<b>' + altaCount + ' High</b> with comfortable margin. Start with the largest scope.')
+      : 'Tasks with comfortable margin. Plan your week.';
   }
-  return '<b>SLA holgado.</b> Podés atenderlas con tiempo.';
+  return '<b>SLA is comfortable.</b> You can take your time.';
 }
 
 function rEdAgrupadas(D) {
@@ -4592,21 +4600,21 @@ function rEdAgrupadas(D) {
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
 
   var html = ''
-    + '<div class="ed-eye">' + esc((firstName ? firstName + ' · ' : '') + 'Mis tareas — agrupadas por prioridad' + (todayLine ? ' · ' + todayLine : '')) + '</div>'
-    + '<h1 class="ed-h1">' + esc(String(totalActive).padStart(2,'0')) + ' tareas, cuatro <em>franjas</em><br>de tiempo distintas.</h1>'
-    + '<p class="ed-lede">Antes de meterte a la tabla densa, esta es la lectura rápida: dónde está cada cosa y qué te conviene atender primero. Empezá por las pendientes de cierre, las de "más adelante" pueden esperar tranquilas.</p>'
+    + '<div class="ed-eye">' + esc((firstName ? firstName + ' · ' : '') + 'My tasks — by urgency' + (todayLine ? ' · ' + todayLine : '')) + '</div>'
+    + '<h1 class="ed-h1">' + esc(String(totalActive).padStart(2,'0')) + ' tasks, four <em>time bands</em>.</h1>'
+    + '<p class="ed-lede">Quick read before you dive into the dense table: where things sit and what to handle first. Start with the urgent ones — the "later" group can wait.</p>'
     + '<div class="ag-tabs">'
-    +   '<div class="ag-tab active">Por prioridad</div>'
-    +   '<div class="ag-tab disabled" title="Próximamente · disponible en próxima versión" aria-disabled="true">Por proyecto · pronto</div>'
-    +   '<div class="ag-tab disabled" title="Próximamente · disponible en próxima versión" aria-disabled="true">Por tipo · pronto</div>'
-    +   '<div class="ag-tab disabled" title="Próximamente · disponible en próxima versión" aria-disabled="true">Por riesgo · pronto</div>'
+    +   '<div class="ag-tab active">By priority</div>'
+    +   '<div class="ag-tab disabled" title="Coming soon" aria-disabled="true">By project · soon</div>'
+    +   '<div class="ag-tab disabled" title="Coming soon" aria-disabled="true">By type · soon</div>'
+    +   '<div class="ag-tab disabled" title="Coming soon" aria-disabled="true">By risk · soon</div>'
     + '</div>';
 
   var buckets = [
-    { key: 'overdue', tone: 'warn', title: 'Vencidas',     tasks: b.overdue },
-    { key: 'today',   tone: 'warn', title: 'Vencen hoy',   tasks: b.today },
-    { key: 'week',    tone: '',     title: 'Esta semana',  tasks: b.week },
-    { key: 'later',   tone: '',     title: 'Más adelante', tasks: b.later }
+    { key: 'overdue', tone: 'warn', title: 'Overdue',    tasks: b.overdue },
+    { key: 'today',   tone: 'warn', title: 'Due today',  tasks: b.today },
+    { key: 'week',    tone: '',     title: 'This week',  tasks: b.week },
+    { key: 'later',   tone: '',     title: 'Later',      tasks: b.later }
   ];
 
   for (var i = 0; i < buckets.length; i++) {
@@ -4618,7 +4626,7 @@ function rEdAgrupadas(D) {
          +      '<div class="ag-bnarr">' + _agBucketNarr(bk.key, bk.tasks) + '</div>'
          +    '</div>';
     if (bk.tasks.length === 0) {
-      html += '<div style="padding:14px 0;font-size:12px;color:var(--dim)">Sin tareas en esta franja.</div>';
+      html += '<div style="padding:14px 0;font-size:12px;color:var(--dim)">No tasks in this band.</div>';
     } else {
       html += '<div class="ag-cards">';
       for (var k = 0; k < bk.tasks.length; k++) {
@@ -4629,7 +4637,7 @@ function rEdAgrupadas(D) {
         var cfLvl = _confLevel(t);
         var cfMeta = ED_CONF_LEVELS[cfLvl];
         var actionHtml = t.blockedReason
-          ? '<span class="warn">En espera de ' + esc(t.blockedReason) + '.</span> ' + esc(t.accionable || '')
+          ? '<span class="warn">Waiting on ' + esc(t.blockedReason) + '.</span> ' + esc(t.accionable || '')
           : esc(t.accionable || '');
         html += '<div class="ag-card" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
              +    '<div class="ag-card-meta">'
@@ -4638,7 +4646,7 @@ function rEdAgrupadas(D) {
              +      '<span>' + esc(pn) + '</span>'
              +      (sla ? '<span class="sep">·</span><span>SLA ' + esc(sla) + '</span>' : '')
              +      '<span class="sep">·</span>'
-             +      '<span class="cf-dot ' + cfLvl + '" title="Confidencialidad: ' + esc(cfMeta.label) + '"></span>'
+             +      '<span class="cf-dot ' + cfLvl + '" title="Confidentiality: ' + esc(cfMeta.label) + '"></span>'
              +    '</div>'
              +    '<div class="ag-card-name">' + esc(t.nombre || '') + '</div>'
              +    '<div class="ag-card-action">' + actionHtml + '</div>'
@@ -5805,30 +5813,30 @@ function rEdMisTareas(D) {
   var total = mine.length;
 
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
-  var eyebrow = 'Mis tareas' + (todayLine ? ' · ' + todayLine : '');
+  var eyebrow = 'My tasks' + (todayLine ? ' · ' + todayLine : '');
 
   // H1 dinámico (singular/plural/cero)
   var h1Inner;
   if (total === 0) {
-    h1Inner = '<em>No tenés tareas</em><br>activas en mesa.';
+    h1Inner = '<em>No active tasks</em><br>on your plate.';
   } else if (total === 1) {
-    h1Inner = 'Tenés <em>1 tarea</em><br>activa en mesa.';
+    h1Inner = 'You have <em>1 active task</em><br>on your plate.';
   } else {
-    h1Inner = 'Tenés <em>' + esc(String(total).padStart(2,'0')) + ' tareas</em><br>activas en mesa.';
+    h1Inner = 'You have <em>' + esc(String(total).padStart(2,'0')) + ' active tasks</em><br>on your plate.';
   }
 
   // Lede narrativa según los warns
   var ledeBits = [];
-  if (overdue) ledeBits.push('<span class="crit">' + overdue + ' vencida' + (overdue === 1 ? '' : 's') + '</span>');
-  if (dueToday) ledeBits.push('<span class="warn">' + dueToday + ' vence' + (dueToday === 1 ? '' : 'n') + ' hoy</span>');
-  if (blocked) ledeBits.push('<span class="crit">' + blocked + ' en espera</span>');
+  if (overdue) ledeBits.push('<span class="crit">' + overdue + ' overdue</span>');
+  if (dueToday) ledeBits.push('<span class="warn">' + dueToday + ' due today</span>');
+  if (blocked) ledeBits.push('<span class="crit">' + blocked + ' on hold</span>');
   var lede;
   if (total === 0) {
-    lede = 'Día limpio. Aprovechá para adelantar pendientes de proyectos.';
+    lede = 'Clean day. Use it to push project work forward.';
   } else if (ledeBits.length === 0) {
-    lede = 'Todas en cola, sin urgencias críticas. Avanzá por prioridad.';
+    lede = 'All in queue, no urgent fires. Move forward by priority.';
   } else {
-    lede = ledeBits.join(' · ') + '. Cliquea cualquier fila para abrir el detalle en el tracker.';
+    lede = ledeBits.join(' · ') + '. Click any row to open the tracker.';
   }
 
   var html = ''
@@ -5838,55 +5846,61 @@ function rEdMisTareas(D) {
 
   // HERO stats (4)
   html += '<div class="esp-hero">'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Total activas</div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Total active</div>'
        +      '<div class="esp-stat-num">' + (total ? String(total) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">en tu mesa</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
+       +      '<div class="esp-stat-ctx">on your plate</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Overdue</div>'
        +      '<div class="esp-stat-num crit">' + (overdue ? String(overdue) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (overdue ? 'Resolver primero' : 'Al día') + '</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Vencen hoy</div>'
+       +      '<div class="esp-stat-ctx">' + (overdue ? 'Solve first' : 'Up to date') + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Due today</div>'
        +      '<div class="esp-stat-num warn">' + (dueToday ? String(dueToday) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (dueToday ? 'Cerrar hoy' : 'Día limpio') + '</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">En espera</div>'
+       +      '<div class="esp-stat-ctx">' + (dueToday ? 'Close today' : 'Clean day') + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">On hold</div>'
        +      '<div class="esp-stat-num crit">' + (blocked ? String(blocked) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (blocked ? 'Necesitan empuje' : '—') + '</div></div>'
+       +      '<div class="esp-stat-ctx">' + (blocked ? 'Need a push' : '—') + '</div></div>'
        + '</div>';
 
-  // PERFORMANCE — placeholders por ahora; backend Fase 2.
+  // PERFORMANCE
   var me = (D && D.team || []).find(function(m){ return m.name === name; }) || {};
   var streak = (typeof me.streak === 'number' && me.streak > 0) ? me.streak : 0;
-  html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Mi desempeño este mes</div>'
-       +    '<div class="esp-perf">'
-       +      '<div class="esp-stat"><div class="esp-stat-lbl">🔥 Racha on-time</div>'
-       +        '<div class="esp-stat-num good">' + (streak ? String(streak) : '—') + '</div>'
-       +        '<div class="esp-stat-ctx">tareas seguidas a tiempo</div></div>'
-       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Alta</div>'
-       +        '<div class="esp-stat-num">' + esc(me.avgAlta || '—') + '</div>'
-       +        '<div class="esp-stat-ctx">SLA 2d</div></div>'
-       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Media</div>'
-       +        '<div class="esp-stat-num">' + esc(me.avgMedia || '—') + '</div>'
-       +        '<div class="esp-stat-ctx">SLA 5d</div></div>'
-       +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Baja</div>'
-       +        '<div class="esp-stat-num">' + esc(me.avgBaja || '—') + '</div>'
-       +        '<div class="esp-stat-ctx">SLA 7d</div></div>'
-       +    '</div>'
-       + '</section>';
+  var hasPerf = streak > 0
+             || (me.avgAlta && me.avgAlta !== '—')
+             || (me.avgMedia && me.avgMedia !== '—')
+             || (me.avgBaja && me.avgBaja !== '—');
+  if (hasPerf) {
+    html += '<section class="ed-section">'
+         +    '<div class="ed-h2">— Your month so far</div>'
+         +    '<div class="esp-perf">'
+         +      '<div class="esp-stat"><div class="esp-stat-lbl">🔥 On-time streak</div>'
+         +        '<div class="esp-stat-num good">' + (streak ? String(streak) : '—') + '</div>'
+         +        '<div class="esp-stat-ctx">tasks in a row</div></div>'
+         +      '<div class="esp-stat"><div class="esp-stat-lbl">High priority</div>'
+         +        '<div class="esp-stat-num">' + esc(me.avgAlta || '—') + '</div>'
+         +        '<div class="esp-stat-ctx">avg close · SLA 2d</div></div>'
+         +      '<div class="esp-stat"><div class="esp-stat-lbl">Medium</div>'
+         +        '<div class="esp-stat-num">' + esc(me.avgMedia || '—') + '</div>'
+         +        '<div class="esp-stat-ctx">avg close · SLA 5d</div></div>'
+         +      '<div class="esp-stat"><div class="esp-stat-lbl">Low</div>'
+         +        '<div class="esp-stat-num">' + esc(me.avgBaja || '—') + '</div>'
+         +        '<div class="esp-stat-ctx">avg close · SLA 7d</div></div>'
+         +    '</div>'
+         + '</section>';
+  }
 
-  // TABLA "Tus tareas activas"
+  // ACTIVE TASKS TABLE
   html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Tus tareas activas</div>';
+       +    '<div class="ed-h2">— Your active tasks</div>';
 
   if (mine.length === 0) {
-    html += '<div class="ed-lede">Sin tareas activas asignadas. '
-         +    '<button class="ed-btn" style="margin-left:12px" onclick="goEd(\'tracker\')">Ver tracker →</button>'
+    html += '<div class="ed-lede">No active tasks assigned. '
+         +    '<button class="ed-btn" style="margin-left:12px" onclick="goEd(\'agrupadas\')">Plan by urgency →</button>'
          +  '</div>';
   } else {
     var rows = (typeof _edSortByUrgency === 'function') ? _edSortByUrgency(mine) : mine.slice();
     html += '<table class="tk-table">'
          +    '<thead><tr>'
-         +      '<th></th><th>ID</th><th>Tarea</th><th>Proyecto</th>'
-         +      '<th>Prioridad</th><th>Estado</th><th>ETA</th>'
+         +      '<th></th><th>ID</th><th>Task</th><th>Project</th>'
+         +      '<th>Priority</th><th>Status</th><th>ETA</th>'
          +    '</tr></thead><tbody>';
     for (var i = 0; i < rows.length; i++) {
       var t = rows[i];
@@ -5976,7 +5990,7 @@ function _edDaysVsSla(t) {
 
 function _edHistOnClick() {
   if (typeof toast === 'function') {
-    toast('Tarea cerrada — historial detallado próximamente', 'info');
+    toast('Closed task — detailed history coming soon', 'info');
   }
 }
 
@@ -6000,38 +6014,38 @@ function rEdHistorial(D) {
     return f && f.getTime() >= weekCutoff;
   }).length;
 
-  // Eyebrow/H1/Lede según rol
+  // Eyebrow/H1/Lede by role
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
   var eyebrow;
   if (role === 'specialist') {
-    eyebrow = 'Tu historial · ' + total + (total === 1 ? ' tarea cerrada' : ' tareas cerradas');
+    eyebrow = 'Your history · ' + total + (total === 1 ? ' closed task' : ' closed tasks');
   } else if (role === 'manager') {
-    eyebrow = 'Historial · ' + total + (total === 1 ? ' tarea cerrada en tu equipo' : ' tareas cerradas en tu equipo');
+    eyebrow = 'History · ' + total + (total === 1 ? ' closed task in your team' : ' closed tasks in your team');
   } else {
-    eyebrow = 'Historial global · ' + total + (total === 1 ? ' tarea cerrada LATAM' : ' tareas cerradas LATAM');
+    eyebrow = 'Global history · ' + total + (total === 1 ? ' closed task across LATAM' : ' closed tasks across LATAM');
   }
   if (todayLine) eyebrow += ' · ' + todayLine;
 
   var h1Inner;
   if (total === 0) {
-    h1Inner = 'Aún no hay <em>tareas cerradas</em>.';
+    h1Inner = 'No <em>closed tasks</em> yet.';
   } else if (thisWeek > 0) {
-    h1Inner = '<em>' + esc(String(thisWeek).padStart(2,'0')) + '</em> ' + (thisWeek === 1 ? 'tarea cerrada' : 'tareas cerradas') + '<br>esta semana.';
+    h1Inner = '<em>' + esc(String(thisWeek).padStart(2,'0')) + '</em> ' + (thisWeek === 1 ? 'task closed' : 'tasks closed') + '<br>this week.';
   } else {
-    h1Inner = '<em>' + esc(String(total).padStart(2,'0')) + '</em> ' + (total === 1 ? 'tarea cerrada' : 'tareas cerradas') + ' en total.';
+    h1Inner = '<em>' + esc(String(total).padStart(2,'0')) + '</em> ' + (total === 1 ? 'task' : 'tasks') + ' closed in total.';
   }
 
-  // Lede narrativa
+  // Lede
   var lede;
   if (total === 0) {
-    lede = 'Aún no hay tareas cerradas. Cuando cierres tu primera, aparecerá acá.';
+    lede = 'No closed tasks yet. When you close your first, it\'ll appear here.';
   } else {
     var ratio = (onTime + late) > 0 ? Math.round(onTime / (onTime + late) * 100) : null;
     var bits = [];
     if (ratio !== null) bits.push('<span class="good">' + ratio + '% on-time</span>');
-    if (late > 0) bits.push('<span class="crit">' + late + ' fuera de SLA</span>');
-    if (thisWeek > 0 && total !== thisWeek) bits.push(thisWeek + ' esta semana');
-    if (bits.length === 0) bits.push('Sin datos de SLA suficientes para calcular ritmo.');
+    if (late > 0) bits.push('<span class="crit">' + late + ' breached SLA</span>');
+    if (thisWeek > 0 && total !== thisWeek) bits.push(thisWeek + ' this week');
+    if (bits.length === 0) bits.push('Not enough SLA data to compute pace yet.');
     lede = bits.join(' · ') + '.';
   }
 
@@ -6042,28 +6056,28 @@ function rEdHistorial(D) {
 
   // HERO stats (4)
   html += '<div class="esp-hero">'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Total cerradas</div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Total closed</div>'
        +      '<div class="esp-stat-num">' + (total ? String(total) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (role === 'specialist' ? 'tu historial' : (role === 'manager' ? 'en tu equipo' : 'global LATAM')) + '</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">On-time</div>'
+       +      '<div class="esp-stat-ctx">' + (role === 'specialist' ? 'your history' : (role === 'manager' ? 'in your team' : 'LATAM-wide')) + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">On time</div>'
        +      '<div class="esp-stat-num good">' + (onTime ? String(onTime) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">dentro de SLA</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Tarde</div>'
+       +      '<div class="esp-stat-ctx">within SLA</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Late</div>'
        +      '<div class="esp-stat-num ' + (late > 0 ? 'crit' : '') + '">' + (late ? String(late) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (late > 0 ? 'fuera de SLA' : 'sin demoras') + '</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Esta semana</div>'
+       +      '<div class="esp-stat-ctx">' + (late > 0 ? 'breached SLA' : 'no breaches') + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">This week</div>'
        +      '<div class="esp-stat-num">' + (thisWeek ? String(thisWeek) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">cerradas en 7d</div></div>'
+       +      '<div class="esp-stat-ctx">closed in 7d</div></div>'
        + '</div>';
 
-  // Tabla
+  // Table
   html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— ' + (role === 'specialist' ? 'Tus cerradas' : (role === 'manager' ? 'Cerradas del equipo' : 'Cerradas LATAM')) + '</div>';
+       +    '<div class="ed-h2">— ' + (role === 'specialist' ? 'Your closed tasks' : (role === 'manager' ? 'Team closed tasks' : 'LATAM closed tasks')) + '</div>';
 
   if (total === 0) {
-    html += '<div class="ed-lede">Aún no hay tareas cerradas. Cuando cierres tu primera, aparecerá acá.</div>';
+    html += '<div class="ed-lede">No closed tasks yet. When you close your first, it\'ll appear here.</div>';
   } else {
-    // Orden: más recientes primero (cerrado desc)
+    // Order: most recent first
     var rows = hist.slice().sort(function(a, b){
       var fa = pd(a.cerrado), fb = pd(b.cerrado);
       var ta = fa ? fa.getTime() : 0;
@@ -6075,9 +6089,9 @@ function rEdHistorial(D) {
 
     html += '<table class="tk-table">'
          +    '<thead><tr>'
-         +      '<th></th><th>ID</th><th>Tarea</th><th>Proyecto</th>'
-         +      (showResp ? '<th>Resp.</th>' : '')
-         +      '<th>Prioridad</th><th>Cerrada el</th><th>Días vs SLA</th>'
+         +      '<th></th><th>ID</th><th>Task</th><th>Project</th>'
+         +      (showResp ? '<th>Owner</th>' : '')
+         +      '<th>Priority</th><th>Closed on</th><th>Days vs SLA</th>'
          +    '</tr></thead><tbody>';
 
     for (var i = 0; i < rows.length; i++) {
@@ -6091,14 +6105,14 @@ function rEdHistorial(D) {
       if (dvs === null) {
         slaTxt = '—'; slaTone = 'dim';
       } else if (dvs <= 0) {
-        slaTxt = (dvs === 0 ? 'justo' : (Math.abs(dvs) + 'd antes'));
+        slaTxt = (dvs === 0 ? 'on time' : (Math.abs(dvs) + 'd early'));
         slaTone = 'good';
       } else {
-        slaTxt = '+' + dvs + 'd tarde';
+        slaTxt = '+' + dvs + 'd late';
         slaTone = 'crit';
       }
       html += '<tr class="tk-row" onclick="_edHistOnClick()">'
-           +    '<td><span class="cf-dot ' + cfLvl + '" title="Confidencialidad: ' + esc(cfMeta.label) + '"></span></td>'
+           +    '<td><span class="cf-dot ' + cfLvl + '" title="Confidentiality: ' + esc(cfMeta.label) + '"></span></td>'
            +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
            +    '<td>'
            +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
