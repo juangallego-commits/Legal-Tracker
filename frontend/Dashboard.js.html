@@ -4520,15 +4520,41 @@ function rEdTracker(D) {
   var edMain = document.getElementById('edMain');
   if (edMain) edMain.classList.toggle('with-panel', !!sel);
 
-  // EYEBROW + H1 + LEDE
-  var eyebrow = role === 'head' ? 'Tracker · Global'
-              : role === 'manager' ? ('Tracker · Team ' + userCode)
-              : 'Tracker · My tasks';
-  var lede = role === 'head'
-    ? ('LATAM has ' + cAll + ' active tasks. Click any row for detail.')
-    : role === 'manager'
-      ? (cAll + ' active tasks in your team. Click any row for detail, history and reassign.')
-      : ('Your ' + cAll + ' active tasks. Click any to see detail, history and next action.');
+  // EYEBROW + H1 + LEDE — dinámicos para que el contexto sea inmediato.
+  var scopeLabel;
+  if (EDT.country) scopeLabel = EDT.country;
+  else if (role === 'head') scopeLabel = 'Global';
+  else if (role === 'manager') scopeLabel = 'Team ' + (userCode || '');
+  else scopeLabel = 'My tasks';
+
+  var eyebrow = 'Tracker · ' + scopeLabel;
+  // H1 dinámico que cuenta lo que hay
+  var h1Inner;
+  if (cAll === 0) {
+    h1Inner = '<em>No active tasks</em>' + (role === 'specialist' ? ' on your plate.' : ' to track.');
+  } else if (role === 'specialist') {
+    h1Inner = 'Your <em>' + cAll + '</em> active task' + (cAll === 1 ? '' : 's') + '.';
+  } else if (role === 'manager') {
+    h1Inner = '<em>' + cAll + '</em> active task' + (cAll === 1 ? '' : 's') + ' in your team.';
+  } else if (EDT.country) {
+    h1Inner = '<em>' + cAll + '</em> active task' + (cAll === 1 ? '' : 's') + ' in ' + esc(EDT.country) + '.';
+  } else {
+    h1Inner = '<em>' + cAll + '</em> active task' + (cAll === 1 ? '' : 's') + ' across LATAM.';
+  }
+  // Lede dinámico — explica acción Y status
+  var ledeBits = [];
+  if (cOverdue > 0) ledeBits.push('<span class="crit">' + cOverdue + ' overdue</span>');
+  if (cToday > 0)   ledeBits.push('<span class="warn">' + cToday + ' due today</span>');
+  if (cBlocked > 0) ledeBits.push('<span class="crit">' + cBlocked + ' on hold</span>');
+  var lede;
+  if (cAll === 0) {
+    lede = role === 'specialist' ? 'Nothing to do here. Use this time for project work.' : 'Nothing active to track right now.';
+  } else if (ledeBits.length === 0) {
+    lede = (role === 'manager' ? 'Team is on track.' : (role === 'head' ? 'Operation is on track.' : 'You\'re on track.'))
+         + ' Click any row to open the detail panel.';
+  } else {
+    lede = ledeBits.join(' · ') + '. Click any row to open detail · use the filter chips below to focus.';
+  }
 
   var html = '';
   // Back to countries button: solo HQ y solo cuando llegaron desde el
@@ -4536,15 +4562,9 @@ function rEdTracker(D) {
   if (role === 'head' && (EDT.country || EDT.skipCountriesView)) {
     html += '<button class="tk-panel-back" onclick="edClearCountryFilter()" aria-label="Back to countries">← Back to countries</button>';
   }
-  html += '<div class="ed-eye">' + esc(eyebrow) + (EDT.country ? ' · ' + esc(EDT.country) : '') + '</div>'
-    + '<h1 class="ed-h1" style="margin-bottom:8px">Tracker' + (EDT.country ? ' · ' + esc(EDT.country) : '') + '</h1>'
-    + '<p class="ed-lede" style="margin-bottom:28px">' + esc(lede) + '</p>'
-    + (EDT.country
-        ? '<div class="tk-country-filter">'
-        +   '<span>Filtering: ' + esc(EDT.country) + '</span>'
-        +   '<button onclick="edClearCountryFilter()" aria-label="Clear country filter">×</button>'
-        + '</div>'
-        : '');
+  html += '<div class="ed-eye">' + esc(eyebrow) + '</div>'
+    + '<h1 class="ed-h1" style="margin-bottom:8px">' + h1Inner + '</h1>'
+    + '<p class="ed-lede" style="margin-bottom:24px">' + lede + '</p>';
 
   // TOOLBAR
   function fBtn(key, label, count, accent) {
