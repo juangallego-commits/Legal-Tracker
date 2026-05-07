@@ -3786,7 +3786,7 @@ function rEdHomeHQ(D) {
 // 440px con detalle. Estado local EDT (filter/search/selectedId).
 // ───────────────────────────────────────────────────────────────
 
-var EDT = { filter: 'all', search: '', selectedId: null, country: null, selectedIds: [] };
+var EDT = { filter: 'all', search: '', selectedId: null, country: null, selectedIds: [], skipCountriesView: false };
 
 function _etaTextFromDays(d) {
   if (typeof d !== 'number') return '';
@@ -3811,14 +3811,24 @@ function _edFilterByRole(tasks, role, userName, userCode) {
 
 // Helpers para setear/limpiar el filtro de país desde HQ home / resumen.
 function edSetCountryFilter(code) {
-  EDT.country = code || null;
-  // Resetear selección y filtro de estado para no confundir al usuario.
+  // __ALL__ es un sentinel del HQ countries-first view: significa
+  // "saltea el grid de países y mostrá todo junto". Lo guardamos como
+  // null pero seteamos skipCountriesView para que rEdTracker no
+  // vuelva al countries-first hasta el próximo edClearCountryFilter.
+  if (code === '__ALL__') {
+    EDT.country = null;
+    EDT.skipCountriesView = true;
+  } else {
+    EDT.country = code || null;
+    EDT.skipCountriesView = false;
+  }
   EDT.selectedId = null;
   if (D) rEdTracker(D);
 }
 function edClearCountryFilter() {
   EDT.country = null;
   EDT.selectedId = null;
+  EDT.skipCountriesView = false; // volver al countries-first si es head
   if (D) rEdTracker(D);
 }
 
@@ -4375,12 +4385,125 @@ function _buildEdTimeline(t) {
   return items;
 }
 
+// HQ countries-first landing for the global tracker. Grid de países
+// con KPIs clave + sparkline. Click → drill-down al tracker filtrado.
+function _rEdTrackerHQCountries(D, v) {
+  var countries = (D && D.countries) || [];
+  var allTasks = (D && D.tasks) || [];
+  var totalOpen   = allTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
+  var totalOver   = countries.reduce(function(a, c){ return a + (c.overdue || 0); }, 0);
+  var totalAtRisk = countries.filter(function(c){ return (c.overdue || 0) > 3 || (c.slaPct || 100) < 85; }).length;
+  var slaAvg = 0;
+  if (countries.length) {
+    var slaSum = countries.reduce(function(a, c){ return a + (c.slaPct || 0); }, 0);
+    slaAvg = Math.round(slaSum / countries.length);
+  }
+  // Sort: worst first (overdue desc, then sla asc)
+  var sorted = countries.slice().sort(function(a, b) {
+    var dOv = (b.overdue || 0) - (a.overdue || 0);
+    if (dOv !== 0) return dOv;
+    return (a.slaPct || 0) - (b.slaPct || 0);
+  });
+  // Max trend value across all countries for sparkline normalization
+  var maxTrend = 1;
+  countries.forEach(function(c) {
+    (c.trend || []).forEach(function(n){ if (n > maxTrend) maxTrend = n; });
+  });
+
+  var html = ''
+    + '<div class="ed-eye">Global tracker · ' + countries.length + ' countries</div>'
+    + '<h1 class="ed-h1" style="margin-bottom:8px">LATAM <em>at a glance</em>.</h1>'
+    + '<p class="ed-lede" style="margin-bottom:28px"><b>' + totalOpen + '</b> active tasks across <b>' + countries.length + '</b> countries'
+    +   (totalOver ? '. <span class="crit">' + totalOver + ' overdue</span> right now' : '')
+    +   '. Pick a country to drill down or jump to all countries.</p>';
+
+  // Hero summary band (4 KPIs)
+  html += '<div class="hq-summary-band">'
+       +    '<div class="hq-summary-stat"><div class="lbl">Active</div><div class="num">' + (totalOpen || '—') + '</div><div class="ctx">across LATAM</div></div>'
+       +    '<div class="hq-summary-stat"><div class="lbl">Overdue</div><div class="num crit">' + (totalOver || '—') + '</div><div class="ctx">' + (totalOver ? 'reassign' : 'all clear') + '</div></div>'
+       +    '<div class="hq-summary-stat"><div class="lbl">Avg SLA</div><div class="num good">' + (slaAvg ? slaAvg + '%' : '—') + '</div><div class="ctx">on time</div></div>'
+       +    '<div class="hq-summary-stat"><div class="lbl">At risk</div><div class="num crit">' + (totalAtRisk || '—') + '</div><div class="ctx">' + (totalAtRisk ? 'monitor' : 'no risk') + '</div></div>'
+       + '</div>';
+
+  // Quick action: jump to all-tasks tracker (skip the countries-first)
+  html += '<div class="hq-quick-actions">'
+       +    '<button class="ed-btn" onclick="edSetCountryFilter(\'__ALL__\')">View all countries together →</button>'
+       + '</div>';
+
+  // Country grid header
+  html += '<section class="ed-section">'
+       +    '<div class="ed-h2">— Countries</div>';
+
+  if (!sorted.length) {
+    html += '<div class="ed-lede">No country data available.</div></section>';
+    v.innerHTML = html;
+    return;
+  }
+
+  html += '<div class="hq-country-grid">';
+  sorted.forEach(function(c) {
+    var sla = c.slaPct == null ? null : c.slaPct;
+    var slaCls = sla == null ? 'dim' : (sla >= 90 ? 'good' : (sla >= 75 ? 'warn' : 'crit'));
+    var ovCls = (c.overdue || 0) > 3 ? 'crit' : ((c.overdue || 0) > 0 ? 'warn' : '');
+    var atRisk = (c.overdue || 0) > 3 || (sla != null && sla < 85);
+    var trend = c.trend || [];
+    // Build sparkline polyline
+    var sparkSvg = '<svg class="hq-card-spark" viewBox="0 0 100 28" preserveAspectRatio="none">';
+    if (trend.length > 1) {
+      var pts = trend.map(function(n, i) {
+        var x = (i / (trend.length - 1)) * 100;
+        var y = 28 - (n / maxTrend) * 26 - 1;
+        return x.toFixed(1) + ',' + y.toFixed(1);
+      }).join(' ');
+      sparkSvg += '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>';
+    }
+    sparkSvg += '</svg>';
+    var leader = c.leader || c.lider || '—';
+    var name = c.name || c.code || '—';
+
+    html += '<div class="hq-card ' + (atRisk ? 'at-risk' : '') + '" onclick="edSetCountryFilter(\'' + esc(c.code || '') + '\')" tabindex="0" role="button" '
+         +    'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();edSetCountryFilter(\'' + esc(c.code || '') + '\');}" aria-label="Drill into ' + esc(name) + '">'
+         +    '<div class="hq-card-head">'
+         +      '<div class="hq-card-flag">' + esc(c.code || '??') + '</div>'
+         +      '<div class="hq-card-meta">'
+         +        '<div class="hq-card-name">' + esc(name) + '</div>'
+         +        '<div class="hq-card-lead">' + esc(leader) + '</div>'
+         +      '</div>'
+         +      (atRisk ? '<div class="hq-card-flag-risk" title="At risk">⚠</div>' : '')
+         +    '</div>'
+         +    '<div class="hq-card-stats">'
+         +      '<div class="hq-card-stat"><div class="num">' + (c.open || 0) + '</div><div class="lbl">Active</div></div>'
+         +      '<div class="hq-card-stat"><div class="num ' + ovCls + '">' + (c.overdue || 0) + '</div><div class="lbl">Overdue</div></div>'
+         +      '<div class="hq-card-stat"><div class="num ' + slaCls + '">' + (sla == null ? '—' : sla + '%') + '</div><div class="lbl">SLA</div></div>'
+         +    '</div>'
+         +    '<div class="hq-card-spark-wrap ' + slaCls + '">'
+         +      '<span class="hq-card-spark-lbl">12-week throughput</span>'
+         +      sparkSvg
+         +    '</div>'
+         +    '<div class="hq-card-cta">Drill in →</div>'
+         + '</div>';
+  });
+  html += '</div></section>';
+
+  v.innerHTML = html;
+}
+
 function rEdTracker(D) {
   var v = $('vEdTracker'); if (!v) return;
   var role = _effectiveRole();
   var userName = _effectiveUserName();
   var userCode = _effectiveUserCode();
   var allTasks = (D && D.tasks) || [];
+
+  // HQ countries-first: si es head y NO hay un país filtrado, ni una
+  // tarea seleccionada, ni el override "view all" activado → mostrar
+  // el grid de países con insights clave. Click en un país → tracker
+  // filtrado. "View all countries" → skipCountriesView=true para
+  // bajar al tracker plano.
+  if (role === 'head' && !EDT.country && !EDT.selectedId && !EDT.skipCountriesView) {
+    return _rEdTrackerHQCountries(D, v);
+  }
+
   var roleTasks = _edFilterByRole(allTasks, role, userName, userCode);
 
   // Counts por filtro (sobre el conjunto del rol, sin filtro activo)
@@ -4407,14 +4530,19 @@ function rEdTracker(D) {
       ? (cAll + ' active tasks in your team. Click any row for detail, history and reassign.')
       : ('Your ' + cAll + ' active tasks. Click any to see detail, history and next action.');
 
-  var html = ''
-    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
-    + '<h1 class="ed-h1" style="margin-bottom:8px">Tracker</h1>'
+  var html = '';
+  // Back to countries button: solo HQ y solo cuando llegaron desde el
+  // grid (filtro de país O override "view all").
+  if (role === 'head' && (EDT.country || EDT.skipCountriesView)) {
+    html += '<button class="tk-panel-back" onclick="edClearCountryFilter()" aria-label="Back to countries">← Back to countries</button>';
+  }
+  html += '<div class="ed-eye">' + esc(eyebrow) + (EDT.country ? ' · ' + esc(EDT.country) : '') + '</div>'
+    + '<h1 class="ed-h1" style="margin-bottom:8px">Tracker' + (EDT.country ? ' · ' + esc(EDT.country) : '') + '</h1>'
     + '<p class="ed-lede" style="margin-bottom:28px">' + esc(lede) + '</p>'
     + (EDT.country
         ? '<div class="tk-country-filter">'
-        +   '<span>Filtrando: ' + esc(EDT.country) + '</span>'
-        +   '<button onclick="edClearCountryFilter()" aria-label="Quitar filtro de país">×</button>'
+        +   '<span>Filtering: ' + esc(EDT.country) + '</span>'
+        +   '<button onclick="edClearCountryFilter()" aria-label="Clear country filter">×</button>'
         + '</div>'
         : '');
 
@@ -4508,9 +4636,10 @@ function rEdTracker(D) {
     var selCfLvl = _confLevel(sel);
     var selCfMeta = ED_CONF_LEVELS[selCfLvl];
     html += '<aside class="tk-panel">'
+         +    '<button class="tk-panel-back" onclick="edClosePanel()" aria-label="Back to tracker">← Back to tracker</button>'
          +    '<div class="tk-panel-head">'
          +      '<span class="tk-panel-eyebrow">' + esc(sel.id + (sel.pais ? ' · ' + sel.pais : '')) + '</span>'
-         +      '<button class="tk-panel-close" onclick="edClosePanel()" aria-label="Cerrar">×</button>'
+         +      '<button class="tk-panel-close" onclick="edClosePanel()" aria-label="Close">×</button>'
          +    '</div>'
          +    '<h2 class="tk-panel-title editable" data-task-id="' + esc(sel.id) + '" ondblclick="edPanelEditTitle(this)" title="Double-click to edit">' + esc(sel.nombre || '') + '</h2>'
          +    '<div class="cf-band ' + selCfLvl + '">'
