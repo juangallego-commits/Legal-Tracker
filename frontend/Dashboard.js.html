@@ -863,7 +863,7 @@ function submitTask() {
       $('btnT').disabled = false;
       if (res.success) {
         fm('fMsg', '✅ Tarea #' + res.id + ' creada', 'success');
-        toast('Tarea #' + res.id + ' creada', 'success');
+        toast('Task #' + res.id + ' created', 'success');
         ['fNom', 'fNot'].forEach(function(id){ $(id).value = ''; });
         $('fDl').value = '';
         if (_tagsAccHandle) _tagsAccHandle.clear();
@@ -900,7 +900,7 @@ function submitProj() {
       $('btnP').disabled = false;
       if (res.success) {
         fm('pMsg', '✅ Proyecto #' + res.id + ' creado', 'success');
-        toast('Proyecto "' + res.nombre + '" creado', 'success');
+        toast('Project "' + res.nombre + '" created', 'success');
         ['pNom', 'pDesc', 'pNot'].forEach(function(id){ $(id).value = ''; });
         $('pDl').value = '';
         if (_tagsPartHandle) _tagsPartHandle.clear();
@@ -947,25 +947,25 @@ function buildOptions(items, current, includeBlank) {
 function renderDocsSection(kind, itemId, docs) {
   var chips = (docs || []).map(function(d, i) {
     var urlEsc = esc(d.url || '#');
-    var nameEsc = esc(d.name || 'Documento');
-    var tooltip = d.external ? 'Link externo' : 'Subido por ' + esc(d.uploadedBy || '—');
+    var nameEsc = esc(d.name || 'Document');
+    var tooltip = d.external ? 'External link' : 'Uploaded by ' + esc(d.uploadedBy || '—');
     return '<span class="doc-chip" title="' + tooltip + '">'
       +      '<a href="' + urlEsc + '" target="_blank" rel="noopener">📄 ' + nameEsc + '</a>'
-      +      '<button class="doc-chip-x" data-act="remove-doc" data-kind="' + kind + '" data-item-id="' + itemId + '" data-i="' + i + '" aria-label="Quitar">✕</button>'
+      +      '<button class="doc-chip-x" data-act="remove-doc" data-kind="' + kind + '" data-item-id="' + itemId + '" data-i="' + i + '" aria-label="Remove">✕</button>'
       +    '</span>';
   }).join('');
 
-  return '<div class="form-section"><div class="form-section-title">Documentos</div>'
-    + '<div class="doc-list" id="docList">' + (chips || '<span class="doc-empty">Ningún documento adjunto</span>') + '</div>'
+  return '<div class="form-section"><div class="form-section-title">Documents</div>'
+    + '<div class="doc-list" id="docList">' + (chips || '<span class="doc-empty">No documents attached</span>') + '</div>'
     + '<div class="doc-actions">'
     +   '<label class="doc-upload-btn">'
-    +     '📤 Subir archivo'
+    +     '📤 Upload file'
     +     '<input type="file" id="docFileInput" data-kind="' + kind + '" data-item-id="' + itemId + '" style="display:none" onchange="onDocFileSelected(this)">'
     +   '</label>'
     +   '<div class="doc-link-row">'
-    +     '<input type="text" id="docLinkUrl" placeholder="Pegar link de Drive" class="doc-link-input">'
-    +     '<input type="text" id="docLinkName" placeholder="Nombre (opcional)" class="doc-link-input">'
-    +     '<button class="btn-secondary btn-sm" onclick="attachDocLinkFromForm(\'' + kind + '\', ' + itemId + ')">Vincular</button>'
+    +     '<input type="text" id="docLinkUrl" placeholder="Paste Drive link" class="doc-link-input">'
+    +     '<input type="text" id="docLinkName" placeholder="Name (optional)" class="doc-link-input">'
+    +     '<button class="btn-secondary btn-sm" onclick="attachDocLinkFromForm(\'' + kind + '\', ' + itemId + ')">Link</button>'
     +   '</div>'
     + '</div></div>';
 }
@@ -977,7 +977,7 @@ function onDocFileSelected(input) {
   var kind = input.dataset.kind;
   var itemId = Number(input.dataset.itemId);
   if (file.size > 45 * 1024 * 1024) {
-    toast('Archivo muy grande (máx 45 MB en Apps Script)', 'error');
+    toast('File too large (max 45 MB in Apps Script)', 'error');
     input.value = '';
     return;
   }
@@ -986,7 +986,7 @@ function onDocFileSelected(input) {
   reader.onload = function() {
     var dataUrl = reader.result; // data:<mime>;base64,<data>
     var base64 = String(dataUrl).split(',')[1];
-    toast('Subiendo ' + file.name + '...', 'info');
+    toast('Uploading ' + file.name + '…', 'info');
     showLoader();
     google.script.run
       .withSuccessHandler(function(res) {
@@ -1013,13 +1013,13 @@ function onDocFileSelected(input) {
 function attachDocLinkFromForm(kind, itemId) {
   var url = $('docLinkUrl').value.trim();
   var name = $('docLinkName').value.trim();
-  if (!url) { toast('Pegá un link primero', 'error'); return; }
+  if (!url) { toast('Paste a link first', 'error'); return; }
   showLoader();
   google.script.run
     .withSuccessHandler(function(res) {
       hideLoader();
       if (res && res.success) {
-        toast('✅ Link vinculado', 'success');
+        toast('✅ Link attached', 'success');
         reopenEditWithFreshData();
       } else {
         toast('Error: ' + ((res && res.error) || ''), 'error');
@@ -1251,7 +1251,7 @@ function batchU(id, fields) {
   google.script.run
     .withSuccessHandler(function(r) {
       if (r && r.success) {
-        toast(r.moved ? '✅ Movida a Historial' : '✅ Actualizado', 'success');
+        toast(r.moved ? '✅ Moved to history' : '✅ Updated', 'success');
         reload();
       } else {
         toast('Error: ' + ((r && r.error) || ''), 'error');
@@ -1371,7 +1371,7 @@ function uf(id, f, v) {
   google.script.run
     .withSuccessHandler(function(r) {
       if (r.success) {
-        toast(r.moved ? '✅ Movida a Historial' : '✅ OK', 'success');
+        toast(r.moved ? '✅ Moved to history' : '✅ OK', 'success');
         reload(); // Sincroniza stats reales del server
       } else {
         // Rollback: restaurar valor previo
@@ -2354,7 +2354,7 @@ var ACTIONS = {
     google.script.run
       .withSuccessHandler(function(res) {
         hideLoader();
-        if (res && res.success) { toast('✅ Documento removido', 'success'); reopenEditWithFreshData(); }
+        if (res && res.success) { toast('✅ Document removed', 'success'); reopenEditWithFreshData(); }
         else toast('Error: ' + ((res && res.error) || ''), 'error');
       })
       .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
@@ -3896,12 +3896,12 @@ function edTkToggleLinkForm() {
 function edTkAttachLink(taskId) {
   var url  = ($('tkLinkUrl')  && $('tkLinkUrl').value  || '').trim();
   var name = ($('tkLinkName') && $('tkLinkName').value || '').trim();
-  if (!url) { toast('Pegá un link primero', 'error'); return; }
+  if (!url) { toast('Paste a link first', 'error'); return; }
   showLoader();
   google.script.run
     .withSuccessHandler(function(res) {
       hideLoader();
-      if (res && res.success) { toast('✅ Link vinculado', 'success'); reload(); }
+      if (res && res.success) { toast('✅ Link attached', 'success'); reload(); }
       else { toast('Error: ' + ((res && res.error) || ''), 'error'); }
     })
     .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
@@ -4855,7 +4855,7 @@ function _uaRender(task, variant) {
 function edUOpen(taskId, variant) {
   if (!D || !D.tasks) { if (typeof toast === 'function') toast('Sin datos cargados', 'error'); return; }
   var task = D.tasks.find(function(t){ return t.id == taskId; });
-  if (!task) { if (typeof toast === 'function') toast('Tarea no encontrada', 'error'); return; }
+  if (!task) { if (typeof toast === 'function') toast('Task not found', 'error'); return; }
   EDU.taskId = task.id;
   EDU.variant = variant || 'avanzar';
   EDU.newConf = null;
@@ -7016,25 +7016,25 @@ function _crpRenderStep1() {
   var v = EDCP.values;
   return ''
     + '<div class="cr-field">'
-    +   '<div class="cr-label">Nombre del proyecto <span class="req">*</span></div>'
+    +   '<div class="cr-label">Project name <span class="req">*</span></div>'
     +   '<input class="cr-input title" id="crpNombre" maxlength="160" '
-    +     'placeholder="Ej: Programa de cumplimiento data-privacy LATAM" '
+    +     'placeholder="e.g. LATAM data-privacy compliance program" '
     +     'value="' + esc(v.nombre) + '" '
     +     'oninput="edCrearProyectoSetField(\'nombre\', this.value)">'
     + '</div>'
     + '<div class="cr-field">'
-    +   '<div class="cr-label">Descripción / contexto</div>'
+    +   '<div class="cr-label">Description / context</div>'
     +   '<textarea class="cr-input cr-textarea" id="crpDesc" '
-    +     'placeholder="Alcance, objetivos, stakeholders, links…" '
+    +     'placeholder="Scope, goals, stakeholders, links…" '
     +     'oninput="edCrearProyectoSetField(\'descripcion\', this.value)">' + esc(v.descripcion) + '</textarea>'
     + '</div>'
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
-    +     '<div class="cr-label">País <span class="req">*</span></div>'
+    +     '<div class="cr-label">Country <span class="req">*</span></div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
     +   '</div>'
     +   '<div class="cr-field">'
-    +     '<div class="cr-label">Prioridad <span class="req">*</span></div>'
+    +     '<div class="cr-label">Priority <span class="req">*</span></div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('priority', _CR_PRIOS, v.priority, _crPrioMod) + '</div>'
     +   '</div>'
     + '</div>';
@@ -7046,18 +7046,18 @@ function _crpRenderStep2() {
   return ''
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
-    +     '<div class="cr-label">Tipo de trabajo</div>'
+    +     '<div class="cr-label">Type of work</div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('tipoTrabajo', _CR_TIPOS, v.tipoTrabajo) + '</div>'
     +   '</div>'
     +   '<div class="cr-field">'
-    +     '<div class="cr-label">Riesgo</div>'
+    +     '<div class="cr-label">Risk</div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('riesgo', _CR_RIESGOS, v.riesgo, _crRiesgoMod) + '</div>'
     +   '</div>'
     + '</div>'
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
-    +     '<div class="cr-label">Líder <span class="req">*</span></div>'
-    +     _crSelectHtml('crpLider', lideres, v.lider, lideres.length ? 'Seleccionar…' : 'Elegí país en el paso 1').replace('<select id="crpLider"', '<select id="crpLider" onchange="edCrearProyectoSetField(\'lider\', this.value)"')
+    +     '<div class="cr-label">Lead <span class="req">*</span></div>'
+    +     _crSelectHtml('crpLider', lideres, v.lider, lideres.length ? 'Select…' : 'Pick a country in step 1').replace('<select id="crpLider"', '<select id="crpLider" onchange="edCrearProyectoSetField(\'lider\', this.value)"')
     +   '</div>'
     +   '<div class="cr-field">'
     +     '<div class="cr-label">Deadline <span class="req">*</span></div>'
@@ -7070,7 +7070,7 @@ function _crpRenderStep2() {
 function _crpRenderStep3() {
   var v = EDCP.values;
   var pills = '';
-  if (v.priority) pills += '<span class="ed-pill ' + esc((v.priority || '').toLowerCase()) + '">Prioridad ' + esc(v.priority) + '</span>';
+  if (v.priority) pills += '<span class="ed-pill ' + esc((v.priority || '').toLowerCase()) + '">Priority ' + esc(v.priority) + '</span>';
   if (v.riesgo) pills += '<span class="ed-pill curso">' + esc(v.riesgo) + '</span>';
   if (v.tipoTrabajo) pills += '<span class="ed-pill curso">' + esc(v.tipoTrabajo) + '</span>';
   if (v.pais) pills += '<span class="ed-pill curso">' + esc(v.pais) + '</span>';
@@ -7078,24 +7078,24 @@ function _crpRenderStep3() {
   var html = ''
     + '<div class="cr-conf-banner">'
     +   '<div class="cr-conf-mark">✓</div>'
-    +   '<div class="cr-conf-msg">Todo listo para publicar. Una vez confirmes, <b>' + esc(v.lider || 'el líder asignado') + '</b> recibirá el proyecto.</div>'
+    +   '<div class="cr-conf-msg">Ready to publish. Once you confirm, <b>' + esc(v.lider || 'the assigned lead') + '</b> will receive the project.</div>'
     + '</div>'
     + '<div class="cr-conf-section">'
-    +   '<div class="cr-conf-eye">— Resumen</div>'
-    +   '<div class="cr-conf-title">' + esc(v.nombre || 'Sin nombre') + '</div>'
+    +   '<div class="cr-conf-eye">— Summary</div>'
+    +   '<div class="cr-conf-title">' + esc(v.nombre || 'Untitled') + '</div>'
     +   (pills ? '<div class="cr-conf-pills">' + pills + '</div>' : '')
     +   '<div class="cr-conf-grid">'
-    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Líder</div><div class="cr-conf-val">' + esc(v.lider || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Lead</div><div class="cr-conf-val">' + esc(v.lider || '—') + '</div></div>'
     +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Deadline</div><div class="cr-conf-val">' + esc(v.deadline || '—') + '</div></div>'
-    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">País</div><div class="cr-conf-val">' + esc(v.pais || '—') + '</div></div>'
-    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Prioridad</div><div class="cr-conf-val">' + esc(v.priority || '—') + '</div></div>'
-    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Tipo</div><div class="cr-conf-val">' + esc(v.tipoTrabajo || '—') + '</div></div>'
-    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Riesgo</div><div class="cr-conf-val">' + esc(v.riesgo || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Country</div><div class="cr-conf-val">' + esc(v.pais || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Priority</div><div class="cr-conf-val">' + esc(v.priority || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Type</div><div class="cr-conf-val">' + esc(v.tipoTrabajo || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Risk</div><div class="cr-conf-val">' + esc(v.riesgo || '—') + '</div></div>'
     +   '</div>'
     + '</div>';
   if (v.descripcion) {
     html += '<div class="cr-conf-section">'
-         +   '<div class="cr-conf-eye">— Descripción</div>'
+         +   '<div class="cr-conf-eye">— Description</div>'
          +   '<div class="cr-conf-desc">' + esc(v.descripcion) + '</div>'
          + '</div>';
   }
@@ -7105,14 +7105,14 @@ function _crpRenderStep3() {
 function _crpRender(step) {
   var s = step || EDCP.step || 1;
   var titles = {
-    1: 'Empecemos por lo esencial',
-    2: 'Detalles, líder y deadline',
-    3: 'Listo para publicar'
+    1: 'Start with the essentials',
+    2: 'Details, lead and deadline',
+    3: 'Ready to publish'
   };
   var infos = {
-    1: 'Próximo paso: <b>tipo, riesgo, líder y deadline.</b>',
-    2: 'Cuando estés listo, te llevamos a la revisión final antes de publicar.',
-    3: 'Última revisión. Cuando confirmes, el proyecto se crea.'
+    1: 'Next: <b>type, risk, lead and deadline.</b>',
+    2: 'When you\'re ready, we\'ll take you to the final review before publishing.',
+    3: 'Final review. Once you confirm, the project is created.'
   };
   var bodyHtml;
   if (s === 1) bodyHtml = _crpRenderStep1();
@@ -7121,30 +7121,30 @@ function _crpRender(step) {
 
   var footBtns = '';
   if (s === 1) {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoClose()">Cancelar</button>'
-             + '<button type="button" class="ed-btn accent" onclick="edCrearProyectoGoStep(2)">Continuar →</button>';
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoClose()">Cancel</button>'
+             + '<button type="button" class="ed-btn accent" onclick="edCrearProyectoGoStep(2)">Continue →</button>';
   } else if (s === 2) {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoGoStep(1)">← Volver</button>'
-             + '<button type="button" class="ed-btn accent" onclick="edCrearProyectoGoStep(3)">Revisar y publicar →</button>';
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoGoStep(1)">← Back</button>'
+             + '<button type="button" class="ed-btn accent" onclick="edCrearProyectoGoStep(3)">Review and publish →</button>';
   } else {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoGoStep(2)">← Editar</button>'
-             + '<button type="button" class="ed-btn accent" id="crpSubmit" onclick="edCrearProyectoSubmit()">Publicar proyecto</button>';
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoGoStep(2)">← Edit</button>'
+             + '<button type="button" class="ed-btn accent" id="crpSubmit" onclick="edCrearProyectoSubmit()">Publish project</button>';
   }
 
   return '<div class="cr-overlay" onclick="if(event.target===this)edCrearProyectoClose()">'
        +   '<div class="cr-backdrop" onclick="edCrearProyectoClose()"></div>'
-       +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Crear proyecto">'
+       +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Create project">'
        +     '<div class="cr-head">'
        +       '<div>'
-       +         '<div class="cr-eye">— Crear nuevo proyecto</div>'
+       +         '<div class="cr-eye">— Create new project</div>'
        +         '<div class="cr-title">' + esc(titles[s] || '') + '</div>'
        +       '</div>'
-       +       '<button type="button" class="cr-x" onclick="edCrearProyectoClose()" aria-label="Cerrar">×</button>'
+       +       '<button type="button" class="cr-x" onclick="edCrearProyectoClose()" aria-label="Close">×</button>'
        +     '</div>'
        +     '<div class="cr-steps">'
-       +       '<div class="' + _crStepClasses(1, s) + '"><span class="cr-step-num">01</span> Esencial</div>'
-       +       '<div class="' + _crStepClasses(2, s) + '"><span class="cr-step-num">02</span> Detalles</div>'
-       +       '<div class="' + _crStepClasses(3, s) + '"><span class="cr-step-num">03</span> Confirmar</div>'
+       +       '<div class="' + _crStepClasses(1, s) + '"><span class="cr-step-num">01</span> Essentials</div>'
+       +       '<div class="' + _crStepClasses(2, s) + '"><span class="cr-step-num">02</span> Details</div>'
+       +       '<div class="' + _crStepClasses(3, s) + '"><span class="cr-step-num">03</span> Confirm</div>'
        +     '</div>'
        +     '<div class="cr-body">' + bodyHtml + '</div>'
        +     '<div class="cr-foot">'
@@ -7239,7 +7239,7 @@ function edCrearProyectoSubmit() {
       if (typeof hideLoader === 'function') hideLoader();
       if (btn) btn.disabled = false;
       if (res && res.success) {
-        toast('Proyecto #' + res.id + ' creado', 'success');
+        toast('Project #' + res.id + ' created', 'success');
         try { localStorage.removeItem('lt-edcp-draft'); } catch(e){}
         edCrearProyectoClose();
         if (typeof reload === 'function') reload();
