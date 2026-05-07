@@ -1046,7 +1046,7 @@ function reopenEditWithFreshData() {
         else if (kind === 'project') openEditProj(id);
       }
     })
-    .withFailureHandler(function(e){ hideLoader(); toast('Error al refrescar: ' + e.message, 'error'); })
+    .withFailureHandler(function(e){ hideLoader(); toast('Refresh error: ' + e.message, 'error'); })
     .getTrackerData();
 }
 
@@ -1600,7 +1600,7 @@ function reload() {
       }
       hideLoader();
     })
-    .withFailureHandler(function(e){ hideLoader(); toast('Error al recargar: ' + e.message, 'error'); })
+    .withFailureHandler(function(e){ hideLoader(); toast('Reload error: ' + e.message, 'error'); })
     .getEditorialData();
 }
 // ═══ USER SESSION ═══
@@ -3992,7 +3992,7 @@ function _edReasignarRender() {
   var hasCurrent = candidates.some(function(m){ return m.name === currentResp; });
   var optsHtml = '';
   if (currentResp && !hasCurrent) {
-    optsHtml += '<option value="' + esc(currentResp) + '">' + esc(currentResp) + ' (actual)</option>';
+    optsHtml += '<option value="' + esc(currentResp) + '">' + esc(currentResp) + ' (current)</option>';
   }
   optsHtml += candidates.map(function(m){
     var sel = (m.name === currentResp) ? ' selected' : '';
@@ -4000,41 +4000,41 @@ function _edReasignarRender() {
     return '<option value="' + esc(m.name) + '"' + sel + '>' + esc(m.name) + esc(ctry) + '</option>';
   }).join('');
   if (!optsHtml) {
-    optsHtml = '<option value="" disabled selected>Sin responsables disponibles</option>';
+    optsHtml = '<option value="" disabled selected>No owners available</option>';
   }
 
   host.innerHTML = ''
     + '<div class="cr-overlay" onclick="if(event.target===this)edReasignarClose()">'
     +   '<div class="cr-backdrop" onclick="edReasignarClose()"></div>'
-    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Reasignar tarea" style="max-width:520px">'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Reassign task" style="max-width:520px">'
     +     '<div class="cr-head">'
     +       '<div>'
-    +         '<div class="cr-eye">— Reasignar tarea</div>'
+    +         '<div class="cr-eye">— Reassign task</div>'
     +         '<div class="cr-title">' + esc(task.id) + ' · ' + esc(task.nombre || '') + '</div>'
     +       '</div>'
-    +       '<button type="button" class="cr-x" onclick="edReasignarClose()" aria-label="Cerrar">×</button>'
+    +       '<button type="button" class="cr-x" onclick="edReasignarClose()" aria-label="Close">×</button>'
     +     '</div>'
     +     '<div class="cr-body">'
     +       '<div class="cr-field">'
-    +         '<div class="cr-label">Responsable actual</div>'
+    +         '<div class="cr-label">Current owner</div>'
     +         '<div style="font-size:14px;color:var(--ink);font-weight:600">' + esc(currentResp || '—') + '</div>'
     +       '</div>'
     +       '<div class="cr-field">'
-    +         '<div class="cr-label">Reasignar a <span class="req">*</span></div>'
+    +         '<div class="cr-label">Reassign to <span class="req">*</span></div>'
     +         '<select id="edReasignarSel" class="cr-input" onchange="edReasignarSetValue(this.value)">'
     +           optsHtml
     +         '</select>'
     +         '<div class="cr-foot-info" style="margin-top:8px;padding:0">'
     + (role === 'manager'
-        ? 'Sólo podés reasignar dentro de tu equipo (' + esc(_effectiveUserCode() || '—') + ').'
-        : 'Como Head podés reasignar a cualquier miembro del roster.')
+        ? 'You can only reassign within your team (' + esc(_effectiveUserCode() || '—') + ').'
+        : 'As HQ you can reassign to any member of the roster.')
     +         '</div>'
     +       '</div>'
     +     '</div>'
     +     '<div class="cr-foot">'
-    +       '<div class="cr-foot-info">El backend valida los permisos antes de aplicar el cambio.</div>'
-    +       '<button type="button" class="ed-btn" onclick="edReasignarClose()">Cancelar</button>'
-    +       '<button type="button" class="ed-btn accent" onclick="edReasignarConfirm()">Confirmar</button>'
+    +       '<div class="cr-foot-info">The backend validates permissions before applying the change.</div>'
+    +       '<button type="button" class="ed-btn" onclick="edReasignarClose()">Cancel</button>'
+    +       '<button type="button" class="ed-btn accent" onclick="edReasignarConfirm()">Confirm</button>'
     +     '</div>'
     +   '</div>'
     + '</div>';
@@ -4049,7 +4049,7 @@ function _edReasignarRender() {
 function edReasignarOpen(taskId) {
   var role = _effectiveRole();
   if (role !== 'manager' && role !== 'head') {
-    if (typeof toast === 'function') toast('No tenés permisos para reasignar.', 'error');
+    if (typeof toast === 'function') toast('You don\'t have permission to reassign.', 'error');
     return;
   }
   EDR.taskId = taskId;
@@ -4070,7 +4070,7 @@ function edReasignarConfirm() {
   var newResp = EDR.value;
   if (!taskId) { edReasignarClose(); return; }
   if (!newResp) {
-    if (typeof toast === 'function') toast('Seleccioná un responsable.', 'error');
+    if (typeof toast === 'function') toast('Pick an owner.', 'error');
     return;
   }
   var task = (D && D.tasks || []).find(function(t){ return t.id == taskId; });
@@ -4083,11 +4083,11 @@ function edReasignarConfirm() {
     .withSuccessHandler(function(r){
       if (typeof hideLoader === 'function') hideLoader();
       if (r && r.success) {
-        if (typeof toast === 'function') toast('✅ Reasignada a ' + newResp, 'success');
+        if (typeof toast === 'function') toast('✅ Reassigned to ' + newResp, 'success');
         edReasignarClose();
         if (typeof reload === 'function') reload();
       } else {
-        if (typeof toast === 'function') toast('Error: ' + ((r && r.error) || 'no se pudo reasignar'), 'error');
+        if (typeof toast === 'function') toast('Error: ' + ((r && r.error) || 'could not reassign'), 'error');
       }
     })
     .withFailureHandler(function(e){
@@ -4251,21 +4251,21 @@ function _buildEdTimeline(t) {
   // Timeline sintética desde campos disponibles. No tocamos backend en Fase 1.
   var items = [];
   if (typeof t.etaDays === 'number' && t.etaDays < 0) {
-    items.push({ when: 'Hoy', what: 'Sistema marcó <b>vencida</b>. Revisá próxima acción.', dot: 'crit' });
+    items.push({ when: 'Today', what: 'Marked <b>overdue</b>. Review next action.', dot: 'crit' });
   } else if (t.etaDays === 0) {
-    items.push({ when: 'Hoy', what: '<b>Vence hoy.</b> Cerrar antes de fin de día.', dot: 'crit' });
+    items.push({ when: 'Today', what: '<b>Due today.</b> Close before end of day.', dot: 'crit' });
   }
   if (t.status === 'Bloqueado' && t.blockedReason) {
-    items.push({ when: '—', what: 'Estado: <b>Bloqueado</b> · ' + esc(t.blockedReason), dot: 'crit' });
+    items.push({ when: '—', what: 'Status: <b>Blocked</b> · ' + esc(t.blockedReason), dot: 'crit' });
   }
   if (t.cerrado) {
-    items.push({ when: t.cerrado, what: 'Tarea <b>cerrada</b>.', dot: 'good' });
+    items.push({ when: t.cerrado, what: 'Task <b>closed</b>.', dot: 'good' });
   }
   if (t.creado) {
-    items.push({ when: t.creado, what: 'Tarea creada' + (t.resp ? ' · asignada a <b>' + esc(t.resp) + '</b>' : ''), dot: 'info' });
+    items.push({ when: t.creado, what: 'Task created' + (t.resp ? ' · assigned to <b>' + esc(t.resp) + '</b>' : ''), dot: 'info' });
   }
   if (items.length === 0) {
-    items.push({ when: '—', what: 'Sin actividad registrada.', dot: 'info' });
+    items.push({ when: '—', what: 'No activity recorded.', dot: 'info' });
   }
   return items;
 }
@@ -4735,9 +4735,9 @@ function _uaRenderOptions(variant) {
          + '</button>';
   }
   return '<div class="ua-options">'
-       +    opt('avanzar',  'Avanzar',  '→ siguiente')
-       +    opt('cerrar',   'Cerrar',   'Marcar lista')
-       +    opt('bloquear', 'Bloquear', 'Por dependencia')
+       +    opt('avanzar',  'Advance', '→ next status')
+       +    opt('cerrar',   'Close',   'Mark as done')
+       +    opt('bloquear', 'Block',   'Waiting on something')
        + '</div>';
 }
 
@@ -4746,8 +4746,8 @@ function _uaRenderActionCard(variant, task) {
     return '<div class="ua-action cerrar">'
          +   '<div class="ua-action-mark">✓</div>'
          +   '<div>'
-         +     '<div class="ua-action-h">Estás a punto de cerrar esta tarea.</div>'
-         +     '<div class="ua-action-sub">Pasará a <b>Historial</b> con tu resumen como cierre.</div>'
+         +     '<div class="ua-action-h">You\'re about to close this task.</div>'
+         +     '<div class="ua-action-sub">It moves to <b>History</b> with your summary as the closing note.</div>'
          +   '</div>'
          + '</div>';
   }
@@ -4755,8 +4755,8 @@ function _uaRenderActionCard(variant, task) {
     return '<div class="ua-action bloquear">'
          +   '<div class="ua-action-mark">!</div>'
          +   '<div>'
-         +     '<div class="ua-action-h">Marcar tarea como bloqueada.</div>'
-         +     '<div class="ua-action-sub">La tarea queda en pausa con la razón documentada. <b>No consume capacidad activa</b> mientras esté bloqueada.</div>'
+         +     '<div class="ua-action-h">Mark task as blocked.</div>'
+         +     '<div class="ua-action-sub">The task is paused with the reason documented. <b>It doesn\'t consume active capacity</b> while blocked.</div>'
          +   '</div>'
          + '</div>';
   }
@@ -4764,8 +4764,8 @@ function _uaRenderActionCard(variant, task) {
   return '<div class="ua-action avanzar">'
        +   '<div class="ua-action-mark">→</div>'
        +   '<div>'
-       +     '<div class="ua-action-h">Avanzar a <em>' + esc(next) + '</em>.</div>'
-       +     '<div class="ua-action-sub">Cambia el estado al siguiente paso del flujo. Podés agregar una nota opcional para contexto.</div>'
+       +     '<div class="ua-action-h">Advance to <em>' + esc(next) + '</em>.</div>'
+       +     '<div class="ua-action-sub">Move to the next step in the flow. You can add an optional note for context.</div>'
        +   '</div>'
        + '</div>';
 }
@@ -4782,12 +4782,12 @@ function _uaRenderConfField(task) {
          + 'onclick="edUSetConf(\'' + lvl + '\')">' + esc(meta.label) + '</button>';
   }
   var hint = sel
-    ? 'Cambiará a <b>' + esc(ED_CONF_LEVELS[sel].label) + '</b>. Click otra vez para desmarcar.'
-    : 'Actual: <b>' + esc(ED_CONF_LEVELS[current].label) + '</b>. Click un nivel para cambiarlo.';
+    ? 'Will change to <b>' + esc(ED_CONF_LEVELS[sel].label) + '</b>. Click again to unselect.'
+    : 'Current: <b>' + esc(ED_CONF_LEVELS[current].label) + '</b>. Click a level to change it.';
   return '<div class="ua-field">'
-       +   '<div class="ua-label">Cambiar confidencialidad <span class="opt">(opcional)</span></div>'
+       +   '<div class="ua-label">Change confidentiality <span class="opt">(optional)</span></div>'
        +   '<div class="cr-pills-row">' + pill('estandar') + pill('restringido') + pill('confidencial') + '</div>'
-       +   '<div style="font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.45">' + hint + '</div>'
+       +   '<div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.45">' + hint + '</div>'
        + '</div>';
 }
 
@@ -4796,18 +4796,18 @@ function _uaRenderBody(task, variant) {
   var fieldHtml;
   if (variant === 'cerrar') {
     fieldHtml = '<div class="ua-field">'
-              +   '<div class="ua-label">¿Qué se hizo? <span class="req">*</span></div>'
-              +   '<textarea class="ua-input ua-textarea" id="uaResumen" placeholder="Resumen breve de cómo se cerró"></textarea>'
+              +   '<div class="ua-label">What was done? <span class="req">*</span></div>'
+              +   '<textarea class="ua-input ua-textarea" id="uaResumen" placeholder="Quick summary of how it was closed"></textarea>'
               + '</div>';
   } else if (variant === 'bloquear') {
     fieldHtml = '<div class="ua-field">'
-              +   '<div class="ua-label">¿Qué te bloquea? <span class="req">*</span></div>'
-              +   '<textarea class="ua-input ua-textarea" id="uaRazon" placeholder="Ej: RR.HH. lleva 4 días sin responder."></textarea>'
+              +   '<div class="ua-label">What\'s blocking you? <span class="req">*</span></div>'
+              +   '<textarea class="ua-input ua-textarea" id="uaRazon" placeholder="e.g. HR hasn\'t responded in 4 days."></textarea>'
               + '</div>';
   } else {
     fieldHtml = '<div class="ua-field">'
-              +   '<div class="ua-label">Nota para el siguiente paso <span class="opt">(opcional)</span></div>'
-              +   '<textarea class="ua-input ua-textarea" id="uaNota" placeholder="Ej: revisar especialmente cláusula 7.2."></textarea>'
+              +   '<div class="ua-label">Note for the next step <span class="opt">(optional)</span></div>'
+              +   '<textarea class="ua-input ua-textarea" id="uaNota" placeholder="e.g. pay special attention to clause 7.2."></textarea>'
               + '</div>';
   }
   // Confidencialidad opcional sólo en cerrar/bloquear (avanzar es transición de estado pura)
@@ -4818,18 +4818,18 @@ function _uaRenderBody(task, variant) {
 function _uaRenderFoot(variant) {
   var info, btn;
   if (variant === 'cerrar') {
-    info = '<b>Al cerrar:</b> queda en historial · libera 1 slot en tu carga.';
-    btn = 'Cerrar tarea ✓';
+    info = '<b>On close:</b> moves to history · frees 1 slot in your load.';
+    btn = 'Close task ✓';
   } else if (variant === 'bloquear') {
-    info = '<b>Al bloquear:</b> la tarea no consume tu capacidad activa.';
-    btn = 'Marcar bloqueada';
+    info = '<b>On block:</b> the task no longer consumes your active capacity.';
+    btn = 'Mark blocked';
   } else {
-    info = '<b>Al avanzar:</b> la tarea cambia al siguiente estado del flujo.';
-    btn = 'Avanzar →';
+    info = '<b>On advance:</b> the task moves to the next status.';
+    btn = 'Advance →';
   }
   return '<div class="ua-foot">'
        +   '<div class="ua-foot-info">' + info + '</div>'
-       +   '<button type="button" class="ed-btn" onclick="edUClose()">Cancelar</button>'
+       +   '<button type="button" class="ed-btn" onclick="edUClose()">Cancel</button>'
        +   '<button type="button" class="ed-btn accent" onclick="edUSubmit()">' + esc(btn) + '</button>'
        + '</div>';
 }
@@ -4838,10 +4838,10 @@ function _uaRender(task, variant) {
   var pn = _projNameForTask(task);
   return '<div class="ua-overlay" onclick="if(event.target===this)edUClose()">'
        +   '<div class="ua-backdrop" onclick="edUClose()"></div>'
-       +   '<aside class="ua-panel" role="dialog" aria-modal="true" aria-label="Actualizar tarea">'
+       +   '<aside class="ua-panel" role="dialog" aria-modal="true" aria-label="Update task">'
        +     '<div class="ua-head">'
-       +       '<button type="button" class="ua-x" onclick="edUClose()" aria-label="Cerrar">×</button>'
-       +       '<div class="ua-eye">— Actualizar estado</div>'
+       +       '<button type="button" class="ua-x" onclick="edUClose()" aria-label="Close">×</button>'
+       +       '<div class="ua-eye">— Update status</div>'
        +       '<div class="ua-id">' + esc(task.id + ' · ' + pn) + '</div>'
        +       '<div class="ua-title">' + esc(task.nombre || '') + '</div>'
        +     '</div>'
@@ -4887,12 +4887,12 @@ function edUSubmit() {
   var fields = {};
   if (EDU.variant === 'cerrar') {
     var resumen = ($('uaResumen') && $('uaResumen').value || '').trim();
-    if (!resumen) { if (typeof toast === 'function') toast('Resumen requerido para cerrar', 'error'); return; }
+    if (!resumen) { if (typeof toast === 'function') toast('Summary required to close', 'error'); return; }
     fields.status = 'Listo';
     fields.notas = 'CIERRE: ' + resumen;
   } else if (EDU.variant === 'bloquear') {
     var razon = ($('uaRazon') && $('uaRazon').value || '').trim();
-    if (!razon) { if (typeof toast === 'function') toast('Razón requerida para bloquear', 'error'); return; }
+    if (!razon) { if (typeof toast === 'function') toast('Reason required to block', 'error'); return; }
     fields.status = 'Bloqueado';
     fields.notas = razon;
   } else {
@@ -4900,7 +4900,7 @@ function edUSubmit() {
     // para pedir resumen y respetar la validación de cierre.
     var next = _uaNextStatus(task.status);
     if (next === 'Listo') {
-      if (typeof toast === 'function') toast('Para cerrar la tarea, completá el resumen.', 'info');
+      if (typeof toast === 'function') toast('To close the task, complete the summary.', 'info');
       edUSwitchVariant('cerrar');
       return;
     }
@@ -4922,7 +4922,7 @@ function edUSubmit() {
     .withSuccessHandler(function(res) {
       if (typeof hideLoader === 'function') hideLoader();
       if (res && res.success === false) { if (typeof toast === 'function') toast(res.error || 'Error', 'error'); return; }
-      var msg = submittedVariant === 'cerrar' ? 'Tarea cerrada' : submittedVariant === 'bloquear' ? 'Tarea bloqueada' : 'Tarea avanzada';
+      var msg = submittedVariant === 'cerrar' ? 'Task closed' : submittedVariant === 'bloquear' ? 'Task blocked' : 'Task advanced';
       if (typeof toast === 'function') toast(msg, 'success');
       edUClose();
       google.script.run.withSuccessHandler(function(fresh) {
@@ -4944,7 +4944,7 @@ function edUSubmit() {
       }).withFailureHandler(function(e) {
         console.error(e);
         if (typeof hideLoader === 'function') hideLoader();
-        if (typeof toast === 'function') toast('Error al refrescar: ' + (e && e.message || 'desconocido'), 'error');
+        if (typeof toast === 'function') toast('Refresh error: ' + (e && e.message || 'unknown'), 'error');
       }).getEditorialData();
     })
     .withFailureHandler(function(e) {
@@ -5083,25 +5083,25 @@ function _crRenderStep1() {
   var v = EDC.values;
   return ''
     + '<div class="cr-field">'
-    +   '<div class="cr-label">Título de la tarea <span class="req">*</span></div>'
+    +   '<div class="cr-label">Task title <span class="req">*</span></div>'
     +   '<input class="cr-input title" id="crTitulo" maxlength="120" '
-    +     'placeholder="Ej: Revisar contrato proveedor logística — Bogotá" '
+    +     'placeholder="e.g. Review supplier contract — Bogotá" '
     +     'value="' + esc(v.titulo) + '" '
     +     'oninput="edCrearSetField(\'titulo\', this.value)">'
     + '</div>'
     + '<div class="cr-field">'
-    +   '<div class="cr-label">Descripción / contexto</div>'
+    +   '<div class="cr-label">Description / context</div>'
     +   '<textarea class="cr-input cr-textarea" id="crDesc" '
-    +     'placeholder="Contexto, objetivos, links relevantes…" '
+    +     'placeholder="Context, goals, relevant links…" '
     +     'oninput="edCrearSetField(\'descripcion\', this.value)">' + esc(v.descripcion) + '</textarea>'
     + '</div>'
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
-    +     '<div class="cr-label">Tipo <span class="req">*</span></div>'
+    +     '<div class="cr-label">Type <span class="req">*</span></div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('tipo', _CR_TIPOS, v.tipo) + '</div>'
     +   '</div>'
     +   '<div class="cr-field">'
-    +     '<div class="cr-label">País <span class="req">*</span></div>'
+    +     '<div class="cr-label">Country <span class="req">*</span></div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
     +   '</div>'
     + '</div>';
@@ -5116,18 +5116,18 @@ function _crRenderStep2() {
   return ''
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
-    +     '<div class="cr-label">Prioridad</div>'
+    +     '<div class="cr-label">Priority</div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('prioridad', _CR_PRIOS, v.prioridad, _crPrioMod) + '</div>'
     +   '</div>'
     +   '<div class="cr-field">'
-    +     '<div class="cr-label">Nivel de riesgo</div>'
+    +     '<div class="cr-label">Risk level</div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('riesgo', _CR_RIESGOS, v.riesgo, _crRiesgoMod) + '</div>'
     +   '</div>'
     + '</div>'
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
-    +     '<div class="cr-label">Responsable <span class="req">*</span></div>'
-    +     _crSelectHtml('crResp', resp, v.resp, 'Seleccionar…').replace('<select id="crResp"', '<select id="crResp" onchange="edCrearSetField(\'resp\', this.value)"')
+    +     '<div class="cr-label">Owner <span class="req">*</span></div>'
+    +     _crSelectHtml('crResp', resp, v.resp, 'Select…').replace('<select id="crResp"', '<select id="crResp" onchange="edCrearSetField(\'resp\', this.value)"')
     +   '</div>'
     +   '<div class="cr-field">'
     +     '<div class="cr-label">Deadline <span class="req">*</span></div>'
@@ -5136,20 +5136,20 @@ function _crRenderStep2() {
     +   '</div>'
     + '</div>'
     + '<div class="cr-field">'
-    +   '<div class="cr-label">Vincular a proyecto</div>'
-    +   _crSelectHtml('crProj', projs, v.proyectoId, 'Sin proyecto').replace('<select id="crProj"', '<select id="crProj" onchange="edCrearSetField(\'proyectoId\', this.value)"')
+    +   '<div class="cr-label">Link to project</div>'
+    +   _crSelectHtml('crProj', projs, v.proyectoId, 'No project').replace('<select id="crProj"', '<select id="crProj" onchange="edCrearSetField(\'proyectoId\', this.value)"')
     + '</div>'
     + '<div class="cr-field">'
-    +   '<div class="cr-label">Confidencialidad</div>'
+    +   '<div class="cr-label">Confidentiality</div>'
     +   '<div class="cr-pills-row">' + _crPillsHtml('confidencialidad', _CR_CONF_OPTS, confLvl, _crConfMod) + '</div>'
-    +   '<div style="font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.45">' + esc(confDesc) + '</div>'
+    +   '<div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.45">' + esc(confDesc) + '</div>'
     + '</div>';
 }
 
 function _crRenderStep3() {
   var v = EDC.values;
   var pills = '';
-  if (v.prioridad) pills += '<span class="ed-pill ' + esc((v.prioridad || '').toLowerCase()) + '">Prioridad ' + esc(v.prioridad) + '</span>';
+  if (v.prioridad) pills += '<span class="ed-pill ' + esc((v.prioridad || '').toLowerCase()) + '">Priority ' + esc(v.prioridad) + '</span>';
   if (v.riesgo) pills += '<span class="ed-pill curso">' + esc(v.riesgo) + '</span>';
   if (v.tipo) pills += '<span class="ed-pill curso">' + esc(v.tipo) + '</span>';
   if (v.pais) pills += '<span class="ed-pill curso">' + esc(v.pais) + '</span>';
@@ -5159,24 +5159,24 @@ function _crRenderStep3() {
   var html = ''
     + '<div class="cr-conf-banner">'
     +   '<div class="cr-conf-mark">✓</div>'
-    +   '<div class="cr-conf-msg">Todo listo para publicar. Una vez confirmes, <b>' + esc(v.resp || 'el responsable') + '</b> recibirá la tarea.</div>'
+    +   '<div class="cr-conf-msg">Ready to publish. Once you confirm, <b>' + esc(v.resp || 'the owner') + '</b> will receive the task.</div>'
     + '</div>'
     + '<div class="cr-conf-section">'
-    +   '<div class="cr-conf-eye">— Resumen</div>'
-    +   '<div class="cr-conf-title">' + esc(v.titulo || 'Sin título') + '</div>'
+    +   '<div class="cr-conf-eye">— Summary</div>'
+    +   '<div class="cr-conf-title">' + esc(v.titulo || 'Untitled') + '</div>'
     +   (pills ? '<div class="cr-conf-pills">' + pills + '</div>' : '')
     +   '<div class="cr-conf-grid">'
-    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Responsable</div><div class="cr-conf-val">' + esc(v.resp || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Owner</div><div class="cr-conf-val">' + esc(v.resp || '—') + '</div></div>'
     +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Deadline</div><div class="cr-conf-val">' + esc(v.deadline || '—') + '</div></div>'
-    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Tipo</div><div class="cr-conf-val">' + esc(v.tipo || '—') + '</div></div>'
-    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">País</div><div class="cr-conf-val">' + esc(v.pais || '—') + '</div></div>'
-    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Proyecto</div><div class="cr-conf-val">' + esc(projName) + '</div></div>'
-    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Riesgo</div><div class="cr-conf-val">' + esc(v.riesgo || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Type</div><div class="cr-conf-val">' + esc(v.tipo || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Country</div><div class="cr-conf-val">' + esc(v.pais || '—') + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Project</div><div class="cr-conf-val">' + esc(projName) + '</div></div>'
+    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Risk</div><div class="cr-conf-val">' + esc(v.riesgo || '—') + '</div></div>'
     +   '</div>'
     + '</div>';
   if (v.descripcion) {
     html += '<div class="cr-conf-section">'
-         +   '<div class="cr-conf-eye">— Descripción</div>'
+         +   '<div class="cr-conf-eye">— Description</div>'
          +   '<div class="cr-conf-desc">' + esc(v.descripcion) + '</div>'
          + '</div>';
   }
@@ -5192,14 +5192,14 @@ function _crStepClasses(stepNum, current) {
 function _crRender(step) {
   var s = step || EDC.step || 1;
   var titles = {
-    1: 'Empecemos por lo esencial',
-    2: 'Detalles, equipo y deadline',
-    3: 'Listo para publicar'
+    1: 'Start with the essentials',
+    2: 'Details, owner and deadline',
+    3: 'Ready to publish'
   };
   var infos = {
-    1: 'Próximo paso: <b>asignación, prioridad y deadline.</b>',
-    2: 'Cuando estés listo, te llevamos a la revisión final antes de publicar.',
-    3: 'Última revisión. Cuando confirmes, la tarea se crea.'
+    1: 'Next: <b>owner, priority and deadline.</b>',
+    2: 'When you\'re ready, we\'ll take you to the final review before publishing.',
+    3: 'Final review. Once you confirm, the task is created.'
   };
   var bodyHtml;
   if (s === 1) bodyHtml = _crRenderStep1();
@@ -5208,30 +5208,30 @@ function _crRender(step) {
 
   var footBtns = '';
   if (s === 1) {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearClose()">Cancelar</button>'
-             + '<button type="button" class="ed-btn accent" onclick="edCrearGoStep(2)">Continuar →</button>';
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearClose()">Cancel</button>'
+             + '<button type="button" class="ed-btn accent" onclick="edCrearGoStep(2)">Continue →</button>';
   } else if (s === 2) {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearGoStep(1)">← Volver</button>'
-             + '<button type="button" class="ed-btn accent" onclick="edCrearGoStep(3)">Revisar y publicar →</button>';
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearGoStep(1)">← Back</button>'
+             + '<button type="button" class="ed-btn accent" onclick="edCrearGoStep(3)">Review and publish →</button>';
   } else {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearGoStep(2)">← Editar</button>'
-             + '<button type="button" class="ed-btn accent" id="crSubmit" onclick="edCrearSubmit()">Publicar tarea</button>';
+    footBtns = '<button type="button" class="ed-btn" onclick="edCrearGoStep(2)">← Edit</button>'
+             + '<button type="button" class="ed-btn accent" id="crSubmit" onclick="edCrearSubmit()">Publish task</button>';
   }
 
   return '<div class="cr-overlay" onclick="if(event.target===this)edCrearClose()">'
        +   '<div class="cr-backdrop" onclick="edCrearClose()"></div>'
-       +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Crear tarea">'
+       +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Create task">'
        +     '<div class="cr-head">'
        +       '<div>'
-       +         '<div class="cr-eye">— Crear nueva tarea</div>'
+       +         '<div class="cr-eye">— Create new task</div>'
        +         '<div class="cr-title">' + esc(titles[s] || '') + '</div>'
        +       '</div>'
-       +       '<button type="button" class="cr-x" onclick="edCrearClose()" aria-label="Cerrar">×</button>'
+       +       '<button type="button" class="cr-x" onclick="edCrearClose()" aria-label="Close">×</button>'
        +     '</div>'
        +     '<div class="cr-steps">'
-       +       '<div class="' + _crStepClasses(1, s) + '"><span class="cr-step-num">01</span> Esencial</div>'
-       +       '<div class="' + _crStepClasses(2, s) + '"><span class="cr-step-num">02</span> Detalles</div>'
-       +       '<div class="' + _crStepClasses(3, s) + '"><span class="cr-step-num">03</span> Confirmar</div>'
+       +       '<div class="' + _crStepClasses(1, s) + '"><span class="cr-step-num">01</span> Essentials</div>'
+       +       '<div class="' + _crStepClasses(2, s) + '"><span class="cr-step-num">02</span> Details</div>'
+       +       '<div class="' + _crStepClasses(3, s) + '"><span class="cr-step-num">03</span> Confirm</div>'
        +     '</div>'
        +     '<div class="cr-body">' + bodyHtml + '</div>'
        +     '<div class="cr-foot">'
@@ -6146,9 +6146,9 @@ function rEdMiequipo(D) {
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : ((USER && USER.role) || 'specialist');
   if (role !== 'manager' && role !== 'head') {
     v.innerHTML = ''
-      + '<div class="ed-eye">Sin acceso</div>'
-      + '<h1 class="ed-h1">Esta vista es para <em>manager o head</em>.</h1>'
-      + '<p class="ed-lede">Si pensás que esto es un error, avisale a quien te dio acceso.</p>';
+      + '<div class="ed-eye">No access</div>'
+      + '<h1 class="ed-h1">This view is for <em>manager or head</em>.</h1>'
+      + '<p class="ed-lede">If you think this is an error, ping whoever set up your access.</p>';
     return;
   }
 
@@ -6191,20 +6191,20 @@ function rEdMiequipo(D) {
   // ── Eyebrow + H1 + Lede ───────────────────────────────────────
   var eyebrow, h1, ledeBits = [];
   if (role === 'manager') {
-    eyebrow = 'Equipo' + (userCode ? ' · ' + userCode : '');
-    h1 = 'Tu equipo, <em>' + visible.length + ' '
-       + (visible.length === 1 ? 'persona' : 'personas') + '</em>.';
-    ledeBits.push('Carga promedio <b>' + (totalCap ? loadPct + '%' : '—') + '</b>');
-    if (totalOver) ledeBits.push('<span class="crit">' + totalOver + ' vencida' + (totalOver === 1 ? '' : 's') + '</span> en el equipo');
-    if (atRisk)    ledeBits.push('<b>' + atRisk + '</b> ' + (atRisk === 1 ? 'persona' : 'personas') + ' en riesgo');
-    if (ledeBits.length === 0) ledeBits.push('Sin alertas — el equipo está al día');
+    eyebrow = 'Team' + (userCode ? ' · ' + userCode : '');
+    h1 = 'Your team, <em>' + visible.length + ' '
+       + (visible.length === 1 ? 'person' : 'people') + '</em>.';
+    ledeBits.push('Avg load <b>' + (totalCap ? loadPct + '%' : '—') + '</b>');
+    if (totalOver) ledeBits.push('<span class="crit">' + totalOver + ' overdue</span> across the team');
+    if (atRisk)    ledeBits.push('<b>' + atRisk + '</b> ' + (atRisk === 1 ? 'person' : 'people') + ' at risk');
+    if (ledeBits.length === 0) ledeBits.push('No alerts — team is on track');
   } else {
-    eyebrow = 'Equipos LATAM · ' + countries.length + ' país' + (countries.length === 1 ? '' : 'es');
-    h1 = '<em>' + countries.length + ' equipos</em> activos<br>en LATAM.';
-    ledeBits.push('<b>' + visible.length + '</b> ' + (visible.length === 1 ? 'persona' : 'personas') + ' en total');
-    ledeBits.push('utilización <b>' + (totalCap ? loadPct + '%' : '—') + '</b>');
-    if (totalOver) ledeBits.push('<span class="crit">' + totalOver + ' vencida' + (totalOver === 1 ? '' : 's') + '</span>');
-    if (atRisk)    ledeBits.push('<b>' + atRisk + '</b> en riesgo');
+    eyebrow = 'LATAM teams · ' + countries.length + ' countr' + (countries.length === 1 ? 'y' : 'ies');
+    h1 = '<em>' + countries.length + ' teams</em> active<br>across LATAM.';
+    ledeBits.push('<b>' + visible.length + '</b> ' + (visible.length === 1 ? 'person' : 'people') + ' in total');
+    ledeBits.push('utilization <b>' + (totalCap ? loadPct + '%' : '—') + '</b>');
+    if (totalOver) ledeBits.push('<span class="crit">' + totalOver + ' overdue</span>');
+    if (atRisk)    ledeBits.push('<b>' + atRisk + '</b> at risk');
   }
 
   var html = ''
@@ -6215,42 +6215,41 @@ function rEdMiequipo(D) {
   // ── Hero stats (esp-hero, 4 cells) ────────────────────────────
   var loadCls = totalCap === 0 ? '' : (loadPct > 90 ? 'warn' : '');
   html += '<div class="esp-hero">'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">' + (role === 'manager' ? 'Personas activas' : 'Personas LATAM') + '</div>'
-       +      '<div class="esp-stat-num">' + visible.length + '</div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">' + (role === 'manager' ? 'Active people' : 'LATAM people') + '</div>'
+       +      '<div class="esp-stat-num">' + (visible.length || '—') + '</div>'
        +      '<div class="esp-stat-ctx">' + (role === 'manager'
-                ? (userCode || 'tu país')
-                : (countries.length + ' país' + (countries.length === 1 ? '' : 'es')))
+                ? (userCode || 'your country')
+                : (countries.length + ' countr' + (countries.length === 1 ? 'y' : 'ies')))
        +      '</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Carga promedio</div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Avg load</div>'
        +      '<div class="esp-stat-num ' + loadCls + '">' + (totalCap ? loadPct + '%' : '—') + '</div>'
-       +      '<div class="esp-stat-ctx">' + totalLoad + '/' + totalCap + ' capacidad</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
+       +      '<div class="esp-stat-ctx">' + totalLoad + '/' + totalCap + ' capacity</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">Overdue</div>'
        +      '<div class="esp-stat-num crit">' + (totalOver ? String(totalOver) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (totalOver ? 'reasignar' : 'al día') + '</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Bloqueadas</div>'
+       +      '<div class="esp-stat-ctx">' + (totalOver ? 'reassign' : 'all clear') + '</div></div>'
+       +    '<div class="esp-stat"><div class="esp-stat-lbl">On hold</div>'
        +      '<div class="esp-stat-num crit">' + (totalBlk ? String(totalBlk) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (totalBlk ? 'desbloquear' : '—') + '</div></div>'
+       +      '<div class="esp-stat-ctx">' + (totalBlk ? 'unblock' : '—') + '</div></div>'
        + '</div>';
 
-  // ── Empty state cálido ────────────────────────────────────────
+  // ── Empty state ───────────────────────────────────────────────
   if (visible.length === 0) {
     html += '<section class="ed-section">'
-         +    '<div class="ed-h2">— ' + (role === 'head' ? 'Equipos' : 'Tu equipo') + '</div>'
+         +    '<div class="ed-h2">— ' + (role === 'head' ? 'Teams' : 'Your team') + '</div>'
          +    '<div class="ed-lede">'
          +      (role === 'manager'
-                  ? 'No hay miembros visibles para tu país. Si esperabas ver gente acá, avisale a quien gestiona los equipos.'
-                  : 'Aún no hay equipos cargados. Sumá personas desde la hoja de Equipos.')
+                  ? 'No team members visible for your country. If you expected to see people here, ping whoever manages teams.'
+                  : 'No teams loaded yet. Add people from the Teams sheet.')
          +    '</div>'
          + '</section>';
     v.innerHTML = html;
     return;
   }
 
-  // ── Render de filas (compartido entre manager y head) ─────────
-  // Builder de una fila reutilizable. mock SLA% (— por ahora).
+  // ── Render rows (shared between manager and head) ─────────
   function _miqHeaderRow() {
     return '<div class="mgr-team-row" style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;font-weight:700">'
-         +   '<span></span><span>Persona</span><span>Carga</span><span>Vencidas</span><span>Bloqueadas</span><span>SLA mes</span>'
+         +   '<span></span><span>Person</span><span>Load</span><span>Overdue</span><span>On hold</span><span>SLA month</span>'
          + '</div>';
   }
   function _miqMemberRow(m) {
@@ -6259,10 +6258,8 @@ function rEdMiequipo(D) {
     var ov = m.overdue || 0;
     var bl = m.blocked || 0;
     var nm = esc(m.name || '');
-    // Usamos data-act para evitar problemas de quoting con nombres que
-    // contengan apóstrofos (D'Angelo, etc). El click se delega vía ACTIONS.
     return '<div class="mgr-team-row clickable" data-act="miq-open-person" data-arg="' + esc(m.name || '') + '" '
-         +   'tabindex="0" role="button" aria-label="Detalle de ' + nm + '" '
+         +   'tabindex="0" role="button" aria-label="Detail of ' + nm + '" '
          +   'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}">'
          +   '<div class="ed-foot-av" style="background:var(--accent)">' + esc(m.initials || _userInitials(m.name)) + '</div>'
          +   '<div class="mgr-team-name"><b>' + nm + '</b><span class="role">' + esc(m.country || '—') + '</span></div>'
@@ -6288,7 +6285,7 @@ function rEdMiequipo(D) {
 
   if (role === 'manager') {
     html += '<section class="ed-section">'
-         +    '<div class="ed-h2">— Tu equipo</div>'
+         +    '<div class="ed-h2">— Your team</div>'
          +    _miqHeaderRow();
     var sorted = _miqSorted(visible);
     for (var i = 0; i < sorted.length; i++) html += _miqMemberRow(sorted[i]);
@@ -6791,10 +6788,10 @@ function rEdResumen(D) {
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
   if (role !== 'head') {
     v.innerHTML = ''
-      + '<div class="ed-eye">Acceso restringido</div>'
-      + '<h1 class="ed-h1">Solo HQ <em>puede ver esta vista</em>.</h1>'
-      + '<p class="ed-lede">La vista <b>Por país</b> está reservada al rol <b>head</b>.</p>'
-      + '<div style="margin-top:18px"><button class="ed-btn primary" onclick="goEd(\'home\')">Volver a inicio →</button></div>';
+      + '<div class="ed-eye">Restricted</div>'
+      + '<h1 class="ed-h1">Only HQ <em>can see this view</em>.</h1>'
+      + '<p class="ed-lede">The <b>By country</b> view is reserved for the <b>head</b> role.</p>'
+      + '<div style="margin-top:18px"><button class="ed-btn primary" onclick="goEd(\'home\')">Back to home →</button></div>';
     return;
   }
 
@@ -6826,47 +6823,47 @@ function rEdResumen(D) {
     .filter(Boolean)
     .slice(0, 3);
   var ledeParts = [];
-  ledeParts.push('LATAM acumula <b>' + totalOpen + '</b> tareas activas');
-  if (totalOverdue > 0) ledeParts.push('<span class="crit">' + totalOverdue + ' vencidas</span>');
+  ledeParts.push('LATAM has <b>' + totalOpen + '</b> active tasks');
+  if (totalOverdue > 0) ledeParts.push('<span class="crit">' + totalOverdue + ' overdue</span>');
   var lede = ledeParts.join(' · ') + '.';
   if (briefRisk.length) {
-    lede += ' En riesgo: <span class="warn">' + briefRisk.map(esc).join(', ') + '</span>.';
+    lede += ' At risk: <span class="warn">' + briefRisk.map(esc).join(', ') + '</span>.';
   }
   if (briefShine.length) {
-    lede += ' Brillando: <span class="good">' + briefShine.map(esc).join(', ') + '</span>.';
+    lede += ' Shining: <span class="good">' + briefShine.map(esc).join(', ') + '</span>.';
   }
 
-  var sem = (D && D.semana) ? ('sem ' + D.semana) : '';
-  var eyeBits = ['Por país', countries.length + ' país' + (countries.length === 1 ? '' : 'es') + ' activos'];
+  var sem = (D && D.semana) ? ('week ' + D.semana) : '';
+  var eyeBits = ['By country', countries.length + ' active countr' + (countries.length === 1 ? 'y' : 'ies')];
   if (sem) eyeBits.push(sem);
 
   var html = ''
     + '<div class="ed-eye">' + esc(eyeBits.join(' · ')) + '</div>'
-    + '<h1 class="ed-h1">LATAM <em>en detalle</em>.</h1>'
+    + '<h1 class="ed-h1">LATAM <em>in detail</em>.</h1>'
     + '<p class="ed-lede">' + lede + '</p>'
     + '<div class="hq-hero">'
     +   '<div class="hq-stat"><div class="hq-stat-lbl">Total LATAM</div>'
-    +     '<div class="hq-stat-num">' + totalOpen + '</div>'
-    +     '<div class="hq-stat-ctx">' + countries.length + ' país' + (countries.length === 1 ? '' : 'es') + '</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Vencidas</div>'
+    +     '<div class="hq-stat-num">' + (totalOpen || '—') + '</div>'
+    +     '<div class="hq-stat-ctx">' + countries.length + ' countr' + (countries.length === 1 ? 'y' : 'ies') + '</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Overdue</div>'
     +     '<div class="hq-stat-num crit">' + (totalOverdue ? String(totalOverdue) : "—") + '</div>'
-    +     '<div class="hq-stat-ctx">' + (totalOverdue ? 'reasignar' : '—') + '</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">SLA promedio</div>'
+    +     '<div class="hq-stat-ctx">' + (totalOverdue ? 'reassign' : 'all clear') + '</div></div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Avg SLA</div>'
     +     '<div class="hq-stat-num good">' + (slaAvg || '—') + (slaAvg ? '%' : '') + '</div>'
     +     '<div class="hq-stat-ctx">LATAM</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Países en riesgo</div>'
+    +   '<div class="hq-stat"><div class="hq-stat-lbl">Countries at risk</div>'
     +     '<div class="hq-stat-num crit">' + (atRisk ? String(atRisk) : "—") + '</div>'
-    +     '<div class="hq-stat-ctx">' + (atRisk ? 'monitorear' : 'todos OK') + '</div></div>'
+    +     '<div class="hq-stat-ctx">' + (atRisk ? 'monitor' : 'all OK') + '</div></div>'
     + '</div>';
 
-  // ── Tabla por país (reusa .hq-* y la misma lógica de sparkbar slope).
+  // ── By country table
   html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Por país</div>';
+       +    '<div class="ed-h2">— By country</div>';
   if (countries.length === 0) {
-    html += '<div class="ed-lede">Sin datos de países disponibles.</div>';
+    html += '<div class="ed-lede">No country data available.</div>';
   } else {
     html += '<div class="hq-country-row" style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;font-weight:700">'
-         +    '<span></span><span>País / Líder</span><span>Abiertas</span><span>Vencidas</span><span>SLA</span><span>Tendencia 30d</span>'
+         +    '<span></span><span>Country / Lead</span><span>Open</span><span>Overdue</span><span>SLA</span><span>30d trend</span>'
          + '</div>';
     var maxTrend = countries.reduce(function(m, c){
       var arr = c.trend || [];
@@ -6932,9 +6929,9 @@ function rEdResumen(D) {
     .slice(0, 12);
 
   html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Proyectos en riesgo</div>';
+       +    '<div class="ed-h2">— Projects at risk</div>';
   if (!risky.length) {
-    html += '<div class="ed-lede">Sin proyectos en riesgo. <span class="good">Todo bajo control.</span></div>';
+    html += '<div class="ed-lede">No projects at risk. <span class="good">All under control.</span></div>';
   } else {
     for (var ri = 0; ri < risky.length; ri++) {
       var x = risky[ri];
@@ -6942,13 +6939,13 @@ function rEdResumen(D) {
       var pctTxt = x.total > 0 ? Math.round(x.pct * 100) + '%' : '—';
       var pillCls = x.pct >= 0.5 ? 'crit' : (x.pct >= 0.25 ? 'warn' : 'dim');
       html += '<div class="ed-risk-row" onclick="goEd(\'tracker\')">'
-           +    '<div class="ed-risk-name">' + esc(x.p.nombre || ('Proyecto #' + x.p.id)) + '</div>'
+           +    '<div class="ed-risk-name">' + esc(x.p.nombre || ('Project #' + x.p.id)) + '</div>'
            +    '<div class="ed-risk-meta">' + esc(pais)
            +      (x.p.responsable ? ' · ' + esc(x.p.responsable.split(' ').slice(0,2).join(' ')) : '')
-           +      ' · ' + x.total + ' activas'
+           +      ' · ' + x.total + ' active'
            +    '</div>'
            +    '<div class="hq-num crit">' + x.overdue + '</div>'
-           +    '<div class="ed-risk-pill ' + pillCls + '">' + esc(pctTxt) + ' atrasadas</div>'
+           +    '<div class="ed-risk-pill ' + pillCls + '">' + esc(pctTxt) + ' overdue</div>'
            + '</div>';
     }
   }
