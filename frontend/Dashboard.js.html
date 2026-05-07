@@ -1064,27 +1064,27 @@ function openEdit(id) {
   var prioOpts  = buildOptions([{value:'Alta',label:'🔴 Alta'},{value:'Media',label:'🟡 Media'},{value:'Baja',label:'🟢 Baja'}], t.priority);
   var statOpts  = buildOptions(ALL_STATUSES, t.status);
   var tipoOpts  = buildOptions(['Contencioso','Regulatorio','Contractual','Privacy','Operativo'], t.tipoTrabajo, 'Sin definir');
-  var riesgoOpts= buildOptions(['Legal alto','Reputacional','Operativo'], t.riesgo, 'Sin definir');
+  var riesgoOpts= buildOptions(['Legal alto','Reputacional','Operativo'], t.riesgo, 'Not set');
 
   $('editB').innerHTML =
-    '<div class="form-group" style="margin-bottom:14px"><label>Nombre</label><input type="text" id="eNom" value="' + esc(t.nombre) + '"></div>' +
+    '<div class="form-group" style="margin-bottom:14px"><label>Name</label><input type="text" id="eNom" value="' + esc(t.nombre) + '"></div>' +
     '<div class="form-3col" style="margin-bottom:14px">' +
-      '<div class="form-group"><label>Responsable</label><select id="eResp">' + rOpts + '</select></div>' +
-      '<div class="form-group"><label>Prioridad</label><select id="ePrio">' + prioOpts + '</select></div>' +
-      '<div class="form-group"><label>Estado</label><select id="eStat">' + statOpts + '</select></div>' +
+      '<div class="form-group"><label>Owner</label><select id="eResp">' + rOpts + '</select></div>' +
+      '<div class="form-group"><label>Priority</label><select id="ePrio">' + prioOpts + '</select></div>' +
+      '<div class="form-group"><label>Status</label><select id="eStat">' + statOpts + '</select></div>' +
     '</div>' +
     '<div class="form-3col" style="margin-bottom:14px">' +
-      '<div class="form-group"><label>Proyecto</label><select id="eProj">' + projOpts + '</select></div>' +
-      '<div class="form-group"><label>País</label><select id="ePais">' + pOpts + '</select></div>' +
+      '<div class="form-group"><label>Project</label><select id="eProj">' + projOpts + '</select></div>' +
+      '<div class="form-group"><label>Country</label><select id="ePais">' + pOpts + '</select></div>' +
       '<div class="form-group"><label>Deadline</label><input type="' + (t.deadlineISO ? 'date' : 'text') + '" id="eDl" value="' + esc(t.deadlineISO || t.deadline || '') + '"></div>' +
     '</div>' +
     '<div class="form-grid">' +
-      '<div class="form-group"><label>Tipo de trabajo</label><select id="eTipo">' + tipoOpts + '</select></div>' +
-      '<div class="form-group"><label>Nivel de riesgo</label><select id="eRiesgo">' + riesgoOpts + '</select></div>' +
+      '<div class="form-group"><label>Type of work</label><select id="eTipo">' + tipoOpts + '</select></div>' +
+      '<div class="form-group"><label>Risk level</label><select id="eRiesgo">' + riesgoOpts + '</select></div>' +
     '</div>' +
     '<div class="form-grid" style="margin-bottom:14px">' +
-      '<div class="form-group"><label>Accionable</label><input type="text" id="eAcc" value="' + esc(t.acc || '') + '"></div>' +
-      '<div class="form-group"><label>Notas</label><input type="text" id="eNot" value="' + esc(t.notas || '') + '"></div>' +
+      '<div class="form-group"><label>Action</label><input type="text" id="eAcc" value="' + esc(t.acc || '') + '"></div>' +
+      '<div class="form-group"><label>Notes</label><input type="text" id="eNot" value="' + esc(t.notas || '') + '"></div>' +
     '</div>' +
     renderDocsSection('task', id, t.documentos || []);
   $('editOv').classList.add('show');
@@ -1179,7 +1179,7 @@ function saveEditTask() {
   // antes del confirm para no apilar dos overlays.
   if (fields.status === 'Listo') {
     closeEdit();
-    confirm_('¿Marcar como Listo? Se moverá al Historial.', function(){ batchU(id, fields); });
+    confirm_('Mark as Done? It will move to History.', function(){ batchU(id, fields); });
     return;
   }
   _setSaving(true);
@@ -1391,7 +1391,7 @@ function uf(id, f, v) {
 // Confirmed update: se usa para transiciones destructivas (marcar Listo).
 function cfUp(id, f, v) {
   closeDD();
-  confirm_('¿Marcar como Listo? Se moverá al Historial.', function(){ uf(id, f, v); });
+  confirm_('Mark as Done? It will move to History.', function(){ uf(id, f, v); });
 }
 
 // ═══ HELPERS ═══
@@ -4186,7 +4186,7 @@ function _panelCell(lbl, val, valCls) {
 function _panelCellEditable(lbl, val, valCls, taskId, fieldKey) {
   var cellId = 'pcell-' + taskId + '-' + fieldKey;
   var displayVal = (val == null || val === '') ? '—' : val;
-  return '<div class="tk-panel-cell editable" data-pcell-id="' + esc(cellId) + '" title="Click para editar">'
+  return '<div class="tk-panel-cell editable" data-pcell-id="' + esc(cellId) + '" title="Click to edit">'
        +   '<div class="lbl">' + esc(lbl) + '</div>'
        +   '<div class="val' + (valCls ? ' ' + valCls : '') + '" onclick="edPanelEditCell(\'' + esc(taskId) + '\', \'' + fieldKey + '\')">' + esc(displayVal) + '</div>'
        + '</div>';
@@ -4484,7 +4484,7 @@ function rEdTracker(D) {
          +      '<span class="tk-panel-eyebrow">' + esc(sel.id + (sel.pais ? ' · ' + sel.pais : '')) + '</span>'
          +      '<button class="tk-panel-close" onclick="edClosePanel()" aria-label="Cerrar">×</button>'
          +    '</div>'
-         +    '<h2 class="tk-panel-title editable" data-task-id="' + esc(sel.id) + '" ondblclick="edPanelEditTitle(this)" title="Doble-click para editar">' + esc(sel.nombre || '') + '</h2>'
+         +    '<h2 class="tk-panel-title editable" data-task-id="' + esc(sel.id) + '" ondblclick="edPanelEditTitle(this)" title="Double-click to edit">' + esc(sel.nombre || '') + '</h2>'
          +    '<div class="cf-band ' + selCfLvl + '">'
          +      '<span>' + esc(selCfMeta.label) + '</span>'
          +      '<span class="cf-band-desc">' + esc(selCfMeta.desc) + '</span>'

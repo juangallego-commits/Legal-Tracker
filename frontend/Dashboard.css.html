@@ -2559,6 +2559,34 @@ body.role-manager #tabResumen { display: none !important; }
   font-weight: 700;
 }
 
+/* ── A11y: focus-visible global para teclado ────────────────────
+   Cualquier botón / link / role=button / fila clickeable que reciba
+   foco vía Tab muestra un outline coherente. Mouse-click no dispara
+   focus-visible (gracias a la heuristic del browser), así que no
+   ensucia el render normal. */
+.ed-btn:focus-visible,
+.ed-pill:focus-visible,
+.tk-row:focus-visible,
+.tk-bulk-btn:focus-visible,
+.esp-task-btn:focus-visible,
+.esp-task-row:focus-visible,
+.esp-recent-row:focus-visible,
+.esp-urg-cta:focus-visible,
+.pi-row:focus-visible,
+.ed-search:focus-visible,
+.ed-search-result:focus-visible,
+.hq-cmp-row:focus-visible,
+.hq-risk-row:focus-visible,
+.hq-country-row.clickable:focus-visible,
+.tk-actions .ed-btn:focus-visible,
+.cr-pill-btn:focus-visible,
+.ag-card:focus-visible,
+.ed-nav-badge.alert:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 /* ── Help modal (keyboard shortcuts) ───────────────────────────── */
 .ed-help-overlay {
   position: fixed;
