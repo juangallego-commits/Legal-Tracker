@@ -207,32 +207,40 @@ function _getEditorialDataImpl() {
   }
 
   // Enriquecer miembros del team (load, capacity, overdue, blocked, streak, avgs)
+  // Optimización: pre-buckear tasks/historial por resp en una pasada,
+  // sino para cada miembro hacíamos un .filter() sobre el array completo
+  // (O(team × n)). Ahora es O(n + team).
   if (data.team && data.team.length) {
+    var SLA_BY_PRIO = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
+    var tasksByResp = {};
+    (data.tasks || []).forEach(function(t) {
+      var key = t.resp || '';
+      (tasksByResp[key] = tasksByResp[key] || []).push(t);
+    });
+    var histByResp = {};
+    (data.historial || []).forEach(function(t) {
+      if (!t.resp || !t.creadoRaw || !t.cerrado) return;
+      var p = t.cerrado.split('/');
+      var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+      var entry = {
+        priority: t.priority,
+        bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate),
+        cerradoDate: cerradoDate
+      };
+      (histByResp[t.resp] = histByResp[t.resp] || []).push(entry);
+    });
+
     data.team.forEach(function(member) {
-      var memberTasks = (data.tasks || []).filter(function(t){ return t.resp === member.name; });
+      var memberTasks = tasksByResp[member.name] || [];
       var activeTasks = memberTasks.filter(function(t){ return t.status !== 'Listo' && t.status !== 'Cancelado'; });
       member.load     = activeTasks.length;
       member.capacity = 5; // TODO Fase 2: leer de hoja Config
       member.overdue  = memberTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
       member.blocked  = memberTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
 
-      // Historial del miembro con bizDays + fecha de cierre parseada.
-      // creadoRaw viene como ISO; cerrado viene como 'dd/MM/yyyy' (no hay cerradoRaw).
-      var SLA_BY_PRIO = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
-      var memberHist = (data.historial || [])
-        .filter(function(t){ return t.resp === member.name && t.creadoRaw && t.cerrado; })
-        .map(function(t) {
-          var p = t.cerrado.split('/');
-          var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
-          return {
-            priority: t.priority,
-            bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate),
-            cerradoDate: cerradoDate
-          };
-        });
+      var memberHist = histByResp[member.name] || [];
 
-      // streak: tareas cerradas a tiempo consecutivamente, de más reciente
-      // a más antigua. "A tiempo" = bizDays <= SLA de su prioridad.
+      // streak: tareas cerradas a tiempo consecutivamente (más reciente → antigua).
       var streak = 0;
       var sortedDesc = memberHist.slice().sort(function(a, b){ return b.cerradoDate - a.cerradoDate; });
       for (var i = 0; i < sortedDesc.length; i++) {
@@ -242,8 +250,7 @@ function _getEditorialDataImpl() {
       }
       member.streak = streak;
 
-      // avgAlta / avgMedia / avgBaja: promedio de bizDays de cierre por prioridad.
-      // "—" si no hay tareas cerradas de esa prioridad. Entero → "3d", decimal → "1.5d".
+      // Promedios por prioridad. "—" si no hay; entero → "3d", decimal → "1.5d".
       function avgFor(prio) {
         var arr = memberHist.filter(function(h){ return h.priority === prio; });
         if (!arr.length) return '—';
@@ -264,23 +271,29 @@ function _getEditorialDataImpl() {
     var THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
     var WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
+    // Pre-buckear por país en una sola pasada (mismo motivo que team).
+    var tasksByPais = {};
+    (data.tasks || []).forEach(function(t) {
+      var k = t.pais || '';
+      (tasksByPais[k] = tasksByPais[k] || []).push(t);
+    });
+    var histByPais = {};
+    (data.historial || []).forEach(function(t) {
+      if (!t.pais || !t.creadoRaw || !t.cerrado) return;
+      var p = t.cerrado.split('/');
+      var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+      (histByPais[t.pais] = histByPais[t.pais] || []).push({
+        priority: t.priority,
+        cerradoMs: cerradoDate.getTime(),
+        bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate)
+      });
+    });
+
     data.countries.forEach(function(c) {
-      var countryTasks = (data.tasks || []).filter(function(t){ return t.pais === c.code; });
+      var countryTasks = tasksByPais[c.code] || [];
       c.open    = countryTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
       c.overdue = countryTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
-
-      // Historial del país con cerrado parseado (dd/MM/yyyy → Date) y bizDays.
-      var countryHist = (data.historial || [])
-        .filter(function(t){ return t.pais === c.code && t.creadoRaw && t.cerrado; })
-        .map(function(t) {
-          var p = t.cerrado.split('/');
-          var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
-          return {
-            priority: t.priority,
-            cerradoMs: cerradoDate.getTime(),
-            bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate)
-          };
-        });
+      var countryHist = histByPais[c.code] || [];
 
       // slaPct: % de cierres dentro de SLA en los últimos 30 días.
       // Sin historial reciente → 100 (no penalizar países sin cierres).

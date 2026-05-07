@@ -1431,15 +1431,15 @@ function edSpMenuClose() {
 function _relativeAgo(ms) {
   if (!ms) return '';
   var diff = Date.now() - ms;
-  if (diff < 0) return 'hoy';
+  if (diff < 0) return 'today';
   var days = Math.floor(diff / 86400000);
-  if (days < 1) return 'hoy';
-  if (days === 1) return 'ayer';
-  if (days < 7) return 'hace ' + days + 'd';
+  if (days < 1) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return days + 'd ago';
   var weeks = Math.floor(days / 7);
-  if (weeks < 5) return 'hace ' + weeks + ' sem';
+  if (weeks < 5) return weeks + 'w ago';
   var months = Math.floor(days / 30);
-  return 'hace ' + months + 'm';
+  return months + 'mo ago';
 }
 
 // Feed de actividad reciente para el sidebar editorial. Combina las
@@ -1464,7 +1464,7 @@ function _edActivityFeed() {
   if (!items.length) return '';
   var icons = { closed: '✓', created: '+' };
   var html = '<div class="ed-feed">'
-           + '<div class="ed-feed-head">Actividad reciente</div>';
+           + '<div class="ed-feed-head">Recent activity</div>';
   items.forEach(function(it) {
     var truncated = it.name.length > 20 ? (it.name.slice(0, 20) + '…') : it.name;
     html += '<div class="ed-feed-row" title="' + esc(it.name) + '">'
@@ -2580,44 +2580,44 @@ function syncFilterUIFromState() {
 
 var ED_NAV_BY_ROLE = {
   specialist: [
-    { section: 'Mi día', items: [
-      { id: 'home',      label: 'Inicio',       view: 'home' },
-      { id: 'mistareas', label: 'Mis tareas',   view: 'mistareas' },
-      { id: 'agrupadas', label: 'Por urgencia', view: 'agrupadas' }
+    { section: 'My day', items: [
+      { id: 'home',      label: 'Home',         view: 'home' },
+      { id: 'mistareas', label: 'My tasks',     view: 'mistareas' },
+      { id: 'agrupadas', label: 'By urgency',   view: 'agrupadas' }
     ]},
-    { section: 'Donde participo', items: [
-      { id: 'proyectos', label: 'Mis proyectos', view: 'proyectos' },
-      { id: 'historial', label: 'Cerradas',      view: 'historial' }
+    { section: 'Where I work', items: [
+      { id: 'proyectos', label: 'My projects',  view: 'proyectos' },
+      { id: 'historial', label: 'Closed',       view: 'historial' }
     ]}
   ],
   manager: [
-    { section: 'Mi día', items: [
-      { id: 'home',      label: 'Inicio',     view: 'home' },
-      { id: 'mistareas', label: 'Mis tareas', view: 'mistareas' }
+    { section: 'My day', items: [
+      { id: 'home',      label: 'Home',           view: 'home' },
+      { id: 'mistareas', label: 'Assigned to me', view: 'mistareas' }
     ]},
-    { section: 'Equipo', items: [
-      { id: 'tracker',   label: 'Tracker',    view: 'tracker' },
-      { id: 'miequipo',  label: 'Mi equipo',  view: 'miequipo' },
-      { id: 'proyectos', label: 'Proyectos',  view: 'proyectos' }
+    { section: 'Team', items: [
+      { id: 'tracker',   label: 'Team tracker',   view: 'tracker' },
+      { id: 'miequipo',  label: 'My team',        view: 'miequipo' },
+      { id: 'proyectos', label: 'Projects',       view: 'proyectos' }
     ]},
     { section: 'Insights', items: [
       { id: 'analytics', label: 'Analytics', view: 'analytics' },
-      { id: 'historial', label: 'Historial', view: 'historial' }
+      { id: 'historial', label: 'History',   view: 'historial' }
     ]}
   ],
   head: [
-    { section: 'Visión', items: [
-      { id: 'home',   label: 'Inicio global', view: 'home' },
-      { id: 'paises', label: 'Por país',      view: 'resumen' }
+    { section: 'Overview', items: [
+      { id: 'home',   label: 'Global home', view: 'home' },
+      { id: 'paises', label: 'By country',  view: 'resumen' }
     ]},
-    { section: 'Operación', items: [
-      { id: 'tracker',   label: 'Tracker global', view: 'tracker' },
-      { id: 'proyectos', label: 'Proyectos',      view: 'proyectos' },
-      { id: 'miequipo',  label: 'Equipos',        view: 'miequipo' }
+    { section: 'Operations', items: [
+      { id: 'tracker',   label: 'Global tracker', view: 'tracker' },
+      { id: 'proyectos', label: 'Projects',       view: 'proyectos' },
+      { id: 'miequipo',  label: 'Teams',          view: 'miequipo' }
     ]},
     { section: 'Insights', items: [
       { id: 'analytics', label: 'Analytics', view: 'analytics' },
-      { id: 'historial', label: 'Historial', view: 'historial' }
+      { id: 'historial', label: 'History',   view: 'historial' }
     ]}
   ]
 };
@@ -2869,8 +2869,8 @@ function renderEdHead() {
     + '<button class="ed-burger" type="button" aria-label="Abrir menú" onclick="edToggleSidebar()">≡</button>'
     + '<div class="ed-head-eye">' + esc(sem + ' · ' + today) + '</div>'
     + '<div class="ed-head-actions">'
-    +   '<div class="ed-search" role="button" tabindex="0" onclick="edSearchOpen()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();edSearchOpen();}">⌘K  Buscar...</div>'
-    +   '<button class="ed-btn accent" onclick="edCrearOpen()">+ Nueva</button>'
+    +   '<div class="ed-search" role="button" tabindex="0" onclick="edSearchOpen()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();edSearchOpen();}">⌘K  Search…</div>'
+    +   '<button class="ed-btn accent" onclick="edCrearOpen()">+ New task</button>'
     + '</div>';
 }
 
@@ -2920,9 +2920,9 @@ function _edSearchEnsureMounted() {
   ov.onclick = function(e) { if (e.target === ov) edSearchClose(); };
   ov.innerHTML =
       '<div class="ed-search-modal" role="dialog" aria-label="Búsqueda global">'
-    +   '<input type="text" class="ed-search-input" id="edSearchInput" placeholder="Buscar tareas, proyectos, responsables..." autocomplete="off" spellcheck="false">'
+    +   '<input type="text" class="ed-search-input" id="edSearchInput" placeholder="Search tasks, projects, people…" autocomplete="off" spellcheck="false">'
     +   '<div class="ed-search-results" id="edSearchResults"></div>'
-    +   '<div class="ed-search-hint">Esc para cerrar · Enter para abrir el primero</div>'
+    +   '<div class="ed-search-hint">Esc to close · Enter to open first</div>'
     + '</div>';
   document.body.appendChild(ov);
   var input = ov.querySelector('#edSearchInput');
@@ -2997,7 +2997,7 @@ function _edSearchRender() {
   var host = $('edSearchResults'); if (!host) return;
   var q = (EDS.query || '').trim();
   if (!q) {
-    host.innerHTML = '<div class="ed-search-empty">Empezá a escribir para buscar...</div>';
+    host.innerHTML = '<div class="ed-search-empty">Start typing to search…</div>';
     return;
   }
   var results = _edSearchFilter(q);
@@ -3007,18 +3007,18 @@ function _edSearchRender() {
   var projShow = results.filter(function(r){ return r.kind === 'project'; }).slice(0, remaining);
 
   if (!taskShow.length && !projShow.length) {
-    host.innerHTML = '<div class="ed-search-empty">Sin resultados para "' + esc(q) + '"</div>';
+    host.innerHTML = '<div class="ed-search-empty">No results for "' + esc(q) + '"</div>';
     return;
   }
 
   var html = '';
   if (taskShow.length) {
-    html += '<div class="ed-search-section">Tareas</div>';
+    html += '<div class="ed-search-section">Tasks</div>';
     taskShow.forEach(function(r) {
       var t = r.item;
       var statusCls = (typeof _statusClass === 'function') ? _statusClass(t.status) : '';
       html += '<div class="ed-search-result" onclick="edSearchPickTask(\'' + esc(t.id) + '\')">'
-           +    '<span class="ed-search-r-kind">tarea</span>'
+           +    '<span class="ed-search-r-kind">task</span>'
            +    '<span class="ed-search-r-id">' + esc(t.id) + '</span>'
            +    '<span class="ed-search-r-name">' + _edSearchHighlight(t.nombre || '', q) + '</span>'
            +    '<span class="ed-search-r-resp">' + _edSearchHighlight(t.resp || '—', q) + '</span>'
@@ -3028,11 +3028,11 @@ function _edSearchRender() {
     });
   }
   if (projShow.length) {
-    html += '<div class="ed-search-section">Proyectos</div>';
+    html += '<div class="ed-search-section">Projects</div>';
     projShow.forEach(function(r) {
       var p = r.item;
       html += '<div class="ed-search-result" onclick="edSearchPickProject(\'' + esc(p.id) + '\')">'
-           +    '<span class="ed-search-r-kind">proyecto</span>'
+           +    '<span class="ed-search-r-kind">project</span>'
            +    '<span class="ed-search-r-id">#' + esc(p.id) + '</span>'
            +    '<span class="ed-search-r-name">' + _edSearchHighlight(p.nombre || '', q) + '</span>'
            +    '<span class="ed-search-r-resp">' + _edSearchHighlight(p.lider || p.responsable || '—', q) + '</span>'
@@ -3261,8 +3261,8 @@ function rEdHomeSpecialist(D) {
   // switcher). La narrativa del server se computa con el rol REAL del
   // visitante y queda inconsistente cuando un head ve la app como
   // specialist via demo.
-  var narrative = 'Tenés ' + tasks.length + ' tarea' + (tasks.length === 1 ? '' : 's') + ' activa' + (tasks.length === 1 ? '' : 's')
-                + (thisWeek ? '. ' + thisWeek + ' vence' + (thisWeek === 1 ? '' : 'n') + ' esta semana.' : '.');
+  var narrative = 'You have ' + tasks.length + ' active task' + (tasks.length === 1 ? '' : 's')
+                + (thisWeek ? '. ' + thisWeek + ' due this week.' : '.');
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
   // Top 4 ordenadas por urgencia (etaDays asc, vencidas y bloqueadas primero)
   var top = tasks.slice().sort(function(a, b) {
@@ -3275,11 +3275,11 @@ function rEdHomeSpecialist(D) {
   }).slice(0, 4);
 
   var html = ''
-    + '<div class="ed-eye">' + esc('Hoy' + (todayLine ? ' · ' + todayLine : '')) + '</div>'
-    + '<h1 class="ed-h1">Buenos días, ' + esc(firstName) + '.<br>'
+    + '<div class="ed-eye">' + esc('Today' + (todayLine ? ' · ' + todayLine : '')) + '</div>'
+    + '<h1 class="ed-h1">Hi ' + esc(firstName) + '.<br>'
     +   (apremiantes === 0
-        ? 'Hoy <em>no tenés</em> nada urgente.'
-        : 'Tenés <em>' + esc(String(apremiantes).padStart(2,'0')) + (apremiantes === 1 ? ' cosa' : ' cosas') + '</em> apremiante' + (apremiantes === 1 ? '' : 's') + ' hoy.')
+        ? '<em>Nothing urgent</em> on your plate today.'
+        : 'You have <em>' + esc(String(apremiantes).padStart(2,'0')) + '</em> urgent thing' + (apremiantes === 1 ? '' : 's') + ' today.')
     + '</h1>'
     + '<p class="ed-lede">' + esc(narrative) + '</p>'
     // BANNER de urgencia (solo si hay overdue o dueToday). Reemplaza
@@ -3289,31 +3289,31 @@ function rEdHomeSpecialist(D) {
         var urg = overdue + dueToday;
         if (!urg) return '';
         return '<div class="esp-urg-banner">'
-             +   '<span class="esp-urg-text">Tenés <b>' + urg + ' tarea' + (urg === 1 ? '' : 's') + '</b> que necesitan atención hoy.</span>'
-             +   '<button class="esp-urg-cta" onclick="goEd(\'tracker\')">Ir al tracker →</button>'
+             +   '<span class="esp-urg-text">You have <b>' + urg + ' task' + (urg === 1 ? '' : 's') + '</b> that need attention today.</span>'
+             +   '<button class="esp-urg-cta" onclick="goEd(\'mistareas\')">Open my tasks →</button>'
              + '</div>';
       })()
     // HERO (copy reframeado: orientado a "qué hago AHORA")
     + '<div class="esp-hero">'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">Overdue</div>'
     +     '<div class="esp-stat-num crit">' + (overdue ? String(overdue) : "—") + '</div>'
-    +     '<div class="esp-stat-ctx">' + (overdue ? 'Resolver primero' : 'Al día') + '</div></div>'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">Vencen hoy</div>'
+    +     '<div class="esp-stat-ctx">' + (overdue ? 'Solve first' : 'Up to date') + '</div></div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">Due today</div>'
     +     '<div class="esp-stat-num warn">' + (dueToday ? String(dueToday) : "—") + '</div>'
-    +     '<div class="esp-stat-ctx">' + (dueToday ? 'Cerrar hoy' : 'Día limpio') + '</div></div>'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">Esta semana</div>'
+    +     '<div class="esp-stat-ctx">' + (dueToday ? 'Close today' : 'Clean day') + '</div></div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">This week</div>'
     +     '<div class="esp-stat-num">' + (thisWeek ? String(thisWeek) : "—") + '</div>'
-    +     '<div class="esp-stat-ctx">en cola</div></div>'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">En espera</div>'
+    +     '<div class="esp-stat-ctx">in queue</div></div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">On hold</div>'
     +     '<div class="esp-stat-num crit">' + (blocked ? String(blocked) : "—") + '</div>'
-    +     '<div class="esp-stat-ctx">' + (blocked ? 'Necesitan empuje' : '—') + '</div></div>'
+    +     '<div class="esp-stat-ctx">' + (blocked ? 'Need a push' : '—') + '</div></div>'
     + '</div>';
 
-  // EN TU MESA
+  // ON YOUR PLATE
   html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— En tu mesa, por urgencia</div>';
+       +    '<div class="ed-h2">— On your plate, by urgency</div>';
   if (top.length === 0) {
-    html += '<div class="ed-lede">No tenés tareas activas asignadas.</div>';
+    html += '<div class="ed-lede">No active tasks assigned.</div>';
   } else {
     for (var i = 0; i < top.length; i++) {
       var t = top[i];
@@ -3340,20 +3340,20 @@ function rEdHomeSpecialist(D) {
            +   '</div>'
            +   '<div class="esp-task-eta ' + tone + '">' + esc(t.eta || '') + '</div>'
            +   '<div class="esp-task-actions">'
-           +     '<button class="esp-task-btn primary" onclick="event.stopPropagation();edUOpen(\'' + taskIdEsc + '\',\'avanzar\')">Avanzar →</button>'
+           +     '<button class="esp-task-btn primary" onclick="event.stopPropagation();edUOpen(\'' + taskIdEsc + '\',\'avanzar\')">Advance →</button>'
            +     '<div class="esp-task-menu-wrap">'
-           +       '<button class="esp-task-btn dots" onclick="event.stopPropagation();edSpMenuToggle(this)" aria-label="Más acciones">⋯</button>'
+           +       '<button class="esp-task-btn dots" onclick="event.stopPropagation();edSpMenuToggle(this)" aria-label="More actions">⋯</button>'
            +       '<div class="esp-menu" role="menu">'
-           +         '<div class="esp-menu-item" onclick="event.stopPropagation();edSpMenuClose();edUOpen(\'' + taskIdEsc + '\',\'cerrar\')">Cerrar</div>'
-           +         '<div class="esp-menu-item" onclick="event.stopPropagation();edSpMenuClose();edUOpen(\'' + taskIdEsc + '\',\'bloquear\')">Bloquear</div>'
-           +         '<div class="esp-menu-item" onclick="event.stopPropagation();edSpMenuClose();edGoTaskInTracker(\'' + taskIdEsc + '\')">Ver en tracker</div>'
+           +         '<div class="esp-menu-item" onclick="event.stopPropagation();edSpMenuClose();edUOpen(\'' + taskIdEsc + '\',\'cerrar\')">Close</div>'
+           +         '<div class="esp-menu-item" onclick="event.stopPropagation();edSpMenuClose();edUOpen(\'' + taskIdEsc + '\',\'bloquear\')">Block</div>'
+           +         '<div class="esp-menu-item" onclick="event.stopPropagation();edSpMenuClose();edGoTaskInTracker(\'' + taskIdEsc + '\')">Open in tracker</div>'
            +       '</div>'
            +     '</div>'
            +   '</div>'
            + '</div>';
     }
     html += '<div style="padding-top:14px"><button class="ed-btn" onclick="goEd(\'mistareas\')">'
-         +    (tasks.length === 1 ? 'Ver mi tarea →' : ('Ver todas mis ' + tasks.length + ' tareas →')) + '</button></div>';
+         +    (tasks.length === 1 ? 'View my task →' : ('View all ' + tasks.length + ' tasks →')) + '</button></div>';
   }
   html += '</section>';
 
@@ -3367,20 +3367,20 @@ function rEdHomeSpecialist(D) {
              || (me.avgBaja && me.avgBaja !== '—');
   if (hasPerf) {
     html += '<section class="ed-section">'
-         +    '<div class="ed-h2">— Tu desempeño este mes</div>'
+         +    '<div class="ed-h2">— Your month so far</div>'
          +    '<div class="esp-perf">'
-         +      '<div class="esp-stat"><div class="esp-stat-lbl">🔥 Racha on-time</div>'
+         +      '<div class="esp-stat"><div class="esp-stat-lbl">🔥 On-time streak</div>'
          +        '<div class="esp-stat-num good">' + (streak ? String(streak) : '—') + '</div>'
-         +        '<div class="esp-stat-ctx">tareas seguidas a tiempo</div></div>'
-         +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Alta</div>'
+         +        '<div class="esp-stat-ctx">tasks in a row</div></div>'
+         +      '<div class="esp-stat"><div class="esp-stat-lbl">High priority</div>'
          +        '<div class="esp-stat-num">' + esc(me.avgAlta || '—') + '</div>'
-         +        '<div class="esp-stat-ctx">SLA 2d</div></div>'
-         +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Media</div>'
+         +        '<div class="esp-stat-ctx">avg close · SLA 2d</div></div>'
+         +      '<div class="esp-stat"><div class="esp-stat-lbl">Medium</div>'
          +        '<div class="esp-stat-num">' + esc(me.avgMedia || '—') + '</div>'
-         +        '<div class="esp-stat-ctx">SLA 5d</div></div>'
-         +      '<div class="esp-stat"><div class="esp-stat-lbl">Cierre Baja</div>'
+         +        '<div class="esp-stat-ctx">avg close · SLA 5d</div></div>'
+         +      '<div class="esp-stat"><div class="esp-stat-lbl">Low</div>'
          +        '<div class="esp-stat-num">' + esc(me.avgBaja || '—') + '</div>'
-         +        '<div class="esp-stat-ctx">SLA 7d</div></div>'
+         +        '<div class="esp-stat-ctx">avg close · SLA 7d</div></div>'
          +    '</div>'
          + '</section>';
   }
@@ -3391,9 +3391,9 @@ function rEdHomeSpecialist(D) {
     return (D.tasks || []).some(function(t){ return t.proyectoId == p.id && t.resp === name; });
   }) : [];
   html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Proyectos donde participas</div>';
+       +    '<div class="ed-h2">— Projects you\'re in</div>';
   if (projs.length === 0) {
-    html += '<div class="ed-lede">No participás en ningún proyecto activo.</div>';
+    html += '<div class="ed-lede">Not part of any active project.</div>';
   } else {
     for (var k = 0; k < projs.length; k++) {
       var p = projs[k];
@@ -3407,7 +3407,7 @@ function rEdHomeSpecialist(D) {
            +    '<div class="esp-proj-role">' + esc(role) + '</div>'
            +    '<div>'
            +      '<div class="esp-proj-name">' + esc(p.nombre || '') + '</div>'
-           +      '<div class="esp-proj-lead">Líder: ' + esc(p.lider || '—') + '</div>'
+           +      '<div class="esp-proj-lead">Lead: ' + esc(p.lider || '—') + '</div>'
            +    '</div>'
            +    '<div class="esp-proj-prog">'
            +      '<div class="esp-proj-bar"><div class="esp-proj-bar-fill ' + fillCls + '" style="width:' + pct + '%"></div></div>'
@@ -3438,14 +3438,14 @@ function rEdHomeSpecialist(D) {
     .slice(0, 3);
   if (myHist.length) {
     html += '<section class="ed-section">'
-         +    '<div class="ed-h2">— Reciente</div>';
+         +    '<div class="ed-h2">— Recent</div>';
     myHist.forEach(function(h) {
-      var dur = (h.bizDays != null) ? (h.bizDays + 'd hábiles') : '';
+      var dur = (h.bizDays != null) ? (h.bizDays + ' biz days') : '';
       html += '<div class="esp-recent-row">'
            +    '<div class="esp-recent-icon">✓</div>'
            +    '<div>'
            +      '<div class="esp-recent-name">' + esc(h.nombre || '') + '</div>'
-           +      '<div class="esp-recent-meta">' + esc((h.priority || '') + ' · cerrada ' + h.cerrado + (dur ? ' · ' + dur : '')) + '</div>'
+           +      '<div class="esp-recent-meta">' + esc((h.priority || '') + ' · closed ' + h.cerrado + (dur ? ' · ' + dur : '')) + '</div>'
            +    '</div>'
            + '</div>';
     });
@@ -3802,22 +3802,22 @@ function _edTkUpdateBulkBar() {
   var n = (EDT.selectedIds || []).length;
   bar.classList.toggle('show', n > 0);
   var counter = bar.querySelector('.tk-bulk-count');
-  if (counter) counter.textContent = n + ' seleccionada' + (n === 1 ? '' : 's');
+  if (counter) counter.textContent = n + ' selected';
 }
 function edTkBulkAction(action) {
   var ids = (EDT.selectedIds || []).slice();
   if (!ids.length) return;
   var n = ids.length;
-  var label = n + ' tarea' + (n === 1 ? '' : 's');
+  var label = n + ' task' + (n === 1 ? '' : 's');
   if (action === 'reasignar') {
-    var newResp = window.prompt('Reasignar ' + label + ' a (nombre exacto):');
+    var newResp = window.prompt('Reassign ' + label + ' to (exact name):');
     if (!newResp) return;
-    _edTkBulkRun(ids, 'resp', newResp, 'Reasignadas');
+    _edTkBulkRun(ids, 'resp', newResp, 'Reassigned');
     return;
   }
   if (action === 'bloquear') {
-    confirm_('¿Bloquear ' + label + '? Vas a dejarlas marcadas como en espera.', function() {
-      _edTkBulkRun(ids, 'status', 'Bloqueado', 'Bloqueadas');
+    confirm_('Block ' + label + '? They will be marked as on hold.', function() {
+      _edTkBulkRun(ids, 'status', 'Bloqueado', 'Blocked');
     });
     return;
   }
@@ -3833,16 +3833,16 @@ function edTkBulkAction(action) {
       var next = nextOf[task.status];
       if (next) toRun.push({ id: id, value: next });
     });
-    if (!toRun.length) { toast('Ninguna seleccionada se puede avanzar.', 'info'); return; }
-    confirm_('¿Avanzar ' + toRun.length + ' tarea' + (toRun.length === 1 ? '' : 's') + ' al siguiente estado?', function() {
-      _edTkBulkRunMixed(toRun, 'status', 'Avanzadas');
+    if (!toRun.length) { toast('None of the selected can advance.', 'info'); return; }
+    confirm_('Advance ' + toRun.length + ' task' + (toRun.length === 1 ? '' : 's') + ' to next status?', function() {
+      _edTkBulkRunMixed(toRun, 'status', 'Advanced');
     });
     return;
   }
 }
 function _edTkBulkRun(ids, field, value, label) {
   var ok = 0, fail = 0, pending = ids.length;
-  toast('Aplicando a ' + pending + ' tarea' + (pending === 1 ? '' : 's') + '...', 'info');
+  toast('Applying to ' + pending + ' task' + (pending === 1 ? '' : 's') + '…', 'info');
   ids.forEach(function(id) {
     google.script.run
       .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edTkBulkDone(label, ok, fail); })
@@ -3852,7 +3852,7 @@ function _edTkBulkRun(ids, field, value, label) {
 }
 function _edTkBulkRunMixed(items, field, label) {
   var ok = 0, fail = 0, pending = items.length;
-  toast('Aplicando a ' + pending + ' tarea' + (pending === 1 ? '' : 's') + '...', 'info');
+  toast('Applying to ' + pending + ' task' + (pending === 1 ? '' : 's') + '…', 'info');
   items.forEach(function(it) {
     google.script.run
       .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edTkBulkDone(label, ok, fail); })
@@ -3862,8 +3862,8 @@ function _edTkBulkRunMixed(items, field, label) {
 }
 function _edTkBulkDone(label, ok, fail) {
   if (fail === 0) toast('✅ ' + label + ': ' + ok, 'success');
-  else if (ok === 0) toast('Error: ninguna se pudo aplicar', 'error');
-  else toast('⚠ ' + label + ': ' + ok + ' OK, ' + fail + ' fallaron', 'info');
+  else if (ok === 0) toast('Error: none could be applied', 'error');
+  else toast('⚠ ' + label + ': ' + ok + ' OK, ' + fail + ' failed', 'info');
   EDT.selectedIds = [];
   if (typeof reload === 'function') reload();
 }
@@ -3895,40 +3895,38 @@ function edTkAttachLink(taskId) {
 }
 function edTkUploadFile(input) {
   var file = input.files && input.files[0];
-  if (!file) { toast('Sin archivo seleccionado', 'error'); return; }
+  if (!file) { toast('No file selected', 'error'); return; }
   var taskId = input.dataset.taskId;
-  if (!taskId) { toast('Falta task id (recargá la página)', 'error'); return; }
+  if (!taskId) { toast('Missing task id (refresh the page)', 'error'); return; }
   if (file.size > 45 * 1024 * 1024) {
-    toast('Archivo muy grande (máx 45 MB en Apps Script)', 'error');
+    toast('File too large (max 45 MB in Apps Script)', 'error');
     input.value = ''; return;
   }
-  // Toast inmediato: archivos grandes pueden tardar 2-5s en leerse;
-  // sin esto el usuario cree que "no pasó nada".
-  toast('Leyendo ' + file.name + '...', 'info');
+  toast('Reading ' + file.name + '…', 'info');
   showLoader();
   var reader = new FileReader();
   reader.onerror = function(e) {
     hideLoader();
     console.error('FileReader error', e);
-    toast('Error leyendo archivo. Probá otro.', 'error');
+    toast('Error reading file. Try another.', 'error');
     input.value = '';
   };
   reader.onload = function() {
     var base64 = String(reader.result).split(',')[1];
-    toast('Subiendo ' + file.name + ' a Drive...', 'info');
+    toast('Uploading ' + file.name + ' to Drive…', 'info');
     google.script.run
       .withSuccessHandler(function(res) {
         hideLoader(); input.value = '';
-        if (res && res.success) { toast('✅ ' + file.name + ' subido', 'success'); reload(); }
+        if (res && res.success) { toast('✅ ' + file.name + ' uploaded', 'success'); reload(); }
         else {
           console.error('uploadDocument response', res);
-          toast('Error: ' + ((res && res.error) || 'upload falló'), 'error');
+          toast('Error: ' + ((res && res.error) || 'upload failed'), 'error');
         }
       })
       .withFailureHandler(function(e) {
         hideLoader(); input.value = '';
         console.error('uploadDocument failure', e);
-        toast('Error backend: ' + (e && e.message || 'desconocido'), 'error');
+        toast('Backend error: ' + (e && e.message || 'unknown'), 'error');
       })
       .uploadDocument('task', taskId, { name: file.name, mimeType: file.type, data: base64 });
   };
@@ -3937,7 +3935,7 @@ function edTkUploadFile(input) {
   } catch (err) {
     hideLoader();
     console.error('readAsDataURL throw', err);
-    toast('Error inesperado: ' + (err && err.message || 'desconocido'), 'error');
+    toast('Unexpected error: ' + (err && err.message || 'unknown'), 'error');
     input.value = '';
   }
 }
@@ -4181,10 +4179,10 @@ function edPanelSaveField(taskId, fieldKey, value) {
           }
         }
         if (typeof rEdTracker === 'function') rEdTracker(D);
-        toast('✅ Guardado', 'success');
+        toast('✅ Saved', 'success');
         _edScheduleReload();
       } else {
-        toast('Error: ' + ((res && res.error) || 'no se pudo guardar'), 'error');
+        toast('Error: ' + ((res && res.error) || 'could not save'), 'error');
         if (typeof reload === 'function') reload();
       }
     })
@@ -4282,13 +4280,13 @@ function rEdTracker(D) {
 
   // EYEBROW + H1 + LEDE
   var eyebrow = role === 'head' ? 'Tracker · Global'
-              : role === 'manager' ? ('Tracker · Equipo ' + userCode)
-              : 'Tracker · Mis tareas';
+              : role === 'manager' ? ('Tracker · Team ' + userCode)
+              : 'Tracker · My tasks';
   var lede = role === 'head'
-    ? ('LATAM con ' + cAll + ' tareas activas. Cliquea cualquier fila para ver detalle.')
+    ? ('LATAM has ' + cAll + ' active tasks. Click any row for detail.')
     : role === 'manager'
-      ? (cAll + ' tareas activas en tu equipo. Cliquea cualquier fila para ver detalle, historial y reasignar.')
-      : ('Tus ' + cAll + ' tareas activas. Cliquea cualquiera para ver detalle, historial y siguiente acción.');
+      ? (cAll + ' active tasks in your team. Click any row for detail, history and reassign.')
+      : ('Your ' + cAll + ' active tasks. Click any to see detail, history and next action.');
 
   var html = ''
     + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
@@ -4311,33 +4309,33 @@ function rEdTracker(D) {
          + '</button>';
   }
   html += '<div class="tk-toolbar">'
-       +    fBtn('all',     'Todas',      cAll,     null)
-       +    fBtn('overdue', 'Vencidas',   cOverdue, 'critical')
-       +    fBtn('today',   'Vencen hoy', cToday,   'warn')
-       +    fBtn('blocked', 'En espera',  cBlocked, null)
-       +    '<input class="tk-search" type="text" placeholder="⌘F filtrar por proyecto, persona, tipo…" '
+       +    fBtn('all',     'All',         cAll,     null)
+       +    fBtn('overdue', 'Overdue',     cOverdue, 'critical')
+       +    fBtn('today',   'Due today',   cToday,   'warn')
+       +    fBtn('blocked', 'On hold',     cBlocked, null)
+       +    '<input class="tk-search" type="text" placeholder="⌘F filter by project, person, type…" '
        +      'value="' + esc(EDT.search) + '" oninput="edSetSearch(this.value)">'
        + '</div>';
 
   // TABLE
-  var respCol = role === 'specialist' ? 'Proyecto' : 'Responsable';
+  var respCol = role === 'specialist' ? 'Project' : 'Owner';
   // Bulk action bar (sticky, visible solo cuando hay >0 seleccionadas)
   var bulkCount = (EDT.selectedIds || []).length;
   var canReassign = (role === 'manager' || role === 'head');
   html += '<div class="tk-bulk-bar' + (bulkCount > 0 ? ' show' : '') + '" id="tkBulkBar">'
-       +    '<span class="tk-bulk-count">' + bulkCount + ' seleccionada' + (bulkCount === 1 ? '' : 's') + '</span>'
-       +    '<button class="tk-bulk-btn" onclick="edTkBulkAction(\'avanzar\')">Avanzar</button>'
-       +    '<button class="tk-bulk-btn" onclick="edTkBulkAction(\'bloquear\')">Bloquear</button>'
-       +    (canReassign ? '<button class="tk-bulk-btn" onclick="edTkBulkAction(\'reasignar\')">Reasignar</button>' : '')
-       +    '<button class="tk-bulk-btn ghost" onclick="edTkBulkClear()">Cancelar</button>'
+       +    '<span class="tk-bulk-count">' + bulkCount + ' selected</span>'
+       +    '<button class="tk-bulk-btn" onclick="edTkBulkAction(\'avanzar\')">Advance</button>'
+       +    '<button class="tk-bulk-btn" onclick="edTkBulkAction(\'bloquear\')">Block</button>'
+       +    (canReassign ? '<button class="tk-bulk-btn" onclick="edTkBulkAction(\'reasignar\')">Reassign</button>' : '')
+       +    '<button class="tk-bulk-btn ghost" onclick="edTkBulkClear()">Cancel</button>'
        + '</div>';
   html += '<table class="tk-table">'
        +    '<thead><tr>'
        +      '<th><input type="checkbox" class="tk-row-check" id="tkSelectAll" onclick="edTkSelectAll(this.checked)"></th>'
-       +      '<th></th><th>ID</th><th>Tarea</th><th>' + respCol + '</th><th>Prioridad</th><th>Estado</th><th>ETA</th>'
+       +      '<th></th><th>ID</th><th>Task</th><th>' + respCol + '</th><th>Priority</th><th>Status</th><th>ETA</th>'
        +    '</tr></thead><tbody>';
   if (rows.length === 0) {
-    html += '<tr><td colspan="8" style="padding:32px 14px;color:var(--dim);font-size:13px">Sin tareas para este filtro.</td></tr>';
+    html += '<tr><td colspan="8" style="padding:32px 14px;color:var(--dim);font-size:13px">No tasks for this filter.</td></tr>';
   } else {
     for (var i = 0; i < rows.length; i++) {
       var t = rows[i];
@@ -4406,61 +4404,61 @@ function rEdTracker(D) {
          +      (sel.tipoTrabajo ? '<span class="ed-pill curso">' + esc(sel.tipoTrabajo) + '</span>' : '')
          +    '</div>'
          +    '<div class="tk-panel-block ' + blockCls + '">'
-         +      '<div class="blk-lbl">— Estado actual</div>'
+         +      '<div class="blk-lbl">— Current status</div>'
          +      '<div class="blk-body">' + stateBody + '</div>'
          +    '</div>'
          +    '<div class="tk-panel-grid">'
-         +      _panelCellEditable('Responsable', sel.resp, '', sel.id, 'resp')
-         +      _panelCell('Líder', sel.lider)
+         +      _panelCellEditable('Owner', sel.resp, '', sel.id, 'resp')
+         +      _panelCell('Lead', sel.lider)
          +      _panelCellEditable('Deadline', sel.deadline + (sel.eta ? ' · ' + sel.eta : ''),
                             (typeof sel.etaDays === 'number' && sel.etaDays < 0) ? 'crit' : '',
                             sel.id, 'deadline')
          +      _panelCell('SLA', sel.slaTarget)
-         +      _panelCellEditable('Riesgo', sel.riesgo, sel.riesgo === 'Legal alto' ? 'crit' : '',
+         +      _panelCellEditable('Risk', sel.riesgo, sel.riesgo === 'Legal alto' ? 'crit' : '',
                             sel.id, 'riesgo')
-         +      _panelCellEditable('Proyecto', pn2, '', sel.id, 'proyectoId')
+         +      _panelCellEditable('Project', pn2, '', sel.id, 'proyectoId')
          +    '</div>'
          +    '<div class="tk-panel-block">'
-         +      '<div class="blk-lbl">— Notas</div>'
-         +      '<textarea class="tk-notas-edit" data-task-id="' + esc(sel.id) + '" placeholder="Sin notas..." oninput="edPanelAutosizeNotes(this)" onblur="edPanelSaveNotes(this)">' + esc(sel.notas || '') + '</textarea>'
+         +      '<div class="blk-lbl">— Notes</div>'
+         +      '<textarea class="tk-notas-edit" data-task-id="' + esc(sel.id) + '" placeholder="No notes…" oninput="edPanelAutosizeNotes(this)" onblur="edPanelSaveNotes(this)">' + esc(sel.notas || '') + '</textarea>'
          +    '</div>'
          +    '<div class="tk-panel-block">'
-         +      '<div class="blk-lbl">— Historial</div>'
+         +      '<div class="blk-lbl">— History</div>'
          +      '<div class="tk-timeline">' + tlHtml + '</div>'
          +    '</div>'
          +    '<div class="tk-panel-block">'
-         +      '<div class="blk-lbl">— Documentos</div>'
+         +      '<div class="blk-lbl">— Documents</div>'
          +      '<div class="tk-docs">' + (function() {
                   var docs = sel.documentos || [];
-                  if (!docs.length) return '<span class="tk-doc-empty">Sin documentos adjuntos</span>';
+                  if (!docs.length) return '<span class="tk-doc-empty">No documents attached</span>';
                   return docs.map(function(d) {
-                    var tip = d.uploadedBy ? 'Subido por ' + d.uploadedBy : 'Link externo';
-                    return '<a class="tk-doc-chip" href="' + esc(d.url || '#') + '" target="_blank" rel="noopener" title="' + esc(tip) + '">📄 ' + esc(d.name || 'Documento') + '</a>';
+                    var tip = d.uploadedBy ? 'Uploaded by ' + d.uploadedBy : 'External link';
+                    return '<a class="tk-doc-chip" href="' + esc(d.url || '#') + '" target="_blank" rel="noopener" title="' + esc(tip) + '">📄 ' + esc(d.name || 'Document') + '</a>';
                   }).join('');
                 })() + '</div>'
          +      '<div class="tk-docs-actions">'
-         +        '<button class="ed-btn" onclick="edTkToggleLinkForm()">+ Adjuntar link</button>'
+         +        '<button class="ed-btn" onclick="edTkToggleLinkForm()">+ Attach link</button>'
          +        '<label class="ed-btn tk-doc-upload-label">'
-         +          '+ Subir archivo'
+         +          '+ Upload file'
          +          '<input type="file" id="tkDocFileInput" data-task-id="' + esc(sel.id) + '" style="display:none" onchange="edTkUploadFile(this)">'
          +        '</label>'
          +      '</div>'
          +      '<div class="tk-docs-link-form" id="tkLinkForm" style="display:none">'
-         +        '<input type="text" id="tkLinkUrl" placeholder="Pegar link de Drive" class="tk-doc-input">'
-         +        '<input type="text" id="tkLinkName" placeholder="Nombre (opcional)" class="tk-doc-input">'
-         +        '<button class="ed-btn primary" onclick="edTkAttachLink(\'' + esc(sel.id) + '\')">Vincular</button>'
+         +        '<input type="text" id="tkLinkUrl" placeholder="Paste Drive link" class="tk-doc-input">'
+         +        '<input type="text" id="tkLinkName" placeholder="Name (optional)" class="tk-doc-input">'
+         +        '<button class="ed-btn primary" onclick="edTkAttachLink(\'' + esc(sel.id) + '\')">Link</button>'
          +      '</div>'
          +    '</div>'
          +    '<div class="tk-actions">'
-         +      '<button class="ed-btn primary" onclick="edUOpen(\'' + esc(sel.id) + '\', \'avanzar\')">Avanzar →</button>'
-         +      '<button class="ed-btn" onclick="edUOpen(\'' + esc(sel.id) + '\', \'cerrar\')">Cerrar ✓</button>'
+         +      '<button class="ed-btn primary" onclick="edUOpen(\'' + esc(sel.id) + '\', \'avanzar\')">Advance →</button>'
+         +      '<button class="ed-btn" onclick="edUOpen(\'' + esc(sel.id) + '\', \'cerrar\')">Close ✓</button>'
          +      '<div class="esp-task-menu-wrap tk-more-up">'
-         +        '<button class="ed-btn" onclick="edSpMenuToggle(this)" aria-label="Más acciones">Más ⋯</button>'
+         +        '<button class="ed-btn" onclick="edSpMenuToggle(this)" aria-label="More actions">More ⋯</button>'
          +        '<div class="esp-menu" role="menu">'
-         +          '<div class="esp-menu-item" onclick="edSpMenuClose();edUOpen(\'' + esc(sel.id) + '\',\'bloquear\')">Bloquear</div>'
-         +          '<div class="esp-menu-item" onclick="edSpMenuClose();openEdit(' + (typeof sel.id === 'number' ? sel.id : ('\'' + esc(sel.id) + '\'')) + ')">Editar detalles</div>'
+         +          '<div class="esp-menu-item" onclick="edSpMenuClose();edUOpen(\'' + esc(sel.id) + '\',\'bloquear\')">Block</div>'
+         +          '<div class="esp-menu-item" onclick="edSpMenuClose();openEdit(' + (typeof sel.id === 'number' ? sel.id : ('\'' + esc(sel.id) + '\'')) + ')">Edit details</div>'
          +          ((role === 'manager' || role === 'head')
-                      ? '<div class="esp-menu-item" onclick="edSpMenuClose();edReasignarOpen(\'' + esc(sel.id) + '\')">Reasignar</div>'
+                      ? '<div class="esp-menu-item" onclick="edSpMenuClose();edReasignarOpen(\'' + esc(sel.id) + '\')">Reassign</div>'
                       : '')
          +        '</div>'
          +      '</div>'
@@ -5739,9 +5737,9 @@ function rEdProyectosIndex(D) {
        + '</div>';
 
   if (enriched.length === 0) {
-    html += _emptyState('📁', 'Sin proyectos por acá',
-                        'Probá cambiar el filtro o crear uno nuevo.',
-                        '+ Crear proyecto',
+    html += _emptyState('📁', 'No projects here',
+                        'Try changing the filter or create a new one.',
+                        '+ Create project',
                         "if(typeof edCrearProyectoOpen==='function')edCrearProyectoOpen();else if(typeof openCreate==='function')openCreate('newProj')");
   } else {
     var startIdx = 1;
