@@ -2588,6 +2588,9 @@ var ED_NAV_BY_ROLE = {
     { section: 'Where I work', items: [
       { id: 'proyectos', label: 'My projects',  view: 'proyectos' },
       { id: 'historial', label: 'Closed',       view: 'historial' }
+    ]},
+    { section: 'Insights', items: [
+      { id: 'analytics', label: 'My performance', view: 'analytics' }
     ]}
   ],
   manager: [
@@ -3215,6 +3218,9 @@ function goEd(viewId) {
     if (CH.eda) { try { CH.eda.destroy(); } catch (e) {} CH.eda = null; }
     if (CH.edb) { try { CH.edb.destroy(); } catch (e) {} CH.edb = null; }
     if (CH.edc) { try { CH.edc.destroy(); } catch (e) {} CH.edc = null; }
+    if (CH.spA) { try { CH.spA.destroy(); } catch (e) {} CH.spA = null; }
+    if (CH.spB) { try { CH.spB.destroy(); } catch (e) {} CH.spB = null; }
+    if (CH.spC) { try { CH.spC.destroy(); } catch (e) {} CH.spC = null; }
     var v8 = $('vEdAnalytics'); if (v8) v8.classList.add('active');
     rEdAnalytics(D);
     return;
@@ -6340,9 +6346,88 @@ function _edaCerradasMes(tasks) {
   return cnt;
 }
 
+// HQ insight #1: Country comparison matrix.
+// Tabla con countries: active / overdue / slaPct / 12-week sparkline.
+function _edaHQCountriesSection(D) {
+  var countries = (D && D.countries) || [];
+  if (!countries.length) return '';
+  var html = '<section class="ed-section">'
+           + '<div class="ed-h2">— Countries comparison</div>'
+           + '<div class="hq-cmp-table">'
+           + '<div class="hq-cmp-head">'
+           +   '<span>Country</span><span>Active</span><span>Overdue</span><span>SLA</span><span>Throughput · 12 weeks</span>'
+           + '</div>';
+  countries.slice().sort(function(a, b) {
+    return ((b.overdue || 0) - (a.overdue || 0)) || ((a.slaPct || 0) - (b.slaPct || 0));
+  }).forEach(function(c) {
+    var sla = (c.slaPct == null) ? null : c.slaPct;
+    var slaCls = sla == null ? 'dim' : (sla >= 90 ? 'good' : (sla >= 75 ? 'warn' : 'crit'));
+    var trend = (c.trend && c.trend.length) ? c.trend : [];
+    var maxT = trend.reduce(function(m, n){ return Math.max(m, n); }, 0);
+    var sparkSvg = '<svg class="hq-cmp-spark" viewBox="0 0 120 24" preserveAspectRatio="none">';
+    if (maxT > 0) {
+      var pts = trend.map(function(n, i) {
+        var x = (i / (trend.length - 1)) * 120;
+        var y = 24 - (n / maxT) * 22;
+        return x.toFixed(1) + ',' + y.toFixed(1);
+      }).join(' ');
+      sparkSvg += '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.4"/>';
+    }
+    sparkSvg += '</svg>';
+    html += '<div class="hq-cmp-row" onclick="goEd(\'paises\')">'
+         +    '<span class="hq-cmp-code">' + esc(c.code || '—') + '</span>'
+         +    '<span class="hq-cmp-num">' + (c.open || 0) + '</span>'
+         +    '<span class="hq-cmp-num ' + (c.overdue ? 'crit' : '') + '">' + (c.overdue || 0) + '</span>'
+         +    '<span class="hq-cmp-num ' + slaCls + '">' + (sla == null ? '—' : sla + '%') + '</span>'
+         +    '<span class="hq-cmp-trend ' + slaCls + '">' + sparkSvg + '</span>'
+         + '</div>';
+  });
+  return html + '</div></section>';
+}
+
+// HQ insight #2: Projects at risk (top 5 con más overdue tasks).
+function _edaHQRiskSection(D) {
+  var projects = (D && D.projects) || [];
+  var tasks = (D && D.tasks) || [];
+  if (!projects.length) return '';
+  var byProject = {};
+  tasks.forEach(function(t) {
+    if (!t.proyectoId) return;
+    if (!(typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo')) return;
+    byProject[t.proyectoId] = (byProject[t.proyectoId] || 0) + 1;
+  });
+  var ranked = projects.map(function(p) {
+    return { p: p, overdue: byProject[p.id] || 0 };
+  }).filter(function(x){ return x.overdue > 0; })
+    .sort(function(a, b){ return b.overdue - a.overdue; })
+    .slice(0, 5);
+  if (!ranked.length) {
+    return '<section class="ed-section">'
+         +   '<div class="ed-h2">— Projects at risk</div>'
+         +   '<div class="ed-lede" style="text-align:center;padding:20px 0">No projects with overdue tasks. ✅</div>'
+         + '</section>';
+  }
+  var html = '<section class="ed-section">'
+           + '<div class="ed-h2">— Projects at risk</div>'
+           + '<div class="hq-risk-list">';
+  ranked.forEach(function(r) {
+    html += '<div class="hq-risk-row" onclick="edPiOpen(\'' + esc(r.p.id) + '\');goEd(\'proyectos\')">'
+         +    '<div class="hq-risk-name">'
+         +      '<div class="hq-risk-title">' + esc(r.p.nombre || '') + '</div>'
+         +      '<div class="hq-risk-meta">' + esc((r.p.pais || '—') + ' · ' + (r.p.lider || '—')) + '</div>'
+         +    '</div>'
+         +    '<div class="hq-risk-count crit">' + r.overdue + '<em> overdue</em></div>'
+         + '</div>';
+  });
+  return html + '</div></section>';
+}
+
 function rEdAnalytics(D) {
   var v = $('vEdAnalytics'); if (!v) return;
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : ((D && D._role) || 'manager');
+  // Specialist tiene su propio scorecard personal (uso/desempeño).
+  // Manager y head ven analytics de equipo (existente).
+  if (role === 'specialist') return _rEdAnalyticsSpecialist(D);
   var userCode = (typeof _effectiveUserCode === 'function') ? _effectiveUserCode() : '';
   var allTasks = (D && D.tasks) || [];
 
@@ -6365,28 +6450,28 @@ function rEdAnalytics(D) {
   var onTimePct = slaPct;
 
   var sem = (D && D.semana) ? D.semana : '';
-  var eyebrow = 'Analytics' + (sem ? ' · sem ' + sem : '');
+  var eyebrow = 'Analytics' + (sem ? ' · week ' + sem : '');
   var h1 = role === 'head'
-    ? 'LATAM en datos, <em>vista del trimestre</em>.'
-    : 'Cómo va el equipo, <em>en una mirada</em>.';
+    ? 'LATAM <em>at a glance</em>.'
+    : 'Your team, <em>in numbers</em>.';
 
   // Lede: 2-3 highlights narrativos
   var altaLede = kpi.alta || 0;
   var bloquLede = kpi.bloqueado || 0;
   var lede = '';
   if (role === 'head') {
-    lede = 'LATAM tiene <b>' + activas + ' tareas activas</b>'
-         + (altaLede ? ', de las cuales <b>' + altaLede + ' son de alta prioridad</b>' : '')
-         + '. Cumplimiento SLA promedio del <b>' + slaPct + '%</b>'
-         + (sla.overdue ? ' — <span class="crit">' + sla.overdue + ' vencidas</span> requieren reasignación.' : '.')
-         + (cerradasMes ? ' Este mes el equipo cerró <b>' + cerradasMes + ' tareas</b>.' : '');
+    lede = 'LATAM has <b>' + activas + ' active tasks</b>'
+         + (altaLede ? ', <b>' + altaLede + ' of them high priority</b>' : '')
+         + '. SLA compliance is <b>' + slaPct + '%</b>'
+         + (sla.overdue ? ' — <span class="crit">' + sla.overdue + ' overdue</span> need reassignment.' : '.')
+         + (cerradasMes ? ' This month teams closed <b>' + cerradasMes + ' tasks</b>.' : '');
   } else {
-    lede = 'Tu equipo tiene <b>' + activas + ' tareas activas</b>'
-         + (altaLede ? ' (' + altaLede + ' Alta, ' + (kpi.media || 0) + ' Media, ' + (kpi.baja || 0) + ' Baja)' : '')
-         + '. Cumplimiento SLA del <b>' + slaPct + '%</b>'
-         + (sla.overdue ? ', <span class="crit">' + sla.overdue + ' vencidas</span>' : '')
-         + (bloquLede ? ' y <span class="warn">' + bloquLede + ' bloqueadas</span>.' : '.')
-         + (cerradasMes ? ' Cerraron <b>' + cerradasMes + ' tareas</b> este mes.' : '');
+    lede = 'Your team has <b>' + activas + ' active tasks</b>'
+         + (altaLede ? ' (' + altaLede + ' High, ' + (kpi.media || 0) + ' Medium, ' + (kpi.baja || 0) + ' Low)' : '')
+         + '. SLA compliance is <b>' + slaPct + '%</b>'
+         + (sla.overdue ? ', <span class="crit">' + sla.overdue + ' overdue</span>' : '')
+         + (bloquLede ? ' and <span class="warn">' + bloquLede + ' on hold</span>.' : '.')
+         + (cerradasMes ? ' Closed <b>' + cerradasMes + ' tasks</b> this month.' : '');
   }
 
   var html = ''
@@ -6395,25 +6480,31 @@ function rEdAnalytics(D) {
     + '<p class="ed-lede">' + lede + '</p>'
     // HERO 4 KPIs
     + '<div class="eda-hero">'
-    +   '<div class="eda-stat"><div class="eda-stat-lbl">Activas</div>'
-    +     '<div class="eda-stat-num">' + String(activas).padStart(2, '0') + '</div>'
-    +     '<div class="eda-stat-ctx">' + (role === 'head' ? 'LATAM' : 'tu equipo') + '</div></div>'
-    +   '<div class="eda-stat"><div class="eda-stat-lbl">Cerradas (mes)</div>'
-    +     '<div class="eda-stat-num good">' + String(cerradasMes).padStart(2, '0') + '</div>'
-    +     '<div class="eda-stat-ctx">' + (cerradasMes ? 'completadas' : 'sin cierres aún') + '</div></div>'
+    +   '<div class="eda-stat"><div class="eda-stat-lbl">Active</div>'
+    +     '<div class="eda-stat-num">' + (activas ? String(activas).padStart(2, '0') : '—') + '</div>'
+    +     '<div class="eda-stat-ctx">' + (role === 'head' ? 'across LATAM' : 'in your team') + '</div></div>'
+    +   '<div class="eda-stat"><div class="eda-stat-lbl">Closed (month)</div>'
+    +     '<div class="eda-stat-num good">' + (cerradasMes ? String(cerradasMes).padStart(2, '0') : '—') + '</div>'
+    +     '<div class="eda-stat-ctx">' + (cerradasMes ? 'completed' : 'no closes yet') + '</div></div>'
     +   '<div class="eda-stat"><div class="eda-stat-lbl">On-time</div>'
     +     '<div class="eda-stat-num ' + (onTimePct >= 90 ? 'good' : (onTimePct >= 75 ? 'warn' : 'crit')) + '">'
     +       (totalSla ? onTimePct + '%' : '—') + '</div>'
-    +     '<div class="eda-stat-ctx">dentro de SLA</div></div>'
-    +   '<div class="eda-stat"><div class="eda-stat-lbl">SLA cumplido</div>'
+    +     '<div class="eda-stat-ctx">within SLA</div></div>'
+    +   '<div class="eda-stat"><div class="eda-stat-lbl">SLA met</div>'
     +     '<div class="eda-stat-num ' + (slaPct >= 90 ? 'good' : (slaPct >= 75 ? 'warn' : 'crit')) + '">'
     +       (totalSla ? slaPct + '%' : '—') + '</div>'
-    +     '<div class="eda-stat-ctx">' + (sla.overdue ? sla.overdue + ' vencidas' : 'sin vencidas') + '</div></div>'
+    +     '<div class="eda-stat-ctx">' + (sla.overdue ? sla.overdue + ' overdue' : 'no overdue') + '</div></div>'
     + '</div>';
+
+  // For HQ: country comparison matrix + projects at risk (insight #1, #2)
+  if (role === 'head') {
+    html += _edaHQCountriesSection(D);
+    html += _edaHQRiskSection(D);
+  }
 
   // Sección charts: prioridad + estado por responsable (lado a lado)
   html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Distribución por prioridad</div>'
+       +    '<div class="ed-h2">— ' + (role === 'head' ? 'Workload by priority' : 'Distribution by priority') + '</div>'
        +    '<div class="eda-charts-grid">'
        +      '<div class="ed-chart-wrap"><canvas id="cEdAPrio" height="220"></canvas></div>'
        +      '<div class="ed-chart-wrap"><canvas id="cEdAResp" height="220"></canvas></div>'
@@ -6422,7 +6513,7 @@ function rEdAnalytics(D) {
 
   // Sección SLA
   html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Cumplimiento de SLA</div>'
+       +    '<div class="ed-h2">— SLA compliance</div>'
        +    '<div class="ed-chart-wrap"><canvas id="cEdASla" height="180"></canvas></div>'
        + '</section>';
 
@@ -6449,7 +6540,7 @@ function rEdAnalytics(D) {
       CH.eda = new Chart(c1, {
         type: 'doughnut',
         data: {
-          labels: ['Alta', 'Media', 'Baja'],
+          labels: ['High', 'Medium', 'Low'],
           datasets: [{
             data: [alta, media, baja],
             backgroundColor: th.prio,
@@ -6461,7 +6552,7 @@ function rEdAnalytics(D) {
           responsive: true, maintainAspectRatio: false, cutout: '68%',
           plugins: {
             legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, font: { size: 11 } } },
-            title:  { display: true, text: 'Activas por prioridad', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
+            title:  { display: true, text: 'Active by priority', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
           }
         }
       });
@@ -6484,10 +6575,10 @@ function rEdAnalytics(D) {
         data: {
           labels: top.map(function(t){ return (t.name || '').split(' ').slice(0, 2).join(' '); }),
           datasets: [
-            { label: 'Pend.', data: top.map(function(t){ return t.pendiente || 0; }),  backgroundColor: th.dim,     borderRadius: 3, barPercentage: .7 },
-            { label: 'Curso', data: top.map(function(t){ return t.enCurso || 0; }),    backgroundColor: th.info,    borderRadius: 3, barPercentage: .7 },
-            { label: 'Rev.',  data: top.map(function(t){ return t.enRevision || 0; }), backgroundColor: th.accent,  borderRadius: 3, barPercentage: .7 },
-            { label: 'Bloq.', data: top.map(function(t){ return t.bloqueado || 0; }),  backgroundColor: th.prio[0], borderRadius: 3, barPercentage: .7 }
+            { label: 'Pending', data: top.map(function(t){ return t.pendiente || 0; }),  backgroundColor: th.dim,     borderRadius: 3, barPercentage: .7 },
+            { label: 'In progress', data: top.map(function(t){ return t.enCurso || 0; }),    backgroundColor: th.info,    borderRadius: 3, barPercentage: .7 },
+            { label: 'Review',  data: top.map(function(t){ return t.enRevision || 0; }), backgroundColor: th.accent,  borderRadius: 3, barPercentage: .7 },
+            { label: 'Blocked', data: top.map(function(t){ return t.bloqueado || 0; }),  backgroundColor: th.prio[0], borderRadius: 3, barPercentage: .7 }
           ]
         },
         options: {
@@ -6499,7 +6590,7 @@ function rEdAnalytics(D) {
           },
           plugins: {
             legend: { position: 'bottom', labels: { padding: 12, usePointStyle: true, font: { size: 11 } } },
-            title:  { display: true, text: 'Top responsables · estado activo', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
+            title:  { display: true, text: 'Top owners · active status', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
           }
         }
       });
@@ -6514,7 +6605,7 @@ function rEdAnalytics(D) {
       CH.edc = new Chart(c3, {
         type: 'doughnut',
         data: {
-          labels: ['En tiempo', 'En riesgo', 'Vencidas'],
+          labels: ['On time', 'At risk', 'Overdue'],
           datasets: [{
             data: [sla.onTime || 0, sla.atRisk || 0, sla.overdue || 0],
             // tokens editoriales: good / warn / critical
@@ -6527,12 +6618,139 @@ function rEdAnalytics(D) {
           responsive: true, maintainAspectRatio: false, cutout: '70%',
           plugins: {
             legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, font: { size: 11 } } },
-            title:  { display: true, text: slaPct + '% en tiempo · SLA Alta 2d / Media 5d / Baja 7d', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
+            title:  { display: true, text: slaPct + '% on time · SLA High 2d / Medium 5d / Low 7d', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
           }
         }
       });
     }
   }
+}
+
+// ── Specialist scorecard ────────────────────────────────────────
+// Vista personal: cuánto cumpliste, en qué priorizás tu trabajo,
+// cómo viene tu cadencia. 3 KPIs hero + 3 cards.
+function _rEdAnalyticsSpecialist(D) {
+  var v = $('vEdAnalytics'); if (!v) return;
+  var name = (typeof _effectiveUserName === 'function') ? _effectiveUserName() : '';
+  var firstName = name ? name.split(/\s+/)[0] : 'You';
+  var allHist = ((D && D.historial) || []).filter(function(t){ return t.resp === name; });
+  var myActive = ((D && D.tasks) || []).filter(function(t){ return t.resp === name && t.status !== 'Listo'; });
+  var SLA = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
+
+  // Parsear historial → date + bizDays + onTime flag
+  var entries = allHist.filter(function(t){ return t.creadoRaw && t.cerrado; }).map(function(t) {
+    var p = t.cerrado.split('/');
+    var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+    var biz = (typeof _bizDays === 'function') ? _bizDays(new Date(t.creadoRaw), cerradoDate) : null;
+    var sla = SLA[t.priority] || 5;
+    return {
+      priority: t.priority || 'Media',
+      cerradoMs: cerradoDate.getTime(),
+      bizDays: biz,
+      onTime: (biz != null) && (biz <= sla)
+    };
+  });
+
+  // Hero stats
+  var totalClosed = entries.length;
+  var onTimeCount = entries.filter(function(e){ return e.onTime; }).length;
+  var onTimePct = totalClosed > 0 ? Math.round((onTimeCount / totalClosed) * 100) : null;
+  var me = ((D && D.team) || []).find(function(m){ return m.name === name; }) || {};
+  var streak = (typeof me.streak === 'number') ? me.streak : 0;
+
+  // Last 8 weeks: closed + on-time per week (week 0 = current, walk back)
+  var nowMs = Date.now();
+  var WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  var weeks = [];
+  for (var w = 7; w >= 0; w--) {
+    var weekStart = nowMs - (w + 1) * WEEK_MS;
+    var weekEnd   = nowMs - w * WEEK_MS;
+    var inWeek = entries.filter(function(e){ return e.cerradoMs >= weekStart && e.cerradoMs < weekEnd; });
+    var ontime = inWeek.filter(function(e){ return e.onTime; }).length;
+    weeks.push({ count: inWeek.length, onTime: ontime, label: w === 0 ? 'now' : (w + 'w') });
+  }
+  var maxWeek = weeks.reduce(function(m, w){ return Math.max(m, w.count); }, 0);
+
+  // Priority mix (closed by priority)
+  var byPrio = { 'Alta': 0, 'Media': 0, 'Baja': 0 };
+  entries.forEach(function(e){ if (byPrio[e.priority] != null) byPrio[e.priority]++; });
+
+  var ontimeCls = onTimePct == null ? '' : (onTimePct >= 90 ? 'good' : (onTimePct >= 75 ? 'warn' : 'crit'));
+
+  var html = ''
+    + '<div class="ed-eye">My performance</div>'
+    + '<h1 class="ed-h1">How <em>you\'re doing</em>, ' + esc(firstName) + '.</h1>'
+    + '<p class="ed-lede">'
+    +   (totalClosed === 0
+        ? 'You haven\'t closed any tasks yet. Once you start closing, your stats will show here.'
+        : 'You\'ve closed <b>' + totalClosed + ' task' + (totalClosed === 1 ? '' : 's') + '</b>'
+          + (onTimePct != null ? ' with a <b>' + onTimePct + '% on-time rate</b>' : '')
+          + '. ' + (myActive.length > 0 ? 'You currently have <b>' + myActive.length + ' active</b>.' : 'No active tasks right now.'))
+    + '</p>'
+    // Hero (3 KPIs)
+    + '<div class="esp-hero">'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">On-time rate</div>'
+    +     '<div class="esp-stat-num ' + ontimeCls + '">' + (onTimePct == null ? '—' : onTimePct + '%') + '</div>'
+    +     '<div class="esp-stat-ctx">' + (totalClosed ? 'of ' + totalClosed + ' closed' : 'no data yet') + '</div></div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">Closed lifetime</div>'
+    +     '<div class="esp-stat-num">' + (totalClosed || '—') + '</div>'
+    +     '<div class="esp-stat-ctx">' + (totalClosed ? 'completed tasks' : 'start closing') + '</div></div>'
+    +   '<div class="esp-stat"><div class="esp-stat-lbl">🔥 Current streak</div>'
+    +     '<div class="esp-stat-num good">' + (streak || '—') + '</div>'
+    +     '<div class="esp-stat-ctx">' + (streak ? 'in a row, on time' : 'start a streak') + '</div></div>'
+    + '</div>';
+
+  // Card 1: Throughput (last 8 weeks)
+  html += '<section class="ed-section">'
+       +   '<div class="ed-h2">— Tasks closed, last 8 weeks</div>';
+  if (maxWeek === 0) {
+    html += '<div class="ed-lede">No closes yet. Start closing tasks to build your trend.</div>';
+  } else {
+    html += '<div class="sp-bars">';
+    weeks.forEach(function(w) {
+      var h = maxWeek > 0 ? Math.max(2, Math.round(w.count / maxWeek * 100)) : 2;
+      var ontimeShare = w.count > 0 ? Math.round(w.onTime / w.count * 100) : 0;
+      var fillCls = w.count === 0 ? 'empty' : (ontimeShare >= 80 ? 'good' : (ontimeShare >= 50 ? 'warn' : 'crit'));
+      html += '<div class="sp-bar-col" title="' + w.label + ': ' + w.count + ' closed, ' + w.onTime + ' on time">'
+           +    '<div class="sp-bar-fill ' + fillCls + '" style="height:' + h + '%"></div>'
+           +    '<div class="sp-bar-num">' + (w.count || '—') + '</div>'
+           +    '<div class="sp-bar-lbl">' + w.label + '</div>'
+           + '</div>';
+    });
+    html += '</div>';
+    html += '<div class="sp-legend">Bar height = total closed · color = % on time (green ≥80%, amber ≥50%, red &lt;50%)</div>';
+  }
+  html += '</section>';
+
+  // Card 2: Priority mix donut + Card 3: avg close time per priority
+  var totalP = byPrio.Alta + byPrio.Media + byPrio.Baja;
+  html += '<section class="ed-section">'
+       +   '<div class="ed-h2">— What you handle most</div>'
+       +   '<div class="sp-mix">';
+  if (totalP === 0) {
+    html += '<div class="ed-lede" style="grid-column:1/-1">No closed tasks yet to break down.</div>';
+  } else {
+    var rows = [
+      { lbl: 'High',   val: byPrio.Alta,  cls: 'crit', avg: me.avgAlta  || '—', sla: 'SLA 2d' },
+      { lbl: 'Medium', val: byPrio.Media, cls: 'warn', avg: me.avgMedia || '—', sla: 'SLA 5d' },
+      { lbl: 'Low',    val: byPrio.Baja,  cls: 'good', avg: me.avgBaja  || '—', sla: 'SLA 7d' }
+    ];
+    rows.forEach(function(r) {
+      var pct = Math.round(r.val / totalP * 100);
+      html += '<div class="sp-mix-row">'
+           +    '<div class="sp-mix-lbl">' + r.lbl + ' <span class="sp-mix-sla">' + r.sla + '</span></div>'
+           +    '<div class="sp-mix-bar"><div class="sp-mix-fill ' + r.cls + '" style="width:' + pct + '%"></div></div>'
+           +    '<div class="sp-mix-stats">'
+           +      '<span class="sp-mix-count">' + r.val + '</span>'
+           +      '<span class="sp-mix-pct">' + pct + '%</span>'
+           +      '<span class="sp-mix-avg">avg ' + esc(r.avg) + '</span>'
+           +    '</div>'
+           + '</div>';
+    });
+  }
+  html += '</div></section>';
+
+  v.innerHTML = html;
 }
 
 // MARKER:EDITORIAL_ANALYTICS_END
