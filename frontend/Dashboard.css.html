@@ -1195,9 +1195,9 @@ tbody tr:hover { background: var(--border-light); }
   display: flex;
 }
 .meq-bar-seg { height: 100%; }
-.meq-bar-alta  { background: #FF5C5C; }
-.meq-bar-media { background: #FFB938; }
-.meq-bar-baja  { background: #2DD4A0; }
+.meq-bar-alta  { background: var(--critical); }
+.meq-bar-media { background: var(--warn); }
+.meq-bar-baja  { background: var(--good); }
 
 .meq-view-btn {
   padding: 6px 10px;
@@ -2877,7 +2877,9 @@ body.role-manager #tabResumen { display: none !important; }
 .tk-bulk-btn {
   background: transparent;
   color: var(--bg);
-  border: 1px solid rgba(255, 255, 255, .25);
+  /* Borde derivado de currentColor (--bg) para que respete el cambio
+     de tema sin hardcodear blanco. */
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
   padding: 5px 12px;
   font-size: 11px;
   font-weight: 600;
@@ -2887,7 +2889,10 @@ body.role-manager #tabResumen { display: none !important; }
   letter-spacing: .3px;
   transition: background .12s, border-color .12s;
 }
-.tk-bulk-btn:hover { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .45); }
+.tk-bulk-btn:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  border-color: color-mix(in srgb, currentColor 48%, transparent);
+}
 .tk-bulk-btn.ghost { margin-left: auto; opacity: .7; }
 .tk-bulk-btn.ghost:hover { opacity: 1; }
 
@@ -3141,7 +3146,10 @@ body.role-manager #tabResumen { display: none !important; }
   flex-direction: column;
   gap: 8px;
 }
-.tk-actions .ed-btn { justify-content: center; padding: 9px 14px; }
+.tk-actions .ed-btn { justify-content: center; padding: 9px 14px; width: 100%; }
+/* En el panel del tracker el menú "Más ⋯" abre hacia arriba porque
+   está al final del panel; sino el dropdown queda fuera del viewport. */
+.esp-task-menu-wrap.tk-more-up .esp-menu { top: auto; bottom: calc(100% + 4px); right: 0; left: auto; min-width: 180px; }
 
 /* ── Documentos del panel del tracker ──────────────────────────── */
 .tk-docs {

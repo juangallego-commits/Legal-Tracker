@@ -3740,6 +3740,21 @@ function edSelectTask(id) {
 }
 function edClosePanel() { EDT.selectedId = null; if (D) rEdTracker(D); }
 
+// Devuelve la próxima tarea urgente del tracker según los filtros
+// activos del usuario actual. Usado por edUSubmit tras cerrar una
+// tarea para auto-seleccionar la siguiente en la lista.
+function _edNextUrgent() {
+  if (!D || !D.tasks || typeof _edFilterByRole !== 'function') return null;
+  var role = _effectiveRole();
+  var userName = _effectiveUserName();
+  var userCode = _effectiveUserCode();
+  var roleTasks = _edFilterByRole(D.tasks, role, userName, userCode);
+  var filtered = (typeof _edApplyFilter === 'function') ? _edApplyFilter(roleTasks, EDT.filter) : roleTasks;
+  filtered = (typeof _edApplySearch === 'function') ? _edApplySearch(filtered, EDT.search) : filtered;
+  var sorted = (typeof _edSortByUrgency === 'function') ? _edSortByUrgency(filtered) : filtered;
+  return sorted[0] || null;
+}
+
 // ─── BULK ACTIONS DEL TRACKER ───────────────────────────────────
 // EDT.selectedIds = Array<string> de task ids seleccionadas vía
 // checkbox. La barra de acciones aparece cuando hay >0 seleccionadas
@@ -3777,14 +3792,18 @@ function _edTkUpdateBulkBar() {
 function edTkBulkAction(action) {
   var ids = (EDT.selectedIds || []).slice();
   if (!ids.length) return;
+  var n = ids.length;
+  var label = n + ' tarea' + (n === 1 ? '' : 's');
   if (action === 'reasignar') {
-    var newResp = window.prompt('Reasignar ' + ids.length + ' tarea' + (ids.length === 1 ? '' : 's') + ' a (nombre exacto):');
+    var newResp = window.prompt('Reasignar ' + label + ' a (nombre exacto):');
     if (!newResp) return;
     _edTkBulkRun(ids, 'resp', newResp, 'Reasignadas');
     return;
   }
   if (action === 'bloquear') {
-    _edTkBulkRun(ids, 'status', 'Bloqueado', 'Bloqueadas');
+    confirm_('¿Bloquear ' + label + '? Vas a dejarlas marcadas como en espera.', function() {
+      _edTkBulkRun(ids, 'status', 'Bloqueado', 'Bloqueadas');
+    });
     return;
   }
   if (action === 'avanzar') {
@@ -3800,7 +3819,9 @@ function edTkBulkAction(action) {
       if (next) toRun.push({ id: id, value: next });
     });
     if (!toRun.length) { toast('Ninguna seleccionada se puede avanzar.', 'info'); return; }
-    _edTkBulkRunMixed(toRun, 'status', 'Avanzadas');
+    confirm_('¿Avanzar ' + toRun.length + ' tarea' + (toRun.length === 1 ? '' : 's') + ' al siguiente estado?', function() {
+      _edTkBulkRunMixed(toRun, 'status', 'Avanzadas');
+    });
     return;
   }
 }
@@ -4398,11 +4419,16 @@ function rEdTracker(D) {
          +    '<div class="tk-actions">'
          +      '<button class="ed-btn primary" onclick="edUOpen(\'' + esc(sel.id) + '\', \'avanzar\')">Avanzar →</button>'
          +      '<button class="ed-btn" onclick="edUOpen(\'' + esc(sel.id) + '\', \'cerrar\')">Cerrar ✓</button>'
-         +      '<button class="ed-btn" onclick="edUOpen(\'' + esc(sel.id) + '\', \'bloquear\')">Bloquear</button>'
-         +      '<button class="ed-btn" onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : ('\'' + esc(sel.id) + '\'')) + ')" title="Abrir modal con todos los campos">Editar todos los campos</button>'
-         +      ((role === 'manager' || role === 'head')
-                  ? '<button class="ed-btn" onclick="edReasignarOpen(\'' + esc(sel.id) + '\')">Reasignar</button>'
-                  : '')
+         +      '<div class="esp-task-menu-wrap tk-more-up">'
+         +        '<button class="ed-btn" onclick="edSpMenuToggle(this)" aria-label="Más acciones">Más ⋯</button>'
+         +        '<div class="esp-menu" role="menu">'
+         +          '<div class="esp-menu-item" onclick="edSpMenuClose();edUOpen(\'' + esc(sel.id) + '\',\'bloquear\')">Bloquear</div>'
+         +          '<div class="esp-menu-item" onclick="edSpMenuClose();openEdit(' + (typeof sel.id === 'number' ? sel.id : ('\'' + esc(sel.id) + '\'')) + ')">Editar detalles</div>'
+         +          ((role === 'manager' || role === 'head')
+                      ? '<div class="esp-menu-item" onclick="edSpMenuClose();edReasignarOpen(\'' + esc(sel.id) + '\')">Reasignar</div>'
+                      : '')
+         +        '</div>'
+         +      '</div>'
          +    '</div>'
          + '</aside>';
   }
@@ -4841,11 +4867,15 @@ function edUSubmit() {
     fields.confidencialidad = EDU.newConf;
   }
   if (typeof showLoader === 'function') showLoader();
+  // Capturamos el variant antes de edUClose() porque ahí se resetea
+  // EDU. Lo necesitamos para decidir si auto-seleccionar la siguiente
+  // tarea urgente tras un cierre exitoso.
+  var submittedVariant = EDU.variant;
   google.script.run
     .withSuccessHandler(function(res) {
       if (typeof hideLoader === 'function') hideLoader();
       if (res && res.success === false) { if (typeof toast === 'function') toast(res.error || 'Error', 'error'); return; }
-      var msg = EDU.variant === 'cerrar' ? 'Tarea cerrada' : EDU.variant === 'bloquear' ? 'Tarea bloqueada' : 'Tarea avanzada';
+      var msg = submittedVariant === 'cerrar' ? 'Tarea cerrada' : submittedVariant === 'bloquear' ? 'Tarea bloqueada' : 'Tarea avanzada';
       if (typeof toast === 'function') toast(msg, 'success');
       edUClose();
       google.script.run.withSuccessHandler(function(fresh) {
@@ -4854,6 +4884,13 @@ function edUSubmit() {
         if (typeof render === 'function') render();
         var active = document.querySelector('.view.active');
         if (!active) return;
+        // Tras cierre en el tracker, auto-seleccionar la siguiente
+        // tarea urgente (top de la lista filtrada) para que el usuario
+        // pueda seguir cerrando sin clickear de nuevo.
+        if (submittedVariant === 'cerrar' && active.id === 'vEdTracker') {
+          var nextT = _edNextUrgent();
+          EDT.selectedId = nextT ? nextT.id : null;
+        }
         if (active.id === 'vEdHome' && typeof goEd === 'function') goEd('home');
         else if (active.id === 'vEdTracker' && typeof goEd === 'function') goEd('tracker');
         else if (active.id === 'vEdAgrupadas' && typeof goEd === 'function') goEd('agrupadas');
@@ -5662,8 +5699,9 @@ function rEdProyectosIndex(D) {
 
   if (enriched.length === 0) {
     html += _emptyState('📁', 'Sin proyectos por acá',
-                        'Probá cambiar el filtro o creá uno nuevo desde + Nueva.',
-                        null, null);
+                        'Probá cambiar el filtro o crear uno nuevo.',
+                        '+ Crear proyecto',
+                        "if(typeof edCrearProyectoOpen==='function')edCrearProyectoOpen();else if(typeof openCreate==='function')openCreate('newProj')");
   } else {
     var startIdx = 1;
     if (EDP.tab !== 'cerrados') {
