@@ -1729,19 +1729,27 @@ body.role-manager #tabResumen { display: none !important; }
    panel deben ocupar col 1 explícitamente (sino el grid los reparte
    alternando entre columnas y aplasta tabla/lede a 440px). El panel
    ocupa col 2 spanning todas las filas para quedar sticky al lado. */
+/* Cuando hay una tarea seleccionada, el panel ocupa la vista completa
+   (no side-by-side). El usuario se enfoca solo en esa tarea, sin
+   distracción de la tabla atrás. Para volver, click en × o "← Back". */
 .view.active:has(> .tk-panel) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 440px;
-  gap: 0 28px;
-  align-items: start;
+  display: block;
 }
 .view.active:has(> .tk-panel) > *:not(.tk-panel) {
-  grid-column: 1;
-  min-width: 0;
+  display: none;
 }
 .view.active:has(> .tk-panel) > .tk-panel {
-  grid-column: 2;
-  grid-row: 1 / -1;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 8px 0 60px;
+  border: none;
+  position: relative;
+  height: auto;
+  grid-column: auto;
+  grid-row: auto;
+  background: transparent;
+  box-shadow: none;
 }
 /* Cuando el panel está abierto el .ed-main pierde max-width y el
    padding-right que normalmente respira con la página, para que el
@@ -1826,21 +1834,9 @@ body.role-manager #tabResumen { display: none !important; }
   /* Activity feed: solo cuando sidebar está expandido */
   .ed-side:not(:hover) .ed-feed { display: none; }
 
-  /* Tracker panel: overlay en vez de side-by-side. Override del :has() */
-  .view.active:has(> .tk-panel) { display: block; }
-  .view.active:has(> .tk-panel) > *:not(.tk-panel) { grid-column: auto; }
-  .view.active:has(> .tk-panel) > .tk-panel {
-    position: fixed;
-    right: 0; top: 0; bottom: 0;
-    width: min(100%, 480px);
-    z-index: 90;
-    background: var(--paper);
-    box-shadow: -4px 0 24px rgba(0, 0, 0, .16);
-    overflow-y: auto;
-    padding: 24px;
-    grid-column: auto;
-    grid-row: auto;
-  }
+  /* Tracker panel: el override base (display:block + max-width 920px)
+     ya hace full-screen; en pantallas chicas reducimos padding lateral
+     del main para que el detalle respire mejor. */
   .ed-main { padding: 32px 28px 60px; }
 }
 
@@ -1875,11 +1871,10 @@ body.role-manager #tabResumen { display: none !important; }
   .ed-burger { display: inline-flex; }
   .ed-main { padding: 20px 16px 40px; }
 
-  /* Panel del tracker full-width en móvil */
+  /* Panel del tracker full-width en móvil con padding reducido. */
   .view.active:has(> .tk-panel) > .tk-panel {
-    width: 100%;
     max-width: 100%;
-    padding: 20px 16px;
+    padding: 4px 0 40px;
   }
 
   /* Header: el search visual del header ocupa demasiado en móvil.
@@ -2504,6 +2499,191 @@ body.role-manager #tabResumen { display: none !important; }
   letter-spacing: 1px;
   font-weight: 700;
 }
+
+/* ── HQ Tracker · countries-first landing ──────────────────────── */
+.hq-summary-band {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  padding: 18px 0;
+  margin-bottom: 22px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.hq-summary-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0 22px;
+  border-right: 1px solid var(--rule);
+}
+.hq-summary-stat:last-child { border-right: none; }
+.hq-summary-stat .lbl {
+  font-size: 10px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.hq-summary-stat .num {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 36px;
+  line-height: 1;
+  color: var(--ink);
+  margin-bottom: 6px;
+  letter-spacing: -.5px;
+}
+.hq-summary-stat .num.crit { color: var(--critical); }
+.hq-summary-stat .num.warn { color: var(--warn); }
+.hq-summary-stat .num.good { color: var(--good); }
+.hq-summary-stat .ctx {
+  font-size: 11px;
+  color: var(--dim);
+  font-style: italic;
+  font-family: var(--serif);
+}
+
+.hq-quick-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 24px;
+}
+.hq-quick-actions .ed-btn { font-size: 12px; }
+
+.hq-country-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  padding: 14px 0 8px;
+}
+.hq-card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 18px;
+  cursor: pointer;
+  transition: border-color .15s, transform .15s;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+}
+.hq-card:hover {
+  border-color: var(--rule-strong);
+  transform: translateY(-2px);
+}
+.hq-card.at-risk {
+  border-color: color-mix(in srgb, var(--critical) 35%, var(--rule));
+  background: color-mix(in srgb, var(--critical-soft, transparent) 18%, var(--paper));
+}
+.hq-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hq-card-flag {
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+  background: var(--paper2);
+  border: 1px solid var(--rule);
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .5px;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.hq-card-meta { flex: 1; min-width: 0; }
+.hq-card-name {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 17px;
+  color: var(--ink);
+  line-height: 1.2;
+  margin-bottom: 2px;
+}
+.hq-card-lead {
+  font-size: 11px;
+  color: var(--dim);
+  font-family: var(--mono);
+  letter-spacing: .3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hq-card-flag-risk {
+  font-size: 16px;
+  color: var(--critical);
+  flex-shrink: 0;
+}
+.hq-card-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.hq-card-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.hq-card-stat .num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--ink);
+  line-height: 1;
+}
+.hq-card-stat .num.crit { color: var(--critical); }
+.hq-card-stat .num.warn { color: var(--warn); }
+.hq-card-stat .num.good { color: var(--good); }
+.hq-card-stat .num.dim  { color: var(--dim); }
+.hq-card-stat .lbl {
+  margin-top: 4px;
+  font-size: 9px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+.hq-card-spark-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--accent);
+}
+.hq-card-spark-wrap.good { color: var(--good); }
+.hq-card-spark-wrap.warn { color: var(--warn); }
+.hq-card-spark-wrap.crit { color: var(--critical); }
+.hq-card-spark-wrap.dim  { color: var(--dim); }
+.hq-card-spark-lbl {
+  font-size: 9px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+.hq-card-spark { width: 100%; height: 28px; display: block; }
+.hq-card-cta {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 700;
+  text-align: right;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.hq-card:hover .hq-card-cta { opacity: 1; }
 
 /* ── HQ Analytics: countries comparison + projects at risk ─────── */
 .hq-cmp-table {
@@ -3440,17 +3620,31 @@ body.role-manager #tabResumen { display: none !important; }
 .tk-eta.dim  { color: var(--dim); }
 
 .tk-panel {
-  position: sticky;
-  top: 0;
-  align-self: start;
-  /* Width lo controla el grid container (440px en col 2). */
-  padding: 32px 28px;
-  border-left: 1px solid var(--rule);
-  background: var(--paper);
-  height: 100vh;
-  overflow-y: auto;
+  /* Full-screen overlay layout — el container del view ya lo escala
+     a 100% width con max-width 920px. Sin border-left ni height fijo
+     porque ya no es side-panel. */
+  position: relative;
+  padding: 12px 0 60px;
+  background: transparent;
   box-sizing: border-box;
 }
+.tk-panel-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, var(--ink));
+  background: transparent;
+  border: 1px solid var(--rule);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 22px;
+  font-family: inherit;
+  transition: border-color .12s, color .12s;
+}
+.tk-panel-back:hover { border-color: var(--rule-strong); color: var(--ink); }
 .tk-panel-head {
   display: flex;
   justify-content: space-between;
@@ -3482,11 +3676,11 @@ body.role-manager #tabResumen { display: none !important; }
 .tk-panel-title {
   font-family: var(--serif);
   font-weight: 400;
-  font-size: 24px;
-  line-height: 1.18;
+  font-size: 32px;
+  line-height: 1.15;
   color: var(--ink);
-  margin-bottom: 12px;
-  letter-spacing: -.3px;
+  margin-bottom: 16px;
+  letter-spacing: -.4px;
 }
 .tk-panel-pills {
   display: flex;
@@ -3496,10 +3690,15 @@ body.role-manager #tabResumen { display: none !important; }
 }
 .tk-panel-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  column-gap: 22px;
-  margin-bottom: 22px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px 28px;
+  margin-bottom: 28px;
+  padding: 18px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+@media (max-width: 720px) {
+  .tk-panel-grid { grid-template-columns: 1fr 1fr; }
 }
 .tk-panel-cell { display: flex; flex-direction: column; gap: 4px; }
 .tk-panel-cell .lbl {
