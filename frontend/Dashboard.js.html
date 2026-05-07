@@ -5259,14 +5259,19 @@ function edCrearOpen() {
     proyectoId: '',
     confidencialidad: 'estandar'
   };
-  // Restaurar borrador de localStorage si existe contenido útil (titulo o descripcion)
+  // Restaurar borrador de localStorage si existe contenido útil (titulo o
+  // descripcion). Solo override campos NO vacíos del draft — sino una
+  // sesión previa que dejó resp/pais en blanco anula nuestros pre-fills
+  // y la validación falla silenciosa al avanzar de paso.
   try {
     var saved = localStorage.getItem('lt-edc-draft');
     if (saved) {
       var v = JSON.parse(saved);
       if (v && (v.titulo || v.descripcion)) {
-        EDC.values = Object.assign(EDC.values, v);
-        if (typeof toast === 'function') toast('Restauré tu borrador anterior.', 'info');
+        Object.keys(v).forEach(function(k) {
+          if (v[k]) EDC.values[k] = v[k];
+        });
+        if (typeof toast === 'function') toast('Restored your draft.', 'info');
       }
     }
   } catch(e){}
@@ -5299,12 +5304,12 @@ function edCrearGoStep(n) {
   var v = EDC.values;
   if (n > EDC.step) {
     if (EDC.step === 1) {
-      if (!v.titulo || !v.titulo.trim()) { toast('Título requerido', 'error'); return; }
-      if (!v.tipo) { toast('Seleccioná un tipo', 'error'); return; }
-      if (!v.pais) { toast('Seleccioná un país', 'error'); return; }
+      if (!v.titulo || !v.titulo.trim()) { toast('Title required', 'error'); return; }
+      if (!v.tipo) { toast('Pick a type', 'error'); return; }
+      if (!v.pais) { toast('Pick a country', 'error'); return; }
     } else if (EDC.step === 2) {
-      if (!v.resp) { toast('Seleccioná un responsable', 'error'); return; }
-      if (!v.deadline) { toast('Deadline requerido', 'error'); return; }
+      if (!v.resp) { toast('Pick an owner', 'error'); return; }
+      if (!v.deadline) { toast('Deadline required', 'error'); return; }
     }
   }
   EDC.step = n;
@@ -5313,28 +5318,32 @@ function edCrearGoStep(n) {
 
 function edCrearSubmit() {
   var v = EDC.values;
-  if (!v.titulo || !v.titulo.trim()) { toast('Título requerido', 'error'); return; }
-  if (!v.resp) { toast('Responsable requerido', 'error'); return; }
+  if (!v.titulo || !v.titulo.trim()) { toast('Title required', 'error'); return; }
+  if (!v.resp) { toast('Owner required', 'error'); return; }
+  if (!v.pais) { toast('Country required', 'error'); return; }
   var btn = $('crSubmit'); if (btn) btn.disabled = true;
   if (typeof showLoader === 'function') showLoader();
+  toast('Creating task…', 'info');
+  console.log('[create-task] payload', v);
   google.script.run
     .withSuccessHandler(function(res) {
       if (typeof hideLoader === 'function') hideLoader();
       if (btn) btn.disabled = false;
+      console.log('[create-task] response', res);
       if (res && res.success) {
-        toast('Tarea #' + res.id + ' creada', 'success');
-        // Limpiar borrador persistido sólo en éxito
+        toast('✅ Task #' + res.id + ' created', 'success');
         try { localStorage.removeItem('lt-edc-draft'); } catch(e){}
         edCrearClose();
         if (typeof reload === 'function') reload();
       } else {
-        toast('Error: ' + ((res && res.error) || 'desconocido'), 'error');
+        toast('Error: ' + ((res && res.error) || 'unknown'), 'error');
       }
     })
     .withFailureHandler(function(e) {
       if (typeof hideLoader === 'function') hideLoader();
       if (btn) btn.disabled = false;
-      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+      console.error('[create-task] failure', e);
+      toast('Backend error: ' + (e && e.message || 'unknown'), 'error');
     })
     .addTask({
       nombre: v.titulo.trim(),

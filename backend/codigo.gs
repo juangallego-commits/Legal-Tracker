@@ -1274,7 +1274,27 @@ function getMemberByName(name, eq){
 }
 function getLeaderForCountry(code,eq){for(var i=0;i<eq.length;i++){if(eq[i].code===code)return eq[i].leader}return ''}
 function readConfig(ss){var ws=ss.getSheetByName(SHEET_CONFIG);if(!ws)return {};var lr=ws.getLastRow();if(lr<3)return {};var data=ws.getRange(3,1,lr-2,2).getValues(),c={};data.forEach(function(r){if(r[0])c[r[0]]=r[1]});return c}
-function countBizDays(start,end){var count=0,cur=new Date(start);while(cur<end){cur.setDate(cur.getDate()+1);var d=cur.getDay();if(d!==0&&d!==6)count++}return count}
+// O(1) en lugar del while-day-by-day. Para historial extenso (años),
+// el loop original disparaba miles de iteraciones por entry × cientos
+// de entries → segundos de CPU. Algoritmo: total días entre fechas,
+// menos los fines de semana caídos en ese rango.
+function countBizDays(start, end) {
+  if (!start || !end) return 0;
+  var s = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  var e = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  var days = Math.round((e - s) / 86400000);
+  if (days <= 0) return 0;
+  var weeks = Math.floor(days / 7);
+  var biz = weeks * 5;
+  var startDow = s.getDay();
+  // Para los días sobrantes (0..6), contar cuáles caen en lun-vie.
+  var rem = days - weeks * 7;
+  for (var i = 1; i <= rem; i++) {
+    var dow = (startDow + i) % 7;
+    if (dow !== 0 && dow !== 6) biz++;
+  }
+  return biz;
+}
 // Mueve una tarea al Historial preservando su ID original.
 // Ya NO renumera las tareas restantes: los IDs son persistentes (pueden quedar huecos 1,3,7,...).
 // Lock para que read+append+delete sean atómicos: sin lock, dos cierres concurrentes pueden
