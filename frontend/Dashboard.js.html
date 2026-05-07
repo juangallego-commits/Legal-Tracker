@@ -3140,6 +3140,14 @@ document.addEventListener('keydown', function(e) {
 }, true);
 
 function goEd(viewId) {
+  // Ocultar tooltip de hover preview del tracker (sino persiste al
+  // navegar a otra vista porque el mouseleave nunca se disparó).
+  var prev = $('edTkPreview');
+  if (prev) prev.style.display = 'none';
+  if (typeof _edTkPreviewTimer !== 'undefined' && _edTkPreviewTimer) {
+    clearTimeout(_edTkPreviewTimer);
+    _edTkPreviewTimer = null;
+  }
   document.querySelectorAll('.view').forEach(function(v) { v.classList.remove('active'); });
   document.querySelectorAll('.ed-nav-item').forEach(function(n) {
     n.classList.toggle('active', n.dataset && n.dataset.viewid === viewId);
@@ -3249,7 +3257,12 @@ function rEdHomeSpecialist(D) {
   var thisWeek  = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= 7; }).length;
   var blocked   = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var apremiantes = overdue + dueToday + blocked;
-  var narrative = (D && D.roleSpecific && D.roleSpecific.narrative) || ('Tenés ' + tasks.length + ' tareas activas.');
+  // Narrativa LOCAL para que respete el rol efectivo (incluye demo
+  // switcher). La narrativa del server se computa con el rol REAL del
+  // visitante y queda inconsistente cuando un head ve la app como
+  // specialist via demo.
+  var narrative = 'Tenés ' + tasks.length + ' tarea' + (tasks.length === 1 ? '' : 's') + ' activa' + (tasks.length === 1 ? '' : 's')
+                + (thisWeek ? '. ' + thisWeek + ' vence' + (thisWeek === 1 ? '' : 'n') + ' esta semana.' : '.');
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
   // Top 4 ordenadas por urgencia (etaDays asc, vencidas y bloqueadas primero)
   var top = tasks.slice().sort(function(a, b) {
@@ -3457,7 +3470,8 @@ function rEdHomeManager(D) {
   var totalLoad = 0, totalCap = 0;
   teamMine.forEach(function(m){ totalLoad += (m.load || 0); totalCap += (m.capacity || 0); });
   var loadPct = totalCap ? Math.round((totalLoad / totalCap) * 100) : 0;
-  var narrative = (D && D.roleSpecific && D.roleSpecific.narrative) || ('Tu equipo tiene ' + active.length + ' tareas activas.');
+  // Narrativa LOCAL (ver nota en rEdHomeSpecialist).
+  var narrative = 'Tu equipo tiene ' + active.length + ' tarea' + (active.length === 1 ? '' : 's') + ' activa' + (active.length === 1 ? '' : 's') + '.';
   // Top atención: bloqueadas y vencidas, top 4
   var att = active.slice().sort(function(a, b) {
     var aBlk = a.status === 'Bloqueado' ? -1 : 0;
@@ -3561,7 +3575,8 @@ function rEdHomeHQ(D) {
     slaAvg = Math.round(slaSum / countries.length);
   }
   var atRisk = countries.filter(function(c){ return (c.overdue || 0) > 3 || (c.slaPct || 100) < 85; }).length;
-  var narrative = (D && D.roleSpecific && D.roleSpecific.narrative) || ('LATAM tiene ' + totalOpen + ' tareas activas.');
+  // Narrativa LOCAL (ver nota en rEdHomeSpecialist).
+  var narrative = 'LATAM tiene ' + totalOpen + ' tarea' + (totalOpen === 1 ? '' : 's') + ' activa' + (totalOpen === 1 ? '' : 's') + ' en ' + countries.length + ' país' + (countries.length === 1 ? '' : 'es') + '.';
 
   var html = ''
     + '<div class="ed-eye">' + esc('Visión global · ' + countries.length + ' países') + '</div>'
@@ -3880,31 +3895,51 @@ function edTkAttachLink(taskId) {
 }
 function edTkUploadFile(input) {
   var file = input.files && input.files[0];
-  if (!file) return;
+  if (!file) { toast('Sin archivo seleccionado', 'error'); return; }
   var taskId = input.dataset.taskId;
+  if (!taskId) { toast('Falta task id (recargá la página)', 'error'); return; }
   if (file.size > 45 * 1024 * 1024) {
     toast('Archivo muy grande (máx 45 MB en Apps Script)', 'error');
     input.value = ''; return;
   }
+  // Toast inmediato: archivos grandes pueden tardar 2-5s en leerse;
+  // sin esto el usuario cree que "no pasó nada".
+  toast('Leyendo ' + file.name + '...', 'info');
+  showLoader();
   var reader = new FileReader();
-  reader.onerror = function(){ toast('Error leyendo archivo', 'error'); input.value = ''; };
+  reader.onerror = function(e) {
+    hideLoader();
+    console.error('FileReader error', e);
+    toast('Error leyendo archivo. Probá otro.', 'error');
+    input.value = '';
+  };
   reader.onload = function() {
     var base64 = String(reader.result).split(',')[1];
-    toast('Subiendo ' + file.name + '...', 'info');
-    showLoader();
+    toast('Subiendo ' + file.name + ' a Drive...', 'info');
     google.script.run
       .withSuccessHandler(function(res) {
         hideLoader(); input.value = '';
         if (res && res.success) { toast('✅ ' + file.name + ' subido', 'success'); reload(); }
-        else { toast('Error: ' + ((res && res.error) || 'upload falló'), 'error'); }
+        else {
+          console.error('uploadDocument response', res);
+          toast('Error: ' + ((res && res.error) || 'upload falló'), 'error');
+        }
       })
       .withFailureHandler(function(e) {
         hideLoader(); input.value = '';
-        toast('Error: ' + e.message, 'error');
+        console.error('uploadDocument failure', e);
+        toast('Error backend: ' + (e && e.message || 'desconocido'), 'error');
       })
       .uploadDocument('task', taskId, { name: file.name, mimeType: file.type, data: base64 });
   };
-  reader.readAsDataURL(file);
+  try {
+    reader.readAsDataURL(file);
+  } catch (err) {
+    hideLoader();
+    console.error('readAsDataURL throw', err);
+    toast('Error inesperado: ' + (err && err.message || 'desconocido'), 'error');
+    input.value = '';
+  }
 }
 
 // ─── REASIGNAR (manager/head) ────────────────────────────────────
@@ -5201,15 +5236,21 @@ function _crMount() {
 }
 
 function edCrearOpen() {
+  // Pre-fill responsable y país con los datos del usuario efectivo.
+  // Para specialist, responsable = ellos mismos (no pueden reasignar
+  // de todos modos). Para manager/head, queda como sugerencia
+  // editable.
+  var currentName = (typeof _effectiveUserName === 'function') ? _effectiveUserName() : '';
+  var currentCode = (typeof _effectiveUserCode === 'function') ? _effectiveUserCode() : '';
   EDC.step = 1;
   EDC.values = {
     titulo: '',
     descripcion: '',
     tipo: '',
-    pais: '',
+    pais: currentCode || '',
     prioridad: 'Media',
     riesgo: '',
-    resp: '',
+    resp: currentName || '',
     deadline: '',
     proyectoId: '',
     confidencialidad: 'estandar'
