@@ -1064,27 +1064,27 @@ function openEdit(id) {
   var prioOpts  = buildOptions([{value:'Alta',label:'🔴 Alta'},{value:'Media',label:'🟡 Media'},{value:'Baja',label:'🟢 Baja'}], t.priority);
   var statOpts  = buildOptions(ALL_STATUSES, t.status);
   var tipoOpts  = buildOptions(['Contencioso','Regulatorio','Contractual','Privacy','Operativo'], t.tipoTrabajo, 'Sin definir');
-  var riesgoOpts= buildOptions(['Legal alto','Reputacional','Operativo'], t.riesgo, 'Sin definir');
+  var riesgoOpts= buildOptions(['Legal alto','Reputacional','Operativo'], t.riesgo, 'Not set');
 
   $('editB').innerHTML =
-    '<div class="form-group" style="margin-bottom:14px"><label>Nombre</label><input type="text" id="eNom" value="' + esc(t.nombre) + '"></div>' +
+    '<div class="form-group" style="margin-bottom:14px"><label>Name</label><input type="text" id="eNom" value="' + esc(t.nombre) + '"></div>' +
     '<div class="form-3col" style="margin-bottom:14px">' +
-      '<div class="form-group"><label>Responsable</label><select id="eResp">' + rOpts + '</select></div>' +
-      '<div class="form-group"><label>Prioridad</label><select id="ePrio">' + prioOpts + '</select></div>' +
-      '<div class="form-group"><label>Estado</label><select id="eStat">' + statOpts + '</select></div>' +
+      '<div class="form-group"><label>Owner</label><select id="eResp">' + rOpts + '</select></div>' +
+      '<div class="form-group"><label>Priority</label><select id="ePrio">' + prioOpts + '</select></div>' +
+      '<div class="form-group"><label>Status</label><select id="eStat">' + statOpts + '</select></div>' +
     '</div>' +
     '<div class="form-3col" style="margin-bottom:14px">' +
-      '<div class="form-group"><label>Proyecto</label><select id="eProj">' + projOpts + '</select></div>' +
-      '<div class="form-group"><label>País</label><select id="ePais">' + pOpts + '</select></div>' +
+      '<div class="form-group"><label>Project</label><select id="eProj">' + projOpts + '</select></div>' +
+      '<div class="form-group"><label>Country</label><select id="ePais">' + pOpts + '</select></div>' +
       '<div class="form-group"><label>Deadline</label><input type="' + (t.deadlineISO ? 'date' : 'text') + '" id="eDl" value="' + esc(t.deadlineISO || t.deadline || '') + '"></div>' +
     '</div>' +
     '<div class="form-grid">' +
-      '<div class="form-group"><label>Tipo de trabajo</label><select id="eTipo">' + tipoOpts + '</select></div>' +
-      '<div class="form-group"><label>Nivel de riesgo</label><select id="eRiesgo">' + riesgoOpts + '</select></div>' +
+      '<div class="form-group"><label>Type of work</label><select id="eTipo">' + tipoOpts + '</select></div>' +
+      '<div class="form-group"><label>Risk level</label><select id="eRiesgo">' + riesgoOpts + '</select></div>' +
     '</div>' +
     '<div class="form-grid" style="margin-bottom:14px">' +
-      '<div class="form-group"><label>Accionable</label><input type="text" id="eAcc" value="' + esc(t.acc || '') + '"></div>' +
-      '<div class="form-group"><label>Notas</label><input type="text" id="eNot" value="' + esc(t.notas || '') + '"></div>' +
+      '<div class="form-group"><label>Action</label><input type="text" id="eAcc" value="' + esc(t.acc || '') + '"></div>' +
+      '<div class="form-group"><label>Notes</label><input type="text" id="eNot" value="' + esc(t.notas || '') + '"></div>' +
     '</div>' +
     renderDocsSection('task', id, t.documentos || []);
   $('editOv').classList.add('show');
@@ -1179,7 +1179,7 @@ function saveEditTask() {
   // antes del confirm para no apilar dos overlays.
   if (fields.status === 'Listo') {
     closeEdit();
-    confirm_('¿Marcar como Listo? Se moverá al Historial.', function(){ batchU(id, fields); });
+    confirm_('Mark as Done? It will move to History.', function(){ batchU(id, fields); });
     return;
   }
   _setSaving(true);
@@ -1391,7 +1391,7 @@ function uf(id, f, v) {
 // Confirmed update: se usa para transiciones destructivas (marcar Listo).
 function cfUp(id, f, v) {
   closeDD();
-  confirm_('¿Marcar como Listo? Se moverá al Historial.', function(){ uf(id, f, v); });
+  confirm_('Mark as Done? It will move to History.', function(){ uf(id, f, v); });
 }
 
 // ═══ HELPERS ═══
@@ -3063,8 +3063,85 @@ document.addEventListener('keydown', function(e) {
   if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
     e.preventDefault();
     edSearchOpen();
+    return;
+  }
+  // ? abre el help modal de atajos. Solo cuando no hay foco en input.
+  if (e.key === '?' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    var ae = document.activeElement;
+    var inInput = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT');
+    if (inInput) return;
+    e.preventDefault();
+    edHelpOpen();
   }
 });
+
+// ════════════════════════════════════════════════════════════════
+// KEYBOARD SHORTCUTS HELP MODAL
+// Centralizada para que los usuarios descubran los atajos. Triggered
+// por "?" o por click en el indicador del header.
+// ════════════════════════════════════════════════════════════════
+function edHelpOpen() {
+  var existing = $('edHelpOv');
+  if (existing) { existing.classList.add('show'); return; }
+  var ov = document.createElement('div');
+  ov.className = 'ed-help-overlay';
+  ov.id = 'edHelpOv';
+  ov.onclick = function(e) { if (e.target === ov) edHelpClose(); };
+  var sections = [
+    { title: 'Navigation', items: [
+      { keys: ['⌘', 'K'], desc: 'Open global search' },
+      { keys: ['?'], desc: 'Show this help' },
+      { keys: ['Esc'], desc: 'Close any open modal or panel' }
+    ]},
+    { title: 'Tracker', items: [
+      { keys: ['↓'], desc: 'Select next task' },
+      { keys: ['↑'], desc: 'Select previous task' },
+      { keys: ['Enter'], desc: 'Advance selected task to next status' },
+      { keys: ['Esc'], desc: 'Close detail panel' }
+    ]},
+    { title: 'Detail panel', items: [
+      { keys: ['Click'], desc: 'on a cell value to edit it inline' },
+      { keys: ['2x click'], desc: 'on title to rename the task' }
+    ]},
+    { title: 'Create', items: [
+      { keys: ['N'], desc: 'New task wizard' }
+    ]}
+  ];
+  var html = '<div class="ed-help-modal" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">'
+           +   '<div class="ed-help-head">'
+           +     '<div>'
+           +       '<div class="ed-help-eye">— Help</div>'
+           +       '<div class="ed-help-title">Keyboard shortcuts</div>'
+           +     '</div>'
+           +     '<button class="ed-help-x" type="button" onclick="edHelpClose()" aria-label="Close">×</button>'
+           +   '</div>'
+           +   '<div class="ed-help-body">';
+  sections.forEach(function(s) {
+    html += '<div class="ed-help-section"><div class="ed-help-h">' + esc(s.title) + '</div>';
+    s.items.forEach(function(it) {
+      html += '<div class="ed-help-row">'
+           +    '<div class="ed-help-keys">' + it.keys.map(function(k){ return '<kbd>' + esc(k) + '</kbd>'; }).join('<span class="ed-help-plus">+</span>') + '</div>'
+           +    '<div class="ed-help-desc">' + esc(it.desc) + '</div>'
+           +  '</div>';
+    });
+    html += '</div>';
+  });
+  html += '<div class="ed-help-foot">Press <kbd>?</kbd> any time to open this.</div>';
+  html += '</div></div>';
+  ov.innerHTML = html;
+  document.body.appendChild(ov);
+  ov.classList.add('show');
+  // Esc closes
+  setTimeout(function() {
+    document.addEventListener('keydown', _edHelpEscOnce, { once: true });
+  }, 0);
+}
+function _edHelpEscOnce(e) {
+  if (e.key === 'Escape') { e.stopPropagation(); edHelpClose(); }
+}
+function edHelpClose() {
+  var ov = $('edHelpOv'); if (ov) ov.classList.remove('show');
+}
 
 // ════════════════════════════════════════════════════════════════
 // NAVEGACIÓN POR TECLADO EN EL TRACKER
@@ -4109,7 +4186,7 @@ function _panelCell(lbl, val, valCls) {
 function _panelCellEditable(lbl, val, valCls, taskId, fieldKey) {
   var cellId = 'pcell-' + taskId + '-' + fieldKey;
   var displayVal = (val == null || val === '') ? '—' : val;
-  return '<div class="tk-panel-cell editable" data-pcell-id="' + esc(cellId) + '" title="Click para editar">'
+  return '<div class="tk-panel-cell editable" data-pcell-id="' + esc(cellId) + '" title="Click to edit">'
        +   '<div class="lbl">' + esc(lbl) + '</div>'
        +   '<div class="val' + (valCls ? ' ' + valCls : '') + '" onclick="edPanelEditCell(\'' + esc(taskId) + '\', \'' + fieldKey + '\')">' + esc(displayVal) + '</div>'
        + '</div>';
@@ -4407,7 +4484,7 @@ function rEdTracker(D) {
          +      '<span class="tk-panel-eyebrow">' + esc(sel.id + (sel.pais ? ' · ' + sel.pais : '')) + '</span>'
          +      '<button class="tk-panel-close" onclick="edClosePanel()" aria-label="Cerrar">×</button>'
          +    '</div>'
-         +    '<h2 class="tk-panel-title editable" data-task-id="' + esc(sel.id) + '" ondblclick="edPanelEditTitle(this)" title="Doble-click para editar">' + esc(sel.nombre || '') + '</h2>'
+         +    '<h2 class="tk-panel-title editable" data-task-id="' + esc(sel.id) + '" ondblclick="edPanelEditTitle(this)" title="Double-click to edit">' + esc(sel.nombre || '') + '</h2>'
          +    '<div class="cf-band ' + selCfLvl + '">'
          +      '<span>' + esc(selCfMeta.label) + '</span>'
          +      '<span class="cf-band-desc">' + esc(selCfMeta.desc) + '</span>'
@@ -6442,6 +6519,124 @@ function _edaHQRiskSection(D) {
   return html + '</div></section>';
 }
 
+// Aging insight: distribución de tareas activas por edad (días desde
+// creación). Muestra cuánto tiempo lleva cada cosa parada en la mesa.
+// Buckets: >14d (crit), 7-14d (warn), 3-7d (default), <3d (fresh).
+function _edaAgingSection(tasks) {
+  var nowMs = Date.now();
+  var buckets = [
+    { key: 'old',    lbl: '> 14d',    cls: 'crit', count: 0 },
+    { key: 'aging',  lbl: '7–14d',    cls: 'warn', count: 0 },
+    { key: 'recent', lbl: '3–7d',     cls: '',     count: 0 },
+    { key: 'fresh',  lbl: '< 3d',     cls: 'good', count: 0 }
+  ];
+  var active = (tasks || []).filter(function(t){ return t.status !== 'Listo'; });
+  active.forEach(function(t) {
+    if (!t.creadoRaw) return;
+    var d = new Date(t.creadoRaw);
+    if (isNaN(d.getTime())) return;
+    var days = Math.floor((nowMs - d.getTime()) / 86400000);
+    if (days > 14) buckets[0].count++;
+    else if (days >= 7) buckets[1].count++;
+    else if (days >= 3) buckets[2].count++;
+    else buckets[3].count++;
+  });
+  var total = buckets.reduce(function(s, b){ return s + b.count; }, 0);
+  var oldest = buckets[0].count;
+
+  var html = '<section class="ed-section">'
+           + '<div class="ed-h2">— Active task aging</div>';
+  if (total === 0) {
+    html += '<div class="ed-lede">No active tasks to age.</div></section>';
+    return html;
+  }
+  // Lede dinámico
+  if (oldest > 0) {
+    html += '<p class="ed-lede"><span class="crit">' + oldest + ' task' + (oldest === 1 ? '' : 's') + '</span> have been active for more than 2 weeks. Consider reviewing or closing.</p>';
+  } else if (buckets[1].count > 0) {
+    html += '<p class="ed-lede">Most tasks have been on the plate less than two weeks. Healthy cadence.</p>';
+  } else {
+    html += '<p class="ed-lede">All active tasks are fresh (under a week old). Keep the rhythm.</p>';
+  }
+  // Stacked bar
+  html += '<div class="aging-bar">';
+  buckets.forEach(function(b) {
+    if (b.count === 0) return;
+    var pct = Math.round(b.count / total * 1000) / 10;
+    html += '<div class="aging-seg ' + b.cls + '" style="width:' + pct + '%" title="' + b.lbl + ': ' + b.count + ' tasks (' + pct + '%)">' + b.count + '</div>';
+  });
+  html += '</div>';
+  // Legend
+  html += '<div class="aging-legend">';
+  buckets.forEach(function(b) {
+    html += '<span class="aging-legend-item"><i class="dot ' + b.cls + '"></i>' + b.lbl + ' · <b>' + b.count + '</b></span>';
+  });
+  html += '</div></section>';
+  return html;
+}
+
+// SLA compliance trend: % on-time por semana, últimas 8 semanas.
+// Usa historial filtrado por rol/país.
+function _edaSlaTrendSection(D, currentTasks, role, userCode) {
+  var hist = (D && D.historial) || [];
+  if (role === 'manager' && userCode) {
+    hist = hist.filter(function(t){ return (t.pais || '') === userCode; });
+  }
+  if (!hist.length) return '';
+  var SLA = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
+  var nowMs = Date.now();
+  var WEEK = 7 * 86400000;
+  var weeks = [];
+  for (var w = 7; w >= 0; w--) {
+    var weekStart = nowMs - (w + 1) * WEEK;
+    var weekEnd   = nowMs - w * WEEK;
+    var inWeek = [];
+    hist.forEach(function(t) {
+      if (!t.creadoRaw || !t.cerrado) return;
+      var p = t.cerrado.split('/');
+      var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+      var ms = cerradoDate.getTime();
+      if (ms < weekStart || ms >= weekEnd) return;
+      var biz = (typeof _bizDays === 'function') ? _bizDays(new Date(t.creadoRaw), cerradoDate) : null;
+      var lim = SLA[t.priority] || 5;
+      var onTime = (biz != null) && (biz <= lim);
+      inWeek.push(onTime);
+    });
+    var ot = inWeek.filter(function(x){ return x; }).length;
+    var pct = inWeek.length > 0 ? Math.round(ot / inWeek.length * 100) : null;
+    weeks.push({ count: inWeek.length, onTime: ot, pct: pct, label: w === 0 ? 'now' : (w + 'w') });
+  }
+  // Average across weeks with data
+  var withData = weeks.filter(function(w){ return w.count > 0; });
+  if (!withData.length) return '';
+  var avgPct = Math.round(withData.reduce(function(s, w){ return s + w.pct; }, 0) / withData.length);
+  // Trend slope: compare first half vs second half
+  var firstHalf = withData.slice(0, Math.floor(withData.length / 2));
+  var lastHalf  = withData.slice(Math.floor(withData.length / 2));
+  var firstAvg = firstHalf.length ? firstHalf.reduce(function(s,w){return s+w.pct;}, 0) / firstHalf.length : 0;
+  var lastAvg  = lastHalf.length  ? lastHalf.reduce(function(s,w){return s+w.pct;}, 0)  / lastHalf.length  : 0;
+  var trendArrow = '→', trendCls = 'dim';
+  if (lastAvg > firstAvg + 5) { trendArrow = '↑'; trendCls = 'good'; }
+  else if (lastAvg < firstAvg - 5) { trendArrow = '↓'; trendCls = 'crit'; }
+
+  var html = '<section class="ed-section">'
+           + '<div class="ed-h2">— SLA trend, last 8 weeks</div>'
+           + '<p class="ed-lede">Avg <b>' + avgPct + '% on-time</b>. Trend <span class="' + trendCls + '" style="font-weight:700">' + trendArrow + '</span></p>';
+  // Sparkline-ish bar chart
+  html += '<div class="sla-trend-grid">';
+  weeks.forEach(function(w) {
+    var hbar = w.pct == null ? 2 : Math.max(4, Math.round(w.pct / 100 * 100));
+    var fillCls = w.pct == null ? 'empty' : (w.pct >= 90 ? 'good' : (w.pct >= 75 ? 'warn' : 'crit'));
+    html += '<div class="sla-trend-col" title="' + w.label + ': ' + (w.pct == null ? 'no data' : (w.pct + '% (' + w.onTime + '/' + w.count + ')')) + '">'
+         +    '<div class="sla-trend-bar ' + fillCls + '" style="height:' + hbar + '%"></div>'
+         +    '<div class="sla-trend-pct">' + (w.pct == null ? '—' : w.pct + '%') + '</div>'
+         +    '<div class="sla-trend-lbl">' + w.label + '</div>'
+         + '</div>';
+  });
+  html += '</div></section>';
+  return html;
+}
+
 function rEdAnalytics(D) {
   var v = $('vEdAnalytics'); if (!v) return;
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : ((D && D._role) || 'manager');
@@ -6521,6 +6716,12 @@ function rEdAnalytics(D) {
     html += _edaHQCountriesSection(D);
     html += _edaHQRiskSection(D);
   }
+
+  // For both manager and HQ: Aging buckets + SLA compliance trend.
+  // Aging surfaces stale active tasks (>14d, 7-14d, 3-7d, <3d).
+  // SLA trend shows weekly on-time % over last 8 weeks.
+  html += _edaAgingSection(tasks);
+  html += _edaSlaTrendSection(D, tasks, role, userCode);
 
   // Sección charts: prioridad + estado por responsable (lado a lado)
   html += '<section class="ed-section">'
