@@ -1427,6 +1427,23 @@ function edSpMenuClose() {
   document.querySelectorAll('.esp-task-menu-wrap.open').forEach(function(w){ w.classList.remove('open'); });
 }
 
+// Demo switcher (head only): dropdown custom para evitar el feo
+// menú nativo del browser que se posiciona raro en sidebars fijos.
+function edDemoMenuToggle(button) {
+  var wrap = button.parentElement; if (!wrap) return;
+  var isOpen = wrap.classList.contains('open');
+  edDemoMenuClose();
+  if (!isOpen) {
+    wrap.classList.add('open');
+    setTimeout(function() {
+      document.addEventListener('click', edDemoMenuClose, { once: true });
+    }, 0);
+  }
+}
+function edDemoMenuClose() {
+  document.querySelectorAll('.ed-demo-wrap.open').forEach(function(w){ w.classList.remove('open'); });
+}
+
 // Tiempo relativo humano: "hoy", "ayer", "hace 3d", "hace 2 sem".
 function _relativeAgo(ms) {
   if (!ms) return '';
@@ -2839,16 +2856,27 @@ function renderEdSidebar(role, activeViewId) {
   // como specialist/manager/hq sin cambiar de cuenta.
   var demoHtml = '';
   if (_isHeadReal()) {
-    var sel = DEMO_AS || 'real';
-    function _opt(k, lbl) { return '<option value="' + k + '"' + (sel === k ? ' selected' : '') + '>' + esc(lbl) + '</option>'; }
+    var demoSel = DEMO_AS || 'real';
+    var demoLabels = { real: 'Me (real)', specialist: 'Specialist', manager: 'Manager', head: 'HQ' };
+    var currentLabel = demoLabels[demoSel] || demoLabels.real;
+    function _demoItem(k, lbl) {
+      var active = (demoSel === k) ? ' active' : '';
+      return '<div class="ed-demo-item' + active + '" data-val="' + k + '" onclick="setDemoAs(\'' + k + '\');edDemoMenuClose();">' + esc(lbl) + '</div>';
+    }
     demoHtml = '<div class="ed-demo-switch">'
-            +   '<label class="ed-demo-lbl" title="Solo visible para HQ">Demo · Ver como</label>'
-            +   '<select class="ed-demo-sel" onchange="setDemoAs(this.value)">'
-            +     _opt('real',       'Yo (real)')
-            +     _opt('specialist', 'Specialist')
-            +     _opt('manager',    'Manager')
-            +     _opt('head',       'HQ')
-            +   '</select>'
+            +   '<label class="ed-demo-lbl" title="Only visible for HQ">View as</label>'
+            +   '<div class="ed-demo-wrap">'
+            +     '<button type="button" class="ed-demo-btn" onclick="edDemoMenuToggle(this)" aria-haspopup="listbox" aria-label="Switch demo role">'
+            +       '<span class="ed-demo-current">' + esc(currentLabel) + '</span>'
+            +       '<span class="ed-demo-caret">▾</span>'
+            +     '</button>'
+            +     '<div class="ed-demo-menu" role="listbox">'
+            +       _demoItem('real',       'Me (real)')
+            +       _demoItem('specialist', 'Specialist')
+            +       _demoItem('manager',    'Manager')
+            +       _demoItem('head',       'HQ')
+            +     '</div>'
+            +   '</div>'
             + '</div>';
   }
   html += demoHtml
