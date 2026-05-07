@@ -2559,6 +2559,220 @@ body.role-manager #tabResumen { display: none !important; }
   font-weight: 700;
 }
 
+/* ── Help modal (keyboard shortcuts) ───────────────────────────── */
+.ed-help-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .45);
+  display: none;
+  z-index: 9999;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 10vh 16px 16px;
+  box-sizing: border-box;
+}
+.ed-help-overlay.show { display: flex; }
+.ed-help-modal {
+  width: 100%;
+  max-width: 560px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+  border-radius: 4px;
+}
+.ed-help-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--rule);
+}
+.ed-help-eye {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+.ed-help-title {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 22px;
+  color: var(--ink);
+  letter-spacing: -.2px;
+}
+.ed-help-x {
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: var(--dim);
+  padding: 0;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+}
+.ed-help-x:hover { color: var(--ink); }
+.ed-help-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+.ed-help-section { margin-bottom: 22px; }
+.ed-help-section:last-child { margin-bottom: 0; }
+.ed-help-h {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--dim);
+  font-weight: 700;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+}
+.ed-help-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 7px 0;
+  font-size: 13px;
+  color: var(--ink);
+}
+.ed-help-keys { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ed-help-keys kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--paper2);
+  border: 1px solid var(--rule);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 3px 8px;
+  color: var(--ink);
+  display: inline-block;
+  min-width: 22px;
+  text-align: center;
+}
+.ed-help-plus {
+  color: var(--dim);
+  font-size: 10px;
+  margin: 0 1px;
+}
+.ed-help-desc { color: var(--muted, var(--ink)); line-height: 1.45; }
+.ed-help-foot {
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--rule);
+  font-size: 11px;
+  color: var(--dim);
+  font-family: var(--serif);
+  font-style: italic;
+  text-align: center;
+}
+.ed-help-foot kbd {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 10px;
+  background: var(--paper2);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 1px 5px;
+}
+
+/* ── Analytics: aging + SLA trend (manager + HQ) ───────────────── */
+.aging-bar {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  background: var(--paper3);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 14px 0 12px;
+  border: 1px solid var(--rule);
+}
+.aging-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  min-width: 32px;
+  border-right: 1px solid var(--rule);
+}
+.aging-seg:last-child { border-right: none; }
+.aging-seg.crit  { background: var(--critical-soft, rgba(255,92,92,.18)); color: var(--critical); }
+.aging-seg.warn  { background: var(--warn-soft, rgba(255,185,56,.18)); color: var(--warn); }
+.aging-seg.good  { background: var(--good-soft, rgba(45,212,160,.18)); color: var(--good); }
+.aging-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+.aging-legend-item .dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+  background: var(--paper3);
+  border: 1px solid var(--rule);
+}
+.aging-legend-item .dot.crit { background: var(--critical); border-color: var(--critical); }
+.aging-legend-item .dot.warn { background: var(--warn); border-color: var(--warn); }
+.aging-legend-item .dot.good { background: var(--good); border-color: var(--good); }
+
+.sla-trend-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 8px;
+  height: 160px;
+  align-items: end;
+  padding: 14px 0 6px;
+}
+.sla-trend-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+}
+.sla-trend-bar {
+  width: 100%;
+  max-width: 36px;
+  border-radius: 3px 3px 0 0;
+  margin-top: auto;
+  transition: height .25s ease;
+  min-height: 2px;
+}
+.sla-trend-bar.good  { background: var(--good); }
+.sla-trend-bar.warn  { background: var(--warn); }
+.sla-trend-bar.crit  { background: var(--critical); }
+.sla-trend-bar.empty { background: var(--paper3); }
+.sla-trend-pct {
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--ink);
+  font-weight: 700;
+}
+.sla-trend-lbl {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  font-weight: 700;
+}
+
 /* ── Specialist scorecard (Analytics for specialist) ───────────── */
 .sp-bars {
   display: grid;
