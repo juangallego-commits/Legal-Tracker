@@ -2107,19 +2107,58 @@ body.role-manager #tabResumen { display: none !important; }
   letter-spacing: 1.4px;
   font-weight: 800;
 }
-.ed-demo-sel {
+.ed-demo-wrap {
+  position: relative;
+}
+.ed-demo-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
-  padding: 6px 8px;
+  padding: 7px 10px;
   background: var(--paper2);
   color: var(--ink);
   border: 1px solid var(--rule);
   border-radius: 4px;
   cursor: pointer;
+  transition: border-color .12s;
 }
-.ed-demo-sel:hover { border-color: var(--accent); }
-.ed-demo-sel:focus { outline: none; border-color: var(--accent); }
+.ed-demo-btn:hover { border-color: var(--rule-strong); }
+.ed-demo-wrap.open .ed-demo-btn { border-color: var(--accent); }
+.ed-demo-caret { font-size: 10px; color: var(--dim); margin-left: 8px; transition: transform .15s; }
+.ed-demo-wrap.open .ed-demo-caret { transform: rotate(180deg); }
+
+.ed-demo-menu {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, .08);
+  z-index: 200;
+  overflow: hidden;
+}
+.ed-demo-wrap.open .ed-demo-menu { display: block; }
+.ed-demo-item {
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 500;
+}
+.ed-demo-item:hover { background: var(--paper2); }
+.ed-demo-item.active {
+  color: var(--accent);
+  font-weight: 700;
+  background: var(--accent-soft, var(--paper2));
+}
+.ed-demo-item + .ed-demo-item { border-top: 1px solid var(--rule); }
 
 /* ═══════════════════════════════════════════════════════════════
    SPECIALIST HOME (.esp-*)
