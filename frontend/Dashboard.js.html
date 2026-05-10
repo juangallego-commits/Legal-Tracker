@@ -1496,6 +1496,46 @@ function _edActivityFeed() {
 // Días hábiles entre dos Dates (excluye sáb y dom). Implementación
 // frontend que matchea backend/codigo.gs#countBizDays. Usado para
 // mostrar duración de cierres en la sección "Reciente" del home.
+// Sección "Recent" reusable: últimas N tareas cerradas de un set
+// (specialist: las propias; manager: las de su país; HQ: globales).
+// Si no hay historial, omite la sección entirely.
+function _edRecentClosedSection(hist, title, limit) {
+  var entries = (hist || [])
+    .filter(function(t){ return t.creadoRaw && t.cerrado; })
+    .map(function(t) {
+      var p = t.cerrado.split('/');
+      var cerradoDate = new Date(parseInt(p[2],10), parseInt(p[1],10)-1, parseInt(p[0],10));
+      return {
+        nombre: t.nombre,
+        priority: t.priority,
+        resp: t.resp,
+        pais: t.pais,
+        cerrado: t.cerrado,
+        cerradoMs: cerradoDate.getTime(),
+        bizDays: _bizDays(new Date(t.creadoRaw), cerradoDate)
+      };
+    })
+    .sort(function(a, b){ return b.cerradoMs - a.cerradoMs; })
+    .slice(0, limit || 5);
+  if (!entries.length) return '';
+  var html = '<section class="ed-section">'
+           + '<div class="ed-h2">— ' + esc(title || 'Recent') + '</div>';
+  entries.forEach(function(h) {
+    var meta = (h.priority || '') + ' · ' + (h.resp || '—')
+             + (h.pais ? ' · ' + h.pais : '')
+             + ' · closed ' + h.cerrado
+             + (h.bizDays != null ? ' · ' + h.bizDays + ' biz days' : '');
+    html += '<div class="esp-recent-row">'
+         +    '<div class="esp-recent-icon">✓</div>'
+         +    '<div>'
+         +      '<div class="esp-recent-name">' + esc(h.nombre || '') + '</div>'
+         +      '<div class="esp-recent-meta">' + esc(meta) + '</div>'
+         +    '</div>'
+         + '</div>';
+  });
+  return html + '</section>';
+}
+
 function _bizDays(start, end) {
   if (!start || !end) return null;
   var s = (start instanceof Date) ? start : new Date(start);
@@ -2901,6 +2941,7 @@ function renderEdHead() {
     + '<div class="ed-head-eye">' + esc(sem + ' · ' + today) + '</div>'
     + '<div class="ed-head-actions">'
     +   '<div class="ed-search" role="button" tabindex="0" onclick="edSearchOpen()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();edSearchOpen();}">⌘K  Search…</div>'
+    +   '<button class="ed-help-btn" type="button" onclick="edHelpOpen()" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button>'
     +   '<button class="ed-btn accent" onclick="edCrearOpen()">+ New task</button>'
     + '</div>';
 }
@@ -2940,7 +2981,7 @@ function mountEdShell() {
 // goEd('tracker') + EDT.selectedId; click en proyecto → goEd
 // ('proyectos'). Esc o click fuera cierra.
 // ════════════════════════════════════════════════════════════════
-var EDS = { mounted: false, query: '' };
+var EDS = { mounted: false, query: '', activeIdx: 0 };
 var _edSearchDebounced = null;
 
 function _edSearchEnsureMounted() {
@@ -2963,19 +3004,43 @@ function _edSearchEnsureMounted() {
       _edSearchRender();
     }, 150);
   }
-  input.oninput = function() { _edSearchDebounced(input.value || ''); };
+  input.oninput = function() { EDS.activeIdx = 0; _edSearchDebounced(input.value || ''); };
   input.onkeydown = function(e) {
     if (e.key === 'Escape') {
       // stopPropagation para que el handler global de Escape no
       // cierre además otros modales que casualmente estén abiertos.
       e.stopPropagation();
       edSearchClose();
-    } else if (e.key === 'Enter') {
-      var first = ov.querySelector('.ed-search-result');
-      if (first) first.click();
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      _edSearchMoveActive(1);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      _edSearchMoveActive(-1);
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      var rows = ov.querySelectorAll('.ed-search-result');
+      var target = rows[EDS.activeIdx] || rows[0];
+      if (target) target.click();
     }
   };
   EDS.mounted = true;
+}
+
+// Mover el highlight de resultado activo (↓/↑ en search modal).
+function _edSearchMoveActive(delta) {
+  var rows = document.querySelectorAll('#edSearchOv .ed-search-result');
+  if (!rows.length) return;
+  EDS.activeIdx = ((EDS.activeIdx || 0) + delta + rows.length) % rows.length;
+  rows.forEach(function(r, i) { r.classList.toggle('active', i === EDS.activeIdx); });
+  var active = rows[EDS.activeIdx];
+  if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
 }
 
 function edSearchOpen() {
@@ -3073,6 +3138,11 @@ function _edSearchRender() {
     });
   }
   host.innerHTML = html;
+  // Marcar el primer resultado como active para que ↓/↑ y Enter
+  // tengan un punto de partida visual.
+  EDS.activeIdx = 0;
+  var firstRow = host.querySelector('.ed-search-result');
+  if (firstRow) firstRow.classList.add('active');
 }
 
 function edSearchPickTask(taskId) {
@@ -3530,38 +3600,12 @@ function rEdHomeSpecialist(D) {
   }
   html += '</section>';
 
-  // RECIENTE — últimas 3 cerradas del usuario, con duración bizDays.
-  // Da sensación de progreso. Si no hay historial, omitir la sección.
-  var myHist = ((D && D.historial) || [])
-    .filter(function(t){ return t.resp === name && t.creadoRaw && t.cerrado; })
-    .map(function(t) {
-      var p = t.cerrado.split('/'); // dd/MM/yyyy
-      var cerradoDate = new Date(parseInt(p[2],10), parseInt(p[1],10)-1, parseInt(p[0],10));
-      return {
-        nombre: t.nombre,
-        priority: t.priority,
-        cerrado: t.cerrado,
-        cerradoMs: cerradoDate.getTime(),
-        bizDays: _bizDays(new Date(t.creadoRaw), cerradoDate)
-      };
-    })
-    .sort(function(a, b){ return b.cerradoMs - a.cerradoMs; })
-    .slice(0, 3);
-  if (myHist.length) {
-    html += '<section class="ed-section">'
-         +    '<div class="ed-h2">— Recent</div>';
-    myHist.forEach(function(h) {
-      var dur = (h.bizDays != null) ? (h.bizDays + ' biz days') : '';
-      html += '<div class="esp-recent-row">'
-           +    '<div class="esp-recent-icon">✓</div>'
-           +    '<div>'
-           +      '<div class="esp-recent-name">' + esc(h.nombre || '') + '</div>'
-           +      '<div class="esp-recent-meta">' + esc((h.priority || '') + ' · closed ' + h.cerrado + (dur ? ' · ' + dur : '')) + '</div>'
-           +    '</div>'
-           + '</div>';
-    });
-    html += '</section>';
-  }
+  // RECIENT — últimas 3 cerradas del usuario.
+  html += _edRecentClosedSection(
+    ((D && D.historial) || []).filter(function(t){ return t.resp === name; }),
+    'Recent',
+    3
+  );
 
   v.innerHTML = html;
 }
@@ -3674,6 +3718,14 @@ function rEdHomeManager(D) {
   }
   html += '</section>';
 
+  // RECENT ACTIVITY — últimas 4 cerradas del país del manager.
+  // Da sensación de "el equipo está produciendo".
+  html += _edRecentClosedSection(
+    ((D && D.historial) || []).filter(function(t){ return (t.pais || '') === userCode; }),
+    'Recent team closures',
+    4
+  );
+
   v.innerHTML = html;
 }
 
@@ -3774,6 +3826,9 @@ function rEdHomeHQ(D) {
     }
   }
   html += '</section>';
+
+  // RECENT GLOBAL ACTIVITY — últimas 5 cerradas LATAM.
+  html += _edRecentClosedSection((D && D.historial) || [], 'Recent LATAM closures', 5);
 
   v.innerHTML = html;
 }
@@ -4580,7 +4635,7 @@ function rEdTracker(D) {
        +    fBtn('overdue', 'Overdue',     cOverdue, 'critical')
        +    fBtn('today',   'Due today',   cToday,   'warn')
        +    fBtn('blocked', 'On hold',     cBlocked, null)
-       +    '<input class="tk-search" type="text" placeholder="⌘F filter by project, person, type…" '
+       +    '<input class="tk-search" type="text" placeholder="Filter by project, person, type…" '
        +      'value="' + esc(EDT.search) + '" oninput="edSetSearch(this.value)">'
        + '</div>';
 
