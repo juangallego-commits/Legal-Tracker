@@ -3968,7 +3968,13 @@ function edSelectTask(id) {
   EDT.selectedId = (EDT.selectedId === id) ? null : id;
   if (D) rEdTracker(D);
 }
-function edClosePanel() { EDT.selectedId = null; if (D) rEdTracker(D); }
+function edClosePanel() {
+  // Recordamos qué tarea estaba abierta para scrollear y resaltarla
+  // brevemente al volver a la tabla (continuidad visual).
+  EDT.lastViewedId = EDT.selectedId;
+  EDT.selectedId = null;
+  if (D) rEdTracker(D);
+}
 
 // Devuelve la próxima tarea urgente del tracker según los filtros
 // activos del usuario actual. Usado por edUSubmit tras cerrar una
@@ -4847,6 +4853,19 @@ function rEdTracker(D) {
   if (ta) edPanelAutosizeNotes(ta);
   // Hover preview: tooltip compacto tras 400ms de hover sobre una fila.
   v.querySelectorAll('.tk-row[data-task-id]').forEach(_edTkAttachPreview);
+  // Continuity: si volvemos del panel full-screen, scrollear y
+  // destacar brevemente la fila que estaba abierta (lastViewedId).
+  if (EDT.lastViewedId) {
+    var lvId = String(EDT.lastViewedId);
+    EDT.lastViewedId = null;
+    setTimeout(function() {
+      var row = v.querySelector('.tk-row[data-task-id="' + lvId + '"]');
+      if (!row) return;
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      row.classList.add('flash-highlight');
+      setTimeout(function(){ row.classList.remove('flash-highlight'); }, 1400);
+    }, 50);
+  }
 }
 
 // ─── HOVER PREVIEW EN FILAS DEL TRACKER ────────────────────────
