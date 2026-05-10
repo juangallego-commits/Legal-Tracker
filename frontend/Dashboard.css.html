@@ -1273,9 +1273,9 @@ tbody tr:hover { background: var(--border-light); }
 .loader-bar {
   position: fixed;
   top: 0; left: 0; right: 0;
-  height: 2px;
+  height: 3px;
   z-index: 10000;
-  background: linear-gradient(90deg, transparent 0%, var(--rappi) 40%, var(--rappi) 60%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, var(--accent) 40%, var(--accent) 60%, transparent 100%);
   background-size: 40% 100%;
   background-repeat: no-repeat;
   background-position: -40% 0;
@@ -1985,7 +1985,12 @@ body.role-manager #tabResumen { display: none !important; }
   border-top: 1px solid var(--rule);
 }
 .ed-search-result:first-of-type { border-top: none; }
-.ed-search-result:hover { background: var(--paper2); }
+.ed-search-result:hover,
+.ed-search-result.active { background: var(--paper2); }
+.ed-search-result.active {
+  border-left: 2px solid var(--accent);
+  padding-left: 18px;
+}
 .ed-search-r-kind {
   font-size: 10px;
   text-transform: uppercase;
@@ -2806,6 +2811,28 @@ body.role-manager #tabResumen { display: none !important; }
   border-radius: 3px;
 }
 
+/* Help button (in header) ────────────────────────────────────── */
+.ed-help-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  font-family: var(--serif);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--dim);
+  font-style: italic;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: border-color .12s, color .12s;
+}
+.ed-help-btn:hover { border-color: var(--accent); color: var(--accent); }
+.ed-help-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* ── Help modal (keyboard shortcuts) ───────────────────────────── */
 .ed-help-overlay {
   position: fixed;
@@ -3483,8 +3510,14 @@ body.role-manager #tabResumen { display: none !important; }
   grid-template-columns: 28px 32px 50px minmax(0, 1.5fr) minmax(0, 1fr) 90px 110px 90px;
   align-items: end;
   gap: 12px;
-  padding: 0 0 10px 0;
+  padding: 10px 0;
   border-bottom: 1px solid var(--rule);
+  /* Sticky header al hacer scroll de listas largas. Background sólido
+     para que no se transparente sobre las filas que pasan por debajo. */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--paper);
 }
 .tk-table thead th {
   text-align: left;
