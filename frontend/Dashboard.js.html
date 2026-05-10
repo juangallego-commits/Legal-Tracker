@@ -3878,12 +3878,14 @@ function edSetCountryFilter(code) {
     EDT.skipCountriesView = false;
   }
   EDT.selectedId = null;
+  _edPersistEDT();
   if (D) rEdTracker(D);
 }
 function edClearCountryFilter() {
   EDT.country = null;
   EDT.selectedId = null;
   EDT.skipCountriesView = false; // volver al countries-first si es head
+  _edPersistEDT();
   if (D) rEdTracker(D);
 }
 
@@ -3917,12 +3919,41 @@ function _edSortByUrgency(tasks) {
   });
 }
 
+// Persistir filtros del tracker en localStorage para que sobrevivan
+// al reload de la página o reentry desde otra vista.
+function _edPersistEDT() {
+  try {
+    localStorage.setItem('lt-edt-state', JSON.stringify({
+      filter: EDT.filter,
+      country: EDT.country,
+      search: EDT.search,
+      skipCountriesView: EDT.skipCountriesView
+    }));
+  } catch(e) {}
+}
+function _edRestoreEDT() {
+  try {
+    var raw = localStorage.getItem('lt-edt-state');
+    if (!raw) return;
+    var s = JSON.parse(raw);
+    if (s) {
+      if (s.filter) EDT.filter = s.filter;
+      if (s.country) EDT.country = s.country;
+      if (s.search) EDT.search = s.search;
+      if (typeof s.skipCountriesView === 'boolean') EDT.skipCountriesView = s.skipCountriesView;
+    }
+  } catch(e) {}
+}
+// Restaurar al cargar el JS (D aún no existe pero EDT sí).
+_edRestoreEDT();
+
 // EDT actions wired desde la toolbar / filas del tracker
-function edSetFilter(f) { EDT.filter = f; if (D) rEdTracker(D); }
+function edSetFilter(f) { EDT.filter = f; _edPersistEDT(); if (D) rEdTracker(D); }
 function edSetSearch(q) {
   // Debounce 250ms: el re-render destruye el input y se pierde el foco.
   // Tras re-renderear restauramos foco + caret al final del valor.
   EDT.search = q || '';
+  _edPersistEDT();
   clearTimeout(window._tkSearchT);
   window._tkSearchT = setTimeout(function(){
     if (D) rEdTracker(D);
@@ -4657,7 +4688,26 @@ function rEdTracker(D) {
        +      '<th></th><th>ID</th><th>Task</th><th>' + respCol + '</th><th>Priority</th><th>Status</th><th>ETA</th>'
        +    '</tr></thead><tbody>';
   if (rows.length === 0) {
-    html += '<tr><td colspan="8" style="padding:32px 14px;color:var(--dim);font-size:13px">No tasks for this filter.</td></tr>';
+    // Mensaje contextual: si NUNCA hay tareas (cAll === 0) vs si solo
+    // el filtro actual no tiene matches.
+    var emptyMsg, emptyHint;
+    if (cAll === 0) {
+      emptyMsg = role === 'specialist' ? 'No active tasks on your plate.' : 'No active tasks to track.';
+      emptyHint = role === 'specialist' ? 'Use this time for project work or check Closed.' : 'Create a task to get started.';
+    } else if (EDT.search) {
+      emptyMsg = 'No tasks match "' + esc(EDT.search) + '".';
+      emptyHint = 'Try a different keyword or clear the search.';
+    } else {
+      emptyMsg = 'No tasks in this filter.';
+      emptyHint = 'Switch to "All" to see everything.';
+    }
+    html += '<tr><td colspan="8" style="padding:0">'
+         +    '<div style="text-align:center;padding:48px 20px">'
+         +      '<div style="font-size:32px;margin-bottom:12px">' + (cAll === 0 ? '✨' : '🔍') + '</div>'
+         +      '<div style="font-family:var(--serif);font-style:italic;font-size:18px;color:var(--ink);margin-bottom:6px">' + esc(emptyMsg) + '</div>'
+         +      '<div style="font-size:13px;color:var(--dim)">' + esc(emptyHint) + '</div>'
+         +    '</div>'
+         + '</td></tr>';
   } else {
     for (var i = 0; i < rows.length; i++) {
       var t = rows[i];
