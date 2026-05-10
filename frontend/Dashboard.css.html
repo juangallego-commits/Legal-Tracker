@@ -3615,6 +3615,15 @@ body.role-manager #tabResumen { display: none !important; }
   margin-right: 6px;
 }
 .tk-row:hover { background: var(--paper2); }
+/* Flash highlight breve al volver del panel full-screen para que el
+   usuario reubique la tarea que estaba viendo. */
+.tk-row.flash-highlight {
+  animation: tk-flash 1.4s ease-out;
+}
+@keyframes tk-flash {
+  0%   { background: var(--accent-soft, var(--paper2)); box-shadow: inset 3px 0 0 var(--accent); }
+  100% { background: transparent; box-shadow: inset 3px 0 0 transparent; }
+}
 /* Zebra striping sutil para escaneo visual de tablas largas. Pares
    ligeramente más grises. .selected y :hover ganan especificidad. */
 .tk-row:nth-child(even) { background: color-mix(in srgb, var(--paper2) 40%, transparent); }
