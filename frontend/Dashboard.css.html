@@ -3186,6 +3186,56 @@ body.role-manager #tabResumen { display: none !important; }
   border-bottom: 1px solid var(--rule);
 }
 .esp-perf .esp-stat { padding: 0 22px; }
+
+/* Clickable hero stats — affordance sutil que indica que el número
+   no es decoración, navega al detalle. */
+.esp-stat.clickable,
+.mgr-stat.clickable,
+.hq-stat.clickable,
+.hq-summary-stat.clickable {
+  cursor: pointer;
+  transition: background .15s, transform .15s;
+  border-radius: 4px;
+  margin: -6px;
+  padding: 6px 6px 6px 6px;
+}
+.esp-stat.clickable:hover,
+.mgr-stat.clickable:hover,
+.hq-stat.clickable:hover,
+.hq-summary-stat.clickable:hover {
+  background: var(--paper2);
+  transform: translateY(-1px);
+}
+.esp-stat.clickable::after,
+.mgr-stat.clickable::after,
+.hq-stat.clickable::after,
+.hq-summary-stat.clickable::after {
+  content: '→';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 11px;
+  color: var(--dim);
+  opacity: 0;
+  transition: opacity .15s, transform .15s;
+}
+.esp-stat.clickable,
+.mgr-stat.clickable,
+.hq-stat.clickable,
+.hq-summary-stat.clickable { position: relative; }
+.esp-stat.clickable:hover::after,
+.mgr-stat.clickable:hover::after,
+.hq-stat.clickable:hover::after,
+.hq-summary-stat.clickable:hover::after {
+  opacity: 1;
+  transform: translateX(2px);
+}
+.esp-stat.clickable:focus-visible,
+.mgr-stat.clickable:focus-visible,
+.hq-stat.clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .esp-perf .esp-stat:first-child { padding-left: 0; }
 .esp-perf .esp-stat:last-child  { padding-right: 0; }
 .esp-perf .esp-stat-num { font-size: 32px; }
