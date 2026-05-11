@@ -636,7 +636,7 @@ function rProjects() {
 
     var prioBadge = '<span class="badge ' + (BADGE_PRIO[p.priority] || 'b-media')
       + '" style="font-size:10px;padding:2px 8px;cursor:default">'
-      + (EMOJI_PRIO[p.priority] || '🟡') + ' ' + esc(p.priority || '') + '</span>';
+      + (EMOJI_PRIO[p.priority] || '🟡') + ' ' + esc(_priorityLabel(p.priority)) + '</span>';
     var statusBadge = renderProjStatusBadge(p.status);
 
     var stats = '';
@@ -1062,7 +1062,7 @@ function openEdit(id) {
   var pOpts     = buildOptions((D.equipos || []).map(function(eq) { return {value: eq.code, label: eq.code}; }), t.pais, true);
   var projOpts  = buildOptions((D.projectList || []).map(function(p) { return {value: p.id, label: p.nombre}; }), t.proyectoId, 'Sin proyecto');
   var prioOpts  = buildOptions([{value:'Alta',label:'🔴 Alta'},{value:'Media',label:'🟡 Media'},{value:'Baja',label:'🟢 Baja'}], t.priority);
-  var statOpts  = buildOptions(ALL_STATUSES, t.status);
+  var statOpts  = buildOptions(ALL_STATUSES.map(function(s){ return {value: s, label: _statusLabel(s)}; }), t.status);
   var tipoOpts  = buildOptions(['Contencioso','Regulatorio','Contractual','Privacy','Operativo'], t.tipoTrabajo, 'Sin definir');
   var riesgoOpts= buildOptions(['Legal alto','Reputacional','Operativo'], t.riesgo, 'Not set');
 
@@ -2756,6 +2756,30 @@ function _statusClass(s) {
   if (s === 'Bloqueado')   return 'bloqueado';
   return 'pendiente';
 }
+// Status display translation. El sheet guarda los valores en español
+// (no podemos cambiar la data sin migración masiva), pero la UI
+// muestra inglés. Único punto de traducción — toda la app pasa por
+// acá cuando renderea un status.
+var _STATUS_LABELS = {
+  'Pendiente':   'Pending',
+  'En curso':    'In progress',
+  'En revisión': 'In review',
+  'Bloqueado':   'Blocked',
+  'Listo':       'Done',
+  'Cancelado':   'Cancelled'
+};
+function _statusLabel(s) {
+  return _STATUS_LABELS[s] || s || '';
+}
+// También traducimos prioridad para coherencia visual.
+var _PRIORITY_LABELS = {
+  'Alta':  'High',
+  'Media': 'Medium',
+  'Baja':  'Low'
+};
+function _priorityLabel(p) {
+  return _PRIORITY_LABELS[p] || p || '';
+}
 function _etaToneClass(etaDays, status) {
   if (status === 'Bloqueado') return 'crit';
   if (etaDays == null) return 'dim';
@@ -3118,7 +3142,7 @@ function _edSearchRender() {
            +    '<span class="ed-search-r-id">' + esc(t.id) + '</span>'
            +    '<span class="ed-search-r-name">' + _edSearchHighlight(t.nombre || '', q) + '</span>'
            +    '<span class="ed-search-r-resp">' + _edSearchHighlight(t.resp || '—', q) + '</span>'
-           +    '<span class="ed-pill ' + statusCls + '">' + esc(t.status || '') + '</span>'
+           +    '<span class="ed-pill ' + statusCls + '">' + esc(_statusLabel(t.status)) + '</span>'
            +    '<span class="ed-search-r-eta">' + esc(t.eta || '') + '</span>'
            +  '</div>';
     });
@@ -3521,8 +3545,8 @@ function rEdHomeSpecialist(D) {
            +   '<div class="esp-task-body">'
            +     '<div class="esp-task-meta">'
            +       esc(t.id + ' · ' + pn + (sla ? ' · SLA ' + sla : ''))
-           +       '<span class="ed-pill ' + (t.priority || '').toLowerCase() + '" style="margin-left:8px">' + esc(t.priority || '') + '</span>'
-           +       '<span class="ed-pill ' + _statusClass(t.status) + '" style="margin-left:4px">' + esc(t.status || '') + '</span>'
+           +       '<span class="ed-pill ' + (t.priority || '').toLowerCase() + '" style="margin-left:8px">' + esc(_priorityLabel(t.priority)) + '</span>'
+           +       '<span class="ed-pill ' + _statusClass(t.status) + '" style="margin-left:4px">' + esc(_statusLabel(t.status)) + '</span>'
            +     '</div>'
            +     '<div class="esp-task-name">' + esc(t.nombre || '') + '</div>'
            +     '<div class="esp-task-action">' + actionHtml + '</div>'
@@ -4902,8 +4926,8 @@ function rEdTracker(D) {
                   : (t.resp
                       ? '<button class="tk-resp-link" onclick="event.stopPropagation();edSetRespFilter(\'' + esc(t.resp) + '\')" title="Filter by ' + esc(t.resp) + '">' + esc(t.resp) + '</button>'
                       : '<span style="color:var(--dim)">—</span>')) + '</td>'
-           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span></td>'
-           +    '<td><span class="ed-pill ' + _statusClass(t.status) + '">' + esc(t.status || '') + '</span></td>'
+           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(_priorityLabel(t.priority)) + '</span></td>'
+           +    '<td><span class="ed-pill ' + _statusClass(t.status) + '">' + esc(_statusLabel(t.status)) + '</span></td>'
            +    '<td><span class="tk-eta ' + etaTone + '">' + esc(etaTxt) + '</span></td>'
            + '</tr>';
     }
@@ -4946,8 +4970,8 @@ function rEdTracker(D) {
          +      '<span class="cf-band-desc">' + esc(selCfMeta.desc) + '</span>'
          +    '</div>'
          +    '<div class="tk-panel-pills">'
-         +      '<span class="ed-pill ' + (sel.priority || '').toLowerCase() + '">' + esc(sel.priority || '') + '</span>'
-         +      '<span class="ed-pill ' + _statusClass(sel.status) + '">' + esc(sel.status || '') + '</span>'
+         +      '<span class="ed-pill ' + (sel.priority || '').toLowerCase() + '">' + esc(_priorityLabel(sel.priority)) + '</span>'
+         +      '<span class="ed-pill ' + _statusClass(sel.status) + '">' + esc(_statusLabel(sel.status)) + '</span>'
          +      (sel.tipoTrabajo ? '<span class="ed-pill curso">' + esc(sel.tipoTrabajo) + '</span>' : '')
          +    '</div>'
          +    '<div class="tk-panel-block ' + blockCls + '">'
@@ -5197,8 +5221,8 @@ function rEdAgrupadas(D) {
              +    '<div class="ag-card-name">' + esc(t.nombre || '') + '</div>'
              +    '<div class="ag-card-action">' + actionHtml + '</div>'
              +    '<div class="ag-card-foot">'
-             +      '<span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span>'
-             +      '<span class="ed-pill ' + _statusClass(t.status) + '">' + esc(t.status || '') + '</span>'
+             +      '<span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(_priorityLabel(t.priority)) + '</span>'
+             +      '<span class="ed-pill ' + _statusClass(t.status) + '">' + esc(_statusLabel(t.status)) + '</span>'
              +      '<span class="ag-card-eta ' + tone + '">' + esc(t.eta || '') + '</span>'
              +    '</div>'
              + '</div>';
@@ -5310,7 +5334,7 @@ function _uaRenderActionCard(variant, task) {
   return '<div class="ua-action avanzar">'
        +   '<div class="ua-action-mark">→</div>'
        +   '<div>'
-       +     '<div class="ua-action-h">Advance to <em>' + esc(next) + '</em>.</div>'
+       +     '<div class="ua-action-h">Advance to <em>' + esc(_statusLabel(next)) + '</em>.</div>'
        +     '<div class="ua-action-sub">Move to the next step in the flow. You can add an optional note for context.</div>'
        +   '</div>'
        + '</div>';
@@ -5695,7 +5719,7 @@ function _crRenderStep2() {
 function _crRenderStep3() {
   var v = EDC.values;
   var pills = '';
-  if (v.prioridad) pills += '<span class="ed-pill ' + esc((v.prioridad || '').toLowerCase()) + '">Priority ' + esc(v.prioridad) + '</span>';
+  if (v.prioridad) pills += '<span class="ed-pill ' + esc((v.prioridad || '').toLowerCase()) + '">Priority ' + esc(_priorityLabel(v.prioridad)) + '</span>';
   if (v.riesgo) pills += '<span class="ed-pill curso">' + esc(v.riesgo) + '</span>';
   if (v.tipo) pills += '<span class="ed-pill curso">' + esc(v.tipo) + '</span>';
   if (v.pais) pills += '<span class="ed-pill curso">' + esc(v.pais) + '</span>';
@@ -6170,7 +6194,7 @@ function _piRenderDetail(p, D) {
     + '<div class="pi-detail-head">'
     +   '<h1 class="pi-detail-name">' + esc(p.nombre || '') + '</h1>'
     +   '<div class="pi-detail-pills">'
-    +     '<span class="ed-pill ' + (p.priority || '').toLowerCase() + '">' + esc(p.priority || '') + '</span>'
+    +     '<span class="ed-pill ' + (p.priority || '').toLowerCase() + '">' + esc(_priorityLabel(p.priority)) + '</span>'
     +     '<span class="ed-pill">' + esc(p.status || 'Activo') + '</span>'
     +   '</div>'
     +   '<div class="pi-detail-meta">'
@@ -6237,8 +6261,8 @@ function _piRenderDetail(p, D) {
            +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
            +    '<td><div class="tk-name">' + esc(t.nombre || '') + '</div></td>'
            +    '<td>' + esc(t.resp || '—') + '</td>'
-           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span></td>'
-           +    '<td><span class="ed-pill ' + _statusClass(t.status) + '">' + esc(t.status || '') + '</span></td>'
+           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(_priorityLabel(t.priority)) + '</span></td>'
+           +    '<td><span class="ed-pill ' + _statusClass(t.status) + '">' + esc(_statusLabel(t.status)) + '</span></td>'
            +    '<td><span class="tk-eta ' + etaTone + '">' + esc(etaTxt) + '</span></td>'
            + '</tr>';
     });
@@ -6464,8 +6488,8 @@ function rEdMisTareas(D) {
            +      '<div class="tk-name-meta">' + esc(meta) + '</div>'
            +    '</td>'
            +    '<td>' + esc(pn) + '</td>'
-           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span></td>'
-           +    '<td><span class="ed-pill ' + _statusClass(t.status) + '">' + esc(t.status || '') + '</span></td>'
+           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(_priorityLabel(t.priority)) + '</span></td>'
+           +    '<td><span class="ed-pill ' + _statusClass(t.status) + '">' + esc(_statusLabel(t.status)) + '</span></td>'
            +    '<td><span class="tk-eta ' + etaTone + '">' + esc(etaTxt) + '</span></td>'
            + '</tr>';
     }
@@ -6666,7 +6690,7 @@ function rEdHistorial(D) {
            +    '</td>'
            +    '<td>' + esc(pn) + '</td>'
            +    (showResp ? '<td>' + esc(t.resp || '—') + '</td>' : '')
-           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span></td>'
+           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(_priorityLabel(t.priority)) + '</span></td>'
            +    '<td style="font-family:var(--mono);font-size:12px">' + esc(t.cerrado || '—') + '</td>'
            +    '<td><span class="tk-eta ' + slaTone + '">' + esc(slaTxt) + '</span></td>'
            + '</tr>';
@@ -7740,7 +7764,7 @@ function _crpRenderStep2() {
 function _crpRenderStep3() {
   var v = EDCP.values;
   var pills = '';
-  if (v.priority) pills += '<span class="ed-pill ' + esc((v.priority || '').toLowerCase()) + '">Priority ' + esc(v.priority) + '</span>';
+  if (v.priority) pills += '<span class="ed-pill ' + esc((v.priority || '').toLowerCase()) + '">Priority ' + esc(_priorityLabel(v.priority)) + '</span>';
   if (v.riesgo) pills += '<span class="ed-pill curso">' + esc(v.riesgo) + '</span>';
   if (v.tipoTrabajo) pills += '<span class="ed-pill curso">' + esc(v.tipoTrabajo) + '</span>';
   if (v.pais) pills += '<span class="ed-pill curso">' + esc(v.pais) + '</span>';
