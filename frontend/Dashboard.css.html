@@ -2005,6 +2005,25 @@ body.role-manager #tabResumen { display: none !important; }
 .ed-search-r-name { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-search-r-resp { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-search-r-eta { font-size: 11px; color: var(--dim); text-align: right; }
+.ed-search-conf {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 2px;
+  display: inline-flex;
+  align-items: center;
+}
+.ed-search-conf.restringido {
+  background: var(--warn-soft, rgba(255, 185, 56, .14));
+  color: var(--warn);
+}
+.ed-search-conf.confidencial {
+  background: var(--critical-soft, rgba(255, 92, 92, .14));
+  color: var(--critical);
+}
 .ed-search-result mark {
   background: var(--accent-soft, rgba(255, 200, 0, .35));
   color: inherit;
@@ -3953,6 +3972,21 @@ body.role-manager #tabResumen { display: none !important; }
   font-weight: 600;
 }
 .tk-filter-chip b { font-weight: 800; }
+.tk-filter-chip.cf-restringido {
+  background: var(--warn-soft, rgba(255,185,56,.14));
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+}
+.tk-filter-chip.cf-confidencial {
+  background: var(--critical-soft, rgba(255,92,92,.14));
+  color: var(--critical);
+  border-color: color-mix(in srgb, var(--critical) 30%, transparent);
+}
+.cf-dot.clickable {
+  cursor: pointer;
+  transition: transform .12s;
+}
+.cf-dot.clickable:hover { transform: scale(1.4); }
 .tk-filter-chip button {
   background: transparent;
   border: none;

@@ -3091,16 +3091,44 @@ function _edSearchFilter(query) {
   var pMap = {};
   projects.forEach(function(p){ pMap[p.id] = p.nombre; });
   var out = [];
-  for (var i = 0; i < tasks.length && out.length < 50; i++) {
+  for (var i = 0; i < tasks.length && out.length < 80; i++) {
     var t = tasks[i];
     var pn = (t.proyectoId && pMap[t.proyectoId]) ? pMap[t.proyectoId] : '';
     var hay = [t.nombre, t.resp, t.notas, t.tipoTrabajo, t.pais, pn].join(' ').toLowerCase();
     if (hay.indexOf(q) >= 0) out.push({ kind: 'task', item: t, projectName: pn });
   }
-  for (var j = 0; j < projects.length && out.length < 60; j++) {
+  for (var j = 0; j < projects.length && out.length < 100; j++) {
     var p = projects[j];
     var hay2 = [p.nombre, p.responsable, p.lider, p.notas, p.tipoTrabajo, p.pais].join(' ').toLowerCase();
     if (hay2.indexOf(q) >= 0) out.push({ kind: 'project', item: p });
+  }
+  // Documents: buscamos en los docs adjuntos a las tareas que el
+  // usuario ya puede ver (backend ya filtra tasks por rol +
+  // confidencialidad, así que docs visibles == docs autorizados).
+  // También buscamos en docs de proyectos.
+  for (var ti = 0; ti < tasks.length && out.length < 120; ti++) {
+    var tk = tasks[ti];
+    var docs = tk.documentos || [];
+    for (var di = 0; di < docs.length; di++) {
+      var d = docs[di];
+      var dName = (d.name || '').toLowerCase();
+      if (dName.indexOf(q) >= 0) {
+        out.push({ kind: 'document', item: d, taskId: tk.id, taskName: tk.nombre, confLevel: tk.confidencialidad || 'estandar' });
+        if (out.length >= 120) break;
+      }
+    }
+  }
+  for (var pi = 0; pi < projects.length && out.length < 140; pi++) {
+    var pj = projects[pi];
+    var pdocs = pj.documentos || [];
+    for (var pdi = 0; pdi < pdocs.length; pdi++) {
+      var pd = pdocs[pdi];
+      var pdName = (pd.name || '').toLowerCase();
+      if (pdName.indexOf(q) >= 0) {
+        out.push({ kind: 'document', item: pd, projectId: pj.id, projectName: pj.nombre });
+        if (out.length >= 140) break;
+      }
+    }
   }
   return out;
 }
@@ -3121,12 +3149,16 @@ function _edSearchRender() {
     return;
   }
   var results = _edSearchFilter(q);
-  // Cap total a 10, priorizando tareas.
-  var taskShow = results.filter(function(r){ return r.kind === 'task'; }).slice(0, 10);
-  var remaining = Math.max(0, 10 - taskShow.length);
-  var projShow = results.filter(function(r){ return r.kind === 'project'; }).slice(0, remaining);
+  // Cap por sección. Total visible 15: 8 tasks + 4 projects + 3 docs
+  // (si una sección no llena su cuota, las otras pueden expandirse).
+  var taskAll = results.filter(function(r){ return r.kind === 'task'; });
+  var projAll = results.filter(function(r){ return r.kind === 'project'; });
+  var docAll  = results.filter(function(r){ return r.kind === 'document'; });
+  var taskShow = taskAll.slice(0, 8);
+  var projShow = projAll.slice(0, 4);
+  var docShow  = docAll.slice(0, 5);
 
-  if (!taskShow.length && !projShow.length) {
+  if (!taskShow.length && !projShow.length && !docShow.length) {
     host.innerHTML = '<div class="ed-search-empty">No results for "' + esc(q) + '"</div>';
     return;
   }
@@ -3161,6 +3193,31 @@ function _edSearchRender() {
            +  '</div>';
     });
   }
+  if (docShow.length) {
+    html += '<div class="ed-search-section">Documents</div>';
+    docShow.forEach(function(r) {
+      var d = r.item;
+      var url = (d.url || '#').replace(/'/g, '%27');
+      var ctx = r.taskId ? ('Task ' + r.taskId + ' · ' + (r.taskName || ''))
+              : r.projectId ? ('Project · ' + (r.projectName || ''))
+              : '';
+      // Confidentiality indicator (solo de tareas; backend ya filtra
+      // los confidenciales que el usuario no puede ver).
+      var confChip = '';
+      if (r.confLevel && r.confLevel !== 'estandar') {
+        var meta = (typeof ED_CONF_LEVELS !== 'undefined' && ED_CONF_LEVELS[r.confLevel]) || { label: r.confLevel };
+        confChip = '<span class="ed-search-conf ' + r.confLevel + '" title="' + esc(meta.label) + '">' + esc(meta.label) + '</span>';
+      }
+      html += '<div class="ed-search-result" onclick="edSearchPickDoc(\'' + esc(url) + '\',\'' + esc(r.taskId || r.projectId || '') + '\',\'' + (r.taskId ? 'task' : 'project') + '\')">'
+           +    '<span class="ed-search-r-kind">document</span>'
+           +    '<span class="ed-search-r-id">📄</span>'
+           +    '<span class="ed-search-r-name">' + _edSearchHighlight(d.name || 'Document', q) + '</span>'
+           +    '<span class="ed-search-r-resp">' + esc(ctx) + '</span>'
+           +    confChip
+           +    '<span class="ed-search-r-eta">Open ↗</span>'
+           + '</div>';
+    });
+  }
   host.innerHTML = html;
   // Marcar el primer resultado como active para que ↓/↑ y Enter
   // tengan un punto de partida visual.
@@ -3177,6 +3234,22 @@ function edSearchPickTask(taskId) {
 function edSearchPickProject(projectId) {
   edSearchClose();
   if (typeof goEd === 'function') goEd('proyectos');
+}
+// Document pick: abre el link en pestaña nueva. Si era de una task,
+// además navega al panel para que el contexto quede visible.
+function edSearchPickDoc(url, parentId, kind) {
+  edSearchClose();
+  if (url && url !== '#') {
+    try { window.open(decodeURIComponent(url), '_blank', 'noopener'); } catch(e) { window.open(url, '_blank'); }
+  }
+  // Optional: drill into the parent context (task panel or project detail)
+  if (kind === 'task' && parentId && typeof EDT !== 'undefined') {
+    EDT.selectedId = parentId;
+    if (typeof goEd === 'function') goEd('tracker');
+  } else if (kind === 'project' && parentId && typeof edPiOpen === 'function') {
+    edPiOpen(parentId);
+    if (typeof goEd === 'function') goEd('proyectos');
+  }
 }
 
 // Listener global de Cmd/Ctrl+K. Aparte del handler general para
@@ -3949,6 +4022,9 @@ function _edApplySecondaryFilters(tasks) {
     var rf = String(EDT.respFilter).toLowerCase();
     tasks = tasks.filter(function(t){ return (t.resp || '').toLowerCase() === rf; });
   }
+  if (EDT.confFilter) {
+    tasks = tasks.filter(function(t){ return _confLevel(t) === EDT.confFilter; });
+  }
   return tasks;
 }
 function edSetProjectFilter(id) {
@@ -3963,9 +4039,16 @@ function edSetRespFilter(name) {
   _edPersistEDT();
   if (D) rEdTracker(D);
 }
+function edSetConfFilter(level) {
+  EDT.confFilter = level || null;
+  EDT.selectedId = null;
+  _edPersistEDT();
+  if (D) rEdTracker(D);
+}
 function edClearSecondaryFilters() {
   EDT.projectFilter = null;
   EDT.respFilter = null;
+  EDT.confFilter = null;
   _edPersistEDT();
   if (D) rEdTracker(D);
 }
@@ -4003,7 +4086,8 @@ function _edPersistEDT() {
       search: EDT.search,
       skipCountriesView: EDT.skipCountriesView,
       projectFilter: EDT.projectFilter,
-      respFilter: EDT.respFilter
+      respFilter: EDT.respFilter,
+      confFilter: EDT.confFilter
     }));
   } catch(e) {}
 }
@@ -4019,6 +4103,7 @@ function _edRestoreEDT() {
       if (typeof s.skipCountriesView === 'boolean') EDT.skipCountriesView = s.skipCountriesView;
       if (s.projectFilter) EDT.projectFilter = s.projectFilter;
       if (s.respFilter) EDT.respFilter = s.respFilter;
+      if (s.confFilter) EDT.confFilter = s.confFilter;
     }
   } catch(e) {}
 }
@@ -4952,7 +5037,7 @@ function rEdTracker(D) {
        + '</div>';
 
   // Active secondary filters chips
-  if (EDT.projectFilter || EDT.respFilter) {
+  if (EDT.projectFilter || EDT.respFilter || EDT.confFilter) {
     html += '<div class="tk-filter-chips">';
     if (EDT.projectFilter) {
       var pName = (D && D.projects || []).find(function(p){ return String(p.id) === String(EDT.projectFilter); });
@@ -4964,6 +5049,12 @@ function rEdTracker(D) {
     if (EDT.respFilter) {
       html += '<span class="tk-filter-chip">Owner: <b>' + esc(EDT.respFilter) + '</b>'
            +    '<button onclick="edSetRespFilter(null)" aria-label="Clear owner filter">×</button>'
+           + '</span>';
+    }
+    if (EDT.confFilter) {
+      var cfMeta2 = (typeof ED_CONF_LEVELS !== 'undefined' && ED_CONF_LEVELS[EDT.confFilter]) || { label: EDT.confFilter };
+      html += '<span class="tk-filter-chip cf-' + esc(EDT.confFilter) + '">Confidentiality: <b>' + esc(cfMeta2.label) + '</b>'
+           +    '<button onclick="edSetConfFilter(null)" aria-label="Clear confidentiality filter">×</button>'
            + '</span>';
     }
     html += '<button class="tk-filter-clear" onclick="edClearSecondaryFilters()">Clear all</button>';
@@ -5021,7 +5112,7 @@ function rEdTracker(D) {
       var cfMeta = ED_CONF_LEVELS[cfLvl];
       html += '<tr class="tk-row' + (isSel ? ' selected' : '') + '" data-task-id="' + esc(t.id) + '" onclick="edSelectTask(\'' + esc(t.id) + '\')">'
            +    '<td onclick="event.stopPropagation()"><input type="checkbox" class="tk-row-check" data-task-id="' + esc(t.id) + '" onclick="edTkToggleSelect(this)"' + (isChecked ? ' checked' : '') + '></td>'
-           +    '<td><span class="cf-dot ' + cfLvl + '" title="' + esc(cfMeta.label) + '"></span></td>'
+           +    '<td onclick="event.stopPropagation()"><span class="cf-dot ' + cfLvl + ' clickable" title="' + esc(cfMeta.label) + ' · Click to filter" onclick="edSetConfFilter(\'' + esc(cfLvl) + '\')"></span></td>'
            +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
            +    '<td>'
            +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
