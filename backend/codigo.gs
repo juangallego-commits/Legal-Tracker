@@ -9,6 +9,7 @@ const SHEET_HISTORIAL = 'Historial';
 const SHEET_CONFIG    = 'Config';
 const SHEET_EQUIPOS   = 'Equipos';
 const SHEET_PROYECTOS = 'Proyectos';
+const SHEET_COMMENTS  = 'Comments'; // Auto-created on first use; cols: id, task_id, author_email, author_name, ts, body
 
 // Tasks: 18 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder,TipoTrabajo,Riesgo,Documentos,Confidencialidad
 // La columna 18 (Confidencialidad) puede no existir todavía en la hoja: getLastColumn() devolverá
@@ -1058,6 +1059,98 @@ function _addTaskImpl(taskObj) {
   } finally {
     lock.releaseLock();
     invalidateCache();
+  }
+}
+
+// ── COMMENTS THREAD ───────────────────────────────────────────
+// Hilo de comentarios por tarea. Sheet 'Comments' se auto-crea en
+// el primer uso. Columnas: id (auto-incremental), task_id (matches
+// SHEET_ACTIVO/HISTORIAL), author_email, author_name, ts (ISO),
+// body. Auth: cualquier usuario del allowlist puede leer/escribir
+// comentarios de tareas que pueda ver (no agregamos un layer extra
+// — el filtrado de tareas ya restringe quién ve qué).
+
+function _commentsSheet(ss) {
+  var ws = ss.getSheetByName(SHEET_COMMENTS);
+  if (ws) return ws;
+  // Crear la hoja con headers
+  ws = ss.insertSheet(SHEET_COMMENTS);
+  ws.getRange(1, 1, 1, 6).setValues([['id', 'task_id', 'author_email', 'author_name', 'ts', 'body']]);
+  ws.getRange(1, 1, 1, 6).setFontWeight('bold');
+  ws.setFrozenRows(1);
+  return ws;
+}
+
+function _nextCommentId(ws) {
+  var lr = ws.getLastRow();
+  if (lr < 2) return 1;
+  var ids = ws.getRange(2, 1, lr - 1, 1).getValues();
+  var max = 0;
+  for (var i = 0; i < ids.length; i++) {
+    var n = parseInt(ids[i][0], 10);
+    if (!isNaN(n) && n > max) max = n;
+  }
+  return max + 1;
+}
+
+function getTaskComments(taskId) {
+  return _telemetry('getTaskComments', function() {
+    var ctx = _getAuthContext();
+    var ws = _commentsSheet(ctx.ss);
+    var lr = ws.getLastRow();
+    if (lr < 2) return [];
+    var data = ws.getRange(2, 1, lr - 1, 6).getValues();
+    var out = [];
+    var tid = String(taskId);
+    for (var i = 0; i < data.length; i++) {
+      var r = data[i];
+      if (String(r[1]) !== tid) continue;
+      out.push({
+        id: r[0],
+        task_id: r[1],
+        author_email: r[2] || '',
+        author_name: r[3] || '',
+        ts: r[4] ? (r[4] instanceof Date ? r[4].toISOString() : String(r[4])) : '',
+        body: r[5] || ''
+      });
+    }
+    // Sort by ts asc (oldest first → chronological thread)
+    out.sort(function(a, b) { return (a.ts || '').localeCompare(b.ts || ''); });
+    return out;
+  }, { taskId: taskId });
+}
+
+function addTaskComment(taskId, body) {
+  return _telemetry('addTaskComment', function() {
+    return _safeMutation(function() { return _addTaskCommentImpl(taskId, body); });
+  }, { taskId: taskId });
+}
+function _addTaskCommentImpl(taskId, body) {
+  var ctx = _getAuthContext();
+  var trimmed = (body || '').toString().trim();
+  if (!trimmed) return { success: false, error: 'Comment body required' };
+  if (trimmed.length > 5000) return { success: false, error: 'Comment too long (max 5000 chars)' };
+  var ws = _commentsSheet(ctx.ss);
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); } catch (e) { throw new Error('Server busy, retry in a moment.'); }
+  try {
+    var newId = _nextCommentId(ws);
+    var ts = new Date();
+    var row = [newId, taskId, ctx.user && ctx.user.email || '', ctx.user && ctx.user.name || '', ts, trimmed];
+    ws.appendRow(_sanitizeRow(row));
+    return {
+      success: true,
+      comment: {
+        id: newId,
+        task_id: taskId,
+        author_email: ctx.user && ctx.user.email || '',
+        author_name: ctx.user && ctx.user.name || '',
+        ts: ts.toISOString(),
+        body: trimmed
+      }
+    };
+  } finally {
+    lock.releaseLock();
   }
 }
 

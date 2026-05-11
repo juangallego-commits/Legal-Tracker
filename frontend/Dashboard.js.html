@@ -4605,6 +4605,112 @@ function edPanelAutosizeNotes(el) {
   el.style.height = Math.min(el.scrollHeight, 200) + 'px';
 }
 
+// ─── COMMENTS THREAD DEL PANEL ──────────────────────────────────
+// Lazy-load: cuando el panel se renderea, se llama edPanelLoadComments
+// con el taskId para fetch async. Antes muestra "Loading…", al
+// terminar reemplaza con el hilo. El input es textarea + Send button.
+// Cmd+Enter envía. Optimistic: el comment aparece al instante en el
+// thread mientras el server confirma.
+function edPanelLoadComments(taskId) {
+  if (!taskId) return;
+  var host = $('tkComments'); if (!host) return;
+  google.script.run
+    .withSuccessHandler(function(comments) {
+      _edPanelRenderComments(comments || [], taskId);
+      // Bind Cmd+Enter en el textarea
+      var ta = $('tkCommentInput');
+      if (ta) {
+        ta.onkeydown = function(e) {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            edPanelSubmitComment(taskId);
+          }
+        };
+      }
+    })
+    .withFailureHandler(function(e) {
+      console.error('getTaskComments failure', e);
+      host.innerHTML = '<div class="tk-comments-empty">Could not load comments. Refresh to retry.</div>';
+    })
+    .getTaskComments(taskId);
+}
+function _edPanelRenderComments(comments, taskId) {
+  var host = $('tkComments'); if (!host) return;
+  if (!comments.length) {
+    host.innerHTML = '<div class="tk-comments-empty">No comments yet. Start the conversation.</div>';
+    return;
+  }
+  var meEmail = (USER && USER.email) || (D && D._user && D._user.email) || '';
+  var html = '';
+  comments.forEach(function(c) {
+    var when = _commentRelativeTime(c.ts);
+    var initials = (c.author_name || '?').split(/\s+/).slice(0, 2).map(function(w){ return (w[0] || '').toUpperCase(); }).join('') || '?';
+    var mine = c.author_email && (c.author_email === meEmail);
+    html += '<div class="tk-comment-item' + (mine ? ' mine' : '') + '">'
+         +    '<div class="tk-comment-av" title="' + esc(c.author_name || c.author_email || '') + '">' + esc(initials) + '</div>'
+         +    '<div class="tk-comment-body">'
+         +      '<div class="tk-comment-head">'
+         +        '<span class="tk-comment-author">' + esc(c.author_name || c.author_email || 'Unknown') + '</span>'
+         +        '<span class="tk-comment-when">' + esc(when) + '</span>'
+         +      '</div>'
+         +      '<div class="tk-comment-text">' + esc(c.body || '').replace(/\n/g, '<br>') + '</div>'
+         +    '</div>'
+         + '</div>';
+  });
+  host.innerHTML = html;
+}
+function _commentRelativeTime(iso) {
+  if (!iso) return '';
+  var ms = new Date(iso).getTime();
+  if (isNaN(ms)) return iso;
+  return _relativeAgo(ms);
+}
+function edPanelSubmitComment(taskId) {
+  var ta = $('tkCommentInput'); if (!ta) return;
+  var body = (ta.value || '').trim();
+  if (!body) { toast('Type a comment first', 'error'); return; }
+  var btn = $('tkCommentSubmit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+      if (res && res.success && res.comment) {
+        // Append optimistically al thread
+        var host = $('tkComments');
+        if (host) {
+          // Si era el primer comment, reemplazamos el empty state
+          if (host.querySelector('.tk-comments-empty')) host.innerHTML = '';
+          var c = res.comment;
+          var when = _commentRelativeTime(c.ts);
+          var initials = (c.author_name || '?').split(/\s+/).slice(0, 2).map(function(w){ return (w[0] || '').toUpperCase(); }).join('') || '?';
+          var div = document.createElement('div');
+          div.className = 'tk-comment-item mine new';
+          div.innerHTML = ''
+            + '<div class="tk-comment-av">' + esc(initials) + '</div>'
+            + '<div class="tk-comment-body">'
+            +   '<div class="tk-comment-head">'
+            +     '<span class="tk-comment-author">' + esc(c.author_name || 'You') + '</span>'
+            +     '<span class="tk-comment-when">just now</span>'
+            +   '</div>'
+            +   '<div class="tk-comment-text">' + esc(c.body || '').replace(/\n/g, '<br>') + '</div>'
+            + '</div>';
+          host.appendChild(div);
+          host.scrollTop = host.scrollHeight;
+        }
+        ta.value = '';
+        toast('Comment sent', 'success');
+      } else {
+        toast('Error: ' + ((res && res.error) || 'could not send'), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+      console.error('addTaskComment failure', e);
+      toast('Backend error: ' + (e && e.message || 'unknown'), 'error');
+    })
+    .addTaskComment(taskId, body);
+}
+
 function _buildEdTimeline(t) {
   // Timeline sintética desde campos disponibles. No tocamos backend en Fase 1.
   var items = [];
@@ -4997,6 +5103,19 @@ function rEdTracker(D) {
          +      '<div class="blk-lbl">— History</div>'
          +      '<div class="tk-timeline">' + tlHtml + '</div>'
          +    '</div>'
+         +    '<div class="tk-panel-block" data-task-id="' + esc(sel.id) + '">'
+         +      '<div class="blk-lbl">— Comments</div>'
+         +      '<div class="tk-comments" id="tkComments">'
+         +        '<div class="tk-comments-loading">Loading conversation…</div>'
+         +      '</div>'
+         +      '<div class="tk-comment-form">'
+         +        '<textarea class="tk-comment-input" id="tkCommentInput" placeholder="Add a comment…" rows="2"></textarea>'
+         +        '<div class="tk-comment-actions">'
+         +          '<span class="tk-comment-hint">Cmd+Enter to send</span>'
+         +          '<button class="ed-btn primary" id="tkCommentSubmit" onclick="edPanelSubmitComment(\'' + esc(sel.id) + '\')">Send</button>'
+         +        '</div>'
+         +      '</div>'
+         +    '</div>'
          +    '<div class="tk-panel-block">'
          +      '<div class="blk-lbl">— Documents</div>'
          +      '<div class="tk-docs">' + (function() {
@@ -5043,6 +5162,12 @@ function rEdTracker(D) {
   // pequeño hasta que el usuario tipea algo.
   var ta = v.querySelector('.tk-notas-edit');
   if (ta) edPanelAutosizeNotes(ta);
+  // Lazy-load comments thread cuando el panel está abierto.
+  var commentsHost = v.querySelector('#tkComments');
+  if (commentsHost) {
+    var commentTaskId = commentsHost.closest('[data-task-id]');
+    if (commentTaskId) edPanelLoadComments(commentTaskId.getAttribute('data-task-id'));
+  }
   // Hover preview: tooltip compacto tras 400ms de hover sobre una fila.
   v.querySelectorAll('.tk-row[data-task-id]').forEach(_edTkAttachPreview);
   // Continuity: si volvemos del panel full-screen, scrollear y
