@@ -3896,6 +3896,38 @@ function _edApplyFilter(tasks, filter) {
   return tasks.filter(function(t){ return t.status !== 'Listo'; });
 }
 
+// Filtros secundarios del tracker. Se aplican en cascada después del
+// status filter principal. Cualquier conjunto activos se persiste en
+// localStorage para sobrevivir reloads.
+function _edApplySecondaryFilters(tasks) {
+  if (EDT.projectFilter) {
+    tasks = tasks.filter(function(t){ return String(t.proyectoId || '') === String(EDT.projectFilter); });
+  }
+  if (EDT.respFilter) {
+    var rf = String(EDT.respFilter).toLowerCase();
+    tasks = tasks.filter(function(t){ return (t.resp || '').toLowerCase() === rf; });
+  }
+  return tasks;
+}
+function edSetProjectFilter(id) {
+  EDT.projectFilter = id || null;
+  EDT.selectedId = null;
+  _edPersistEDT();
+  if (D) rEdTracker(D);
+}
+function edSetRespFilter(name) {
+  EDT.respFilter = name || null;
+  EDT.selectedId = null;
+  _edPersistEDT();
+  if (D) rEdTracker(D);
+}
+function edClearSecondaryFilters() {
+  EDT.projectFilter = null;
+  EDT.respFilter = null;
+  _edPersistEDT();
+  if (D) rEdTracker(D);
+}
+
 function _edApplySearch(tasks, q) {
   if (!q) return tasks;
   var s = q.toLowerCase();
@@ -3927,7 +3959,9 @@ function _edPersistEDT() {
       filter: EDT.filter,
       country: EDT.country,
       search: EDT.search,
-      skipCountriesView: EDT.skipCountriesView
+      skipCountriesView: EDT.skipCountriesView,
+      projectFilter: EDT.projectFilter,
+      respFilter: EDT.respFilter
     }));
   } catch(e) {}
 }
@@ -3941,6 +3975,8 @@ function _edRestoreEDT() {
       if (s.country) EDT.country = s.country;
       if (s.search) EDT.search = s.search;
       if (typeof s.skipCountriesView === 'boolean') EDT.skipCountriesView = s.skipCountriesView;
+      if (s.projectFilter) EDT.projectFilter = s.projectFilter;
+      if (s.respFilter) EDT.respFilter = s.respFilter;
     }
   } catch(e) {}
 }
@@ -4031,9 +4067,7 @@ function edTkBulkAction(action) {
   var n = ids.length;
   var label = n + ' task' + (n === 1 ? '' : 's');
   if (action === 'reasignar') {
-    var newResp = window.prompt('Reassign ' + label + ' to (exact name):');
-    if (!newResp) return;
-    _edTkBulkRun(ids, 'resp', newResp, 'Reassigned');
+    edTkBulkReasignOpen(ids);
     return;
   }
   if (action === 'bloquear') {
@@ -4061,6 +4095,81 @@ function edTkBulkAction(action) {
     return;
   }
 }
+// Modal de bulk-reassign: picker visual en vez de window.prompt.
+// Muestra los candidates según rol: head ve todos, manager solo su país.
+// Reuse cr-overlay/cr-modal styling.
+function edTkBulkReasignOpen(ids) {
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  if (role !== 'manager' && role !== 'head') {
+    toast('You don\'t have permission to reassign.', 'error');
+    return;
+  }
+  var team = (D && D.team) || [];
+  var userCode = (typeof _effectiveUserCode === 'function') ? _effectiveUserCode() : '';
+  var candidates;
+  if (role === 'manager') candidates = team.filter(function(m){ return m && m.country === userCode; });
+  else candidates = team.slice();
+  if (!candidates.length) {
+    toast('No team members available to reassign to.', 'error');
+    return;
+  }
+  // Sort by name
+  candidates.sort(function(a, b){ return (a.name || '').localeCompare(b.name || ''); });
+  var opts = candidates.map(function(m) {
+    var ctry = m.country ? ' · ' + m.country : '';
+    return '<option value="' + esc(m.name) + '">' + esc(m.name) + esc(ctry) + '</option>';
+  }).join('');
+
+  var host = $('crHost'); if (!host) return;
+  EDT._pendingReassignIds = ids.slice();
+  var n = ids.length;
+  host.innerHTML = ''
+    + '<div class="cr-overlay" onclick="if(event.target===this)edTkBulkReasignClose()">'
+    +   '<div class="cr-backdrop" onclick="edTkBulkReasignClose()"></div>'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Bulk reassign" style="max-width:520px">'
+    +     '<div class="cr-head">'
+    +       '<div>'
+    +         '<div class="cr-eye">— Bulk reassign</div>'
+    +         '<div class="cr-title">Reassign ' + n + ' task' + (n === 1 ? '' : 's') + '</div>'
+    +       '</div>'
+    +       '<button type="button" class="cr-x" onclick="edTkBulkReasignClose()" aria-label="Close">×</button>'
+    +     '</div>'
+    +     '<div class="cr-body">'
+    +       '<div class="cr-field">'
+    +         '<div class="cr-label">New owner <span class="req">*</span></div>'
+    +         '<select id="edTkBulkReasignSel" class="cr-input">'
+    +           '<option value="" disabled selected>Select…</option>'
+    +           opts
+    +         '</select>'
+    +         '<div class="cr-foot-info" style="margin-top:8px;padding:0">'
+    +           (role === 'manager'
+              ? 'You can only reassign within your team (' + esc(userCode || '—') + ').'
+              : 'As HQ you can pick any member of the roster.')
+    +         '</div>'
+    +       '</div>'
+    +     '</div>'
+    +     '<div class="cr-foot">'
+    +       '<div class="cr-foot-info">' + n + ' task' + (n === 1 ? '' : 's') + ' will be reassigned. The backend validates permissions per task.</div>'
+    +       '<button type="button" class="ed-btn" onclick="edTkBulkReasignClose()">Cancel</button>'
+    +       '<button type="button" class="ed-btn accent" onclick="edTkBulkReasignConfirm()">Reassign</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+}
+function edTkBulkReasignClose() {
+  var host = $('crHost'); if (host) host.innerHTML = '';
+  EDT._pendingReassignIds = null;
+}
+function edTkBulkReasignConfirm() {
+  var sel = $('edTkBulkReasignSel');
+  var newResp = sel && sel.value;
+  if (!newResp) { toast('Pick an owner first.', 'error'); return; }
+  var ids = EDT._pendingReassignIds || [];
+  edTkBulkReasignClose();
+  if (!ids.length) return;
+  _edTkBulkRun(ids, 'resp', newResp, 'Reassigned');
+}
+
 function _edTkBulkRun(ids, field, value, label) {
   var ok = 0, fail = 0, pending = ids.length;
   toast('Applying to ' + pending + ' task' + (pending === 1 ? '' : 's') + '…', 'info');
@@ -4604,7 +4713,7 @@ function rEdTracker(D) {
   var cToday    = roleTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; }).length;
   var cBlocked  = roleTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
 
-  var rows = _edApplySearch(_edApplyFilter(roleTasks, EDT.filter), EDT.search);
+  var rows = _edApplySearch(_edApplySecondaryFilters(_edApplyFilter(roleTasks, EDT.filter)), EDT.search);
   rows = _edSortByUrgency(rows);
 
   var sel = EDT.selectedId ? rows.find(function(t){ return t.id == EDT.selectedId; }) || roleTasks.find(function(t){ return t.id == EDT.selectedId; }) : null;
@@ -4667,14 +4776,51 @@ function rEdTracker(D) {
          +    '<span class="tk-filter-count"' + countCls + '>' + count + '</span>'
          + '</button>';
   }
+  // Project select para filter secundario. Solo proyectos que tienen
+  // al menos una tarea en el roleTasks scope (no listar proyectos
+  // irrelevantes para este rol/país).
+  var pIdsWithTasks = {};
+  roleTasks.forEach(function(t){ if (t.proyectoId) pIdsWithTasks[t.proyectoId] = true; });
+  var projOpts = (D && D.projects || [])
+    .filter(function(p){ return pIdsWithTasks[p.id]; })
+    .sort(function(a,b){ return (a.nombre || '').localeCompare(b.nombre || ''); })
+    .map(function(p) {
+      var selAttr = (String(EDT.projectFilter || '') === String(p.id)) ? ' selected' : '';
+      return '<option value="' + esc(p.id) + '"' + selAttr + '>' + esc(p.nombre || '#' + p.id) + '</option>';
+    }).join('');
+
   html += '<div class="tk-toolbar">'
        +    fBtn('all',     'All',         cAll,     null)
        +    fBtn('overdue', 'Overdue',     cOverdue, 'critical')
        +    fBtn('today',   'Due today',   cToday,   'warn')
        +    fBtn('blocked', 'On hold',     cBlocked, null)
+       +    (projOpts
+            ? '<select class="tk-proj-filter" onchange="edSetProjectFilter(this.value)" aria-label="Filter by project">'
+            +    '<option value="">All projects</option>' + projOpts
+            + '</select>'
+            : '')
        +    '<input class="tk-search" type="text" placeholder="Filter by project, person, type…" '
        +      'value="' + esc(EDT.search) + '" oninput="edSetSearch(this.value)">'
        + '</div>';
+
+  // Active secondary filters chips
+  if (EDT.projectFilter || EDT.respFilter) {
+    html += '<div class="tk-filter-chips">';
+    if (EDT.projectFilter) {
+      var pName = (D && D.projects || []).find(function(p){ return String(p.id) === String(EDT.projectFilter); });
+      var pLbl = pName ? pName.nombre : ('#' + EDT.projectFilter);
+      html += '<span class="tk-filter-chip">Project: <b>' + esc(pLbl) + '</b>'
+           +    '<button onclick="edSetProjectFilter(null)" aria-label="Clear project filter">×</button>'
+           + '</span>';
+    }
+    if (EDT.respFilter) {
+      html += '<span class="tk-filter-chip">Owner: <b>' + esc(EDT.respFilter) + '</b>'
+           +    '<button onclick="edSetRespFilter(null)" aria-label="Clear owner filter">×</button>'
+           + '</span>';
+    }
+    html += '<button class="tk-filter-clear" onclick="edClearSecondaryFilters()">Clear all</button>';
+    html += '</div>';
+  }
 
   // TABLE
   var respCol = role === 'specialist' ? 'Project' : 'Owner';
@@ -4733,7 +4879,11 @@ function rEdTracker(D) {
            +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
            +      '<div class="tk-name-meta">' + esc(meta) + '</div>'
            +    '</td>'
-           +    '<td>' + esc(role === 'specialist' ? pn : (t.resp || '—')) + '</td>'
+           +    '<td>' + (role === 'specialist'
+                  ? esc(pn)
+                  : (t.resp
+                      ? '<button class="tk-resp-link" onclick="event.stopPropagation();edSetRespFilter(\'' + esc(t.resp) + '\')" title="Filter by ' + esc(t.resp) + '">' + esc(t.resp) + '</button>'
+                      : '<span style="color:var(--dim)">—</span>')) + '</td>'
            +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(t.priority || '') + '</span></td>'
            +    '<td><span class="ed-pill ' + _statusClass(t.status) + '">' + esc(t.status || '') + '</span></td>'
            +    '<td><span class="tk-eta ' + etaTone + '">' + esc(etaTxt) + '</span></td>'
