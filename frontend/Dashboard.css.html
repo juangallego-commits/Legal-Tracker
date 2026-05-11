@@ -2005,6 +2005,25 @@ body.role-manager #tabResumen { display: none !important; }
 .ed-search-r-name { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-search-r-resp { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-search-r-eta { font-size: 11px; color: var(--dim); text-align: right; }
+.ed-search-conf {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 2px;
+  display: inline-flex;
+  align-items: center;
+}
+.ed-search-conf.restringido {
+  background: var(--warn-soft, rgba(255, 185, 56, .14));
+  color: var(--warn);
+}
+.ed-search-conf.confidencial {
+  background: var(--critical-soft, rgba(255, 92, 92, .14));
+  color: var(--critical);
+}
 .ed-search-result mark {
   background: var(--accent-soft, rgba(255, 200, 0, .35));
   color: inherit;
@@ -3953,6 +3972,21 @@ body.role-manager #tabResumen { display: none !important; }
   font-weight: 600;
 }
 .tk-filter-chip b { font-weight: 800; }
+.tk-filter-chip.cf-restringido {
+  background: var(--warn-soft, rgba(255,185,56,.14));
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+}
+.tk-filter-chip.cf-confidencial {
+  background: var(--critical-soft, rgba(255,92,92,.14));
+  color: var(--critical);
+  border-color: color-mix(in srgb, var(--critical) 30%, transparent);
+}
+.cf-dot.clickable {
+  cursor: pointer;
+  transition: transform .12s;
+}
+.cf-dot.clickable:hover { transform: scale(1.4); }
 .tk-filter-chip button {
   background: transparent;
   border: none;
@@ -4002,6 +4036,120 @@ body.role-manager #tabResumen { display: none !important; }
 /* En el panel del tracker el menú "Más ⋯" abre hacia arriba porque
    está al final del panel; sino el dropdown queda fuera del viewport. */
 .esp-task-menu-wrap.tk-more-up .esp-menu { top: auto; bottom: calc(100% + 4px); right: 0; left: auto; min-width: 180px; }
+
+/* ── Comments thread del panel del tracker ────────────────────── */
+.tk-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 380px;
+  overflow-y: auto;
+  margin-bottom: 14px;
+  padding-right: 4px;
+}
+.tk-comments-loading,
+.tk-comments-empty {
+  font-size: 12.5px;
+  color: var(--dim);
+  font-style: italic;
+  font-family: var(--serif);
+  text-align: center;
+  padding: 18px 12px;
+}
+.tk-comment-item {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+.tk-comment-av {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--paper2);
+  border: 1px solid var(--rule);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: .3px;
+}
+.tk-comment-item.mine .tk-comment-av {
+  background: var(--accent-soft, var(--paper2));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--rule));
+  color: var(--accent);
+}
+.tk-comment-body {
+  min-width: 0;
+}
+.tk-comment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.tk-comment-author {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.tk-comment-when {
+  font-size: 10px;
+  color: var(--dim);
+  font-family: var(--mono);
+  letter-spacing: .3px;
+}
+.tk-comment-text {
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.55;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.tk-comment-item.new {
+  animation: comment-slide-in .25s ease-out;
+}
+@keyframes comment-slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.tk-comment-form {
+  border-top: 1px solid var(--rule);
+  padding-top: 14px;
+}
+.tk-comment-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  resize: vertical;
+  min-height: 60px;
+  max-height: 180px;
+  box-sizing: border-box;
+}
+.tk-comment-input:focus { outline: none; border-color: var(--accent); }
+.tk-comment-input::placeholder { color: var(--dim); font-style: italic; font-family: var(--serif); }
+.tk-comment-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.tk-comment-hint {
+  font-size: 10px;
+  color: var(--dim);
+  font-family: var(--mono);
+  letter-spacing: .3px;
+}
+.tk-comment-actions .ed-btn { font-size: 12px; padding: 6px 14px; }
+.tk-comment-actions .ed-btn:disabled { opacity: .5; cursor: wait; }
 
 /* ── Documentos del panel del tracker ──────────────────────────── */
 .tk-docs {
