@@ -402,6 +402,50 @@ function buildUI() {
   }
   autoFillFromResp('fResp', 'fPais', 'fLider');
   autoFillFromResp('pResp', 'pPais', 'pLider');
+
+  // Auto-prefill de notas con checklist del Template cuando cambia el TipoTrabajo.
+  // - Solo prefilla si el textarea de notas está vacío (no pisa lo que el usuario escribió).
+  // - Cache de plantillas a nivel de módulo: una sola llamada server-side por sesión.
+  // - Si la hoja Templates no existe en el sheet, el backend devuelve {} y esto es no-op.
+  if ($('fTipo')) {
+    $('fTipo').addEventListener('change', function() {
+      var tipo = this.value;
+      if (!tipo) return;
+      var notEl = $('fNot');
+      if (!notEl) return;
+      if ((notEl.value || '').replace(/\s+/g, '')) return; // user ya escribió → no pisar
+      _loadTemplates(function(dict) {
+        var checklist = dict && dict[tipo];
+        if (!checklist || !checklist.length) return;
+        // Re-check después del round-trip: el usuario pudo haber escrito mientras.
+        if ((notEl.value || '').replace(/\s+/g, '')) return;
+        notEl.value = checklist.map(function(it){ return '- ' + it; }).join('\n');
+      });
+    });
+  }
+}
+
+// Cache lazy de plantillas (server fetch una vez por sesión).
+var _TEMPLATES_CACHE = null;
+var _TEMPLATES_INFLIGHT = null;
+function _loadTemplates(cb) {
+  if (_TEMPLATES_CACHE) { cb(_TEMPLATES_CACHE); return; }
+  if (_TEMPLATES_INFLIGHT) { _TEMPLATES_INFLIGHT.push(cb); return; }
+  _TEMPLATES_INFLIGHT = [cb];
+  google.script.run
+    .withSuccessHandler(function(dict) {
+      _TEMPLATES_CACHE = dict || {};
+      var queue = _TEMPLATES_INFLIGHT || [];
+      _TEMPLATES_INFLIGHT = null;
+      queue.forEach(function(fn) { try { fn(_TEMPLATES_CACHE); } catch (e) {} });
+    })
+    .withFailureHandler(function() {
+      _TEMPLATES_CACHE = {};
+      var queue = _TEMPLATES_INFLIGHT || [];
+      _TEMPLATES_INFLIGHT = null;
+      queue.forEach(function(fn) { try { fn(_TEMPLATES_CACHE); } catch (e) {} });
+    })
+    .getTemplates();
 }
 
 // ═══ CHARTS ═══

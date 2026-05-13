@@ -11,6 +11,7 @@ const SHEET_EQUIPOS   = 'Equipos';
 const SHEET_PROYECTOS = 'Proyectos';
 const SHEET_COMMENTS  = 'Comments'; // Auto-created on first use; cols: id, task_id, author_email, author_name, ts, body
 const SHEET_FERIADOS  = 'Feriados'; // Manual; cols: pais (CO/MX/CR/...) | fecha (YYYY-MM-DD) | nombre
+const SHEET_TEMPLATES = 'Templates'; // Optional; cols: tipoTrabajo, checklist (JSON array of strings). See sample at EOF.
 
 // ── DAILY DIGEST ────────────────────────────────────────────────
 // URL del web app deployado (/exec). Se usa en los emails para
@@ -1094,6 +1095,20 @@ function _addTaskImpl(taskObj) {
     var pidNum = parseInt(pid, 10);
     var pidCell = isNaN(pidNum) ? '' : pidNum;
     var conf = (taskObj.confidencialidad || 'estandar').toString().trim() || 'estandar';
+    // Auto-prefill de notas con checklist del template si:
+    //  (a) hay tipoTrabajo con plantilla en la hoja 'Templates', y
+    //  (b) el usuario no escribió notas (vacío o solo whitespace).
+    // Lectura lazy: readTemplates reutiliza la cache de getTemplates si está caliente.
+    var notas = (taskObj.notas || '').toString();
+    if (taskObj.tipoTrabajo && !notas.replace(/\s+/g, '')) {
+      try {
+        var templates = readTemplates(ss);
+        var checklist = templates[taskObj.tipoTrabajo];
+        if (checklist && checklist.length) {
+          notas = checklist.map(function(it){ return '- ' + it; }).join('\n');
+        }
+      } catch (e) { Logger.log('addTask: template prefill skipped: ' + ((e && e.message) || e)); }
+    }
     // Construimos la fila al ancho real del sheet: si el usuario aún no agregó
     // la columna 17 (Documentos) o 18 (Confidencialidad), no las escribimos
     // (no podemos crear columnas desde acá). Si existen, se llenan vacío/default.
@@ -1101,7 +1116,7 @@ function _addTaskImpl(taskObj) {
     var rowVals = [
       newId, taskObj.nombre||'', taskObj.resp||'', taskObj.acc||'',
       taskObj.deadline||'', taskObj.priority||'Media', taskObj.status||'Pendiente',
-      taskObj.semana||getCurrentWeekLabel(), new Date(), '', taskObj.notas||'',
+      taskObj.semana||getCurrentWeekLabel(), new Date(), '', notas,
       pidCell, pais, lider,
       taskObj.tipoTrabajo||'', taskObj.riesgo||''
     ];
@@ -1421,6 +1436,53 @@ function getMemberByName(name, eq){
 }
 function getLeaderForCountry(code,eq){for(var i=0;i<eq.length;i++){if(eq[i].code===code)return eq[i].leader}return ''}
 function readConfig(ss){var ws=ss.getSheetByName(SHEET_CONFIG);if(!ws)return {};var lr=ws.getLastRow();if(lr<3)return {};var data=ws.getRange(3,1,lr-2,2).getValues(),c={};data.forEach(function(r){if(r[0])c[r[0]]=r[1]});return c}
+
+// ── TEMPLATES ───────────────────────────────────────────────────
+// Hoja opcional 'Templates' con columnas: tipoTrabajo | checklist (JSON array).
+// readTemplates(ss) → { tipoTrabajo: ['item1', ...] }. Si la hoja no existe o
+// está vacía retorna {} (no error). Filas con JSON inválido se loggean y se
+// saltan. Backwards-compat: si la hoja no existe, la app sigue funcionando.
+function readTemplates(ss) {
+  var ws = ss.getSheetByName(SHEET_TEMPLATES);
+  if (!ws) return {};
+  var lr = ws.getLastRow();
+  if (lr < 2) return {};
+  var data = ws.getRange(2, 1, lr - 1, 2).getValues();
+  var out = {};
+  data.forEach(function(r) {
+    var tipo = (r[0] || '').toString().trim();
+    var raw  = (r[1] || '').toString().trim();
+    if (!tipo || !raw) return;
+    try {
+      var arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        out[tipo] = arr.map(function(s){ return String(s); }).filter(Boolean);
+      } else {
+        Logger.log('readTemplates: fila con checklist no-array para tipo "' + tipo + '"; se omite.');
+      }
+    } catch (e) {
+      Logger.log('readTemplates: JSON inválido para tipo "' + tipo + '": ' + ((e && e.message) || e));
+    }
+  });
+  return out;
+}
+
+// Entry-point expuesto al frontend vía google.script.run. Cachea 1h bajo
+// 'templates_v1' (igual patrón que las otras caches: read-through + serialize).
+function getTemplates() {
+  return _telemetry('getTemplates', _getTemplatesImpl);
+}
+function _getTemplatesImpl() {
+  var cacheKey = 'templates_v1';
+  try {
+    var cached = CacheService.getScriptCache().get(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch (e) {}
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var dict = readTemplates(ss);
+  try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(dict), 3600); } catch (e) {}
+  return dict;
+}
 // O(1) en lugar del while-day-by-day. Para historial extenso (años),
 // el loop original disparaba miles de iteraciones por entry × cientos
 // de entries → segundos de CPU. Algoritmo: total días entre fechas,
@@ -2290,3 +2352,33 @@ function _digestEsc(s) {
 // CR	2026-09-15	Día de la Independencia
 // CR	2026-12-01	Abolición del Ejército
 // CR	2026-12-25	Navidad
+
+// ════════════════════════════════════════════════════════════════
+// TEMPLATES · COPY-PASTE A LA HOJA 'Templates'
+// ════════════════════════════════════════════════════════════════
+// Cómo activar: el dueño del spreadsheet crea una hoja llamada exactamente
+// 'Templates' con dos columnas en la fila 1 (headers):
+//     A: tipoTrabajo   B: checklist
+// Cada fila siguiente: una plantilla. La columna B contiene un JSON array
+// de strings — los ítems del checklist. Cuando un usuario crea una tarea
+// con ese tipoTrabajo y deja el campo 'Notas' vacío, el backend pre-rellena
+// notas con "- item1\n- item2\n…" (editable luego). Si la hoja no existe,
+// se omite el prefill silenciosamente (backwards-compat).
+//
+// Samples (copiar las filas A-B tal cual; el JSON va en una sola celda B):
+//
+// A: Revisión NDA
+// B: ["Verificar partes", "Jurisdicción aplicable", "Cláusulas IP", "Término", "Confidencialidad recíproca"]
+//
+// A: Revisión contractual
+// B: ["Partes y representación", "Objeto del contrato", "Plazo y vigencia", "Precio y forma de pago", "Resolución / terminación", "Confidencialidad", "Ley aplicable y jurisdicción"]
+//
+// A: Derecho de petición
+// B: ["Identificación del peticionario", "Hechos relevantes", "Pretensión clara", "Fundamento jurídico", "Soportes y anexos", "Plazo legal de respuesta (15 días hábiles)"]
+//
+// Cómo agregar plantillas custom: nueva fila con el tipoTrabajo exacto que
+// usás en el dropdown del form + checklist como JSON array. El cache TTL
+// es 1h (clave 'templates_v1') — para forzar refresh inmediato, hacé un
+// pequeño edit en cualquier celda de la hoja y esperá <1h o limpiá el
+// cache desde el editor de Apps Script. Filas con JSON inválido se loggean
+// (Logger.log) y se omiten sin romper la app.
