@@ -155,6 +155,9 @@ countBizDays(start, end)     // O(1) — algoritmo optimizado
 | **Responsive** | Sidebar colapsa <1024px (hover-expand), hamburguesa <768px, panel full-screen siempre | Auto |
 | **Daily digest email** | Trigger time-driven (8am Bogotá) que manda email a cada specialist con sus tareas overdue/hoy/48h y al manager un resumen agregado del equipo. Deep-links `?task=ID` abren el panel directo. Skip fines de semana. | Sin UI — se configura como trigger en el editor; `_sendDailyDigestPreview(email)` para QA |
 | **Días hábiles (biz days) con feriados** | `etaDays` y SLA cuentan lun-vie excluyendo feriados nacionales del país de la tarea. Hoja `Feriados` (pais\|fecha\|nombre) cacheada 1h. Fallback: si país no tiene feriados cargados, solo se excluyen sáb/dom. Comentario al final de `codigo.gs` precarga CO/MX/CR 2026 para copy-paste. | Auto en `etaDays`, SLA, streak, avgs |
+| **Task templates por TipoTrabajo** | Al crear una tarea con `TipoTrabajo` que tiene plantilla en hoja `Templates`, el campo Notas se pre-llena con checklist (`- item`). Sólo si Notas está vacío (no pisa lo que el user escribió). Hoja opcional; sin ella la app funciona igual. Cache 1h. | Auto en form crear |
+| **Conflict of interest flag** | Tasks tienen campo `contraparte`. Proyectos tienen `contrapartesConflicto` (CSV). Al crear/editar tarea ligada a proyecto, banner amarillo si contraparte de la tarea hace substring-match con cualquiera del proyecto. Audit manual, no AI. | Form crear/editar + panel detalle |
+| **Cache safety refactor** | `_safeMutation` ahora maneja LockService + invalidateCache automático en `finally`. 10 `invalidateCache()` manuales en `_*Impl` removidos (eran redundantes y frágiles). Single source of truth para concurrencia y cache. | N/A — interno |
 
 ---
 
