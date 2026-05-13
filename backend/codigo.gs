@@ -10,6 +10,7 @@ const SHEET_CONFIG    = 'Config';
 const SHEET_EQUIPOS   = 'Equipos';
 const SHEET_PROYECTOS = 'Proyectos';
 const SHEET_COMMENTS  = 'Comments'; // Auto-created on first use; cols: id, task_id, author_email, author_name, ts, body
+const SHEET_FERIADOS  = 'Feriados'; // Manual; cols: pais (CO/MX/CR/...) | fecha (YYYY-MM-DD) | nombre
 
 // ── DAILY DIGEST ────────────────────────────────────────────────
 // URL del web app deployado (/exec). Se usa en los emails para
@@ -192,7 +193,8 @@ function getTrackerData() {
   if (!auth.ok) throw new Error('No autorizado: ' + auth.message);
   var role = determineRole(auth.email, auth.user, config);
   var raw = _cachedRawData();
-  return _buildViewForRole(raw, role, auth.user);
+  var feriadosByCountry = _loadFeriados(ss); // 1h cache; usado en SLA biz days
+  return _buildViewForRole(raw, role, auth.user, feriadosByCountry);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -209,12 +211,19 @@ function _getEditorialDataImpl() {
   var data = getTrackerData();
   var today = Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy-MM-dd');
 
-  // Enriquecer tareas activas + historial
+  // Cargamos feriados una vez por request — usados para etaDays (biz days) y
+  // para los promedios/streak históricos (bizDays sin contar feriados del país).
+  // Si la hoja Feriados no existe o está vacía, fbc = {} y el código cae en
+  // fallback "solo lun-vie sin feriados" — backwards-compat total.
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var fbc = _loadFeriados(ss);
+
+  // Enriquecer tareas activas + historial (con feriados → etaDays en biz days)
   if (data.tasks && data.tasks.length) {
-    data.tasks.forEach(function(t) { _enrichTaskEditorial(t, today); });
+    data.tasks.forEach(function(t) { _enrichTaskEditorial(t, today, { feriadosByCountry: fbc }); });
   }
   if (data.historial && data.historial.length) {
-    data.historial.forEach(function(t) { _enrichTaskEditorial(t, today); });
+    data.historial.forEach(function(t) { _enrichTaskEditorial(t, today, { feriadosByCountry: fbc }); });
   }
 
   // Enriquecer miembros del team (load, capacity, overdue, blocked, streak, avgs)
@@ -233,9 +242,10 @@ function _getEditorialDataImpl() {
       if (!t.resp || !t.creadoRaw || !t.cerrado) return;
       var p = t.cerrado.split('/');
       var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+      var ferSet = fbc[(t.pais || 'CO').toUpperCase()] || null;
       var entry = {
         priority: t.priority,
-        bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate),
+        bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate, ferSet),
         cerradoDate: cerradoDate
       };
       (histByResp[t.resp] = histByResp[t.resp] || []).push(entry);
@@ -293,10 +303,11 @@ function _getEditorialDataImpl() {
       if (!t.pais || !t.creadoRaw || !t.cerrado) return;
       var p = t.cerrado.split('/');
       var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+      var ferSet = fbc[(t.pais || '').toUpperCase()] || null;
       (histByPais[t.pais] = histByPais[t.pais] || []).push({
         priority: t.priority,
         cerradoMs: cerradoDate.getTime(),
-        bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate)
+        bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate, ferSet)
       });
     });
 
@@ -344,10 +355,22 @@ function _getEditorialDataImpl() {
 
 // Calcula y agrega los campos derivados a una tarea: eta, etaDays,
 // accionable, blockedReason, slaTarget. Mutación in-place.
-function _enrichTaskEditorial(t, todayISO) {
+// opts.feriadosByCountry (opcional): si presente, etaDays se calcula en días
+// hábiles (lun-vie excluyendo feriados del país de la tarea). Si ausente,
+// fallback a calendario (comportamiento histórico).
+function _enrichTaskEditorial(t, todayISO, opts) {
+  opts = opts || {};
+  var fbc = opts.feriadosByCountry;
   // etaDays + eta humano
   if (t.deadlineISO) {
-    var diff = _daysBetweenISO(todayISO, t.deadlineISO);
+    var diff;
+    if (fbc) {
+      // Si la tarea no tiene país, fallback a CO (equipo activo en pre-piloto)
+      // dentro de _bizDaysBetween — si CO tampoco está cargado, queda en solo lun-vie.
+      diff = _bizDaysBetween(todayISO, t.deadlineISO, (t.pais || 'CO').toUpperCase(), fbc);
+    } else {
+      diff = _daysBetweenISO(todayISO, t.deadlineISO);
+    }
     t.etaDays = diff;
     t.eta = _fmtEta(diff);
   } else {
@@ -530,7 +553,8 @@ function filterProjectsForRole(projects, role, user) {
 
 // Construye la vista completa (tasks filtradas, projects filtrados, stats
 // recalculadas, KPIs, SLA, team grid, countries) para un rol+usuario dado.
-function _buildViewForRole(raw, role, user) {
+function _buildViewForRole(raw, role, user, feriadosByCountry) {
+  feriadosByCountry = feriadosByCountry || {};
   var equipos = raw.equipos;
   var allTasks = raw.tasks;
   var allHist  = raw.historial;
@@ -638,14 +662,15 @@ function _buildViewForRole(raw, role, user) {
     if (t.priority === 'Baja')  c.baja++;
   });
 
-  // SLA
+  // SLA — días hábiles desde creación, restando feriados del país de la tarea.
   var now = new Date();
   var slaLimits = { Alta: 2, Media: 5, Baja: 7 };
   var sla = { onTime: 0, atRisk: 0, overdue: 0 };
   tasks.forEach(function(t) {
     if (t.status === 'Listo') return;
     if (!t.creadoRaw) { sla.onTime++; return; }
-    var bizDays = countBizDays(new Date(t.creadoRaw), now);
+    var ferSet = feriadosByCountry[(t.pais || '').toUpperCase()] || null;
+    var bizDays = countBizDays(new Date(t.creadoRaw), now, ferSet);
     var limit = slaLimits[t.priority] || 5;
     if (bizDays > limit) sla.overdue++;
     else if (bizDays >= limit - 1) sla.atRisk++;
@@ -1381,7 +1406,13 @@ function readConfig(ss){var ws=ss.getSheetByName(SHEET_CONFIG);if(!ws)return {};
 // el loop original disparaba miles de iteraciones por entry × cientos
 // de entries → segundos de CPU. Algoritmo: total días entre fechas,
 // menos los fines de semana caídos en ese rango.
-function countBizDays(start, end) {
+// countBizDays(start, end [, feriadosSet]) → cuenta días hábiles estrictamente
+// entre start (exclusivo) y end (inclusivo). Excluye sábados y domingos.
+// Si se pasa feriadosSet (Set<'YYYY-MM-DD'> o {iso: true}), también excluye
+// esos días cuando caen en (start, end] y son días de semana.
+// El algoritmo base es O(1) (weeks*5 + remainder); la sustracción de feriados
+// es O(|feriadosSet|), típicamente ~18 fechas por país.
+function countBizDays(start, end, feriadosSet) {
   if (!start || !end) return 0;
   var s = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   var e = new Date(end.getFullYear(), end.getMonth(), end.getDate());
@@ -1396,7 +1427,113 @@ function countBizDays(start, end) {
     var dow = (startDow + i) % 7;
     if (dow !== 0 && dow !== 6) biz++;
   }
-  return biz;
+  // Restar feriados de día de semana que caigan en (s, e].
+  if (feriadosSet && _setHas(feriadosSet)) {
+    _forEachFeriado(feriadosSet, function(iso){
+      var m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return;
+      var f = new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
+      if (f.getTime() > s.getTime() && f.getTime() <= e.getTime()) {
+        var dow2 = f.getDay();
+        if (dow2 !== 0 && dow2 !== 6) biz--;
+      }
+    });
+  }
+  return biz < 0 ? 0 : biz;
+}
+
+// Helper portable: ¿el "set" tiene al menos un elemento? Aceptamos Set nativo o plain object.
+function _setHas(setOrObj) {
+  if (!setOrObj) return false;
+  if (typeof setOrObj.size === 'number') return setOrObj.size > 0;
+  for (var k in setOrObj) { if (setOrObj.hasOwnProperty(k)) return true; }
+  return false;
+}
+function _forEachFeriado(setOrObj, cb) {
+  if (!setOrObj) return;
+  if (typeof setOrObj.forEach === 'function' && typeof setOrObj.size === 'number') {
+    setOrObj.forEach(function(v){ cb(v); });
+  } else {
+    for (var k in setOrObj) { if (setOrObj.hasOwnProperty(k)) cb(k); }
+  }
+}
+
+// Diferencia en días hábiles entre dos ISO dates, con signo. Negativo si el
+// deadline ya pasó. Usa los feriados del país pasado; si paisCode no está en
+// feriadosByCountry, fallback a "solo lun-vie sin feriados".
+//
+// Ejemplo: today=Vie 2026-05-15, deadline=Lun 2026-05-18 → 1
+// (calendar daría 3; con biz days solo cuenta el lunes).
+function _bizDaysBetween(todayISO, deadlineISO, paisCode, feriadosByCountry) {
+  if (!todayISO || !deadlineISO) return 0;
+  var today = _parseISODate(todayISO);
+  var deadline = _parseISODate(deadlineISO);
+  if (!today || !deadline) return 0;
+  var set = (feriadosByCountry && paisCode && feriadosByCountry[paisCode]) || null;
+  var t = today.getTime(), d = deadline.getTime();
+  if (d > t) return  countBizDays(today, deadline, set);
+  if (d < t) return -countBizDays(deadline, today, set);
+  return 0;
+}
+
+// _loadFeriados(ss) → { CO: Set('YYYY-MM-DD'), MX: Set, CR: Set, ... }
+// Lee la hoja 'Feriados' (cols: pais | fecha | nombre). Cacheado 1h en
+// CacheService bajo 'feriados_v1'. Si la hoja no existe, retorna {}.
+function _loadFeriados(ss) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var cached = cache.get('feriados_v1');
+    if (cached) {
+      var obj = JSON.parse(cached);
+      // Rehidratar a Sets para mantener la API estable downstream.
+      var out = {};
+      Object.keys(obj).forEach(function(code){
+        var s = new Set();
+        (obj[code] || []).forEach(function(iso){ s.add(iso); });
+        out[code] = s;
+      });
+      return out;
+    }
+  } catch(e) { /* cache falló — recomputamos */ }
+
+  var result = {};
+  try {
+    var ws = ss.getSheetByName(SHEET_FERIADOS);
+    if (!ws) return result;
+    var lr = ws.getLastRow();
+    if (lr < 2) return result;
+    var data = ws.getRange(2, 1, lr - 1, 3).getValues();
+    data.forEach(function(row){
+      var pais = (row[0] || '').toString().trim().toUpperCase();
+      if (!pais) return;
+      var raw = row[1];
+      var iso = '';
+      if (raw instanceof Date) {
+        iso = Utilities.formatDate(raw, 'America/Bogota', 'yyyy-MM-dd');
+      } else {
+        var m = (raw || '').toString().trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) iso = m[1] + '-' + m[2] + '-' + m[3];
+      }
+      if (!iso) return;
+      if (!result[pais]) result[pais] = new Set();
+      result[pais].add(iso);
+    });
+  } catch(e) {
+    Logger.log('[feriados] read failed: ' + e.message);
+    return {};
+  }
+
+  // Cachear: serializamos Sets a arrays de strings para JSON.
+  try {
+    var serial = {};
+    Object.keys(result).forEach(function(code){
+      serial[code] = [];
+      result[code].forEach(function(iso){ serial[code].push(iso); });
+    });
+    CacheService.getScriptCache().put('feriados_v1', JSON.stringify(serial), 3600);
+  } catch(e) { /* cache write falló — no es crítico */ }
+
+  return result;
 }
 // Mueve una tarea al Historial preservando su ID original.
 // Ya NO renumera las tareas restantes: los IDs son persistentes (pueden quedar huecos 1,3,7,...).
@@ -1867,10 +2004,11 @@ function _runDailyDigest(forcedEmail) {
 
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var equipos = readEquipos(ss);
+    var fbc = _loadFeriados(ss);
     var ws = ss.getSheetByName(SHEET_ACTIVO);
     var tasks = readTasks(ws);
     var todayISO = Utilities.formatDate(new Date(), DIGEST_TZ, 'yyyy-MM-dd');
-    tasks.forEach(function(t){ _enrichTaskEditorial(t, todayISO); });
+    tasks.forEach(function(t){ _enrichTaskEditorial(t, todayISO, { feriadosByCountry: fbc }); });
 
     // Relevantes: no Listo, con etaDays, y vencidas / hoy / 1-2 días
     var relevant = tasks.filter(function(t){
@@ -2075,3 +2213,61 @@ function _digestEsc(s) {
 //   closeTaskById, blockTaskById. El resto (updateTaskField, addProject,
 //   uploadDocument, etc.) no está wrappeado para minimizar diff; agregar
 //   más siguiendo el mismo patrón si hace falta más visibilidad.
+
+// ════════════════════════════════════════════════════════════════
+// FERIADOS 2026 · COPY-PASTE A LA HOJA 'Feriados'
+// ════════════════════════════════════════════════════════════════
+// Para activar el cálculo en días hábiles excluyendo feriados:
+//   1. Crear hoja llamada exactamente 'Feriados' en el spreadsheet del tracker
+//   2. Headers en fila 1: pais | fecha | nombre
+//   3. Pegar las filas de abajo (sin el // del inicio) a partir de la fila 2
+//   4. Esperar hasta 1h (cache TTL) o ejecutar manualmente
+//      `CacheService.getScriptCache().remove('feriados_v1')` en el editor
+//
+// Fuente: calendarios oficiales 2026 — CO Ley Emiliani aplicada, MX Art. 74
+// LFT + viernes santo (uso común), CR Ley 2412 + costumbre.
+// Verificá contra el calendario oficial de tu país antes de pegar.
+//
+// COLOMBIA 2026 (18 feriados)
+// CO	2026-01-01	Año Nuevo
+// CO	2026-01-12	Reyes Magos
+// CO	2026-03-23	Día de San José
+// CO	2026-04-02	Jueves Santo
+// CO	2026-04-03	Viernes Santo
+// CO	2026-05-01	Día del Trabajo
+// CO	2026-05-18	Ascensión del Señor
+// CO	2026-06-08	Corpus Christi
+// CO	2026-06-15	Sagrado Corazón
+// CO	2026-06-29	San Pedro y San Pablo
+// CO	2026-07-20	Día de la Independencia
+// CO	2026-08-07	Batalla de Boyacá
+// CO	2026-08-17	Asunción de la Virgen
+// CO	2026-10-12	Día de la Raza
+// CO	2026-11-02	Día de Todos los Santos
+// CO	2026-11-16	Independencia de Cartagena
+// CO	2026-12-08	Día de la Inmaculada Concepción
+// CO	2026-12-25	Navidad
+//
+// MÉXICO 2026 (8 feriados oficiales + Viernes Santo)
+// MX	2026-01-01	Año Nuevo
+// MX	2026-02-02	Día de la Constitución
+// MX	2026-03-16	Natalicio de Benito Juárez
+// MX	2026-04-03	Viernes Santo
+// MX	2026-05-01	Día del Trabajo
+// MX	2026-09-16	Día de la Independencia
+// MX	2026-11-02	Día de Muertos
+// MX	2026-11-16	Día de la Revolución
+// MX	2026-12-25	Navidad
+//
+// COSTA RICA 2026 (11 feriados nacionales)
+// CR	2026-01-01	Año Nuevo
+// CR	2026-04-02	Jueves Santo
+// CR	2026-04-03	Viernes Santo
+// CR	2026-04-11	Juan Santamaría
+// CR	2026-05-01	Día del Trabajo
+// CR	2026-07-25	Anexión de Guanacaste
+// CR	2026-08-02	Virgen de los Ángeles
+// CR	2026-08-15	Día de la Madre
+// CR	2026-09-15	Día de la Independencia
+// CR	2026-12-01	Abolición del Ejército
+// CR	2026-12-25	Navidad

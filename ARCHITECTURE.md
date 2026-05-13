@@ -154,6 +154,7 @@ countBizDays(start, end)     // O(1) — algoritmo optimizado
 | **Activity feed sidebar** | Últimas 5 actividades (closed/created) con relative time | Sidebar bottom |
 | **Responsive** | Sidebar colapsa <1024px (hover-expand), hamburguesa <768px, panel full-screen siempre | Auto |
 | **Daily digest email** | Trigger time-driven (8am Bogotá) que manda email a cada specialist con sus tareas overdue/hoy/48h y al manager un resumen agregado del equipo. Deep-links `?task=ID` abren el panel directo. Skip fines de semana. | Sin UI — se configura como trigger en el editor; `_sendDailyDigestPreview(email)` para QA |
+| **Días hábiles (biz days) con feriados** | `etaDays` y SLA cuentan lun-vie excluyendo feriados nacionales del país de la tarea. Hoja `Feriados` (pais\|fecha\|nombre) cacheada 1h. Fallback: si país no tiene feriados cargados, solo se excluyen sáb/dom. Comentario al final de `codigo.gs` precarga CO/MX/CR 2026 para copy-paste. | Auto en `etaDays`, SLA, streak, avgs |
 
 ---
 
