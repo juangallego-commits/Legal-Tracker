@@ -153,6 +153,7 @@ countBizDays(start, end)     // O(1) — algoritmo optimizado
 | **Empty states contextuales** | "No tasks on your plate" vs "No matches for X" con icons + serif italic | Auto |
 | **Activity feed sidebar** | Últimas 5 actividades (closed/created) con relative time | Sidebar bottom |
 | **Responsive** | Sidebar colapsa <1024px (hover-expand), hamburguesa <768px, panel full-screen siempre | Auto |
+| **Daily digest email** | Trigger time-driven (8am Bogotá) que manda email a cada specialist con sus tareas overdue/hoy/48h y al manager un resumen agregado del equipo. Deep-links `?task=ID` abren el panel directo. Skip fines de semana. | Sin UI — se configura como trigger en el editor; `_sendDailyDigestPreview(email)` para QA |
 
 ---
 
@@ -259,7 +260,7 @@ v3.4 — Editorial Final (deployed)
 
 ## 13. Lo que falta (backlog priorizado)
 
-1. **Notifications automáticos** (Apps Script triggers + Slack DM cuando una tarea vence mañana, cuando alguien te asigna, etc.). Medium-large effort.
+1. **Notifications automáticos** — ✅ **Email diario implementado** (`sendDailyDigest` trigger 8am Bogotá). Falta: Slack DM al asignar/desasignar, recordatorios sub-diarios cuando una tarea vence en X horas, @mentions en comments.
 2. **Calendar view** del workload por semana. Medium.
 3. **@mentions en comments** (notify a otros users por Slack/email). Small-medium.
 4. **Edit/delete comments** propios (audit trail mantenido). Small.

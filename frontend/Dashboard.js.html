@@ -2606,6 +2606,18 @@ document.addEventListener('DOMContentLoaded', function() {
   // siguen accesibles desde la sidebar; goEd las enrutea a go() existente.
   if (typeof mountEdShell === 'function') mountEdShell();
   if (typeof goEd === 'function') goEd('home');
+  // Deep-link: si la URL trae ?task=ID, abrimos directo el panel de esa tarea.
+  // Usado por los emails del daily digest. google.script.url.getLocation es la
+  // forma documentada de leer query params dentro del iframe sandbox de Apps
+  // Script (window.location.search no expone los params de la URL pública).
+  if (typeof google !== 'undefined' && google.script && google.script.url) {
+    google.script.url.getLocation(function(loc) {
+      var taskId = loc && loc.parameter && loc.parameter.task;
+      if (taskId && typeof edGoTaskInTracker === 'function') {
+        edGoTaskInTracker(taskId);
+      }
+    });
+  }
 }, true);
 
 // Aplica el estado de F a los botones/pills (después de restoreFilters).

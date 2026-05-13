@@ -11,6 +11,16 @@ const SHEET_EQUIPOS   = 'Equipos';
 const SHEET_PROYECTOS = 'Proyectos';
 const SHEET_COMMENTS  = 'Comments'; // Auto-created on first use; cols: id, task_id, author_email, author_name, ts, body
 
+// ── DAILY DIGEST ────────────────────────────────────────────────
+// URL del web app deployado (/exec). Se usa en los emails para
+// construir deep-links como WEB_APP_URL + '?task=ID'. Reemplazar el
+// placeholder con la URL real después del primer deploy a /exec.
+// Si quedara como placeholder, los emails siguen mandándose pero los
+// links no van a ningún lado útil — los logs no fallan.
+const WEB_APP_URL = 'https://script.google.com/macros/s/REEMPLAZAR_CON_URL_EXEC_REAL/exec';
+const DIGEST_TZ = 'America/Bogota';
+const DIGEST_SKIP_WEEKENDS = true; // En sáb/dom el trigger corre pero hace early return.
+
 // Tasks: 18 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder,TipoTrabajo,Riesgo,Documentos,Confidencialidad
 // La columna 18 (Confidencialidad) puede no existir todavía en la hoja: getLastColumn() devolverá
 // menos y el read defaultea a 'estandar'. Cuando el usuario agregue la columna manualmente,
@@ -1811,6 +1821,237 @@ function testData() {
   Logger.log('Equipos: ' + d.equipos.length);
   Logger.log('Projects: ' + d.projects.length);
   Logger.log('Team: ' + d.team.length);
+}
+
+// ════════════════════════════════════════════════════════════════
+// DAILY DIGEST · trigger time-driven 8am Bogotá
+// ════════════════════════════════════════════════════════════════
+// Entry point del trigger: sendDailyDigest(). Configurar manualmente
+// en el editor (Triggers → +Add → function: sendDailyDigest →
+// Time-driven → Day timer → 8am-9am → Save). El trigger autoriza
+// scopes de MailApp y SpreadsheetApp en la primera corrida.
+//
+// Para QA sin spamear al equipo: _sendDailyDigestPreview('tu@email.com')
+// redirige TODOS los emails (specialist + manager) a ese destinatario.
+// Cada email incluye un banner indicando para quién era originalmente.
+//
+// Reglas de scope:
+//   - Solo specialist con tareas etaDays <= 2 (vencidas + hoy + 48h)
+//   - Specialist ve todas sus tareas (incluyendo confidenciales)
+//   - Manager ve resumen agregado del equipo (sin nombres de tareas,
+//     por confidencialidad). Solo conteos + top-3 personas con overdue.
+//   - Skip fines de semana (config: DIGEST_SKIP_WEEKENDS).
+//   - Si no hay email para una persona en Equipos → Logger.log y skip,
+//     no falla el trigger entero.
+
+function sendDailyDigest() {
+  return _runDailyDigest(null);
+}
+
+function _sendDailyDigestPreview(emailDestino) {
+  if (!emailDestino) throw new Error('emailDestino requerido. Uso: _sendDailyDigestPreview("tu@email.com")');
+  return _runDailyDigest(emailDestino);
+}
+
+function _runDailyDigest(forcedEmail) {
+  var isPreview = !!forcedEmail;
+  try {
+    // Skip fines de semana (excepto en preview, donde queremos testear cualquier día)
+    if (!isPreview && DIGEST_SKIP_WEEKENDS) {
+      var dow = new Date().getDay(); // 0=dom, 6=sab
+      if (dow === 0 || dow === 6) {
+        Logger.log('[digest] skip — fin de semana (dow=' + dow + ')');
+        return { sent: 0, skipped: 0, reason: 'weekend' };
+      }
+    }
+
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var equipos = readEquipos(ss);
+    var ws = ss.getSheetByName(SHEET_ACTIVO);
+    var tasks = readTasks(ws);
+    var todayISO = Utilities.formatDate(new Date(), DIGEST_TZ, 'yyyy-MM-dd');
+    tasks.forEach(function(t){ _enrichTaskEditorial(t, todayISO); });
+
+    // Relevantes: no Listo, con etaDays, y vencidas / hoy / 1-2 días
+    var relevant = tasks.filter(function(t){
+      return t.status !== 'Listo' &&
+             typeof t.etaDays === 'number' &&
+             t.etaDays <= 2;
+    });
+
+    // Agrupar por responsable
+    var byResp = {};
+    relevant.forEach(function(t){
+      var name = (t.resp||'').trim();
+      if (!name) return;
+      if (!byResp[name]) byResp[name] = { overdue: [], today: [], soon: [] };
+      if (t.etaDays < 0) byResp[name].overdue.push(t);
+      else if (t.etaDays === 0) byResp[name].today.push(t);
+      else byResp[name].soon.push(t);
+    });
+
+    // Specialist digest
+    var sent = 0, skipped = 0;
+    Object.keys(byResp).forEach(function(name){
+      var entry = _findMemberEntry(name, equipos);
+      var email = entry && entry.email ? entry.email : '';
+      if (!email) {
+        Logger.log('[digest] no email for "' + name + '" — skipping');
+        skipped++;
+        return;
+      }
+      var target = isPreview ? forcedEmail : email;
+      try {
+        _sendSpecialistDigest(target, name, byResp[name], isPreview ? email : null);
+        sent++;
+      } catch (mailErr) {
+        Logger.log('[digest] mail failed for ' + name + ' (' + email + '): ' + mailErr.message);
+        skipped++;
+      }
+    });
+
+    // Manager digest (uno por team con leaderEmail y al menos 1 tarea relevante)
+    var managerSent = 0;
+    equipos.forEach(function(team){
+      if (!team.leaderEmail) return;
+      var teamNames = (team.members||[]).slice();
+      if (team.leader) teamNames.push(team.leader);
+      var teamNamesNorm = {};
+      teamNames.forEach(function(n){ teamNamesNorm[_normalizeName(n)] = n; });
+      var teamRelevant = relevant.filter(function(t){
+        return teamNamesNorm.hasOwnProperty(_normalizeName(t.resp));
+      });
+      if (teamRelevant.length === 0) return;
+      var target = isPreview ? forcedEmail : team.leaderEmail;
+      try {
+        _sendManagerDigest(target, team, teamRelevant, isPreview ? team.leaderEmail : null);
+        managerSent++;
+      } catch (mailErr) {
+        Logger.log('[digest] manager mail failed for ' + team.code + ' (' + team.leaderEmail + '): ' + mailErr.message);
+      }
+    });
+
+    var summary = { sent: sent, skipped: skipped, managerSent: managerSent, preview: isPreview ? forcedEmail : null };
+    Logger.log('[digest] ' + JSON.stringify(summary) + ' · quota remaining: ' + MailApp.getRemainingDailyQuota());
+    return summary;
+  } catch (e) {
+    Logger.log('[digest] FAILED: ' + e.message + '\n' + (e.stack || ''));
+    throw e; // que el trigger falle ruidosamente para que aparezca en Apps Script Executions
+  }
+}
+
+function _sendSpecialistDigest(email, name, buckets, originalRecipient) {
+  var nO = buckets.overdue.length, nT = buckets.today.length, nS = buckets.soon.length;
+  var total = nO + nT + nS;
+  if (total === 0) return;
+
+  var firstName = (name || '').split(' ')[0] || name;
+  var subject = '[Legal Tracker] ' + total + ' task' + (total > 1 ? 's' : '') + ' need attention';
+  if (originalRecipient) subject = '[PREVIEW for ' + originalRecipient + '] ' + subject;
+
+  var headerNote = originalRecipient
+    ? '<p style="background:#fffbe6;padding:10px 12px;border-left:3px solid #fa8c16;font-size:13px;margin:0 0 16px;color:#7a4f02;">Preview · este digest estaba destinado a <strong>' + _digestEsc(originalRecipient) + '</strong> (' + _digestEsc(name) + ').</p>'
+    : '';
+
+  var html =
+    '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;color:#222;max-width:680px;">' +
+      headerNote +
+      '<h2 style="font-family:Georgia,serif;font-weight:400;margin:0 0 4px;font-size:24px;">Hi ' + _digestEsc(firstName) + ',</h2>' +
+      '<p style="margin:0 0 20px;color:#555;">Tu agenda de tareas que necesitan atención hoy.</p>' +
+      (nO > 0 ? _renderDigestTable(buckets.overdue, 'Overdue · ' + nO, '#cf1322') : '') +
+      (nT > 0 ? _renderDigestTable(buckets.today,   'Due today · ' + nT, '#d48806') : '') +
+      (nS > 0 ? _renderDigestTable(buckets.soon,    'Due in 48 hours · ' + nS, '#389e0d') : '') +
+      '<p style="margin:28px 0 0;color:#888;font-size:12px;border-top:1px solid #eee;padding-top:12px;">' +
+        'Open the tracker: <a href="' + _digestEsc(WEB_APP_URL) + '" style="color:#1565c0;">' + _digestEsc(WEB_APP_URL) + '</a><br>' +
+        'You\'re getting this because you have tasks assigned in Legal Tracker.' +
+      '</p>' +
+    '</div>';
+
+  MailApp.sendEmail({ to: email, subject: subject, htmlBody: html, name: 'Legal Tracker' });
+}
+
+function _sendManagerDigest(email, team, teamTasks, originalRecipient) {
+  var nO = teamTasks.filter(function(t){ return t.etaDays < 0; }).length;
+  var nT = teamTasks.filter(function(t){ return t.etaDays === 0; }).length;
+  var nS = teamTasks.filter(function(t){ return t.etaDays > 0; }).length;
+
+  var overdueByPerson = {};
+  teamTasks.forEach(function(t){
+    if (t.etaDays >= 0) return;
+    var n = (t.resp || '—').trim();
+    overdueByPerson[n] = (overdueByPerson[n] || 0) + 1;
+  });
+  var top3 = Object.keys(overdueByPerson)
+    .map(function(n){ return { name: n, count: overdueByPerson[n] }; })
+    .sort(function(a, b){ return b.count - a.count; })
+    .slice(0, 3);
+
+  var country = team.country || team.code;
+  var subject = '[Legal Tracker · ' + country + '] Team digest — ' + nO + ' overdue';
+  if (originalRecipient) subject = '[PREVIEW for ' + originalRecipient + '] ' + subject;
+
+  var headerNote = originalRecipient
+    ? '<p style="background:#fffbe6;padding:10px 12px;border-left:3px solid #fa8c16;font-size:13px;margin:0 0 16px;color:#7a4f02;">Preview · este digest estaba destinado a <strong>' + _digestEsc(originalRecipient) + '</strong> (líder de ' + _digestEsc(country) + ').</p>'
+    : '';
+
+  var top3Html = top3.length === 0
+    ? '<p style="color:#888;font-style:italic;margin:0;">Nadie con overdue. ✓</p>'
+    : '<ol style="padding-left:20px;margin:0;">' + top3.map(function(p){
+        return '<li style="margin:4px 0;"><strong>' + _digestEsc(p.name) + '</strong> — ' + p.count + ' overdue</li>';
+      }).join('') + '</ol>';
+
+  var html =
+    '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;color:#222;max-width:680px;">' +
+      headerNote +
+      '<h2 style="font-family:Georgia,serif;font-weight:400;margin:0 0 4px;font-size:24px;">' + _digestEsc(country) + ' team digest</h2>' +
+      '<p style="margin:0 0 20px;color:#555;">Resumen agregado del equipo. Por confidencialidad no se listan tareas individuales aquí — abrí el tracker para ver detalle.</p>' +
+      '<table style="border-collapse:collapse;margin:0 0 20px;">' +
+        '<tr><td style="padding:10px 18px;background:#fff1f0;border-left:3px solid #cf1322;font-size:28px;font-weight:600;line-height:1;">' + nO + '</td><td style="padding:10px 14px;color:#555;font-size:14px;">overdue</td></tr>' +
+        '<tr><td style="padding:10px 18px;background:#fff7e6;border-left:3px solid #d48806;font-size:28px;font-weight:600;line-height:1;">' + nT + '</td><td style="padding:10px 14px;color:#555;font-size:14px;">due today</td></tr>' +
+        '<tr><td style="padding:10px 18px;background:#f6ffed;border-left:3px solid #389e0d;font-size:28px;font-weight:600;line-height:1;">' + nS + '</td><td style="padding:10px 14px;color:#555;font-size:14px;">due in 48h</td></tr>' +
+      '</table>' +
+      '<h3 style="font-family:Georgia,serif;font-weight:400;margin:16px 0 8px;font-size:16px;">Top people with overdue tasks</h3>' +
+      top3Html +
+      '<p style="margin:28px 0 0;color:#888;font-size:12px;border-top:1px solid #eee;padding-top:12px;">' +
+        'Open the team view: <a href="' + _digestEsc(WEB_APP_URL) + '" style="color:#1565c0;">' + _digestEsc(WEB_APP_URL) + '</a>' +
+      '</p>' +
+    '</div>';
+
+  MailApp.sendEmail({ to: email, subject: subject, htmlBody: html, name: 'Legal Tracker' });
+}
+
+function _renderDigestTable(tasks, title, color) {
+  if (!tasks || tasks.length === 0) return '';
+  var rows = tasks.map(function(t){
+    var url = WEB_APP_URL + (WEB_APP_URL.indexOf('?') >= 0 ? '&' : '?') + 'task=' + encodeURIComponent(t.id);
+    var prioColor = t.priority === 'Alta' ? '#cf1322' : (t.priority === 'Media' ? '#d48806' : '#888');
+    return '<tr>' +
+        '<td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;"><a href="' + _digestEsc(url) + '" style="color:#1565c0;text-decoration:none;font-family:Menlo,Consolas,monospace;font-size:12px;">#' + _digestEsc(String(t.id)) + '</a></td>' +
+        '<td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;">' + _digestEsc(t.nombre || '—') + '</td>' +
+        '<td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#666;font-size:13px;">' + _digestEsc(t.proyecto || '—') + '</td>' +
+        '<td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;color:' + prioColor + ';font-size:13px;font-weight:500;">' + _digestEsc(t.priority || '') + '</td>' +
+        '<td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#666;font-size:13px;">' + _digestEsc(t.eta || '') + '</td>' +
+      '</tr>';
+  }).join('');
+  return '<h3 style="font-family:Georgia,serif;font-weight:400;color:' + color + ';margin:18px 0 6px;font-size:16px;">' + _digestEsc(title) + '</h3>' +
+    '<table style="border-collapse:collapse;width:100%;margin:0 0 8px;font-size:14px;">' +
+      '<thead><tr style="background:#fafafa;text-align:left;">' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">ID</th>' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Task</th>' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Project</th>' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Priority</th>' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">ETA</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>';
+}
+
+function _digestEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 // ════════════════════════════════════════════════════════════════
