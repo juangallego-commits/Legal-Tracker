@@ -2814,3 +2814,168 @@ function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
     fileName: fileName
   };
 }
+
+// ════════════════════════════════════════════════════════════════
+// SETUP · ONE-SHOT SHEET INITIALIZATION
+// ════════════════════════════════════════════════════════════════
+// Función que crea/migra todas las hojas y columnas necesarias para
+// activar las features de v3.7+ (digest, biz days, templates, conflict).
+// Idempotente: corrida múltiple no rompe ni duplica datos.
+//
+// Cómo correr: en el editor de Apps Script, dropdown de funciones →
+// `setupSheets` → Run. Mira `Logger` (View → Executions) para el reporte.
+//
+// Qué hace:
+//   1. Crea hoja `Feriados` (cols pais|fecha|nombre) + 37 filas CO/MX/CR 2026
+//   2. Crea hoja `Templates` (cols tipoTrabajo|checklist) + 3 samples (NDA, Contractual, Petición)
+//   3. Agrega col 19 = 'Contraparte' en `Tracking Activo` (header en row 3)
+//   4. Agrega col 17 = 'ContrapartesConflicto' en `Proyectos` (header en row 1)
+//   5. Limpia caches (feriados_v1, templates_v1, tracker_data_v1)
+//
+// No sobreescribe datos existentes — si una hoja ya tiene rows o una
+// columna ya tiene header distinto, lo loggea como WARNING y skipea.
+
+function setupSheets() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var report = [];
+  var log = function(msg) { report.push(msg); Logger.log(msg); };
+
+  // ── 1. Feriados ─────────────────────────────────────────────────
+  var fer = ss.getSheetByName(SHEET_FERIADOS);
+  if (!fer) {
+    fer = ss.insertSheet(SHEET_FERIADOS);
+    fer.getRange(1, 1, 1, 3).setValues([['pais', 'fecha', 'nombre']]);
+    fer.getRange(1, 1, 1, 3).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
+    fer.setFrozenRows(1);
+    fer.setColumnWidth(1, 60);
+    fer.setColumnWidth(2, 110);
+    fer.setColumnWidth(3, 280);
+    log('✓ Hoja Feriados creada (con headers)');
+  } else {
+    log('· Hoja Feriados ya existía');
+  }
+  if (fer.getLastRow() <= 1) {
+    var feriados = [
+      // CO 2026 (18 feriados, Ley Emiliani aplicada)
+      ['CO', '2026-01-01', 'Año Nuevo'],
+      ['CO', '2026-01-12', 'Reyes Magos'],
+      ['CO', '2026-03-23', 'Día de San José'],
+      ['CO', '2026-04-02', 'Jueves Santo'],
+      ['CO', '2026-04-03', 'Viernes Santo'],
+      ['CO', '2026-05-01', 'Día del Trabajo'],
+      ['CO', '2026-05-18', 'Ascensión del Señor'],
+      ['CO', '2026-06-08', 'Corpus Christi'],
+      ['CO', '2026-06-15', 'Sagrado Corazón'],
+      ['CO', '2026-06-29', 'San Pedro y San Pablo'],
+      ['CO', '2026-07-20', 'Día de la Independencia'],
+      ['CO', '2026-08-07', 'Batalla de Boyacá'],
+      ['CO', '2026-08-17', 'Asunción de la Virgen'],
+      ['CO', '2026-10-12', 'Día de la Raza'],
+      ['CO', '2026-11-02', 'Día de Todos los Santos'],
+      ['CO', '2026-11-16', 'Independencia de Cartagena'],
+      ['CO', '2026-12-08', 'Día de la Inmaculada Concepción'],
+      ['CO', '2026-12-25', 'Navidad'],
+      // MX 2026 (8 oficiales + Viernes Santo)
+      ['MX', '2026-01-01', 'Año Nuevo'],
+      ['MX', '2026-02-02', 'Día de la Constitución'],
+      ['MX', '2026-03-16', 'Natalicio de Benito Juárez'],
+      ['MX', '2026-04-03', 'Viernes Santo'],
+      ['MX', '2026-05-01', 'Día del Trabajo'],
+      ['MX', '2026-09-16', 'Día de la Independencia'],
+      ['MX', '2026-11-02', 'Día de Muertos'],
+      ['MX', '2026-11-16', 'Día de la Revolución'],
+      ['MX', '2026-12-25', 'Navidad'],
+      // CR 2026 (11 nacionales)
+      ['CR', '2026-01-01', 'Año Nuevo'],
+      ['CR', '2026-04-02', 'Jueves Santo'],
+      ['CR', '2026-04-03', 'Viernes Santo'],
+      ['CR', '2026-04-11', 'Juan Santamaría'],
+      ['CR', '2026-05-01', 'Día del Trabajo'],
+      ['CR', '2026-07-25', 'Anexión de Guanacaste'],
+      ['CR', '2026-08-02', 'Virgen de los Ángeles'],
+      ['CR', '2026-08-15', 'Día de la Madre'],
+      ['CR', '2026-09-15', 'Día de la Independencia'],
+      ['CR', '2026-12-01', 'Abolición del Ejército'],
+      ['CR', '2026-12-25', 'Navidad']
+    ];
+    fer.getRange(2, 1, feriados.length, 3).setValues(feriados);
+    log('✓ Insertadas ' + feriados.length + ' filas de feriados (CO+MX+CR 2026)');
+  } else {
+    log('· Feriados ya tenía ' + (fer.getLastRow() - 1) + ' filas, no se sobreescribe');
+  }
+
+  // ── 2. Templates ────────────────────────────────────────────────
+  var tpl = ss.getSheetByName(SHEET_TEMPLATES);
+  if (!tpl) {
+    tpl = ss.insertSheet(SHEET_TEMPLATES);
+    tpl.getRange(1, 1, 1, 2).setValues([['tipoTrabajo', 'checklist']]);
+    tpl.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
+    tpl.setFrozenRows(1);
+    tpl.setColumnWidth(1, 200);
+    tpl.setColumnWidth(2, 600);
+    log('✓ Hoja Templates creada (con headers)');
+  } else {
+    log('· Hoja Templates ya existía');
+  }
+  if (tpl.getLastRow() <= 1) {
+    var templates = [
+      ['Revisión NDA', JSON.stringify(['Verificar partes', 'Jurisdicción aplicable', 'Cláusulas IP', 'Término', 'Confidencialidad recíproca'])],
+      ['Revisión contractual', JSON.stringify(['Partes y representación', 'Objeto del contrato', 'Plazo y vigencia', 'Precio y forma de pago', 'Resolución / terminación', 'Confidencialidad', 'Ley aplicable y jurisdicción'])],
+      ['Derecho de petición', JSON.stringify(['Identificación del peticionario', 'Hechos relevantes', 'Pretensión clara', 'Fundamento jurídico', 'Soportes y anexos', 'Plazo legal de respuesta (15 días hábiles)'])]
+    ];
+    tpl.getRange(2, 1, templates.length, 2).setValues(templates);
+    log('✓ Insertadas ' + templates.length + ' templates (NDA, Contractual, Petición)');
+  } else {
+    log('· Templates ya tenía ' + (tpl.getLastRow() - 1) + ' filas, no se sobreescribe');
+  }
+
+  // ── 3. Tracking Activo: col 19 = Contraparte (header en row 3) ──
+  var tk = ss.getSheetByName(SHEET_ACTIVO);
+  if (tk) {
+    var lastColTk = tk.getLastColumn();
+    var existingHdr = lastColTk >= TASK_CONTRAPARTE_COL ? tk.getRange(3, TASK_CONTRAPARTE_COL).getValue() : '';
+    if (!existingHdr) {
+      tk.getRange(3, TASK_CONTRAPARTE_COL).setValue('Contraparte');
+      tk.getRange(3, TASK_CONTRAPARTE_COL).setFontWeight('bold');
+      log('✓ Tracking Activo: agregada columna ' + TASK_CONTRAPARTE_COL + ' = Contraparte (row 3)');
+    } else if (existingHdr === 'Contraparte') {
+      log('· Tracking Activo ya tenía columna Contraparte');
+    } else {
+      log('⚠ Tracking Activo col ' + TASK_CONTRAPARTE_COL + ' tiene "' + existingHdr + '" — revisión manual');
+    }
+  } else {
+    log('⚠ Hoja Tracking Activo no encontrada');
+  }
+
+  // ── 4. Proyectos: col 17 = ContrapartesConflicto (header en row 1)
+  var pj = ss.getSheetByName(SHEET_PROYECTOS);
+  if (pj) {
+    var lastColPj = pj.getLastColumn();
+    var existingHdrP = lastColPj >= PROJ_CONTRAPARTES_COL ? pj.getRange(1, PROJ_CONTRAPARTES_COL).getValue() : '';
+    if (!existingHdrP) {
+      pj.getRange(1, PROJ_CONTRAPARTES_COL).setValue('ContrapartesConflicto');
+      pj.getRange(1, PROJ_CONTRAPARTES_COL).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
+      log('✓ Proyectos: agregada columna ' + PROJ_CONTRAPARTES_COL + ' = ContrapartesConflicto (row 1)');
+    } else if (existingHdrP === 'ContrapartesConflicto') {
+      log('· Proyectos ya tenía columna ContrapartesConflicto');
+    } else {
+      log('⚠ Proyectos col ' + PROJ_CONTRAPARTES_COL + ' tiene "' + existingHdrP + '" — revisión manual');
+    }
+  } else {
+    log('⚠ Hoja Proyectos no encontrada');
+  }
+
+  // ── 5. Flush caches ─────────────────────────────────────────────
+  try {
+    var cache = CacheService.getScriptCache();
+    cache.remove('feriados_v1');
+    cache.remove('templates_v1');
+    cache.remove(CACHE_KEY);
+    log('✓ Caches limpiadas (feriados_v1, templates_v1, ' + CACHE_KEY + ')');
+  } catch(e) {
+    log('⚠ Cache flush falló: ' + e.message);
+  }
+
+  log('—— setupSheets terminó ——');
+  return report;
+}
