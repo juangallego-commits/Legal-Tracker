@@ -4639,6 +4639,172 @@ function edReasignarConfirm() {
     .updateTaskField(taskId, 'resp', newResp);
 }
 
+// ═══════════════════════════════════════════════════════════════
+// EXPORTS · XLSX (current view) + Monthly PDF per country
+// ═══════════════════════════════════════════════════════════════
+
+// Dropdown toggle. Cierra otros menús abiertos.
+function edExportMenuToggle(ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  var menu = $('edExportMenu');
+  var btn = $('edExportBtn');
+  if (!menu) return;
+  var open = menu.style.display === 'block';
+  menu.style.display = open ? 'none' : 'block';
+  if (btn) btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+  if (!open) {
+    // Cerrar al hacer click fuera. Listener self-removing.
+    setTimeout(function() {
+      document.addEventListener('click', edExportMenuCloseOnce, true);
+    }, 0);
+  }
+}
+function edExportMenuCloseOnce(e) {
+  var menu = $('edExportMenu');
+  if (!menu) { document.removeEventListener('click', edExportMenuCloseOnce, true); return; }
+  if (menu.contains(e.target)) return;
+  menu.style.display = 'none';
+  var btn = $('edExportBtn');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+  document.removeEventListener('click', edExportMenuCloseOnce, true);
+}
+
+// Recolecta los filtros activos del tracker en el formato que espera el backend.
+function _collectTrackerFilters() {
+  return {
+    status: EDT.filter || 'all',
+    country: EDT.country || 'ALL',
+    project: EDT.projectFilter || 'ALL',
+    owner: EDT.respFilter || 'ALL',
+    confidentiality: EDT.confFilter || 'ALL',
+    search: EDT.search || '',
+    myOnly: false
+  };
+}
+
+// Excel export del view filtrado actual.
+function exportToXLSX() {
+  // Cerrar el menú primero
+  var menu = $('edExportMenu'); if (menu) menu.style.display = 'none';
+  var filters = _collectTrackerFilters();
+  if (typeof showLoader === 'function') showLoader();
+  if (typeof toast === 'function') toast('Generating Excel…', 'info');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (res && res.success && res.url) {
+        if (typeof toast === 'function') toast('✅ Excel ready (' + (res.rowCount || 0) + ' rows) · opening…', 'success');
+        try { window.open(res.url, '_blank'); } catch (e) {}
+      } else {
+        if (typeof toast === 'function') toast('Error: ' + ((res && res.error) || 'export failed'), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (typeof toast === 'function') toast('Error: ' + (e && e.message || e), 'error');
+    })
+    .exportTrackerXLSX(filters);
+}
+
+// PDF mensual por país — modal de selección.
+function edExportPDFOpen() {
+  var menu = $('edExportMenu'); if (menu) menu.style.display = 'none';
+  var role = _effectiveRole();
+  if (role !== 'manager' && role !== 'head') {
+    if (typeof toast === 'function') toast("You don't have permission.", 'error');
+    return;
+  }
+  var host = $('crHost') || (function(){
+    var h = document.createElement('div'); h.id = 'crHost'; document.body.appendChild(h); return h;
+  })();
+
+  // Default: mes pasado.
+  var now = new Date();
+  var prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  var defaultMonth = prev.getFullYear() + '-' + ('0' + (prev.getMonth() + 1)).slice(-2);
+
+  // Países disponibles. Manager: solo el suyo. Head: todos del roster.
+  var equipos = (D && D.equipos) || [];
+  var allowed = role === 'manager'
+    ? equipos.filter(function(e){ return e.code === _effectiveUserCode(); })
+    : equipos;
+  if (!allowed.length) {
+    if (typeof toast === 'function') toast('No countries available.', 'error');
+    return;
+  }
+  var defaultCountry = role === 'manager' ? _effectiveUserCode() : (allowed[0] && allowed[0].code) || '';
+  var optsHtml = allowed.map(function(e) {
+    var sel = (e.code === defaultCountry) ? ' selected' : '';
+    var lbl = (e.country ? (e.country + ' (' + e.code + ')') : e.code);
+    return '<option value="' + esc(e.code) + '"' + sel + '>' + esc(lbl) + '</option>';
+  }).join('');
+
+  host.innerHTML = ''
+    + '<div class="cr-overlay" onclick="if(event.target===this)edExportPDFClose()">'
+    +   '<div class="cr-backdrop" onclick="edExportPDFClose()"></div>'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Monthly PDF export" style="max-width:480px">'
+    +     '<div class="cr-head">'
+    +       '<div>'
+    +         '<div class="cr-eye">— Export</div>'
+    +         '<div class="cr-title">Monthly PDF report</div>'
+    +       '</div>'
+    +       '<button type="button" class="cr-x" onclick="edExportPDFClose()" aria-label="Close">×</button>'
+    +     '</div>'
+    +     '<div class="cr-body">'
+    +       '<div class="cr-field">'
+    +         '<div class="cr-label">Country <span class="req">*</span></div>'
+    +         '<select id="edPDFCountry" class="cr-input"' + (role === 'manager' ? ' disabled' : '') + '>'
+    +           optsHtml
+    +         '</select>'
+    +       '</div>'
+    +       '<div class="cr-field">'
+    +         '<div class="cr-label">Month <span class="req">*</span></div>'
+    +         '<input id="edPDFMonth" type="month" class="cr-input" value="' + esc(defaultMonth) + '">'
+    +         '<div class="cr-foot-info" style="margin-top:8px;padding:0">'
+    +           'Generates KPIs, closures, open items and top performers for the selected month.'
+    +         '</div>'
+    +       '</div>'
+    +     '</div>'
+    +     '<div class="cr-foot">'
+    +       '<div class="cr-foot-info">Confidential — internal use only.</div>'
+    +       '<button type="button" class="ed-btn" onclick="edExportPDFClose()">Cancel</button>'
+    +       '<button type="button" class="ed-btn accent" onclick="edExportPDFSubmit()">Generate</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+}
+
+function edExportPDFClose() {
+  var host = $('crHost'); if (host) host.innerHTML = '';
+}
+
+function edExportPDFSubmit() {
+  var cSel = $('edPDFCountry');
+  var mInp = $('edPDFMonth');
+  var country = cSel && cSel.value;
+  var month = mInp && mInp.value;
+  if (!country) { if (typeof toast === 'function') toast('Pick a country.', 'error'); return; }
+  if (!month || !/^\d{4}-\d{2}$/.test(month)) { if (typeof toast === 'function') toast('Pick a valid month.', 'error'); return; }
+  if (typeof showLoader === 'function') showLoader();
+  if (typeof toast === 'function') toast('Generating PDF…', 'info');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (res && res.success && res.url) {
+        if (typeof toast === 'function') toast('✅ PDF ready · opening…', 'success');
+        edExportPDFClose();
+        try { window.open(res.url, '_blank'); } catch (e) {}
+      } else {
+        if (typeof toast === 'function') toast('Error: ' + ((res && res.error) || 'export failed'), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (typeof toast === 'function') toast('Error: ' + (e && e.message || e), 'error');
+    })
+    .exportMonthlyCountryPDF(country, month);
+}
+
 function _panelCell(lbl, val, valCls) {
   return '<div class="tk-panel-cell">'
        +   '<div class="lbl">' + esc(lbl) + '</div>'
@@ -5126,6 +5292,20 @@ function rEdTracker(D) {
       return '<option value="' + esc(p.id) + '"' + selAttr + '>' + esc(p.nombre || '#' + p.id) + '</option>';
     }).join('');
 
+  // Export menu visible solo a manager/head. El backend igual valida,
+  // pero ocultar el control en specialist evita confusión.
+  var exportMenuHtml = '';
+  if (role === 'manager' || role === 'head') {
+    exportMenuHtml = ''
+      + '<div class="tk-export-wrap" style="position:relative;display:inline-block;margin-left:auto">'
+      +   '<button type="button" class="ed-btn" onclick="edExportMenuToggle(event)" aria-haspopup="true" aria-expanded="false" id="edExportBtn">Export ⤓</button>'
+      +   '<div class="tk-export-menu" id="edExportMenu" role="menu" style="display:none;position:absolute;right:0;top:calc(100% + 6px);min-width:220px;background:var(--bg,#fff);border:1px solid var(--line,#e5e5e5);border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,0.08);z-index:60;padding:6px 0">'
+      +     '<button type="button" class="tk-export-item" role="menuitem" onclick="exportToXLSX()" style="display:block;width:100%;text-align:left;padding:8px 14px;background:none;border:0;cursor:pointer;font:inherit;color:inherit">Excel (current view)</button>'
+      +     '<button type="button" class="tk-export-item" role="menuitem" onclick="edExportPDFOpen()" style="display:block;width:100%;text-align:left;padding:8px 14px;background:none;border:0;cursor:pointer;font:inherit;color:inherit">Monthly PDF…</button>'
+      +   '</div>'
+      + '</div>';
+  }
+
   html += '<div class="tk-toolbar">'
        +    fBtn('all',     'All',         cAll,     null)
        +    fBtn('overdue', 'Overdue',     cOverdue, 'critical')
@@ -5138,6 +5318,7 @@ function rEdTracker(D) {
             : '')
        +    '<input class="tk-search" type="text" placeholder="Filter by project, person, type…" '
        +      'value="' + esc(EDT.search) + '" oninput="edSetSearch(this.value)">'
+       +    exportMenuHtml
        + '</div>';
 
   // Active secondary filters chips

@@ -2407,3 +2407,410 @@ function _digestEsc(s) {
 // pequeño edit en cualquier celda de la hoja y esperá <1h o limpiá el
 // cache desde el editor de Apps Script. Filas con JSON inválido se loggean
 // (Logger.log) y se omiten sin romper la app.
+
+// ════════════════════════════════════════════════════════════════
+// EXPORTS · XLSX of filtered tracker + Monthly PDF per country
+// ════════════════════════════════════════════════════════════════
+// Dos entry-points pensados para presentaciones (board, country leaders).
+// Ambos respetan permisos: nunca se exporta una tarea que el usuario no
+// vería en la UI (rol + confidencialidad), porque parten de
+// getEditorialData() / _buildViewForRole().
+
+// Escapa contenido de usuario para inyectar en HTML (PDF report).
+function _pdfEsc(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Carpeta común "Legal Tracker · Exports" en la raíz del Drive del owner.
+// Si ya existe se reutiliza; si no, se crea (no es destructivo, solo lectura/append).
+function _getOrCreateExportsFolder() {
+  var name = 'Legal Tracker · Exports';
+  var it = DriveApp.getFoldersByName(name);
+  if (it.hasNext()) return it.next();
+  return DriveApp.createFolder(name);
+}
+
+// Aplica los filtros del UI (mismos que EDT en el frontend) sobre tareas
+// ya pre-filtradas por rol + confidencialidad.
+function _applyExportFilters(tasks, filters) {
+  filters = filters || {};
+  var out = tasks.slice();
+  // status: 'all'|'overdue'|'today'|'blocked' (mismo enum que EDT.filter) o nombre de estado literal.
+  if (filters.status && filters.status !== 'ALL' && filters.status !== 'all') {
+    var st = String(filters.status);
+    if (st === 'overdue') {
+      out = out.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; });
+    } else if (st === 'today') {
+      out = out.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; });
+    } else if (st === 'blocked') {
+      out = out.filter(function(t){ return t.status === 'Bloqueado'; });
+    } else if (st === 'open' || st === 'active') {
+      out = out.filter(function(t){ return t.status !== 'Listo'; });
+    } else {
+      // Literal status name ("En curso", "Pendiente", etc.)
+      out = out.filter(function(t){ return (t.status || '') === st; });
+    }
+  }
+  if (filters.country && filters.country !== 'ALL') {
+    var cc = String(filters.country);
+    out = out.filter(function(t){ return (t.pais || '') === cc; });
+  }
+  if (filters.project && filters.project !== 'ALL') {
+    var pf = String(filters.project);
+    out = out.filter(function(t) {
+      return String(t.proyectoId || '') === pf || (t.proyecto || '') === pf;
+    });
+  }
+  if (filters.owner && filters.owner !== 'ALL') {
+    var ow = String(filters.owner).toLowerCase();
+    out = out.filter(function(t){ return (t.resp || '').toLowerCase() === ow; });
+  }
+  if (filters.confidentiality && filters.confidentiality !== 'ALL') {
+    var cf = String(filters.confidentiality).toLowerCase();
+    out = out.filter(function(t) {
+      var lvl = (t.confidencialidad || 'estandar').toString().trim().toLowerCase() || 'estandar';
+      return lvl === cf;
+    });
+  }
+  if (filters.myOnly && filters.search) {
+    // No-op placeholder, mantained for symmetry with frontend search if needed.
+  }
+  if (filters.search) {
+    var s = String(filters.search).toLowerCase();
+    out = out.filter(function(t) {
+      return ((t.id || '') + '').toLowerCase().indexOf(s) >= 0
+          || ((t.nombre || '') + '').toLowerCase().indexOf(s) >= 0
+          || ((t.resp || '') + '').toLowerCase().indexOf(s) >= 0
+          || ((t.proyecto || '') + '').toLowerCase().indexOf(s) >= 0
+          || ((t.tipoTrabajo || '') + '').toLowerCase().indexOf(s) >= 0;
+    });
+  }
+  return out;
+}
+
+// Entry-point: genera un Spreadsheet (XLSX abrible en Google Sheets) con la
+// vista filtrada actual del tracker. Devuelve la URL del archivo.
+function exportTrackerXLSX(filters) {
+  return _telemetry('exportTrackerXLSX', function() {
+    return _exportTrackerXLSXImpl(filters);
+  }, { hasFilters: !!filters });
+}
+
+function _exportTrackerXLSXImpl(filters) {
+  // getEditorialData() ya aplica el filtrado por rol + confidencialidad
+  // (a través de _buildViewForRole). Nunca se exporta lo que el usuario
+  // no podría ver en la UI.
+  var data = getEditorialData();
+  var tasks = (data && data.tasks) || [];
+
+  // Filtros del UI encima del set rol-filtrado.
+  tasks = _applyExportFilters(tasks, filters);
+
+  var tz = 'America/Bogota';
+  var stamp = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm');
+  var fileName = 'Legal Tracker Export ' + stamp;
+  var ss = SpreadsheetApp.create(fileName);
+  var sheet = ss.getActiveSheet();
+  sheet.setName('Tracker');
+
+  var headers = ['ID','Task','Owner','Country','Lead','Status','Priority','Deadline','ETA','Created','Project','Type','Risk','Counterparty','Confidentiality','Notes'];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+
+  var rows = tasks.map(function(t) {
+    var notes = (t.notas || '').toString();
+    if (notes.length > 500) notes = notes.substring(0, 500) + '…';
+    var counterparty = t.contraparte || t.counterparty || '';
+    return _sanitizeRow([
+      t.id || '',
+      t.nombre || '',
+      t.resp || '',
+      t.pais || '',
+      t.lider || '',
+      t.status || '',
+      t.priority || '',
+      t.deadline || '',
+      t.eta || '',
+      t.creado || '',
+      t.proyecto || (t.proyectoId ? ('#' + t.proyectoId) : ''),
+      t.tipoTrabajo || '',
+      t.riesgo || '',
+      counterparty,
+      t.confidencialidad || 'estandar',
+      notes
+    ]);
+  });
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+  sheet.setFrozenRows(1);
+  try { sheet.autoResizeColumns(1, headers.length); } catch (e) {}
+
+  // Mover a la carpeta de exports + compartir con el usuario.
+  var file = DriveApp.getFileById(ss.getId());
+  try {
+    var folder = _getOrCreateExportsFolder();
+    // En API legacy, addFile + removeFile from root para mover.
+    folder.addFile(file);
+    try { DriveApp.getRootFolder().removeFile(file); } catch (e) {}
+  } catch (e) {
+    // Si falla el move, el archivo sigue accesible en la raíz del owner.
+  }
+  try {
+    var email = '';
+    try { email = Session.getActiveUser().getEmail() || ''; } catch (e) {}
+    if (email) file.addEditor(email);
+  } catch (e) {}
+
+  return {
+    success: true,
+    url: file.getUrl(),
+    fileName: fileName,
+    rowCount: rows.length
+  };
+}
+
+// Entry-point: PDF mensual por país con KPIs, cierres, abiertas al EOM y
+// top performers/proyectos. countryCode ej 'CO'; monthISO ej '2026-05'.
+function exportMonthlyCountryPDF(countryCode, monthISO) {
+  return _telemetry('exportMonthlyCountryPDF', function() {
+    return _exportMonthlyCountryPDFImpl(countryCode, monthISO);
+  }, { countryCode: countryCode || '', monthISO: monthISO || '' });
+}
+
+function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
+  if (!countryCode) throw new Error('Falta countryCode.');
+  if (!monthISO || !/^\d{4}-\d{2}$/.test(monthISO)) throw new Error('monthISO debe tener formato YYYY-MM.');
+
+  var ctx = _getAuthContext();
+  // Auth: solo head o manager del país solicitado.
+  if (ctx.role !== 'head') {
+    if (ctx.role !== 'manager' || !ctx.user || ctx.user.code !== countryCode) {
+      throw new Error('No autorizado');
+    }
+  }
+
+  var parts = monthISO.split('-');
+  var year = parseInt(parts[0], 10);
+  var monthIdx = parseInt(parts[1], 10) - 1; // 0-indexed JS
+  var monthStart = new Date(year, monthIdx, 1, 0, 0, 0);
+  var monthEnd   = new Date(year, monthIdx + 1, 1, 0, 0, 0); // exclusive
+  var monthLabel = Utilities.formatDate(monthStart, 'America/Bogota', 'MMMM yyyy');
+
+  var raw = _cachedRawData();
+  var equipos = raw.equipos || [];
+  var allActive = raw.tasks || [];
+  var allHist   = raw.historial || [];
+
+  function inCountry(t) {
+    var cc = t.pais || getCountryForMember(t.resp, equipos);
+    return cc === countryCode;
+  }
+
+  var activeC = allActive.filter(inCountry);
+  var histC   = allHist.filter(inCountry);
+
+  function parseCreado(t) {
+    if (!t.creadoRaw) return null;
+    try { return new Date(t.creadoRaw); } catch (e) { return null; }
+  }
+  function parseCerrado(t) {
+    if (!t.cerrado) return null;
+    // 'dd/MM/yyyy'
+    var p = t.cerrado.split('/');
+    if (p.length !== 3) return null;
+    var d = parseInt(p[0],10), m = parseInt(p[1],10)-1, y = parseInt(p[2],10);
+    if (isNaN(d) || isNaN(m) || isNaN(y)) return null;
+    return new Date(y, m, d);
+  }
+  function inMonth(date) {
+    if (!date) return false;
+    return date >= monthStart && date < monthEnd;
+  }
+
+  // 1) Opened in month (active + historial — la tarea puede haberse abierto y cerrado en el mismo mes).
+  var openedInMonth = activeC.concat(histC).filter(function(t) {
+    var c = parseCreado(t);
+    return inMonth(c);
+  });
+
+  // 2) Closed in month (de historial — wsHistorial guarda cerrado).
+  var closedInMonth = histC.filter(function(t) {
+    return inMonth(parseCerrado(t));
+  });
+
+  // 3) Overdue at EOM: tareas abiertas (no cerradas antes del EOM) con deadline < monthEnd.
+  // Conjunto = activas hoy con deadline < monthEnd  ∪  historial que se cerró DESPUÉS de monthEnd (todavía estaban abiertas en EOM) con deadline < monthEnd.
+  // Como aproximación honesta usamos activas hoy + historial cerrado después.
+  function deadlineBeforeEOM(t) {
+    if (!t.deadlineISO) return false;
+    try {
+      var dl = new Date(t.deadlineISO + 'T00:00:00');
+      return dl < monthEnd;
+    } catch (e) { return false; }
+  }
+  var stillOpenAtEOM = activeC.filter(function(t) {
+    // todavía abiertas (no cerradas) y creadas antes del EOM
+    var c = parseCreado(t);
+    return c && c < monthEnd && t.status !== 'Listo';
+  }).concat(histC.filter(function(t) {
+    var c = parseCreado(t);
+    var cl = parseCerrado(t);
+    return c && c < monthEnd && cl && cl >= monthEnd;
+  }));
+  var overdueAtEOM = stillOpenAtEOM.filter(deadlineBeforeEOM);
+
+  // 4) On-time %: de las cerradas en el mes, cuántas dentro de SLA.
+  var slaLimits = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
+  var onTime = 0;
+  closedInMonth.forEach(function(t) {
+    var c = parseCreado(t);
+    var cl = parseCerrado(t);
+    if (!c || !cl) return;
+    var biz = countBizDays(c, cl);
+    var lim = slaLimits[t.priority] || 5;
+    if (biz <= lim) onTime++;
+  });
+  var onTimePct = closedInMonth.length === 0 ? null : Math.round((onTime / closedInMonth.length) * 100);
+
+  // 5) Top 5 members por # cerradas en mes.
+  var perMember = {};
+  closedInMonth.forEach(function(t) {
+    var k = t.resp || '—';
+    perMember[k] = (perMember[k] || 0) + 1;
+  });
+  var topMembers = Object.keys(perMember).map(function(k){ return { name: k, count: perMember[k] }; })
+    .sort(function(a,b){ return b.count - a.count; }).slice(0, 5);
+
+  // 6) Top 5 proyectos por # cerradas en mes.
+  var perProj = {};
+  closedInMonth.forEach(function(t) {
+    var k = t.proyecto || (t.proyectoId ? ('#' + t.proyectoId) : '—');
+    perProj[k] = (perProj[k] || 0) + 1;
+  });
+  var topProjects = Object.keys(perProj).map(function(k){ return { name: k, count: perProj[k] }; })
+    .sort(function(a,b){ return b.count - a.count; }).slice(0, 5);
+
+  // Build HTML for the PDF.
+  var countryEntry = equipos.filter(function(e){ return e.code === countryCode; })[0] || {};
+  var countryName = countryEntry.country || countryCode;
+  var generatedAt = Utilities.formatDate(new Date(), 'America/Bogota', 'dd/MM/yyyy HH:mm');
+
+  function statCard(label, value, sub) {
+    return '<div class="card">'
+      + '<div class="label">' + _pdfEsc(label) + '</div>'
+      + '<div class="value">' + _pdfEsc(String(value)) + '</div>'
+      + (sub ? '<div class="sub">' + _pdfEsc(sub) + '</div>' : '')
+      + '</div>';
+  }
+
+  function rowsClosed(arr) {
+    if (!arr.length) return '<tr><td colspan="5" class="empty">No closed tasks in this month.</td></tr>';
+    return arr.map(function(t) {
+      var c = parseCreado(t), cl = parseCerrado(t);
+      var biz = (c && cl) ? countBizDays(c, cl) : null;
+      var lim = slaLimits[t.priority] || 5;
+      var sla = (biz == null) ? '—' : (biz <= lim ? 'On time (' + biz + 'd ≤ ' + lim + 'd)' : 'Late (' + biz + 'd > ' + lim + 'd)');
+      return '<tr>'
+        + '<td>' + _pdfEsc(t.id) + '</td>'
+        + '<td>' + _pdfEsc(t.nombre || '') + '</td>'
+        + '<td>' + _pdfEsc(t.resp || '') + '</td>'
+        + '<td>' + _pdfEsc(t.cerrado || '') + '</td>'
+        + '<td>' + _pdfEsc(sla) + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+  function rowsOpen(arr) {
+    if (!arr.length) return '<tr><td colspan="5" class="empty">No open tasks at end of month.</td></tr>';
+    return arr.map(function(t) {
+      return '<tr>'
+        + '<td>' + _pdfEsc(t.id) + '</td>'
+        + '<td>' + _pdfEsc(t.nombre || '') + '</td>'
+        + '<td>' + _pdfEsc(t.resp || '') + '</td>'
+        + '<td>' + _pdfEsc(t.priority || '') + '</td>'
+        + '<td>' + _pdfEsc(t.deadline || '') + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+  function rowsTop(arr, kind) {
+    if (!arr.length) return '<tr><td colspan="2" class="empty">No data.</td></tr>';
+    return arr.map(function(r) {
+      return '<tr><td>' + _pdfEsc(r.name) + '</td><td>' + r.count + ' closed</td></tr>';
+    }).join('');
+  }
+
+  var html = ''
+    + '<!doctype html><html><head><meta charset="utf-8">'
+    + '<style>'
+    +   'body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; padding: 28px; }'
+    +   'h1 { font-size: 22px; margin: 0 0 4px 0; }'
+    +   '.eyebrow { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: #888; margin-bottom: 6px; }'
+    +   '.lede { font-size: 12px; color: #555; margin-bottom: 18px; }'
+    +   '.kpis { display: table; width: 100%; border-collapse: separate; border-spacing: 8px; margin-bottom: 18px; }'
+    +   '.card { display: table-cell; border: 1px solid #ddd; padding: 10px 12px; border-radius: 4px; width: 25%; }'
+    +   '.card .label { font-size: 10px; color: #777; text-transform: uppercase; letter-spacing: 0.5px; }'
+    +   '.card .value { font-size: 22px; font-weight: bold; margin-top: 4px; }'
+    +   '.card .sub { font-size: 10px; color: #888; margin-top: 2px; }'
+    +   'h2 { font-size: 14px; margin: 20px 0 8px 0; border-bottom: 1px solid #eee; padding-bottom: 4px; }'
+    +   'table.data { width: 100%; border-collapse: collapse; font-size: 11px; }'
+    +   'table.data th, table.data td { padding: 6px 8px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }'
+    +   'table.data th { background: #f7f7f7; font-weight: bold; }'
+    +   '.empty { color: #999; font-style: italic; text-align: center; padding: 12px; }'
+    +   '.two-col { display: table; width: 100%; border-spacing: 12px 0; }'
+    +   '.two-col > div { display: table-cell; width: 50%; vertical-align: top; }'
+    +   '.footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #eee; font-size: 10px; color: #999; }'
+    + '</style></head><body>'
+    + '<div class="eyebrow">' + _pdfEsc(countryCode) + ' · Legal Tracker</div>'
+    + '<h1>Monthly report · ' + _pdfEsc(monthLabel) + '</h1>'
+    + '<div class="lede">' + _pdfEsc(countryName) + ' team activity during ' + _pdfEsc(monthLabel) + '.</div>'
+    + '<div class="kpis">'
+    +   statCard('Opened', openedInMonth.length, 'tasks created in month')
+    +   statCard('Closed', closedInMonth.length, 'tasks closed in month')
+    +   statCard('Overdue @ EOM', overdueAtEOM.length, 'open past deadline')
+    +   statCard('On-time %', onTimePct == null ? '—' : (onTimePct + '%'), onTimePct == null ? 'no closures' : 'within SLA')
+    + '</div>'
+    + '<h2>Tasks closed in month</h2>'
+    + '<table class="data">'
+    +   '<thead><tr><th>ID</th><th>Task</th><th>Owner</th><th>Closed</th><th>SLA result</th></tr></thead>'
+    +   '<tbody>' + rowsClosed(closedInMonth) + '</tbody>'
+    + '</table>'
+    + '<h2>Still open at end of month</h2>'
+    + '<table class="data">'
+    +   '<thead><tr><th>ID</th><th>Task</th><th>Owner</th><th>Priority</th><th>Deadline</th></tr></thead>'
+    +   '<tbody>' + rowsOpen(stillOpenAtEOM) + '</tbody>'
+    + '</table>'
+    + '<div class="two-col">'
+    +   '<div>'
+    +     '<h2>Top performers</h2>'
+    +     '<table class="data"><tbody>' + rowsTop(topMembers, 'member') + '</tbody></table>'
+    +   '</div>'
+    +   '<div>'
+    +     '<h2>Top projects</h2>'
+    +     '<table class="data"><tbody>' + rowsTop(topProjects, 'project') + '</tbody></table>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="footer">Generated ' + _pdfEsc(generatedAt) + ' · Confidential — internal use only.</div>'
+    + '</body></html>';
+
+  var pdfBlob = HtmlService.createHtmlOutput(html).getAs('application/pdf');
+  var fileName = 'LT_' + countryCode + '_' + monthISO + '.pdf';
+  pdfBlob.setName(fileName);
+  var folder = _getOrCreateExportsFolder();
+  var file = folder.createFile(pdfBlob);
+  try {
+    var email = '';
+    try { email = Session.getActiveUser().getEmail() || ''; } catch (e) {}
+    if (email) file.addEditor(email);
+  } catch (e) {}
+
+  return {
+    success: true,
+    url: file.getUrl(),
+    fileName: fileName
+  };
+}
