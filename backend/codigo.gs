@@ -10,17 +10,33 @@ const SHEET_CONFIG    = 'Config';
 const SHEET_EQUIPOS   = 'Equipos';
 const SHEET_PROYECTOS = 'Proyectos';
 const SHEET_COMMENTS  = 'Comments'; // Auto-created on first use; cols: id, task_id, author_email, author_name, ts, body
+const SHEET_FERIADOS  = 'Feriados'; // Manual; cols: pais (CO/MX/CR/...) | fecha (YYYY-MM-DD) | nombre
+const SHEET_TEMPLATES = 'Templates'; // Optional; cols: tipoTrabajo, checklist (JSON array of strings). See sample at EOF.
 
-// Tasks: 18 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder,TipoTrabajo,Riesgo,Documentos,Confidencialidad
+// ── DAILY DIGEST ────────────────────────────────────────────────
+// URL del web app deployado (/exec). Se usa en los emails para
+// construir deep-links como WEB_APP_URL + '?task=ID'. Reemplazar el
+// placeholder con la URL real después del primer deploy a /exec.
+// Si quedara como placeholder, los emails siguen mandándose pero los
+// links no van a ningún lado útil — los logs no fallan.
+const WEB_APP_URL = 'https://script.google.com/macros/s/REEMPLAZAR_CON_URL_EXEC_REAL/exec';
+const DIGEST_TZ = 'America/Bogota';
+const DIGEST_SKIP_WEEKENDS = true; // En sáb/dom el trigger corre pero hace early return.
+
+// Tasks: 19 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder,TipoTrabajo,Riesgo,Documentos,Confidencialidad,Contraparte
 // La columna 18 (Confidencialidad) puede no existir todavía en la hoja: getLastColumn() devolverá
 // menos y el read defaultea a 'estandar'. Cuando el usuario agregue la columna manualmente,
 // los nuevos updates se persisten ahí.
-const TASK_COLS = 18;
+// NOTA MIGRACIÓN: las columnas TASK col 19 (Contraparte) y PROJ col 17 (ContrapartesConflicto)
+// deben agregarse manualmente al sheet antes de usar; sin la columna se defaultean a vacío.
+const TASK_COLS = 19;
 const TASK_DOCS_COL = 17; // 1-indexed
 const TASK_CONF_COL = 18; // 1-indexed
-// Projects: 16 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana,Participantes,TipoTrabajo,Riesgo,Documentos
-const PROJ_COLS = 16;
+const TASK_CONTRAPARTE_COL = 19; // 1-indexed
+// Projects: 17 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana,Participantes,TipoTrabajo,Riesgo,Documentos,ContrapartesConflicto
+const PROJ_COLS = 17;
 const PROJ_DOCS_COL = 16; // 1-indexed
+const PROJ_CONTRAPARTES_COL = 17; // 1-indexed
 
 const STATUS_ORDER = {'Bloqueado':0,'En curso':1,'Pendiente':2,'En revisión':3,'Listo':4};
 const PRIO_ORDER   = {'Alta':0,'Media':1,'Baja':2};
@@ -182,7 +198,8 @@ function getTrackerData() {
   if (!auth.ok) throw new Error('No autorizado: ' + auth.message);
   var role = determineRole(auth.email, auth.user, config);
   var raw = _cachedRawData();
-  return _buildViewForRole(raw, role, auth.user);
+  var feriadosByCountry = _loadFeriados(ss); // 1h cache; usado en SLA biz days
+  return _buildViewForRole(raw, role, auth.user, feriadosByCountry);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -199,12 +216,19 @@ function _getEditorialDataImpl() {
   var data = getTrackerData();
   var today = Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy-MM-dd');
 
-  // Enriquecer tareas activas + historial
+  // Cargamos feriados una vez por request — usados para etaDays (biz days) y
+  // para los promedios/streak históricos (bizDays sin contar feriados del país).
+  // Si la hoja Feriados no existe o está vacía, fbc = {} y el código cae en
+  // fallback "solo lun-vie sin feriados" — backwards-compat total.
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var fbc = _loadFeriados(ss);
+
+  // Enriquecer tareas activas + historial (con feriados → etaDays en biz days)
   if (data.tasks && data.tasks.length) {
-    data.tasks.forEach(function(t) { _enrichTaskEditorial(t, today); });
+    data.tasks.forEach(function(t) { _enrichTaskEditorial(t, today, { feriadosByCountry: fbc }); });
   }
   if (data.historial && data.historial.length) {
-    data.historial.forEach(function(t) { _enrichTaskEditorial(t, today); });
+    data.historial.forEach(function(t) { _enrichTaskEditorial(t, today, { feriadosByCountry: fbc }); });
   }
 
   // Enriquecer miembros del team (load, capacity, overdue, blocked, streak, avgs)
@@ -223,9 +247,10 @@ function _getEditorialDataImpl() {
       if (!t.resp || !t.creadoRaw || !t.cerrado) return;
       var p = t.cerrado.split('/');
       var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+      var ferSet = fbc[(t.pais || 'CO').toUpperCase()] || null;
       var entry = {
         priority: t.priority,
-        bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate),
+        bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate, ferSet),
         cerradoDate: cerradoDate
       };
       (histByResp[t.resp] = histByResp[t.resp] || []).push(entry);
@@ -283,10 +308,11 @@ function _getEditorialDataImpl() {
       if (!t.pais || !t.creadoRaw || !t.cerrado) return;
       var p = t.cerrado.split('/');
       var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
+      var ferSet = fbc[(t.pais || '').toUpperCase()] || null;
       (histByPais[t.pais] = histByPais[t.pais] || []).push({
         priority: t.priority,
         cerradoMs: cerradoDate.getTime(),
-        bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate)
+        bizDays: countBizDays(new Date(t.creadoRaw), cerradoDate, ferSet)
       });
     });
 
@@ -334,10 +360,22 @@ function _getEditorialDataImpl() {
 
 // Calcula y agrega los campos derivados a una tarea: eta, etaDays,
 // accionable, blockedReason, slaTarget. Mutación in-place.
-function _enrichTaskEditorial(t, todayISO) {
+// opts.feriadosByCountry (opcional): si presente, etaDays se calcula en días
+// hábiles (lun-vie excluyendo feriados del país de la tarea). Si ausente,
+// fallback a calendario (comportamiento histórico).
+function _enrichTaskEditorial(t, todayISO, opts) {
+  opts = opts || {};
+  var fbc = opts.feriadosByCountry;
   // etaDays + eta humano
   if (t.deadlineISO) {
-    var diff = _daysBetweenISO(todayISO, t.deadlineISO);
+    var diff;
+    if (fbc) {
+      // Si la tarea no tiene país, fallback a CO (equipo activo en pre-piloto)
+      // dentro de _bizDaysBetween — si CO tampoco está cargado, queda en solo lun-vie.
+      diff = _bizDaysBetween(todayISO, t.deadlineISO, (t.pais || 'CO').toUpperCase(), fbc);
+    } else {
+      diff = _daysBetweenISO(todayISO, t.deadlineISO);
+    }
     t.etaDays = diff;
     t.eta = _fmtEta(diff);
   } else {
@@ -520,7 +558,8 @@ function filterProjectsForRole(projects, role, user) {
 
 // Construye la vista completa (tasks filtradas, projects filtrados, stats
 // recalculadas, KPIs, SLA, team grid, countries) para un rol+usuario dado.
-function _buildViewForRole(raw, role, user) {
+function _buildViewForRole(raw, role, user, feriadosByCountry) {
+  feriadosByCountry = feriadosByCountry || {};
   var equipos = raw.equipos;
   var allTasks = raw.tasks;
   var allHist  = raw.historial;
@@ -628,14 +667,15 @@ function _buildViewForRole(raw, role, user) {
     if (t.priority === 'Baja')  c.baja++;
   });
 
-  // SLA
+  // SLA — días hábiles desde creación, restando feriados del país de la tarea.
   var now = new Date();
   var slaLimits = { Alta: 2, Media: 5, Baja: 7 };
   var sla = { onTime: 0, atRisk: 0, overdue: 0 };
   tasks.forEach(function(t) {
     if (t.status === 'Listo') return;
     if (!t.creadoRaw) { sla.onTime++; return; }
-    var bizDays = countBizDays(new Date(t.creadoRaw), now);
+    var ferSet = feriadosByCountry[(t.pais || '').toUpperCase()] || null;
+    var bizDays = countBizDays(new Date(t.creadoRaw), now, ferSet);
     var limit = slaLimits[t.priority] || 5;
     if (bizDays > limit) sla.overdue++;
     else if (bizDays >= limit - 1) sla.atRisk++;
@@ -696,11 +736,30 @@ function _sanitizeRow(arr) {
 }
 
 // siempre el mismo contrato (failureHandler deja la UI en estado raro).
+// Además sirve como punto único de:
+//   1) Serialización vía LockService.getDocumentLock() (30s), para que ninguna
+//      mutación concurrente colisione con otra entry-point.
+//   2) Invalidación de cache: en el finally se llama a invalidateCache() una
+//      sola vez, así los _*Impl no necesitan invocarlo manualmente (evita
+//      doble-invalidación y olvidos). Si añadís un nuevo entry-point que
+//      muta, wrappealo acá; no metas invalidateCache() en el _*Impl.
+// NOTA: los _*Impl pueden seguir usando LockService.getScriptLock() para
+// secciones críticas read-modify-write internas (es un lock distinto del
+// document lock, así que no hay deadlock; sólo redundancia barata).
 function _safeMutation(fn) {
+  var lock = LockService.getDocumentLock();
+  try {
+    lock.waitLock(30000);
+  } catch (e) {
+    return { success: false, error: 'Servidor ocupado, reintenta en un momento.' };
+  }
   try {
     return fn();
   } catch (e) {
     return { success: false, error: (e && e.message) || String(e) };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+    invalidateCache();
   }
 }
 
@@ -859,6 +918,8 @@ function readProjects(ss) {
       tipoTrabajo: (row[13]||'').toString().trim(),
       riesgo: (row[14]||'').toString().trim(),
       documentos: _parseDocs(row[15]),
+      // Col 17 (índice 16): comma-separated. Si la columna aún no existe en la hoja, default [].
+      contrapartesConflicto: (row[16] || '').toString().split(',').map(function(s){return s.trim();}).filter(Boolean),
       pctDone: 0, tasks: [], taskStats: {}
     });
   });
@@ -878,7 +939,7 @@ function _addProjectImpl(obj) {
   var ws = ss.getSheetByName(SHEET_PROYECTOS);
   if (!ws) {
     ws = ss.insertSheet(SHEET_PROYECTOS);
-    ws.appendRow(['ID','Nombre','País','Líder','Responsable','Deadline','Prioridad','Estado','Descripción','Notas','Creado','Semana','Participantes','TipoTrabajo','Riesgo','Documentos']);
+    ws.appendRow(['ID','Nombre','País','Líder','Responsable','Deadline','Prioridad','Estado','Descripción','Notas','Creado','Semana','Participantes','TipoTrabajo','Riesgo','Documentos','ContrapartesConflicto']);
     ws.getRange(1,1,1,PROJ_COLS).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
     ws.setTabColor('#FF4940');
   }
@@ -896,16 +957,23 @@ function _addProjectImpl(obj) {
     var equipos = readEquipos(ss);
     var pais  = obj.pais || getCountryForMember(obj.responsable, equipos);
     var lider = obj.lider || getLeaderForCountry(pais, equipos);
-    ws.appendRow(_sanitizeRow([
+    // contrapartesConflicto puede llegar como array o como string CSV; serializamos a string.
+    var cpc = obj.contrapartesConflicto || '';
+    if (Array.isArray(cpc)) cpc = cpc.map(function(s){ return (s == null ? '' : s.toString()).trim(); }).filter(Boolean).join(', ');
+    // Solo escribimos la col 17 si la hoja ya la tiene; appendRow trunca al ancho real.
+    var lc = ws.getLastColumn();
+    var rowVals = [
       newId, obj.nombre||'', pais, lider, obj.responsable||'',
       obj.deadline||'', obj.priority||'Media', obj.status||'Activo',
       obj.descripcion||'', obj.notas||'', new Date(), getCurrentWeekLabel(), obj.participantes||'',
       obj.tipoTrabajo||'', obj.riesgo||'', ''
-    ]));
+    ];
+    if (lc >= PROJ_CONTRAPARTES_COL) rowVals.push(cpc);
+    ws.appendRow(_sanitizeRow(rowVals));
     return {success:true, id:newId, nombre:obj.nombre||''};
   } finally {
     lock.releaseLock();
-    invalidateCache();
+    // invalidateCache() lo dispara _safeMutation en su finally; evita doble call.
   }
 }
 
@@ -916,9 +984,13 @@ function _updateProjectFieldImpl(projId, field, value) {
   if (!current) return { success: false, error: 'Project #' + projId + ' not found' };
   _authorizeProjectWrite(ctx, current);
   var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
-  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
+  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15,'contrapartesConflicto':17};
   var col = fieldMap[field];
   if (!col) return { success: false, error: 'Invalid field: ' + field };
+  // Normalizar contrapartesConflicto: array → csv; string → trust.
+  if (field === 'contrapartesConflicto' && Array.isArray(value)) {
+    value = value.map(function(s){ return (s == null ? '' : s.toString()).trim(); }).filter(Boolean).join(', ');
+  }
   // Lock para serializar mutaciones concurrentes sobre la hoja Proyectos.
   var lock = LockService.getScriptLock();
   try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
@@ -927,7 +999,7 @@ function _updateProjectFieldImpl(projId, field, value) {
     return { success: true };
   } finally {
     lock.releaseLock();
-    invalidateCache();
+    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   }
 }
 
@@ -956,7 +1028,7 @@ function _updateProjectFieldsImpl(projId, fields) {
   }
 
   var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
-  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
+  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15,'contrapartesConflicto':17};
   var row = current.row;
 
   // Lock para serializar mutaciones concurrentes en hoja Proyectos.
@@ -969,12 +1041,16 @@ function _updateProjectFieldsImpl(projId, fields) {
       var v = fields[k];
       // participantes puede llegar como array o string csv
       if (k === 'participantes' && Array.isArray(v)) v = v.join(', ');
+      // contrapartesConflicto: array → csv; string → trust.
+      if (k === 'contrapartesConflicto' && Array.isArray(v)) {
+        v = v.map(function(s){ return (s == null ? '' : s.toString()).trim(); }).filter(Boolean).join(', ');
+      }
       ws.getRange(row, col).setValue(_sanitizeCell(v));
     });
     return { success: true };
   } finally {
     lock.releaseLock();
-    invalidateCache();
+    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   }
 }
 
@@ -1006,7 +1082,9 @@ function readTasks(ws) {
       tipoTrabajo:(row[14]||'').toString().trim(),
       riesgo:(row[15]||'').toString().trim(),
       documentos: _parseDocs(row[16]),
-      confidencialidad: (row[17] || 'estandar').toString().trim() || 'estandar'
+      confidencialidad: (row[17] || 'estandar').toString().trim() || 'estandar',
+      // Col 19 (índice 18): single text. Default '' si la columna aún no existe.
+      contraparte: (row[18] || '').toString().trim()
     });
   });
   tasks.sort(function(a,b){return (PRIO_ORDER[a.priority]||1)-(PRIO_ORDER[b.priority]||1)||(STATUS_ORDER[a.status]||2)-(STATUS_ORDER[b.status]||2)});
@@ -1040,25 +1118,41 @@ function _addTaskImpl(taskObj) {
     var pidNum = parseInt(pid, 10);
     var pidCell = isNaN(pidNum) ? '' : pidNum;
     var conf = (taskObj.confidencialidad || 'estandar').toString().trim() || 'estandar';
+    // Auto-prefill de notas con checklist del template si:
+    //  (a) hay tipoTrabajo con plantilla en la hoja 'Templates', y
+    //  (b) el usuario no escribió notas (vacío o solo whitespace).
+    // Lectura lazy: readTemplates reutiliza la cache de getTemplates si está caliente.
+    var notas = (taskObj.notas || '').toString();
+    if (taskObj.tipoTrabajo && !notas.replace(/\s+/g, '')) {
+      try {
+        var templates = readTemplates(ss);
+        var checklist = templates[taskObj.tipoTrabajo];
+        if (checklist && checklist.length) {
+          notas = checklist.map(function(it){ return '- ' + it; }).join('\n');
+        }
+      } catch (e) { Logger.log('addTask: template prefill skipped: ' + ((e && e.message) || e)); }
+    }
+    var contraparte = (taskObj.contraparte || '').toString().trim();
     // Construimos la fila al ancho real del sheet: si el usuario aún no agregó
-    // la columna 17 (Documentos) o 18 (Confidencialidad), no las escribimos
-    // (no podemos crear columnas desde acá). Si existen, se llenan vacío/default.
+    // la columna 17 (Documentos), 18 (Confidencialidad) o 19 (Contraparte), no las
+    // escribimos (no podemos crear columnas desde acá). Si existen, se llenan default.
     var lc = ws.getLastColumn();
     var rowVals = [
       newId, taskObj.nombre||'', taskObj.resp||'', taskObj.acc||'',
       taskObj.deadline||'', taskObj.priority||'Media', taskObj.status||'Pendiente',
-      taskObj.semana||getCurrentWeekLabel(), new Date(), '', taskObj.notas||'',
+      taskObj.semana||getCurrentWeekLabel(), new Date(), '', notas,
       pidCell, pais, lider,
       taskObj.tipoTrabajo||'', taskObj.riesgo||''
     ];
     // Solo agregamos columnas adicionales si la hoja las tiene; si no, appendRow las omite.
     if (lc >= 17) rowVals.push(''); // Documentos
     if (lc >= 18) rowVals.push(conf); // Confidencialidad
+    if (lc >= TASK_CONTRAPARTE_COL) rowVals.push(contraparte); // Contraparte
     ws.appendRow(_sanitizeRow(rowVals));
     return {success:true, id:newId};
   } finally {
     lock.releaseLock();
-    invalidateCache();
+    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   }
 }
 
@@ -1161,7 +1255,7 @@ function _updateTaskFieldImpl(taskId, field, value) {
   if (!current) return { success: false, error: 'Task #' + taskId + ' not found' };
   _authorizeTaskWrite(ctx, current);
 
-  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18};
+  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18,'contraparte':19};
   var col = fieldMap[field];
   if (!col) return { success: false, error: 'Invalid field: ' + field };
 
@@ -1201,10 +1295,10 @@ function _updateTaskFieldImpl(taskId, field, value) {
   }
   if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, current.row);
-    invalidateCache();
+    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
     return { success: true, moved: true, message: 'Tarea movida a Historial' };
   }
-  invalidateCache();
+  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true };
 }
 function updateTaskStatus(taskId, newStatus) { return updateTaskField(taskId, 'status', newStatus); }
@@ -1236,7 +1330,7 @@ function _updateTaskFieldsImpl(taskId, fields) {
   }
 
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
-  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18};
+  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18,'contraparte':19};
   var row = current.row;
 
   // Lock para serializar mutaciones. moveToHistorial se llama fuera del bloque
@@ -1271,10 +1365,10 @@ function _updateTaskFieldsImpl(taskId, fields) {
   }
   if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, row);
-    invalidateCache();
+    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
     return { success: true, moved: true, message: 'Tarea movida a Historial' };
   }
-  invalidateCache();
+  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true };
 }
 
@@ -1367,11 +1461,64 @@ function getMemberByName(name, eq){
 }
 function getLeaderForCountry(code,eq){for(var i=0;i<eq.length;i++){if(eq[i].code===code)return eq[i].leader}return ''}
 function readConfig(ss){var ws=ss.getSheetByName(SHEET_CONFIG);if(!ws)return {};var lr=ws.getLastRow();if(lr<3)return {};var data=ws.getRange(3,1,lr-2,2).getValues(),c={};data.forEach(function(r){if(r[0])c[r[0]]=r[1]});return c}
+
+// ── TEMPLATES ───────────────────────────────────────────────────
+// Hoja opcional 'Templates' con columnas: tipoTrabajo | checklist (JSON array).
+// readTemplates(ss) → { tipoTrabajo: ['item1', ...] }. Si la hoja no existe o
+// está vacía retorna {} (no error). Filas con JSON inválido se loggean y se
+// saltan. Backwards-compat: si la hoja no existe, la app sigue funcionando.
+function readTemplates(ss) {
+  var ws = ss.getSheetByName(SHEET_TEMPLATES);
+  if (!ws) return {};
+  var lr = ws.getLastRow();
+  if (lr < 2) return {};
+  var data = ws.getRange(2, 1, lr - 1, 2).getValues();
+  var out = {};
+  data.forEach(function(r) {
+    var tipo = (r[0] || '').toString().trim();
+    var raw  = (r[1] || '').toString().trim();
+    if (!tipo || !raw) return;
+    try {
+      var arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        out[tipo] = arr.map(function(s){ return String(s); }).filter(Boolean);
+      } else {
+        Logger.log('readTemplates: fila con checklist no-array para tipo "' + tipo + '"; se omite.');
+      }
+    } catch (e) {
+      Logger.log('readTemplates: JSON inválido para tipo "' + tipo + '": ' + ((e && e.message) || e));
+    }
+  });
+  return out;
+}
+
+// Entry-point expuesto al frontend vía google.script.run. Cachea 1h bajo
+// 'templates_v1' (igual patrón que las otras caches: read-through + serialize).
+function getTemplates() {
+  return _telemetry('getTemplates', _getTemplatesImpl);
+}
+function _getTemplatesImpl() {
+  var cacheKey = 'templates_v1';
+  try {
+    var cached = CacheService.getScriptCache().get(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch (e) {}
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var dict = readTemplates(ss);
+  try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(dict), 3600); } catch (e) {}
+  return dict;
+}
 // O(1) en lugar del while-day-by-day. Para historial extenso (años),
 // el loop original disparaba miles de iteraciones por entry × cientos
 // de entries → segundos de CPU. Algoritmo: total días entre fechas,
 // menos los fines de semana caídos en ese rango.
-function countBizDays(start, end) {
+// countBizDays(start, end [, feriadosSet]) → cuenta días hábiles estrictamente
+// entre start (exclusivo) y end (inclusivo). Excluye sábados y domingos.
+// Si se pasa feriadosSet (Set<'YYYY-MM-DD'> o {iso: true}), también excluye
+// esos días cuando caen en (start, end] y son días de semana.
+// El algoritmo base es O(1) (weeks*5 + remainder); la sustracción de feriados
+// es O(|feriadosSet|), típicamente ~18 fechas por país.
+function countBizDays(start, end, feriadosSet) {
   if (!start || !end) return 0;
   var s = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   var e = new Date(end.getFullYear(), end.getMonth(), end.getDate());
@@ -1386,7 +1533,113 @@ function countBizDays(start, end) {
     var dow = (startDow + i) % 7;
     if (dow !== 0 && dow !== 6) biz++;
   }
-  return biz;
+  // Restar feriados de día de semana que caigan en (s, e].
+  if (feriadosSet && _setHas(feriadosSet)) {
+    _forEachFeriado(feriadosSet, function(iso){
+      var m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return;
+      var f = new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
+      if (f.getTime() > s.getTime() && f.getTime() <= e.getTime()) {
+        var dow2 = f.getDay();
+        if (dow2 !== 0 && dow2 !== 6) biz--;
+      }
+    });
+  }
+  return biz < 0 ? 0 : biz;
+}
+
+// Helper portable: ¿el "set" tiene al menos un elemento? Aceptamos Set nativo o plain object.
+function _setHas(setOrObj) {
+  if (!setOrObj) return false;
+  if (typeof setOrObj.size === 'number') return setOrObj.size > 0;
+  for (var k in setOrObj) { if (setOrObj.hasOwnProperty(k)) return true; }
+  return false;
+}
+function _forEachFeriado(setOrObj, cb) {
+  if (!setOrObj) return;
+  if (typeof setOrObj.forEach === 'function' && typeof setOrObj.size === 'number') {
+    setOrObj.forEach(function(v){ cb(v); });
+  } else {
+    for (var k in setOrObj) { if (setOrObj.hasOwnProperty(k)) cb(k); }
+  }
+}
+
+// Diferencia en días hábiles entre dos ISO dates, con signo. Negativo si el
+// deadline ya pasó. Usa los feriados del país pasado; si paisCode no está en
+// feriadosByCountry, fallback a "solo lun-vie sin feriados".
+//
+// Ejemplo: today=Vie 2026-05-15, deadline=Lun 2026-05-18 → 1
+// (calendar daría 3; con biz days solo cuenta el lunes).
+function _bizDaysBetween(todayISO, deadlineISO, paisCode, feriadosByCountry) {
+  if (!todayISO || !deadlineISO) return 0;
+  var today = _parseISODate(todayISO);
+  var deadline = _parseISODate(deadlineISO);
+  if (!today || !deadline) return 0;
+  var set = (feriadosByCountry && paisCode && feriadosByCountry[paisCode]) || null;
+  var t = today.getTime(), d = deadline.getTime();
+  if (d > t) return  countBizDays(today, deadline, set);
+  if (d < t) return -countBizDays(deadline, today, set);
+  return 0;
+}
+
+// _loadFeriados(ss) → { CO: Set('YYYY-MM-DD'), MX: Set, CR: Set, ... }
+// Lee la hoja 'Feriados' (cols: pais | fecha | nombre). Cacheado 1h en
+// CacheService bajo 'feriados_v1'. Si la hoja no existe, retorna {}.
+function _loadFeriados(ss) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var cached = cache.get('feriados_v1');
+    if (cached) {
+      var obj = JSON.parse(cached);
+      // Rehidratar a Sets para mantener la API estable downstream.
+      var out = {};
+      Object.keys(obj).forEach(function(code){
+        var s = new Set();
+        (obj[code] || []).forEach(function(iso){ s.add(iso); });
+        out[code] = s;
+      });
+      return out;
+    }
+  } catch(e) { /* cache falló — recomputamos */ }
+
+  var result = {};
+  try {
+    var ws = ss.getSheetByName(SHEET_FERIADOS);
+    if (!ws) return result;
+    var lr = ws.getLastRow();
+    if (lr < 2) return result;
+    var data = ws.getRange(2, 1, lr - 1, 3).getValues();
+    data.forEach(function(row){
+      var pais = (row[0] || '').toString().trim().toUpperCase();
+      if (!pais) return;
+      var raw = row[1];
+      var iso = '';
+      if (raw instanceof Date) {
+        iso = Utilities.formatDate(raw, 'America/Bogota', 'yyyy-MM-dd');
+      } else {
+        var m = (raw || '').toString().trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) iso = m[1] + '-' + m[2] + '-' + m[3];
+      }
+      if (!iso) return;
+      if (!result[pais]) result[pais] = new Set();
+      result[pais].add(iso);
+    });
+  } catch(e) {
+    Logger.log('[feriados] read failed: ' + e.message);
+    return {};
+  }
+
+  // Cachear: serializamos Sets a arrays de strings para JSON.
+  try {
+    var serial = {};
+    Object.keys(result).forEach(function(code){
+      serial[code] = [];
+      result[code].forEach(function(iso){ serial[code].push(iso); });
+    });
+    CacheService.getScriptCache().put('feriados_v1', JSON.stringify(serial), 3600);
+  } catch(e) { /* cache write falló — no es crítico */ }
+
+  return result;
 }
 // Mueve una tarea al Historial preservando su ID original.
 // Ya NO renumera las tareas restantes: los IDs son persistentes (pueden quedar huecos 1,3,7,...).
@@ -1637,7 +1890,7 @@ function _uploadDocumentImpl(kind, itemId, fileData) {
               uploadedBy: ctx.user.name, uploadedAt: new Date().toISOString() };
   var docs = info.docs.concat([doc]);
   info.ws.getRange(info.row, info.col).setValue(_serializeDocs(docs));
-  invalidateCache();
+  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true, doc: doc };
 }
 
@@ -1677,7 +1930,7 @@ function _attachDocumentLinkImpl(kind, itemId, link) {
   };
   var docs = info.docs.concat([doc]);
   info.ws.getRange(info.row, info.col).setValue(_serializeDocs(docs));
-  invalidateCache();
+  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true, doc: doc };
 }
 
@@ -1696,7 +1949,7 @@ function _removeDocumentImpl(kind, itemId, docIndex) {
   if (isNaN(idx) || idx < 0 || idx >= info.docs.length) return { success: false, error: 'Índice inválido' };
   info.docs.splice(idx, 1);
   info.ws.getRange(info.row, info.col).setValue(_serializeDocs(info.docs));
-  invalidateCache();
+  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true };
 }
 
@@ -1814,6 +2067,238 @@ function testData() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// DAILY DIGEST · trigger time-driven 8am Bogotá
+// ════════════════════════════════════════════════════════════════
+// Entry point del trigger: sendDailyDigest(). Configurar manualmente
+// en el editor (Triggers → +Add → function: sendDailyDigest →
+// Time-driven → Day timer → 8am-9am → Save). El trigger autoriza
+// scopes de MailApp y SpreadsheetApp en la primera corrida.
+//
+// Para QA sin spamear al equipo: _sendDailyDigestPreview('tu@email.com')
+// redirige TODOS los emails (specialist + manager) a ese destinatario.
+// Cada email incluye un banner indicando para quién era originalmente.
+//
+// Reglas de scope:
+//   - Solo specialist con tareas etaDays <= 2 (vencidas + hoy + 48h)
+//   - Specialist ve todas sus tareas (incluyendo confidenciales)
+//   - Manager ve resumen agregado del equipo (sin nombres de tareas,
+//     por confidencialidad). Solo conteos + top-3 personas con overdue.
+//   - Skip fines de semana (config: DIGEST_SKIP_WEEKENDS).
+//   - Si no hay email para una persona en Equipos → Logger.log y skip,
+//     no falla el trigger entero.
+
+function sendDailyDigest() {
+  return _runDailyDigest(null);
+}
+
+function _sendDailyDigestPreview(emailDestino) {
+  if (!emailDestino) throw new Error('emailDestino requerido. Uso: _sendDailyDigestPreview("tu@email.com")');
+  return _runDailyDigest(emailDestino);
+}
+
+function _runDailyDigest(forcedEmail) {
+  var isPreview = !!forcedEmail;
+  try {
+    // Skip fines de semana (excepto en preview, donde queremos testear cualquier día)
+    if (!isPreview && DIGEST_SKIP_WEEKENDS) {
+      var dow = new Date().getDay(); // 0=dom, 6=sab
+      if (dow === 0 || dow === 6) {
+        Logger.log('[digest] skip — fin de semana (dow=' + dow + ')');
+        return { sent: 0, skipped: 0, reason: 'weekend' };
+      }
+    }
+
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var equipos = readEquipos(ss);
+    var fbc = _loadFeriados(ss);
+    var ws = ss.getSheetByName(SHEET_ACTIVO);
+    var tasks = readTasks(ws);
+    var todayISO = Utilities.formatDate(new Date(), DIGEST_TZ, 'yyyy-MM-dd');
+    tasks.forEach(function(t){ _enrichTaskEditorial(t, todayISO, { feriadosByCountry: fbc }); });
+
+    // Relevantes: no Listo, con etaDays, y vencidas / hoy / 1-2 días
+    var relevant = tasks.filter(function(t){
+      return t.status !== 'Listo' &&
+             typeof t.etaDays === 'number' &&
+             t.etaDays <= 2;
+    });
+
+    // Agrupar por responsable
+    var byResp = {};
+    relevant.forEach(function(t){
+      var name = (t.resp||'').trim();
+      if (!name) return;
+      if (!byResp[name]) byResp[name] = { overdue: [], today: [], soon: [] };
+      if (t.etaDays < 0) byResp[name].overdue.push(t);
+      else if (t.etaDays === 0) byResp[name].today.push(t);
+      else byResp[name].soon.push(t);
+    });
+
+    // Specialist digest
+    var sent = 0, skipped = 0;
+    Object.keys(byResp).forEach(function(name){
+      var entry = _findMemberEntry(name, equipos);
+      var email = entry && entry.email ? entry.email : '';
+      if (!email) {
+        Logger.log('[digest] no email for "' + name + '" — skipping');
+        skipped++;
+        return;
+      }
+      var target = isPreview ? forcedEmail : email;
+      try {
+        _sendSpecialistDigest(target, name, byResp[name], isPreview ? email : null);
+        sent++;
+      } catch (mailErr) {
+        Logger.log('[digest] mail failed for ' + name + ' (' + email + '): ' + mailErr.message);
+        skipped++;
+      }
+    });
+
+    // Manager digest (uno por team con leaderEmail y al menos 1 tarea relevante)
+    var managerSent = 0;
+    equipos.forEach(function(team){
+      if (!team.leaderEmail) return;
+      var teamNames = (team.members||[]).slice();
+      if (team.leader) teamNames.push(team.leader);
+      var teamNamesNorm = {};
+      teamNames.forEach(function(n){ teamNamesNorm[_normalizeName(n)] = n; });
+      var teamRelevant = relevant.filter(function(t){
+        return teamNamesNorm.hasOwnProperty(_normalizeName(t.resp));
+      });
+      if (teamRelevant.length === 0) return;
+      var target = isPreview ? forcedEmail : team.leaderEmail;
+      try {
+        _sendManagerDigest(target, team, teamRelevant, isPreview ? team.leaderEmail : null);
+        managerSent++;
+      } catch (mailErr) {
+        Logger.log('[digest] manager mail failed for ' + team.code + ' (' + team.leaderEmail + '): ' + mailErr.message);
+      }
+    });
+
+    var summary = { sent: sent, skipped: skipped, managerSent: managerSent, preview: isPreview ? forcedEmail : null };
+    Logger.log('[digest] ' + JSON.stringify(summary) + ' · quota remaining: ' + MailApp.getRemainingDailyQuota());
+    return summary;
+  } catch (e) {
+    Logger.log('[digest] FAILED: ' + e.message + '\n' + (e.stack || ''));
+    throw e; // que el trigger falle ruidosamente para que aparezca en Apps Script Executions
+  }
+}
+
+function _sendSpecialistDigest(email, name, buckets, originalRecipient) {
+  var nO = buckets.overdue.length, nT = buckets.today.length, nS = buckets.soon.length;
+  var total = nO + nT + nS;
+  if (total === 0) return;
+
+  var firstName = (name || '').split(' ')[0] || name;
+  var subject = '[Legal Tracker] ' + total + ' task' + (total > 1 ? 's' : '') + ' need attention';
+  if (originalRecipient) subject = '[PREVIEW for ' + originalRecipient + '] ' + subject;
+
+  var headerNote = originalRecipient
+    ? '<p style="background:#fffbe6;padding:10px 12px;border-left:3px solid #fa8c16;font-size:13px;margin:0 0 16px;color:#7a4f02;">Preview · este digest estaba destinado a <strong>' + _digestEsc(originalRecipient) + '</strong> (' + _digestEsc(name) + ').</p>'
+    : '';
+
+  var html =
+    '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;color:#222;max-width:680px;">' +
+      headerNote +
+      '<h2 style="font-family:Georgia,serif;font-weight:400;margin:0 0 4px;font-size:24px;">Hi ' + _digestEsc(firstName) + ',</h2>' +
+      '<p style="margin:0 0 20px;color:#555;">Tu agenda de tareas que necesitan atención hoy.</p>' +
+      (nO > 0 ? _renderDigestTable(buckets.overdue, 'Overdue · ' + nO, '#cf1322') : '') +
+      (nT > 0 ? _renderDigestTable(buckets.today,   'Due today · ' + nT, '#d48806') : '') +
+      (nS > 0 ? _renderDigestTable(buckets.soon,    'Due in 48 hours · ' + nS, '#389e0d') : '') +
+      '<p style="margin:28px 0 0;color:#888;font-size:12px;border-top:1px solid #eee;padding-top:12px;">' +
+        'Open the tracker: <a href="' + _digestEsc(WEB_APP_URL) + '" style="color:#1565c0;">' + _digestEsc(WEB_APP_URL) + '</a><br>' +
+        'You\'re getting this because you have tasks assigned in Legal Tracker.' +
+      '</p>' +
+    '</div>';
+
+  MailApp.sendEmail({ to: email, subject: subject, htmlBody: html, name: 'Legal Tracker' });
+}
+
+function _sendManagerDigest(email, team, teamTasks, originalRecipient) {
+  var nO = teamTasks.filter(function(t){ return t.etaDays < 0; }).length;
+  var nT = teamTasks.filter(function(t){ return t.etaDays === 0; }).length;
+  var nS = teamTasks.filter(function(t){ return t.etaDays > 0; }).length;
+
+  var overdueByPerson = {};
+  teamTasks.forEach(function(t){
+    if (t.etaDays >= 0) return;
+    var n = (t.resp || '—').trim();
+    overdueByPerson[n] = (overdueByPerson[n] || 0) + 1;
+  });
+  var top3 = Object.keys(overdueByPerson)
+    .map(function(n){ return { name: n, count: overdueByPerson[n] }; })
+    .sort(function(a, b){ return b.count - a.count; })
+    .slice(0, 3);
+
+  var country = team.country || team.code;
+  var subject = '[Legal Tracker · ' + country + '] Team digest — ' + nO + ' overdue';
+  if (originalRecipient) subject = '[PREVIEW for ' + originalRecipient + '] ' + subject;
+
+  var headerNote = originalRecipient
+    ? '<p style="background:#fffbe6;padding:10px 12px;border-left:3px solid #fa8c16;font-size:13px;margin:0 0 16px;color:#7a4f02;">Preview · este digest estaba destinado a <strong>' + _digestEsc(originalRecipient) + '</strong> (líder de ' + _digestEsc(country) + ').</p>'
+    : '';
+
+  var top3Html = top3.length === 0
+    ? '<p style="color:#888;font-style:italic;margin:0;">Nadie con overdue. ✓</p>'
+    : '<ol style="padding-left:20px;margin:0;">' + top3.map(function(p){
+        return '<li style="margin:4px 0;"><strong>' + _digestEsc(p.name) + '</strong> — ' + p.count + ' overdue</li>';
+      }).join('') + '</ol>';
+
+  var html =
+    '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;color:#222;max-width:680px;">' +
+      headerNote +
+      '<h2 style="font-family:Georgia,serif;font-weight:400;margin:0 0 4px;font-size:24px;">' + _digestEsc(country) + ' team digest</h2>' +
+      '<p style="margin:0 0 20px;color:#555;">Resumen agregado del equipo. Por confidencialidad no se listan tareas individuales aquí — abrí el tracker para ver detalle.</p>' +
+      '<table style="border-collapse:collapse;margin:0 0 20px;">' +
+        '<tr><td style="padding:10px 18px;background:#fff1f0;border-left:3px solid #cf1322;font-size:28px;font-weight:600;line-height:1;">' + nO + '</td><td style="padding:10px 14px;color:#555;font-size:14px;">overdue</td></tr>' +
+        '<tr><td style="padding:10px 18px;background:#fff7e6;border-left:3px solid #d48806;font-size:28px;font-weight:600;line-height:1;">' + nT + '</td><td style="padding:10px 14px;color:#555;font-size:14px;">due today</td></tr>' +
+        '<tr><td style="padding:10px 18px;background:#f6ffed;border-left:3px solid #389e0d;font-size:28px;font-weight:600;line-height:1;">' + nS + '</td><td style="padding:10px 14px;color:#555;font-size:14px;">due in 48h</td></tr>' +
+      '</table>' +
+      '<h3 style="font-family:Georgia,serif;font-weight:400;margin:16px 0 8px;font-size:16px;">Top people with overdue tasks</h3>' +
+      top3Html +
+      '<p style="margin:28px 0 0;color:#888;font-size:12px;border-top:1px solid #eee;padding-top:12px;">' +
+        'Open the team view: <a href="' + _digestEsc(WEB_APP_URL) + '" style="color:#1565c0;">' + _digestEsc(WEB_APP_URL) + '</a>' +
+      '</p>' +
+    '</div>';
+
+  MailApp.sendEmail({ to: email, subject: subject, htmlBody: html, name: 'Legal Tracker' });
+}
+
+function _renderDigestTable(tasks, title, color) {
+  if (!tasks || tasks.length === 0) return '';
+  var rows = tasks.map(function(t){
+    var url = WEB_APP_URL + (WEB_APP_URL.indexOf('?') >= 0 ? '&' : '?') + 'task=' + encodeURIComponent(t.id);
+    var prioColor = t.priority === 'Alta' ? '#cf1322' : (t.priority === 'Media' ? '#d48806' : '#888');
+    return '<tr>' +
+        '<td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;"><a href="' + _digestEsc(url) + '" style="color:#1565c0;text-decoration:none;font-family:Menlo,Consolas,monospace;font-size:12px;">#' + _digestEsc(String(t.id)) + '</a></td>' +
+        '<td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;">' + _digestEsc(t.nombre || '—') + '</td>' +
+        '<td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#666;font-size:13px;">' + _digestEsc(t.proyecto || '—') + '</td>' +
+        '<td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;color:' + prioColor + ';font-size:13px;font-weight:500;">' + _digestEsc(t.priority || '') + '</td>' +
+        '<td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;color:#666;font-size:13px;">' + _digestEsc(t.eta || '') + '</td>' +
+      '</tr>';
+  }).join('');
+  return '<h3 style="font-family:Georgia,serif;font-weight:400;color:' + color + ';margin:18px 0 6px;font-size:16px;">' + _digestEsc(title) + '</h3>' +
+    '<table style="border-collapse:collapse;width:100%;margin:0 0 8px;font-size:14px;">' +
+      '<thead><tr style="background:#fafafa;text-align:left;">' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">ID</th>' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Task</th>' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Project</th>' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Priority</th>' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">ETA</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>';
+}
+
+function _digestEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ════════════════════════════════════════════════════════════════
 // TELEMETRY · README
 // ════════════════════════════════════════════════════════════════
 // - Cómo ver los logs: Apps Script editor → "Ejecuciones" (View → Executions).
@@ -1834,3 +2319,498 @@ function testData() {
 //   closeTaskById, blockTaskById. El resto (updateTaskField, addProject,
 //   uploadDocument, etc.) no está wrappeado para minimizar diff; agregar
 //   más siguiendo el mismo patrón si hace falta más visibilidad.
+
+// ════════════════════════════════════════════════════════════════
+// FERIADOS 2026 · COPY-PASTE A LA HOJA 'Feriados'
+// ════════════════════════════════════════════════════════════════
+// Para activar el cálculo en días hábiles excluyendo feriados:
+//   1. Crear hoja llamada exactamente 'Feriados' en el spreadsheet del tracker
+//   2. Headers en fila 1: pais | fecha | nombre
+//   3. Pegar las filas de abajo (sin el // del inicio) a partir de la fila 2
+//   4. Esperar hasta 1h (cache TTL) o ejecutar manualmente
+//      `CacheService.getScriptCache().remove('feriados_v1')` en el editor
+//
+// Fuente: calendarios oficiales 2026 — CO Ley Emiliani aplicada, MX Art. 74
+// LFT + viernes santo (uso común), CR Ley 2412 + costumbre.
+// Verificá contra el calendario oficial de tu país antes de pegar.
+//
+// COLOMBIA 2026 (18 feriados)
+// CO	2026-01-01	Año Nuevo
+// CO	2026-01-12	Reyes Magos
+// CO	2026-03-23	Día de San José
+// CO	2026-04-02	Jueves Santo
+// CO	2026-04-03	Viernes Santo
+// CO	2026-05-01	Día del Trabajo
+// CO	2026-05-18	Ascensión del Señor
+// CO	2026-06-08	Corpus Christi
+// CO	2026-06-15	Sagrado Corazón
+// CO	2026-06-29	San Pedro y San Pablo
+// CO	2026-07-20	Día de la Independencia
+// CO	2026-08-07	Batalla de Boyacá
+// CO	2026-08-17	Asunción de la Virgen
+// CO	2026-10-12	Día de la Raza
+// CO	2026-11-02	Día de Todos los Santos
+// CO	2026-11-16	Independencia de Cartagena
+// CO	2026-12-08	Día de la Inmaculada Concepción
+// CO	2026-12-25	Navidad
+//
+// MÉXICO 2026 (8 feriados oficiales + Viernes Santo)
+// MX	2026-01-01	Año Nuevo
+// MX	2026-02-02	Día de la Constitución
+// MX	2026-03-16	Natalicio de Benito Juárez
+// MX	2026-04-03	Viernes Santo
+// MX	2026-05-01	Día del Trabajo
+// MX	2026-09-16	Día de la Independencia
+// MX	2026-11-02	Día de Muertos
+// MX	2026-11-16	Día de la Revolución
+// MX	2026-12-25	Navidad
+//
+// COSTA RICA 2026 (11 feriados nacionales)
+// CR	2026-01-01	Año Nuevo
+// CR	2026-04-02	Jueves Santo
+// CR	2026-04-03	Viernes Santo
+// CR	2026-04-11	Juan Santamaría
+// CR	2026-05-01	Día del Trabajo
+// CR	2026-07-25	Anexión de Guanacaste
+// CR	2026-08-02	Virgen de los Ángeles
+// CR	2026-08-15	Día de la Madre
+// CR	2026-09-15	Día de la Independencia
+// CR	2026-12-01	Abolición del Ejército
+// CR	2026-12-25	Navidad
+
+// ════════════════════════════════════════════════════════════════
+// TEMPLATES · COPY-PASTE A LA HOJA 'Templates'
+// ════════════════════════════════════════════════════════════════
+// Cómo activar: el dueño del spreadsheet crea una hoja llamada exactamente
+// 'Templates' con dos columnas en la fila 1 (headers):
+//     A: tipoTrabajo   B: checklist
+// Cada fila siguiente: una plantilla. La columna B contiene un JSON array
+// de strings — los ítems del checklist. Cuando un usuario crea una tarea
+// con ese tipoTrabajo y deja el campo 'Notas' vacío, el backend pre-rellena
+// notas con "- item1\n- item2\n…" (editable luego). Si la hoja no existe,
+// se omite el prefill silenciosamente (backwards-compat).
+//
+// Samples (copiar las filas A-B tal cual; el JSON va en una sola celda B):
+//
+// A: Revisión NDA
+// B: ["Verificar partes", "Jurisdicción aplicable", "Cláusulas IP", "Término", "Confidencialidad recíproca"]
+//
+// A: Revisión contractual
+// B: ["Partes y representación", "Objeto del contrato", "Plazo y vigencia", "Precio y forma de pago", "Resolución / terminación", "Confidencialidad", "Ley aplicable y jurisdicción"]
+//
+// A: Derecho de petición
+// B: ["Identificación del peticionario", "Hechos relevantes", "Pretensión clara", "Fundamento jurídico", "Soportes y anexos", "Plazo legal de respuesta (15 días hábiles)"]
+//
+// Cómo agregar plantillas custom: nueva fila con el tipoTrabajo exacto que
+// usás en el dropdown del form + checklist como JSON array. El cache TTL
+// es 1h (clave 'templates_v1') — para forzar refresh inmediato, hacé un
+// pequeño edit en cualquier celda de la hoja y esperá <1h o limpiá el
+// cache desde el editor de Apps Script. Filas con JSON inválido se loggean
+// (Logger.log) y se omiten sin romper la app.
+
+// ════════════════════════════════════════════════════════════════
+// EXPORTS · XLSX of filtered tracker + Monthly PDF per country
+// ════════════════════════════════════════════════════════════════
+// Dos entry-points pensados para presentaciones (board, country leaders).
+// Ambos respetan permisos: nunca se exporta una tarea que el usuario no
+// vería en la UI (rol + confidencialidad), porque parten de
+// getEditorialData() / _buildViewForRole().
+
+// Escapa contenido de usuario para inyectar en HTML (PDF report).
+function _pdfEsc(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Carpeta común "Legal Tracker · Exports" en la raíz del Drive del owner.
+// Si ya existe se reutiliza; si no, se crea (no es destructivo, solo lectura/append).
+function _getOrCreateExportsFolder() {
+  var name = 'Legal Tracker · Exports';
+  var it = DriveApp.getFoldersByName(name);
+  if (it.hasNext()) return it.next();
+  return DriveApp.createFolder(name);
+}
+
+// Aplica los filtros del UI (mismos que EDT en el frontend) sobre tareas
+// ya pre-filtradas por rol + confidencialidad.
+function _applyExportFilters(tasks, filters) {
+  filters = filters || {};
+  var out = tasks.slice();
+  // status: 'all'|'overdue'|'today'|'blocked' (mismo enum que EDT.filter) o nombre de estado literal.
+  if (filters.status && filters.status !== 'ALL' && filters.status !== 'all') {
+    var st = String(filters.status);
+    if (st === 'overdue') {
+      out = out.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; });
+    } else if (st === 'today') {
+      out = out.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; });
+    } else if (st === 'blocked') {
+      out = out.filter(function(t){ return t.status === 'Bloqueado'; });
+    } else if (st === 'open' || st === 'active') {
+      out = out.filter(function(t){ return t.status !== 'Listo'; });
+    } else {
+      // Literal status name ("En curso", "Pendiente", etc.)
+      out = out.filter(function(t){ return (t.status || '') === st; });
+    }
+  }
+  if (filters.country && filters.country !== 'ALL') {
+    var cc = String(filters.country);
+    out = out.filter(function(t){ return (t.pais || '') === cc; });
+  }
+  if (filters.project && filters.project !== 'ALL') {
+    var pf = String(filters.project);
+    out = out.filter(function(t) {
+      return String(t.proyectoId || '') === pf || (t.proyecto || '') === pf;
+    });
+  }
+  if (filters.owner && filters.owner !== 'ALL') {
+    var ow = String(filters.owner).toLowerCase();
+    out = out.filter(function(t){ return (t.resp || '').toLowerCase() === ow; });
+  }
+  if (filters.confidentiality && filters.confidentiality !== 'ALL') {
+    var cf = String(filters.confidentiality).toLowerCase();
+    out = out.filter(function(t) {
+      var lvl = (t.confidencialidad || 'estandar').toString().trim().toLowerCase() || 'estandar';
+      return lvl === cf;
+    });
+  }
+  if (filters.myOnly && filters.search) {
+    // No-op placeholder, mantained for symmetry with frontend search if needed.
+  }
+  if (filters.search) {
+    var s = String(filters.search).toLowerCase();
+    out = out.filter(function(t) {
+      return ((t.id || '') + '').toLowerCase().indexOf(s) >= 0
+          || ((t.nombre || '') + '').toLowerCase().indexOf(s) >= 0
+          || ((t.resp || '') + '').toLowerCase().indexOf(s) >= 0
+          || ((t.proyecto || '') + '').toLowerCase().indexOf(s) >= 0
+          || ((t.tipoTrabajo || '') + '').toLowerCase().indexOf(s) >= 0;
+    });
+  }
+  return out;
+}
+
+// Entry-point: genera un Spreadsheet (XLSX abrible en Google Sheets) con la
+// vista filtrada actual del tracker. Devuelve la URL del archivo.
+function exportTrackerXLSX(filters) {
+  return _telemetry('exportTrackerXLSX', function() {
+    return _exportTrackerXLSXImpl(filters);
+  }, { hasFilters: !!filters });
+}
+
+function _exportTrackerXLSXImpl(filters) {
+  // getEditorialData() ya aplica el filtrado por rol + confidencialidad
+  // (a través de _buildViewForRole). Nunca se exporta lo que el usuario
+  // no podría ver en la UI.
+  var data = getEditorialData();
+  var tasks = (data && data.tasks) || [];
+
+  // Filtros del UI encima del set rol-filtrado.
+  tasks = _applyExportFilters(tasks, filters);
+
+  var tz = 'America/Bogota';
+  var stamp = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm');
+  var fileName = 'Legal Tracker Export ' + stamp;
+  var ss = SpreadsheetApp.create(fileName);
+  var sheet = ss.getActiveSheet();
+  sheet.setName('Tracker');
+
+  var headers = ['ID','Task','Owner','Country','Lead','Status','Priority','Deadline','ETA','Created','Project','Type','Risk','Counterparty','Confidentiality','Notes'];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+
+  var rows = tasks.map(function(t) {
+    var notes = (t.notas || '').toString();
+    if (notes.length > 500) notes = notes.substring(0, 500) + '…';
+    var counterparty = t.contraparte || t.counterparty || '';
+    return _sanitizeRow([
+      t.id || '',
+      t.nombre || '',
+      t.resp || '',
+      t.pais || '',
+      t.lider || '',
+      t.status || '',
+      t.priority || '',
+      t.deadline || '',
+      t.eta || '',
+      t.creado || '',
+      t.proyecto || (t.proyectoId ? ('#' + t.proyectoId) : ''),
+      t.tipoTrabajo || '',
+      t.riesgo || '',
+      counterparty,
+      t.confidencialidad || 'estandar',
+      notes
+    ]);
+  });
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+  sheet.setFrozenRows(1);
+  try { sheet.autoResizeColumns(1, headers.length); } catch (e) {}
+
+  // Mover a la carpeta de exports + compartir con el usuario.
+  var file = DriveApp.getFileById(ss.getId());
+  try {
+    var folder = _getOrCreateExportsFolder();
+    // En API legacy, addFile + removeFile from root para mover.
+    folder.addFile(file);
+    try { DriveApp.getRootFolder().removeFile(file); } catch (e) {}
+  } catch (e) {
+    // Si falla el move, el archivo sigue accesible en la raíz del owner.
+  }
+  try {
+    var email = '';
+    try { email = Session.getActiveUser().getEmail() || ''; } catch (e) {}
+    if (email) file.addEditor(email);
+  } catch (e) {}
+
+  return {
+    success: true,
+    url: file.getUrl(),
+    fileName: fileName,
+    rowCount: rows.length
+  };
+}
+
+// Entry-point: PDF mensual por país con KPIs, cierres, abiertas al EOM y
+// top performers/proyectos. countryCode ej 'CO'; monthISO ej '2026-05'.
+function exportMonthlyCountryPDF(countryCode, monthISO) {
+  return _telemetry('exportMonthlyCountryPDF', function() {
+    return _exportMonthlyCountryPDFImpl(countryCode, monthISO);
+  }, { countryCode: countryCode || '', monthISO: monthISO || '' });
+}
+
+function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
+  if (!countryCode) throw new Error('Falta countryCode.');
+  if (!monthISO || !/^\d{4}-\d{2}$/.test(monthISO)) throw new Error('monthISO debe tener formato YYYY-MM.');
+
+  var ctx = _getAuthContext();
+  // Auth: solo head o manager del país solicitado.
+  if (ctx.role !== 'head') {
+    if (ctx.role !== 'manager' || !ctx.user || ctx.user.code !== countryCode) {
+      throw new Error('No autorizado');
+    }
+  }
+
+  var parts = monthISO.split('-');
+  var year = parseInt(parts[0], 10);
+  var monthIdx = parseInt(parts[1], 10) - 1; // 0-indexed JS
+  var monthStart = new Date(year, monthIdx, 1, 0, 0, 0);
+  var monthEnd   = new Date(year, monthIdx + 1, 1, 0, 0, 0); // exclusive
+  var monthLabel = Utilities.formatDate(monthStart, 'America/Bogota', 'MMMM yyyy');
+
+  var raw = _cachedRawData();
+  var equipos = raw.equipos || [];
+  var allActive = raw.tasks || [];
+  var allHist   = raw.historial || [];
+
+  function inCountry(t) {
+    var cc = t.pais || getCountryForMember(t.resp, equipos);
+    return cc === countryCode;
+  }
+
+  var activeC = allActive.filter(inCountry);
+  var histC   = allHist.filter(inCountry);
+
+  function parseCreado(t) {
+    if (!t.creadoRaw) return null;
+    try { return new Date(t.creadoRaw); } catch (e) { return null; }
+  }
+  function parseCerrado(t) {
+    if (!t.cerrado) return null;
+    // 'dd/MM/yyyy'
+    var p = t.cerrado.split('/');
+    if (p.length !== 3) return null;
+    var d = parseInt(p[0],10), m = parseInt(p[1],10)-1, y = parseInt(p[2],10);
+    if (isNaN(d) || isNaN(m) || isNaN(y)) return null;
+    return new Date(y, m, d);
+  }
+  function inMonth(date) {
+    if (!date) return false;
+    return date >= monthStart && date < monthEnd;
+  }
+
+  // 1) Opened in month (active + historial — la tarea puede haberse abierto y cerrado en el mismo mes).
+  var openedInMonth = activeC.concat(histC).filter(function(t) {
+    var c = parseCreado(t);
+    return inMonth(c);
+  });
+
+  // 2) Closed in month (de historial — wsHistorial guarda cerrado).
+  var closedInMonth = histC.filter(function(t) {
+    return inMonth(parseCerrado(t));
+  });
+
+  // 3) Overdue at EOM: tareas abiertas (no cerradas antes del EOM) con deadline < monthEnd.
+  // Conjunto = activas hoy con deadline < monthEnd  ∪  historial que se cerró DESPUÉS de monthEnd (todavía estaban abiertas en EOM) con deadline < monthEnd.
+  // Como aproximación honesta usamos activas hoy + historial cerrado después.
+  function deadlineBeforeEOM(t) {
+    if (!t.deadlineISO) return false;
+    try {
+      var dl = new Date(t.deadlineISO + 'T00:00:00');
+      return dl < monthEnd;
+    } catch (e) { return false; }
+  }
+  var stillOpenAtEOM = activeC.filter(function(t) {
+    // todavía abiertas (no cerradas) y creadas antes del EOM
+    var c = parseCreado(t);
+    return c && c < monthEnd && t.status !== 'Listo';
+  }).concat(histC.filter(function(t) {
+    var c = parseCreado(t);
+    var cl = parseCerrado(t);
+    return c && c < monthEnd && cl && cl >= monthEnd;
+  }));
+  var overdueAtEOM = stillOpenAtEOM.filter(deadlineBeforeEOM);
+
+  // 4) On-time %: de las cerradas en el mes, cuántas dentro de SLA.
+  var slaLimits = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
+  var onTime = 0;
+  closedInMonth.forEach(function(t) {
+    var c = parseCreado(t);
+    var cl = parseCerrado(t);
+    if (!c || !cl) return;
+    var biz = countBizDays(c, cl);
+    var lim = slaLimits[t.priority] || 5;
+    if (biz <= lim) onTime++;
+  });
+  var onTimePct = closedInMonth.length === 0 ? null : Math.round((onTime / closedInMonth.length) * 100);
+
+  // 5) Top 5 members por # cerradas en mes.
+  var perMember = {};
+  closedInMonth.forEach(function(t) {
+    var k = t.resp || '—';
+    perMember[k] = (perMember[k] || 0) + 1;
+  });
+  var topMembers = Object.keys(perMember).map(function(k){ return { name: k, count: perMember[k] }; })
+    .sort(function(a,b){ return b.count - a.count; }).slice(0, 5);
+
+  // 6) Top 5 proyectos por # cerradas en mes.
+  var perProj = {};
+  closedInMonth.forEach(function(t) {
+    var k = t.proyecto || (t.proyectoId ? ('#' + t.proyectoId) : '—');
+    perProj[k] = (perProj[k] || 0) + 1;
+  });
+  var topProjects = Object.keys(perProj).map(function(k){ return { name: k, count: perProj[k] }; })
+    .sort(function(a,b){ return b.count - a.count; }).slice(0, 5);
+
+  // Build HTML for the PDF.
+  var countryEntry = equipos.filter(function(e){ return e.code === countryCode; })[0] || {};
+  var countryName = countryEntry.country || countryCode;
+  var generatedAt = Utilities.formatDate(new Date(), 'America/Bogota', 'dd/MM/yyyy HH:mm');
+
+  function statCard(label, value, sub) {
+    return '<div class="card">'
+      + '<div class="label">' + _pdfEsc(label) + '</div>'
+      + '<div class="value">' + _pdfEsc(String(value)) + '</div>'
+      + (sub ? '<div class="sub">' + _pdfEsc(sub) + '</div>' : '')
+      + '</div>';
+  }
+
+  function rowsClosed(arr) {
+    if (!arr.length) return '<tr><td colspan="5" class="empty">No closed tasks in this month.</td></tr>';
+    return arr.map(function(t) {
+      var c = parseCreado(t), cl = parseCerrado(t);
+      var biz = (c && cl) ? countBizDays(c, cl) : null;
+      var lim = slaLimits[t.priority] || 5;
+      var sla = (biz == null) ? '—' : (biz <= lim ? 'On time (' + biz + 'd ≤ ' + lim + 'd)' : 'Late (' + biz + 'd > ' + lim + 'd)');
+      return '<tr>'
+        + '<td>' + _pdfEsc(t.id) + '</td>'
+        + '<td>' + _pdfEsc(t.nombre || '') + '</td>'
+        + '<td>' + _pdfEsc(t.resp || '') + '</td>'
+        + '<td>' + _pdfEsc(t.cerrado || '') + '</td>'
+        + '<td>' + _pdfEsc(sla) + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+  function rowsOpen(arr) {
+    if (!arr.length) return '<tr><td colspan="5" class="empty">No open tasks at end of month.</td></tr>';
+    return arr.map(function(t) {
+      return '<tr>'
+        + '<td>' + _pdfEsc(t.id) + '</td>'
+        + '<td>' + _pdfEsc(t.nombre || '') + '</td>'
+        + '<td>' + _pdfEsc(t.resp || '') + '</td>'
+        + '<td>' + _pdfEsc(t.priority || '') + '</td>'
+        + '<td>' + _pdfEsc(t.deadline || '') + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+  function rowsTop(arr, kind) {
+    if (!arr.length) return '<tr><td colspan="2" class="empty">No data.</td></tr>';
+    return arr.map(function(r) {
+      return '<tr><td>' + _pdfEsc(r.name) + '</td><td>' + r.count + ' closed</td></tr>';
+    }).join('');
+  }
+
+  var html = ''
+    + '<!doctype html><html><head><meta charset="utf-8">'
+    + '<style>'
+    +   'body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; padding: 28px; }'
+    +   'h1 { font-size: 22px; margin: 0 0 4px 0; }'
+    +   '.eyebrow { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: #888; margin-bottom: 6px; }'
+    +   '.lede { font-size: 12px; color: #555; margin-bottom: 18px; }'
+    +   '.kpis { display: table; width: 100%; border-collapse: separate; border-spacing: 8px; margin-bottom: 18px; }'
+    +   '.card { display: table-cell; border: 1px solid #ddd; padding: 10px 12px; border-radius: 4px; width: 25%; }'
+    +   '.card .label { font-size: 10px; color: #777; text-transform: uppercase; letter-spacing: 0.5px; }'
+    +   '.card .value { font-size: 22px; font-weight: bold; margin-top: 4px; }'
+    +   '.card .sub { font-size: 10px; color: #888; margin-top: 2px; }'
+    +   'h2 { font-size: 14px; margin: 20px 0 8px 0; border-bottom: 1px solid #eee; padding-bottom: 4px; }'
+    +   'table.data { width: 100%; border-collapse: collapse; font-size: 11px; }'
+    +   'table.data th, table.data td { padding: 6px 8px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }'
+    +   'table.data th { background: #f7f7f7; font-weight: bold; }'
+    +   '.empty { color: #999; font-style: italic; text-align: center; padding: 12px; }'
+    +   '.two-col { display: table; width: 100%; border-spacing: 12px 0; }'
+    +   '.two-col > div { display: table-cell; width: 50%; vertical-align: top; }'
+    +   '.footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #eee; font-size: 10px; color: #999; }'
+    + '</style></head><body>'
+    + '<div class="eyebrow">' + _pdfEsc(countryCode) + ' · Legal Tracker</div>'
+    + '<h1>Monthly report · ' + _pdfEsc(monthLabel) + '</h1>'
+    + '<div class="lede">' + _pdfEsc(countryName) + ' team activity during ' + _pdfEsc(monthLabel) + '.</div>'
+    + '<div class="kpis">'
+    +   statCard('Opened', openedInMonth.length, 'tasks created in month')
+    +   statCard('Closed', closedInMonth.length, 'tasks closed in month')
+    +   statCard('Overdue @ EOM', overdueAtEOM.length, 'open past deadline')
+    +   statCard('On-time %', onTimePct == null ? '—' : (onTimePct + '%'), onTimePct == null ? 'no closures' : 'within SLA')
+    + '</div>'
+    + '<h2>Tasks closed in month</h2>'
+    + '<table class="data">'
+    +   '<thead><tr><th>ID</th><th>Task</th><th>Owner</th><th>Closed</th><th>SLA result</th></tr></thead>'
+    +   '<tbody>' + rowsClosed(closedInMonth) + '</tbody>'
+    + '</table>'
+    + '<h2>Still open at end of month</h2>'
+    + '<table class="data">'
+    +   '<thead><tr><th>ID</th><th>Task</th><th>Owner</th><th>Priority</th><th>Deadline</th></tr></thead>'
+    +   '<tbody>' + rowsOpen(stillOpenAtEOM) + '</tbody>'
+    + '</table>'
+    + '<div class="two-col">'
+    +   '<div>'
+    +     '<h2>Top performers</h2>'
+    +     '<table class="data"><tbody>' + rowsTop(topMembers, 'member') + '</tbody></table>'
+    +   '</div>'
+    +   '<div>'
+    +     '<h2>Top projects</h2>'
+    +     '<table class="data"><tbody>' + rowsTop(topProjects, 'project') + '</tbody></table>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="footer">Generated ' + _pdfEsc(generatedAt) + ' · Confidential — internal use only.</div>'
+    + '</body></html>';
+
+  var pdfBlob = HtmlService.createHtmlOutput(html).getAs('application/pdf');
+  var fileName = 'LT_' + countryCode + '_' + monthISO + '.pdf';
+  pdfBlob.setName(fileName);
+  var folder = _getOrCreateExportsFolder();
+  var file = folder.createFile(pdfBlob);
+  try {
+    var email = '';
+    try { email = Session.getActiveUser().getEmail() || ''; } catch (e) {}
+    if (email) file.addEditor(email);
+  } catch (e) {}
+
+  return {
+    success: true,
+    url: file.getUrl(),
+    fileName: fileName
+  };
+}
