@@ -908,9 +908,11 @@ function submitTask() {
       if (res.success) {
         fm('fMsg', '✅ Tarea #' + res.id + ' creada', 'success');
         toast('Task #' + res.id + ' created', 'success');
-        ['fNom', 'fNot'].forEach(function(id){ $(id).value = ''; });
+        ['fNom', 'fNot', 'fContraparte'].forEach(function(id){ if ($(id)) $(id).value = ''; });
         $('fDl').value = '';
         if (_tagsAccHandle) _tagsAccHandle.clear();
+        var warnEl = $('fConflictWarn');
+        if (warnEl) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
         reload();
         closeCreate();
       } else {
@@ -927,8 +929,46 @@ function submitTask() {
       resp: r, lider: $('fLider').value, deadline: $('fDl').value || '',
       priority: $('fPrio').value, acc: $('fAcc').value.trim(),
       notas: $('fNot').value.trim(),
-      tipoTrabajo: $('fTipo').value, riesgo: $('fRiesgo').value
+      tipoTrabajo: $('fTipo').value, riesgo: $('fRiesgo').value,
+      contraparte: ($('fContraparte') ? $('fContraparte').value.trim() : '')
     });
+}
+
+// Audit/Conflict-of-interest check: si la tarea creada está vinculada a un proyecto que
+// declaró contrapartesConflicto, advertir al usuario (match case-insensitive
+// substring, en cualquier sentido). El warning es solo visual; no bloquea submit.
+function checkContraparteConflict() {
+  var warnEl = $('fConflictWarn');
+  if (!warnEl) return;
+  var cp = ($('fContraparte') && $('fContraparte').value || '').trim();
+  var pid = ($('fProj') && $('fProj').value) || '';
+  if (!cp || !pid) { warnEl.style.display = 'none'; warnEl.textContent = ''; return; }
+  var projects = (typeof D !== 'undefined' && D && (D.projects || D.projectList)) || [];
+  var proj = projects.find(function(p){ return String(p.id) === String(pid); });
+  if (!proj) { warnEl.style.display = 'none'; warnEl.textContent = ''; return; }
+  var declared = proj.contrapartesConflicto || [];
+  if (!Array.isArray(declared) || !declared.length) {
+    warnEl.style.display = 'none'; warnEl.textContent = '';
+    return;
+  }
+  var cpLow = cp.toLowerCase();
+  var hit = null;
+  for (var i = 0; i < declared.length; i++) {
+    var d = (declared[i] || '').toString().trim();
+    if (!d) continue;
+    var dLow = d.toLowerCase();
+    // Exacto o substring en cualquier dirección (auditoría: queremos atrapar variantes).
+    if (cpLow === dLow || cpLow.indexOf(dLow) !== -1 || dLow.indexOf(cpLow) !== -1) {
+      hit = d; break;
+    }
+  }
+  if (hit) {
+    warnEl.textContent = '⚠ Atención: contraparte coincide con conflicto declarado en proyecto "' + (proj.nombre || ('#' + proj.id)) + '" (match: ' + hit + ')';
+    warnEl.style.display = 'block';
+  } else {
+    warnEl.style.display = 'none';
+    warnEl.textContent = '';
+  }
 }
 
 // ═══ SUBMIT PROJECT ═══
@@ -1130,6 +1170,8 @@ function openEdit(id) {
       '<div class="form-group"><label>Action</label><input type="text" id="eAcc" value="' + esc(t.acc || '') + '"></div>' +
       '<div class="form-group"><label>Notes</label><input type="text" id="eNot" value="' + esc(t.notas || '') + '"></div>' +
     '</div>' +
+    '<div class="form-group" style="margin-bottom:14px"><label>Counterparty</label>' +
+      '<input type="text" id="eContraparte" value="' + esc(t.contraparte || '') + '" maxlength="120" placeholder="Contraparte (optional)"></div>' +
     renderDocsSection('task', id, t.documentos || []);
   $('editOv').classList.add('show');
 }
@@ -1216,7 +1258,8 @@ function saveEditTask() {
     proyectoId: $('eProj').value, pais: $('ePais').value,
     deadline: $('eDl').value, acc: $('eAcc').value,
     notas: $('eNot').value,
-    tipoTrabajo: $('eTipo').value, riesgo: $('eRiesgo').value
+    tipoTrabajo: $('eTipo').value, riesgo: $('eRiesgo').value,
+    contraparte: ($('eContraparte') ? $('eContraparte').value : '')
   };
   var id = EDIT_ID;
   // "Listo" dispara confirmación y mueve al historial — cerramos el modal
@@ -4653,6 +4696,11 @@ function edPanelEditCell(taskId, fieldKey) {
       return '<option value="' + esc(p.id) + '"' + sel + '>' + esc(p.nombre || ('#' + p.id)) + '</option>';
     }).join('');
     html = '<select class="tk-pcell-edit" ' + saveAttr + '>' + opts3 + '</select>';
+  } else if (fieldKey === 'contraparte') {
+    // Texto libre. Guardar al blur (Enter también dispara blur via keyHandler).
+    var cpSaveAttr = 'onkeydown="if(event.key===\'Enter\'){this.blur();}else if(event.key===\'Escape\'){this.dataset.cancel=\'1\';this.blur();}" '
+                  + 'onblur="if(this.dataset.cancel===\'1\'){edPanelCancelEdit();}else{edPanelSaveField(\'' + esc(taskId) + '\', \'contraparte\', this.value)}"';
+    html = '<input type="text" class="tk-pcell-edit" value="' + esc(task.contraparte || '') + '" maxlength="120" ' + cpSaveAttr + '>';
   }
 
   if (!html) return;
@@ -5241,6 +5289,7 @@ function rEdTracker(D) {
          +      _panelCellEditable('Risk', sel.riesgo, sel.riesgo === 'Legal alto' ? 'crit' : '',
                             sel.id, 'riesgo')
          +      _panelCellEditable('Project', pn2, '', sel.id, 'proyectoId')
+         +      _panelCellEditable('Counterparty', sel.contraparte, '', sel.id, 'contraparte')
          +    '</div>'
          +    '<div class="tk-panel-block">'
          +      '<div class="blk-lbl">— Notes</div>'

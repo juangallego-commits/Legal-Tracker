@@ -23,16 +23,20 @@ const WEB_APP_URL = 'https://script.google.com/macros/s/REEMPLAZAR_CON_URL_EXEC_
 const DIGEST_TZ = 'America/Bogota';
 const DIGEST_SKIP_WEEKENDS = true; // En sáb/dom el trigger corre pero hace early return.
 
-// Tasks: 18 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder,TipoTrabajo,Riesgo,Documentos,Confidencialidad
+// Tasks: 19 cols — ID,Nombre,Resp,Acc,Deadline,Prioridad,Estado,Semana,Creado,Cerrado,Notas,Proyecto(ID),País,Líder,TipoTrabajo,Riesgo,Documentos,Confidencialidad,Contraparte
 // La columna 18 (Confidencialidad) puede no existir todavía en la hoja: getLastColumn() devolverá
 // menos y el read defaultea a 'estandar'. Cuando el usuario agregue la columna manualmente,
 // los nuevos updates se persisten ahí.
-const TASK_COLS = 18;
+// NOTA MIGRACIÓN: las columnas TASK col 19 (Contraparte) y PROJ col 17 (ContrapartesConflicto)
+// deben agregarse manualmente al sheet antes de usar; sin la columna se defaultean a vacío.
+const TASK_COLS = 19;
 const TASK_DOCS_COL = 17; // 1-indexed
 const TASK_CONF_COL = 18; // 1-indexed
-// Projects: 16 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana,Participantes,TipoTrabajo,Riesgo,Documentos
-const PROJ_COLS = 16;
+const TASK_CONTRAPARTE_COL = 19; // 1-indexed
+// Projects: 17 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana,Participantes,TipoTrabajo,Riesgo,Documentos,ContrapartesConflicto
+const PROJ_COLS = 17;
 const PROJ_DOCS_COL = 16; // 1-indexed
+const PROJ_CONTRAPARTES_COL = 17; // 1-indexed
 
 const STATUS_ORDER = {'Bloqueado':0,'En curso':1,'Pendiente':2,'En revisión':3,'Listo':4};
 const PRIO_ORDER   = {'Alta':0,'Media':1,'Baja':2};
@@ -914,6 +918,8 @@ function readProjects(ss) {
       tipoTrabajo: (row[13]||'').toString().trim(),
       riesgo: (row[14]||'').toString().trim(),
       documentos: _parseDocs(row[15]),
+      // Col 17 (índice 16): comma-separated. Si la columna aún no existe en la hoja, default [].
+      contrapartesConflicto: (row[16] || '').toString().split(',').map(function(s){return s.trim();}).filter(Boolean),
       pctDone: 0, tasks: [], taskStats: {}
     });
   });
@@ -933,7 +939,7 @@ function _addProjectImpl(obj) {
   var ws = ss.getSheetByName(SHEET_PROYECTOS);
   if (!ws) {
     ws = ss.insertSheet(SHEET_PROYECTOS);
-    ws.appendRow(['ID','Nombre','País','Líder','Responsable','Deadline','Prioridad','Estado','Descripción','Notas','Creado','Semana','Participantes','TipoTrabajo','Riesgo','Documentos']);
+    ws.appendRow(['ID','Nombre','País','Líder','Responsable','Deadline','Prioridad','Estado','Descripción','Notas','Creado','Semana','Participantes','TipoTrabajo','Riesgo','Documentos','ContrapartesConflicto']);
     ws.getRange(1,1,1,PROJ_COLS).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
     ws.setTabColor('#FF4940');
   }
@@ -951,12 +957,19 @@ function _addProjectImpl(obj) {
     var equipos = readEquipos(ss);
     var pais  = obj.pais || getCountryForMember(obj.responsable, equipos);
     var lider = obj.lider || getLeaderForCountry(pais, equipos);
-    ws.appendRow(_sanitizeRow([
+    // contrapartesConflicto puede llegar como array o como string CSV; serializamos a string.
+    var cpc = obj.contrapartesConflicto || '';
+    if (Array.isArray(cpc)) cpc = cpc.map(function(s){ return (s == null ? '' : s.toString()).trim(); }).filter(Boolean).join(', ');
+    // Solo escribimos la col 17 si la hoja ya la tiene; appendRow trunca al ancho real.
+    var lc = ws.getLastColumn();
+    var rowVals = [
       newId, obj.nombre||'', pais, lider, obj.responsable||'',
       obj.deadline||'', obj.priority||'Media', obj.status||'Activo',
       obj.descripcion||'', obj.notas||'', new Date(), getCurrentWeekLabel(), obj.participantes||'',
       obj.tipoTrabajo||'', obj.riesgo||'', ''
-    ]));
+    ];
+    if (lc >= PROJ_CONTRAPARTES_COL) rowVals.push(cpc);
+    ws.appendRow(_sanitizeRow(rowVals));
     return {success:true, id:newId, nombre:obj.nombre||''};
   } finally {
     lock.releaseLock();
@@ -971,9 +984,13 @@ function _updateProjectFieldImpl(projId, field, value) {
   if (!current) return { success: false, error: 'Project #' + projId + ' not found' };
   _authorizeProjectWrite(ctx, current);
   var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
-  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
+  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15,'contrapartesConflicto':17};
   var col = fieldMap[field];
   if (!col) return { success: false, error: 'Invalid field: ' + field };
+  // Normalizar contrapartesConflicto: array → csv; string → trust.
+  if (field === 'contrapartesConflicto' && Array.isArray(value)) {
+    value = value.map(function(s){ return (s == null ? '' : s.toString()).trim(); }).filter(Boolean).join(', ');
+  }
   // Lock para serializar mutaciones concurrentes sobre la hoja Proyectos.
   var lock = LockService.getScriptLock();
   try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
@@ -1011,7 +1028,7 @@ function _updateProjectFieldsImpl(projId, fields) {
   }
 
   var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
-  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15};
+  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15,'contrapartesConflicto':17};
   var row = current.row;
 
   // Lock para serializar mutaciones concurrentes en hoja Proyectos.
@@ -1024,6 +1041,10 @@ function _updateProjectFieldsImpl(projId, fields) {
       var v = fields[k];
       // participantes puede llegar como array o string csv
       if (k === 'participantes' && Array.isArray(v)) v = v.join(', ');
+      // contrapartesConflicto: array → csv; string → trust.
+      if (k === 'contrapartesConflicto' && Array.isArray(v)) {
+        v = v.map(function(s){ return (s == null ? '' : s.toString()).trim(); }).filter(Boolean).join(', ');
+      }
       ws.getRange(row, col).setValue(_sanitizeCell(v));
     });
     return { success: true };
@@ -1061,7 +1082,9 @@ function readTasks(ws) {
       tipoTrabajo:(row[14]||'').toString().trim(),
       riesgo:(row[15]||'').toString().trim(),
       documentos: _parseDocs(row[16]),
-      confidencialidad: (row[17] || 'estandar').toString().trim() || 'estandar'
+      confidencialidad: (row[17] || 'estandar').toString().trim() || 'estandar',
+      // Col 19 (índice 18): single text. Default '' si la columna aún no existe.
+      contraparte: (row[18] || '').toString().trim()
     });
   });
   tasks.sort(function(a,b){return (PRIO_ORDER[a.priority]||1)-(PRIO_ORDER[b.priority]||1)||(STATUS_ORDER[a.status]||2)-(STATUS_ORDER[b.status]||2)});
@@ -1109,9 +1132,10 @@ function _addTaskImpl(taskObj) {
         }
       } catch (e) { Logger.log('addTask: template prefill skipped: ' + ((e && e.message) || e)); }
     }
+    var contraparte = (taskObj.contraparte || '').toString().trim();
     // Construimos la fila al ancho real del sheet: si el usuario aún no agregó
-    // la columna 17 (Documentos) o 18 (Confidencialidad), no las escribimos
-    // (no podemos crear columnas desde acá). Si existen, se llenan vacío/default.
+    // la columna 17 (Documentos), 18 (Confidencialidad) o 19 (Contraparte), no las
+    // escribimos (no podemos crear columnas desde acá). Si existen, se llenan default.
     var lc = ws.getLastColumn();
     var rowVals = [
       newId, taskObj.nombre||'', taskObj.resp||'', taskObj.acc||'',
@@ -1123,6 +1147,7 @@ function _addTaskImpl(taskObj) {
     // Solo agregamos columnas adicionales si la hoja las tiene; si no, appendRow las omite.
     if (lc >= 17) rowVals.push(''); // Documentos
     if (lc >= 18) rowVals.push(conf); // Confidencialidad
+    if (lc >= TASK_CONTRAPARTE_COL) rowVals.push(contraparte); // Contraparte
     ws.appendRow(_sanitizeRow(rowVals));
     return {success:true, id:newId};
   } finally {
@@ -1230,7 +1255,7 @@ function _updateTaskFieldImpl(taskId, field, value) {
   if (!current) return { success: false, error: 'Task #' + taskId + ' not found' };
   _authorizeTaskWrite(ctx, current);
 
-  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18};
+  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18,'contraparte':19};
   var col = fieldMap[field];
   if (!col) return { success: false, error: 'Invalid field: ' + field };
 
@@ -1305,7 +1330,7 @@ function _updateTaskFieldsImpl(taskId, fields) {
   }
 
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
-  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18};
+  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18,'contraparte':19};
   var row = current.row;
 
   // Lock para serializar mutaciones. moveToHistorial se llama fuera del bloque
