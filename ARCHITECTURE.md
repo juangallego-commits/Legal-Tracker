@@ -158,6 +158,7 @@ countBizDays(start, end)     // O(1) — algoritmo optimizado
 | **Task templates por TipoTrabajo** | Al crear una tarea con `TipoTrabajo` que tiene plantilla en hoja `Templates`, el campo Notas se pre-llena con checklist (`- item`). Sólo si Notas está vacío (no pisa lo que el user escribió). Hoja opcional; sin ella la app funciona igual. Cache 1h. | Auto en form crear |
 | **Conflict of interest flag** | Tasks tienen campo `contraparte`. Proyectos tienen `contrapartesConflicto` (CSV). Al crear/editar tarea ligada a proyecto, banner amarillo si contraparte de la tarea hace substring-match con cualquiera del proyecto. Audit manual, no AI. | Form crear/editar + panel detalle |
 | **Cache safety refactor** | `_safeMutation` ahora maneja LockService + invalidateCache automático en `finally`. 10 `invalidateCache()` manuales en `_*Impl` removidos (eran redundantes y frágiles). Single source of truth para concurrencia y cache. | N/A — interno |
+| **Export reports** | (a) XLSX de cualquier vista filtrada del tracker (manager + HQ) respeta rol y confidencialidad. (b) PDF mensual por país con KPIs (opened/closed/overdue, on-time %, top performers, top projects). Files se crean en folder `Legal Tracker · Exports` en Drive del owner y se shared con el caller. | Tracker view → botón `Export ⤓` (manager/head only) |
 
 ---
 
