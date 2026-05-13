@@ -731,11 +731,30 @@ function _sanitizeRow(arr) {
 }
 
 // siempre el mismo contrato (failureHandler deja la UI en estado raro).
+// Además sirve como punto único de:
+//   1) Serialización vía LockService.getDocumentLock() (30s), para que ninguna
+//      mutación concurrente colisione con otra entry-point.
+//   2) Invalidación de cache: en el finally se llama a invalidateCache() una
+//      sola vez, así los _*Impl no necesitan invocarlo manualmente (evita
+//      doble-invalidación y olvidos). Si añadís un nuevo entry-point que
+//      muta, wrappealo acá; no metas invalidateCache() en el _*Impl.
+// NOTA: los _*Impl pueden seguir usando LockService.getScriptLock() para
+// secciones críticas read-modify-write internas (es un lock distinto del
+// document lock, así que no hay deadlock; sólo redundancia barata).
 function _safeMutation(fn) {
+  var lock = LockService.getDocumentLock();
+  try {
+    lock.waitLock(30000);
+  } catch (e) {
+    return { success: false, error: 'Servidor ocupado, reintenta en un momento.' };
+  }
   try {
     return fn();
   } catch (e) {
     return { success: false, error: (e && e.message) || String(e) };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+    invalidateCache();
   }
 }
 
@@ -940,7 +959,7 @@ function _addProjectImpl(obj) {
     return {success:true, id:newId, nombre:obj.nombre||''};
   } finally {
     lock.releaseLock();
-    invalidateCache();
+    // invalidateCache() lo dispara _safeMutation en su finally; evita doble call.
   }
 }
 
@@ -962,7 +981,7 @@ function _updateProjectFieldImpl(projId, field, value) {
     return { success: true };
   } finally {
     lock.releaseLock();
-    invalidateCache();
+    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   }
 }
 
@@ -1009,7 +1028,7 @@ function _updateProjectFieldsImpl(projId, fields) {
     return { success: true };
   } finally {
     lock.releaseLock();
-    invalidateCache();
+    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   }
 }
 
@@ -1093,7 +1112,7 @@ function _addTaskImpl(taskObj) {
     return {success:true, id:newId};
   } finally {
     lock.releaseLock();
-    invalidateCache();
+    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   }
 }
 
@@ -1236,10 +1255,10 @@ function _updateTaskFieldImpl(taskId, field, value) {
   }
   if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, current.row);
-    invalidateCache();
+    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
     return { success: true, moved: true, message: 'Tarea movida a Historial' };
   }
-  invalidateCache();
+  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true };
 }
 function updateTaskStatus(taskId, newStatus) { return updateTaskField(taskId, 'status', newStatus); }
@@ -1306,10 +1325,10 @@ function _updateTaskFieldsImpl(taskId, fields) {
   }
   if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, row);
-    invalidateCache();
+    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
     return { success: true, moved: true, message: 'Tarea movida a Historial' };
   }
-  invalidateCache();
+  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true };
 }
 
@@ -1784,7 +1803,7 @@ function _uploadDocumentImpl(kind, itemId, fileData) {
               uploadedBy: ctx.user.name, uploadedAt: new Date().toISOString() };
   var docs = info.docs.concat([doc]);
   info.ws.getRange(info.row, info.col).setValue(_serializeDocs(docs));
-  invalidateCache();
+  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true, doc: doc };
 }
 
@@ -1824,7 +1843,7 @@ function _attachDocumentLinkImpl(kind, itemId, link) {
   };
   var docs = info.docs.concat([doc]);
   info.ws.getRange(info.row, info.col).setValue(_serializeDocs(docs));
-  invalidateCache();
+  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true, doc: doc };
 }
 
@@ -1843,7 +1862,7 @@ function _removeDocumentImpl(kind, itemId, docIndex) {
   if (isNaN(idx) || idx < 0 || idx >= info.docs.length) return { success: false, error: 'Índice inválido' };
   info.docs.splice(idx, 1);
   info.ws.getRange(info.row, info.col).setValue(_serializeDocs(info.docs));
-  invalidateCache();
+  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true };
 }
 
