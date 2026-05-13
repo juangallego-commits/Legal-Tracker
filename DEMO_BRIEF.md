@@ -20,7 +20,7 @@
 
 ## 2. Estado actual (v3.6 · Collaboration & Polish)
 
-**Pre-piloto Colombia lanzado 4/5/2026**. Web app interna con auth Google SSO, deployada vía clasp + GitHub Actions (cero touch para shippear).
+**Pre-piloto / validación interna**: equipo core en Colombia usando la app desde 4/5/2026 para validar flujo y data; rollout amplio (más países, más roles) aún no decidido. Web app interna con auth Google SSO, deployada vía clasp + GitHub Actions (cero touch para shippear).
 
 **Stack invisible a usuarios**: Google Apps Script + Sheets como BD. Por qué importa al stakeholder: **sin infra extra, sin licencias, sin servidores**. Costo operativo cercano a cero. Toda la data vive en el spreadsheet del equipo.
 
@@ -193,7 +193,7 @@
 - "Costo (licencias por user × N countries × tiempo), integración con la data legal existente (sheets, drive folders organizados), y customization (NDAs, confidencialidad legal, audit trail) habrían sido más caras de configurar que construir esto. Plus: el equipo legal NO quiere aprender otra tool."
 
 ### "¿Cómo testean?"
-- "Smoke tests en `tests.gs` para los 3 roles. Validación manual por el equipo CO durante el piloto. **Limitación honesta**: no hay test suite automatizado todavía. Está en el backlog."
+- "Smoke tests en `tests.gs` para los 3 roles. Validación manual por el equipo CO en la fase pre-piloto actual. **Limitación honesta**: no hay test suite automatizado todavía. Está en el backlog."
 
 ---
 
@@ -212,11 +212,11 @@ Demos opcionales si hay tiempo o curiosidad:
 ## 9. Cómo cerrar el demo
 
 **Si están convencidos**:
-- "El piloto Colombia arranca esta semana. Quiero entender qué métricas quieren ver al final del mes 1."
+- "El equipo core CO ya está usando la app (pre-piloto / validación interna desde 4/5/2026). Para pasar a piloto formal necesito definir con ustedes las métricas de éxito del mes 1."
 - "¿Qué país siguiente?" (MX típicamente es el natural)
 
 **Si están escépticos**:
-- "Démosle 4 semanas al piloto CO. Métricas: % tasks closed on-time, # cross-country reassignments, NPS del equipo."
+- "Démosle 4 semanas más de validación interna con el equipo CO antes de declarar piloto formal. Métricas: % tasks closed on-time, # cross-country reassignments, NPS del equipo."
 - "Si no cumple, mato el proyecto. Si cumple, escalamos."
 
 **Si quieren features específicos**:
