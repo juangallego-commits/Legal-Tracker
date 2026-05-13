@@ -6,7 +6,7 @@
 
 ## 1. What it is
 
-Web app interna del equipo Global Legal de Rappi+ para hacer seguimiento de tareas y proyectos legales por país, líder, prioridad y estado. **Producción · Piloto Colombia lanzado 4/5/2026**. Versión actual: `v3.6 (Collaboration & Polish)`.
+Web app interna del equipo Global Legal de Rappi+ para hacer seguimiento de tareas y proyectos legales por país, líder, prioridad y estado. **Pre-piloto / validación interna · Colombia** (equipo core usando la app desde 4/5/2026; rollout amplio aún no decidido). Versión actual: `v3.6 (Collaboration & Polish)`.
 
 UI completamente en inglés (la data en sheets sigue en español por compatibilidad; capa de display layer traduce).
 
