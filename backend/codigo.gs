@@ -19,7 +19,7 @@ const SHEET_TEMPLATES = 'Templates'; // Optional; cols: tipoTrabajo, checklist (
 // placeholder con la URL real después del primer deploy a /exec.
 // Si quedara como placeholder, los emails siguen mandándose pero los
 // links no van a ningún lado útil — los logs no fallan.
-const WEB_APP_URL = 'https://script.google.com/macros/s/REEMPLAZAR_CON_URL_EXEC_REAL/exec';
+const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyWIOIHZzUJ9yzk9nDYMm26FcEAVE6M-VisDHM8cqyA_ijnCG3YjeNIgVt2_MaJveYdCg/exec';
 const DIGEST_TZ = 'America/Bogota';
 const DIGEST_SKIP_WEEKENDS = true; // En sáb/dom el trigger corre pero hace early return.
 
