@@ -1514,23 +1514,6 @@ function edSpMenuClose() {
   document.querySelectorAll('.esp-task-menu-wrap.open').forEach(function(w){ w.classList.remove('open'); });
 }
 
-// Demo switcher (head only): dropdown custom para evitar el feo
-// menú nativo del browser que se posiciona raro en sidebars fijos.
-function edDemoMenuToggle(button) {
-  var wrap = button.parentElement; if (!wrap) return;
-  var isOpen = wrap.classList.contains('open');
-  edDemoMenuClose();
-  if (!isOpen) {
-    wrap.classList.add('open');
-    setTimeout(function() {
-      document.addEventListener('click', edDemoMenuClose, { once: true });
-    }, 0);
-  }
-}
-function edDemoMenuClose() {
-  document.querySelectorAll('.ed-demo-wrap.open').forEach(function(w){ w.classList.remove('open'); });
-}
-
 // Tiempo relativo humano: "hoy", "ayer", "hace 3d", "hace 2 sem".
 function _relativeAgo(ms) {
   if (!ms) return '';
@@ -2788,50 +2771,22 @@ var ED_NAV_BY_ROLE = {
 // se registra a su nombre).
 // Persiste en localStorage. Solo visible cuando USER.role === 'head'.
 // ───────────────────────────────────────────────────────────────
-var DEMO_AS = (function(){
-  try { return localStorage.getItem('lt-demo-as') || null; } catch (e) { return null; }
-})();
-function _isHeadReal() { return !!(USER && USER.role === 'head'); }
+// Helpers de identidad de usuario. Antes existía un "Ver como"
+// (DEMO_AS) que permitía a HQ ver la app como otro rol; se removió
+// en el piloto interno para evitar confusión de contexto.
 function _effectiveRole() {
-  if (DEMO_AS && _isHeadReal()) return DEMO_AS;
   return (USER && USER.role) || (D && D._role) || 'specialist';
 }
 function _effectiveUserName() {
-  if (DEMO_AS && _isHeadReal()) {
-    var equipos = (D && D.equipos) || [];
-    if (DEMO_AS === 'specialist' && equipos[0]) {
-      // Primer member del primer país que NO sea el lider
-      var first = (equipos[0].members || []).find(function(m){ return m && m !== equipos[0].leader; });
-      if (first) return first;
-      if (equipos[0].members && equipos[0].members[0]) return equipos[0].members[0];
-    }
-    if (DEMO_AS === 'manager' && equipos[0] && equipos[0].leader) return equipos[0].leader;
-  }
   return (USER && USER.name) || (D && D._user && D._user.name) || '';
 }
 function _effectiveUserCode() {
-  if (DEMO_AS && _isHeadReal()) {
-    var equipos = (D && D.equipos) || [];
-    if ((DEMO_AS === 'specialist' || DEMO_AS === 'manager') && equipos[0]) return equipos[0].code || '';
-    if (DEMO_AS === 'head') return '';
-  }
   return (USER && USER.code) || (D && D._user && D._user.code) || '';
 }
 // Abre el tracker editorial con la tarea seleccionada (panel detalle visible).
 function edGoTaskInTracker(taskId) {
   if (typeof EDT !== 'undefined') EDT.selectedId = taskId;
   if (typeof goEd === 'function') goEd('tracker');
-}
-
-function setDemoAs(preset) {
-  if (preset === 'real' || preset === '' || preset === null) preset = null;
-  DEMO_AS = preset;
-  try {
-    if (preset) localStorage.setItem('lt-demo-as', preset);
-    else localStorage.removeItem('lt-demo-as');
-  } catch (e) {}
-  if (typeof mountEdShell === 'function') mountEdShell();
-  if (typeof goEd === 'function') goEd('home');
 }
 
 // Helpers editoriales compartidos (usados por sidebar y los 3 homes).
@@ -3013,35 +2968,7 @@ function renderEdSidebar(role, activeViewId) {
     }
     html += '</div>';
   }
-  // Demo switcher (solo visible para el head real). Permite ver la app
-  // como specialist/manager/hq sin cambiar de cuenta.
-  var demoHtml = '';
-  if (_isHeadReal()) {
-    var demoSel = DEMO_AS || 'real';
-    var demoLabels = { real: 'Yo (real)', specialist: 'Specialist', manager: 'Manager', head: 'HQ' };
-    var currentLabel = demoLabels[demoSel] || demoLabels.real;
-    function _demoItem(k, lbl) {
-      var active = (demoSel === k) ? ' active' : '';
-      return '<div class="ed-demo-item' + active + '" data-val="' + k + '" onclick="setDemoAs(\'' + k + '\');edDemoMenuClose();">' + esc(lbl) + '</div>';
-    }
-    demoHtml = '<div class="ed-demo-switch">'
-            +   '<label class="ed-demo-lbl" title="Solo visible para HQ">Ver como</label>'
-            +   '<div class="ed-demo-wrap">'
-            +     '<button type="button" class="ed-demo-btn" onclick="edDemoMenuToggle(this)" aria-haspopup="listbox" aria-label="Cambiar rol de demo">'
-            +       '<span class="ed-demo-current">' + esc(currentLabel) + '</span>'
-            +       '<span class="ed-demo-caret">▾</span>'
-            +     '</button>'
-            +     '<div class="ed-demo-menu" role="listbox">'
-            +       _demoItem('real',       'Yo (real)')
-            +       _demoItem('specialist', 'Specialist')
-            +       _demoItem('manager',    'Manager')
-            +       _demoItem('head',       'HQ')
-            +     '</div>'
-            +   '</div>'
-            + '</div>';
-  }
-  html += demoHtml
-       + _edActivityFeed()
+  html += _edActivityFeed()
        + '<div class="ed-side-foot">'
        +   '<div class="ed-foot-av">' + esc(initials) + '</div>'
        +   '<div class="ed-foot-meta">'
@@ -5992,7 +5919,7 @@ function edUSubmit() {
     .withSuccessHandler(function(res) {
       if (typeof hideLoader === 'function') hideLoader();
       if (res && res.success === false) { if (typeof toast === 'function') toast(res.error || 'Error', 'error'); return; }
-      var msg = submittedVariant === 'cerrar' ? 'Task closed' : submittedVariant === 'bloquear' ? 'Task blocked' : 'Task advanced';
+      var msg = submittedVariant === 'cerrar' ? 'Tarea cerrada' : submittedVariant === 'bloquear' ? 'Tarea bloqueada' : 'Tarea avanzada';
       if (typeof toast === 'function') toast(msg, 'success');
       edUClose();
       google.script.run.withSuccessHandler(function(fresh) {
@@ -6014,7 +5941,7 @@ function edUSubmit() {
       }).withFailureHandler(function(e) {
         console.error(e);
         if (typeof hideLoader === 'function') hideLoader();
-        if (typeof toast === 'function') toast('Refresh error: ' + (e && e.message || 'unknown'), 'error');
+        if (typeof toast === 'function') toast('Error al recargar: ' + (e && e.message || 'desconocido'), 'error');
       }).getEditorialData();
     })
     .withFailureHandler(function(e) {

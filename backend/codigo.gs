@@ -14,11 +14,11 @@ const SHEET_FERIADOS  = 'Feriados'; // Manual; cols: pais (CO/MX/CR/...) | fecha
 const SHEET_TEMPLATES = 'Templates'; // Optional; cols: tipoTrabajo, checklist (JSON array of strings). See sample at EOF.
 
 // ── DAILY DIGEST ────────────────────────────────────────────────
-// URL del web app deployado (/exec). Se usa en los emails para
-// construir deep-links como WEB_APP_URL + '?task=ID'. Reemplazar el
-// placeholder con la URL real después del primer deploy a /exec.
-// Si quedara como placeholder, los emails siguen mandándose pero los
-// links no van a ningún lado útil — los logs no fallan.
+// URL del web app deployado (/exec). Se usa en los emails del digest
+// para construir deep-links como WEB_APP_URL + '?task=ID'.
+// Si rotás el deployment (Deploy → Manage deployments → nuevo /exec),
+// actualizá esta constante o los links del email apuntarán al
+// deployment viejo. Validar contra Apps Script editor → Deploy.
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyWIOIHZzUJ9yzk9nDYMm26FcEAVE6M-VisDHM8cqyA_ijnCG3YjeNIgVt2_MaJveYdCg/exec';
 const DIGEST_TZ = 'America/Bogota';
 const DIGEST_SKIP_WEEKENDS = true; // En sáb/dom el trigger corre pero hace early return.
