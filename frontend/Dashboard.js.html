@@ -1,5 +1,102 @@
 <script>
 // ════════════════════════════════════════════════════════════════
+// 0 · GLOBAL ERROR CATCHER (debe correr ANTES que nada para atrapar
+// errores de bootstrap. Auto-contenido, no depende de toast() ni del
+// resto del CSS de la app — usa estilos inline en un host propio.)
+// ════════════════════════════════════════════════════════════════
+(function(){
+  var HOST_ID = '__errhost__';
+  var LOG_KEY = 'mydash-errors';
+  var MAX_LOG = 10;
+
+  function ensureHost() {
+    var h = document.getElementById(HOST_ID);
+    if (h) return h;
+    h = document.createElement('div');
+    h.id = HOST_ID;
+    h.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:99999;display:flex;flex-direction:column;gap:8px;max-width:420px;font-family:-apple-system,BlinkMacSystemFont,Inter,system-ui,sans-serif;pointer-events:none;';
+    if (document.body) document.body.appendChild(h);
+    else document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(h); });
+    return h;
+  }
+
+  function persist(rec) {
+    try {
+      var arr = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+      arr.unshift(rec);
+      if (arr.length > MAX_LOG) arr = arr.slice(0, MAX_LOG);
+      localStorage.setItem(LOG_KEY, JSON.stringify(arr));
+    } catch(e) { /* localStorage puede estar lleno o blockeado, ignorar */ }
+  }
+
+  function showError(label, msg, detail) {
+    try {
+      var h = ensureHost();
+      if (!h) return;
+      var card = document.createElement('div');
+      card.style.cssText = 'background:#1a1a1d;border:1px solid #d04848;border-left:3px solid #d04848;border-radius:8px;padding:12px 14px;color:#f4f4f5;font-size:13px;line-height:1.45;box-shadow:0 12px 40px rgba(0,0,0,0.4);pointer-events:auto;cursor:pointer;animation:slideIn .2s ease-out;';
+      card.innerHTML = ''
+        + '<div style="display:flex;align-items:start;gap:8px;">'
+        +   '<span style="color:#e26a6a;font-weight:600;flex-shrink:0;">' + label + '</span>'
+        +   '<span style="flex:1;word-break:break-word;font-family:JetBrains Mono,SFMono-Regular,Menlo,monospace;font-size:12px;"></span>'
+        +   '<span style="color:#8a8a92;flex-shrink:0;font-size:11px;">click para copiar</span>'
+        + '</div>'
+        + (detail ? '<div style="margin-top:6px;color:#8a8a92;font-size:11px;font-family:JetBrains Mono,SFMono-Regular,Menlo,monospace;word-break:break-word;"></div>' : '');
+      card.querySelector('span:nth-child(2)').textContent = msg;
+      if (detail) card.querySelector('div:last-child').textContent = detail;
+      card.addEventListener('click', function(){
+        var txt = label + ' ' + msg + (detail ? '\n' + detail : '');
+        try { navigator.clipboard.writeText(txt); } catch(e) {}
+        card.style.opacity = '0.4';
+        setTimeout(function(){ try { h.removeChild(card); } catch(e){} }, 200);
+      });
+      h.appendChild(card);
+      // Auto-dismiss tras 15s (errores de JS son menos efímeros que toasts normales)
+      setTimeout(function(){
+        if (card.parentNode) card.style.transition = 'opacity .3s'; card.style.opacity = '0';
+        setTimeout(function(){ try { h.removeChild(card); } catch(e){} }, 300);
+      }, 15000);
+    } catch(e) { /* no podemos hacer nada si esto falla */ }
+  }
+
+  window.addEventListener('error', function(ev) {
+    var src = ev.filename ? (ev.filename.split('/').pop() + ':' + ev.lineno + ':' + ev.colno) : '';
+    var msg = (ev.error && ev.error.message) || ev.message || 'Unknown error';
+    var stack = (ev.error && ev.error.stack) || '';
+    var rec = { t: Date.now(), kind: 'error', msg: msg, src: src, stack: stack };
+    persist(rec);
+    console.error('[GlobalError]', rec);
+    showError('JS Error', msg, src);
+  });
+
+  window.addEventListener('unhandledrejection', function(ev) {
+    var reason = ev.reason;
+    var msg = (reason && reason.message) || String(reason);
+    var stack = (reason && reason.stack) || '';
+    var rec = { t: Date.now(), kind: 'rejection', msg: msg, stack: stack };
+    persist(rec);
+    console.error('[UnhandledRejection]', rec);
+    showError('Promise', msg, '');
+  });
+
+  // Helper para que el user pueda volcar el log a la consola.
+  // Uso: en DevTools, escribí `mydashErrors()` y enter.
+  window.mydashErrors = function() {
+    try {
+      var arr = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+      console.table(arr.map(function(r){
+        return { when: new Date(r.t).toISOString(), kind: r.kind, msg: r.msg, src: r.src || '' };
+      }));
+      console.log('Full records:', arr);
+      return arr;
+    } catch(e) { console.error('No se pudo leer el log:', e); return []; }
+  };
+  window.mydashClearErrors = function() {
+    try { localStorage.removeItem(LOG_KEY); console.log('Cleared.'); } catch(e) {}
+  };
+})();
+
+// ════════════════════════════════════════════════════════════════
 // 1 · CONSTANTS
 // ════════════════════════════════════════════════════════════════
 const PRIO_ORDER   = {'Alta':0,'Media':1,'Baja':2};
