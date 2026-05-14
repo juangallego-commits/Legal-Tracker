@@ -2682,10 +2682,10 @@ document.addEventListener('DOMContentLoaded', function() {
   // en la UI (pills de país, fbtn de estado, sInput, myTasksBtn).
   restoreFilters();
   syncFilterUIFromState();
-  render();
+  // render() poblaba vistas legacy (vTracker, vResumen, etc.) que el rediseño
+  // ya no muestra. Se invoca on-demand desde go() si algún rEd* fallback es necesario.
+  // render();
   // Editorial shell: sidebar + header dinámicos según rol, default a Inicio editorial.
-  // Las vistas legacy (proyectos, miequipo, analytics, historial, mistareas, resumen)
-  // siguen accesibles desde la sidebar; goEd las enrutea a go() existente.
   if (typeof mountEdShell === 'function') mountEdShell();
   if (typeof goEd === 'function') goEd('home');
   // Deep-link: si la URL trae ?task=ID, abrimos directo el panel de esa tarea.
@@ -4491,6 +4491,13 @@ function edTkBulkAction(action) {
 // Modal de bulk-reassign: picker visual en vez de window.prompt.
 // Muestra los candidates según rol: head ve todos, manager solo su país.
 // Reuse cr-overlay/cr-modal styling.
+var _EDT_BULK_REASSIGN_SELECTED = '';
+
+function _edTkBulkReasignPickPerson(name) {
+  _EDT_BULK_REASSIGN_SELECTED = name || '';
+  if (EDT._pendingReassignIds) edTkBulkReasignOpen(EDT._pendingReassignIds);
+}
+
 function edTkBulkReasignOpen(ids) {
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
   if (role !== 'manager' && role !== 'head') {
@@ -4506,45 +4513,106 @@ function edTkBulkReasignOpen(ids) {
     toast('No hay miembros del equipo a quien reasignar.', 'error');
     return;
   }
-  // Sort by name
-  candidates.sort(function(a, b){ return (a.name || '').localeCompare(b.name || ''); });
-  var opts = candidates.map(function(m) {
-    var ctry = m.country ? ' · ' + m.country : '';
-    return '<option value="' + esc(m.name) + '">' + esc(m.name) + esc(ctry) + '</option>';
-  }).join('');
+  // Sort by overdue + load
+  candidates.sort(function(a, b){
+    var aOver = a.overdue || 0, bOver = b.overdue || 0;
+    if (aOver !== bOver) return aOver - bOver;
+    var aPct = a.capacity ? (a.load || 0) / a.capacity : 0;
+    var bPct = b.capacity ? (b.load || 0) / b.capacity : 0;
+    return aPct - bPct;
+  });
+  var suggested = candidates[0];
+  var selectedName = _EDT_BULK_REASSIGN_SELECTED || (suggested ? suggested.name : '');
 
   var host = $('crHost'); if (!host) return;
   EDT._pendingReassignIds = ids.slice();
   var n = ids.length;
+
+  // Sample tasks to show in summary
+  var sampleTasks = [];
+  for (var i = 0; i < ids.length && i < 3; i++) {
+    var t = (D.tasks || []).find(function(x){ return String(x.id) === String(ids[i]); });
+    if (t) sampleTasks.push(t);
+  }
+
+  function memberCard(m) {
+    var pct = (m.capacity > 0) ? Math.min(1.15, (m.load || 0) / m.capacity) : 0;
+    var over = (m.load || 0) > (m.capacity || 0);
+    var loadColor = over ? 'var(--critical)' : pct > 0.85 ? 'var(--warn)' : 'var(--accent)';
+    var isSel = m.name === selectedName;
+    var isSug = suggested && m.name === suggested.name;
+    var esct = esc(m.name).replace(/'/g, "\\'");
+    return '<div onclick="_edTkBulkReasignPickPerson(\'' + esct + '\')" style="'
+      + 'display:grid;grid-template-columns:32px 1fr auto;align-items:center;gap:10px;'
+      + 'padding:10px 12px;border-radius:8px;cursor:pointer;'
+      + 'background:' + (isSel ? 'var(--accent-soft)' : 'transparent') + ';'
+      + 'border:1px solid ' + (isSel ? 'var(--accent)' : 'var(--line-1)') + ';'
+      + 'margin-bottom:6px">'
+      + paAvatar(m.name, 28, m.country)
+      + '<div style="min-width:0">'
+      +   '<div style="display:flex;align-items:center;gap:8px">'
+      +     '<span style="font-size:13px;font-weight:500;color:var(--fg-1)">' + esc(m.name) + '</span>'
+      +     (isSug && !_EDT_BULK_REASSIGN_SELECTED ? '<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;background:var(--accent);color:var(--accent-fg);text-transform:uppercase;letter-spacing:0.04em">Sugerido</span>' : '')
+      +     (over ? '<span class="pa-pill pa-pill-state-bloqueado" style="height:16px;font-size:10px"><span class="dot"></span> Sobre capacidad</span>' : '')
+      +   '</div>'
+      +   '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">' + esc(m.role || 'Specialist') + (m.country ? ' · ' + esc(m.country) : '') + '</div>'
+      + '</div>'
+      + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:120px">'
+      +   '<div style="display:flex;align-items:center;gap:6px">'
+      +     '<span style="width:70px;height:5px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + Math.min(100, pct * 100) + '%;background:' + loadColor + '"></span></span>'
+      +     '<span class="mono" style="font-size:10px;color:' + (over ? 'var(--critical-fg)' : 'var(--fg-2)') + ';min-width:38px;text-align:right">' + (m.load || 0) + '/' + (m.capacity || 0) + '</span>'
+      +   '</div>'
+      +   '<div class="mono" style="font-size:10px;color:' + ((m.overdue || 0) > 0 ? 'var(--critical-fg)' : 'var(--good-fg)') + '">'
+      +     ((m.overdue || 0) > 0 ? m.overdue + ' vencidas' : 'sin vencidas')
+      +   '</div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  var memberList = candidates.map(memberCard).join('');
+
+  var sampleHtml = sampleTasks.map(function(t) {
+    return '<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:2px 0">'
+         +   '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(t.id) + '</span>'
+         +   '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(t.nombre || '') + '</span>'
+         +   '<span style="font-size:11px;color:var(--fg-3);display:flex;align-items:center;gap:4px">de ' + paAvatar(t.resp || '?', 14) + ' ' + esc((t.resp || '').split(' ')[0]) + '</span>'
+         + '</div>';
+  }).join('');
+  if (ids.length > sampleTasks.length) {
+    sampleHtml += '<div style="font-size:11px;color:var(--fg-3);padding:4px 0">+ ' + (ids.length - sampleTasks.length) + (ids.length - sampleTasks.length === 1 ? ' tarea más' : ' tareas más') + '</div>';
+  }
+
   host.innerHTML = ''
     + '<div class="cr-overlay" onclick="if(event.target===this)edTkBulkReasignClose()">'
     +   '<div class="cr-backdrop" onclick="edTkBulkReasignClose()"></div>'
-    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Reasignación masiva" style="max-width:520px">'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Reasignación masiva" style="max-width:580px">'
     +     '<div class="cr-head">'
-    +       '<div>'
-    +         '<div class="cr-eye">— Reasignación masiva</div>'
+    +       '<div style="width:32px;height:32px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;flex-shrink:0">'
+    +         paIcon('users', 16)
+    +       '</div>'
+    +       '<div style="flex:1">'
     +         '<div class="cr-title">Reasignar ' + n + (n === 1 ? ' tarea' : ' tareas') + '</div>'
+    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">El nuevo responsable va a recibir una notificación. La asignación previa queda en el historial.</div>'
     +       '</div>'
     +       '<button type="button" class="cr-x" onclick="edTkBulkReasignClose()" aria-label="Cerrar">×</button>'
     +     '</div>'
     +     '<div class="cr-body">'
-    +       '<div class="cr-field">'
-    +         '<div class="cr-label">Nuevo responsable <span class="req">*</span></div>'
-    +         '<select id="edTkBulkReasignSel" class="cr-input">'
-    +           '<option value="" disabled selected>Seleccionar…</option>'
-    +           opts
-    +         '</select>'
-    +         '<div class="cr-foot-info" style="margin-top:8px;padding:0">'
-    +           (role === 'manager'
-              ? 'Solo podés reasignar dentro de tu equipo (' + esc(userCode || '—') + ').'
-              : 'Como HQ podés elegir cualquier miembro del roster.')
-    +         '</div>'
+    +       (sampleHtml ? '<div style="padding:10px 12px;background:var(--bg-2);border-radius:6px;margin-bottom:14px">'
+    +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">Vas a reasignar</div>'
+    +         sampleHtml
+    +       + '</div>' : '')
+    +       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">'
+    +         '<label style="font-size:12px;color:var(--fg-2);font-weight:500">Nuevo responsable <span class="req">*</span></label>'
+    +         '<span style="font-size:11px;color:var(--fg-3)">' + (role === 'manager' ? 'Equipo ' + esc(userCode || '—') : 'Roster LATAM') + ' · ' + candidates.length + ' personas</span>'
     +       '</div>'
+    +       '<div style="max-height:260px;overflow-y:auto">' + memberList + '</div>'
     +     '</div>'
     +     '<div class="cr-foot">'
-    +       '<div class="cr-foot-info">' + n + (n === 1 ? ' tarea será reasignada.' : ' tareas serán reasignadas.') + ' El backend valida permisos tarea por tarea.</div>'
-    +       '<button type="button" class="ed-btn" onclick="edTkBulkReasignClose()">Cancelar</button>'
-    +       '<button type="button" class="ed-btn accent" onclick="edTkBulkReasignConfirm()">Reasignar</button>'
+    +       '<div class="cr-foot-info">'
+    +         (selectedName ? paIcon('bell', 11) + ' Notifica a <b>' + esc(selectedName) + '</b> y a los responsables actuales' : 'Elegí un responsable para continuar.')
+    +       '</div>'
+    +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edTkBulkReasignClose()">Cancelar</button>'
+    +       '<button type="button" class="pa-btn pa-btn-primary" ' + (selectedName ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"') + ' onclick="edTkBulkReasignConfirm()">' + paIcon('check', 12) + ' Reasignar' + (selectedName ? ' a ' + esc(selectedName.split(' ')[0]) : '') + '</button>'
     +     '</div>'
     +   '</div>'
     + '</div>';
@@ -4552,10 +4620,10 @@ function edTkBulkReasignOpen(ids) {
 function edTkBulkReasignClose() {
   var host = $('crHost'); if (host) host.innerHTML = '';
   EDT._pendingReassignIds = null;
+  _EDT_BULK_REASSIGN_SELECTED = '';
 }
 function edTkBulkReasignConfirm() {
-  var sel = $('edTkBulkReasignSel');
-  var newResp = sel && sel.value;
+  var newResp = _EDT_BULK_REASSIGN_SELECTED;
   if (!newResp) { toast('Primero elegí un responsable.', 'error'); return; }
   var ids = EDT._pendingReassignIds || [];
   edTkBulkReasignClose();
@@ -4697,62 +4765,104 @@ function _edReasignarRender() {
 
   var candidates = _edReasignarCandidates(role, _effectiveUserCode());
   var currentResp = task.resp || '';
-  // Asegurar que el responsable actual esté en el select aunque haya quedado fuera del scope.
-  var hasCurrent = candidates.some(function(m){ return m.name === currentResp; });
-  var optsHtml = '';
-  if (currentResp && !hasCurrent) {
-    optsHtml += '<option value="' + esc(currentResp) + '">' + esc(currentResp) + ' (current)</option>';
+  // Excluir current resp del listado pickeable
+  var pickable = candidates.filter(function(m){ return m.name !== currentResp; });
+
+  // Sugerido: el de menor carga sin vencidas
+  var suggested = null;
+  if (pickable.length) {
+    suggested = pickable.slice().sort(function(a, b) {
+      var aOver = a.overdue || 0, bOver = b.overdue || 0;
+      if (aOver !== bOver) return aOver - bOver;
+      var aPct = a.capacity ? (a.load || 0) / a.capacity : 0;
+      var bPct = b.capacity ? (b.load || 0) / b.capacity : 0;
+      return aPct - bPct;
+    })[0];
   }
-  optsHtml += candidates.map(function(m){
-    var sel = (m.name === currentResp) ? ' selected' : '';
-    var ctry = m.country ? ' · ' + m.country : '';
-    return '<option value="' + esc(m.name) + '"' + sel + '>' + esc(m.name) + esc(ctry) + '</option>';
-  }).join('');
-  if (!optsHtml) {
-    optsHtml = '<option value="" disabled selected>No hay responsables disponibles</option>';
+
+  var selectedName = EDR.value || (suggested ? suggested.name : '');
+
+  function memberCard(m) {
+    var pct = (m.capacity > 0) ? Math.min(1.15, (m.load || 0) / m.capacity) : 0;
+    var over = (m.load || 0) > (m.capacity || 0);
+    var loadColor = over ? 'var(--critical)' : pct > 0.85 ? 'var(--warn)' : 'var(--accent)';
+    var isSel = m.name === selectedName;
+    var isSug = suggested && m.name === suggested.name;
+    return '<div onclick="edReasignarSetValue(\'' + esc(m.name).replace(/'/g, "\\'") + '\');_edReasignarRender()" style="'
+      + 'display:grid;grid-template-columns:32px 1fr auto;align-items:center;gap:10px;'
+      + 'padding:10px 12px;border-radius:8px;cursor:pointer;'
+      + 'background:' + (isSel ? 'var(--accent-soft)' : 'transparent') + ';'
+      + 'border:1px solid ' + (isSel ? 'var(--accent)' : 'var(--line-1)') + ';'
+      + 'margin-bottom:6px">'
+      + paAvatar(m.name, 28, m.country)
+      + '<div style="min-width:0">'
+      +   '<div style="display:flex;align-items:center;gap:8px">'
+      +     '<span style="font-size:13px;font-weight:500;color:var(--fg-1)">' + esc(m.name) + '</span>'
+      +     (isSug ? '<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;background:var(--accent);color:var(--accent-fg);text-transform:uppercase;letter-spacing:0.04em">Sugerido</span>' : '')
+      +     (over ? '<span class="pa-pill pa-pill-state-bloqueado" style="height:16px;font-size:10px"><span class="dot"></span> Sobre capacidad</span>' : '')
+      +   '</div>'
+      +   '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">' + esc(m.role || 'Specialist') + (m.country ? ' · ' + esc(m.country) : '') + '</div>'
+      + '</div>'
+      + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:120px">'
+      +   '<div style="display:flex;align-items:center;gap:6px">'
+      +     '<span style="width:70px;height:5px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + Math.min(100, pct * 100) + '%;background:' + loadColor + '"></span></span>'
+      +     '<span class="mono" style="font-size:10px;color:' + (over ? 'var(--critical-fg)' : 'var(--fg-2)') + ';min-width:38px;text-align:right">' + (m.load || 0) + '/' + (m.capacity || 0) + '</span>'
+      +   '</div>'
+      +   '<div class="mono" style="font-size:10px;color:' + ((m.overdue || 0) > 0 ? 'var(--critical-fg)' : 'var(--good-fg)') + '">'
+      +     ((m.overdue || 0) > 0 ? m.overdue + ' vencidas' : 'sin vencidas')
+      +   '</div>'
+      + '</div>'
+      + '</div>';
   }
+
+  var memberList = pickable.length
+    ? pickable.map(memberCard).join('')
+    : '<div style="padding:18px;text-align:center;color:var(--fg-3);font-size:13px">No hay responsables disponibles para reasignar.</div>';
+
+  var scopeMsg = role === 'manager'
+    ? 'Equipo ' + esc(_effectiveUserCode() || '—') + ' · ' + pickable.length + ' specialists'
+    : 'Roster LATAM · ' + pickable.length + ' personas';
 
   host.innerHTML = ''
     + '<div class="cr-overlay" onclick="if(event.target===this)edReasignarClose()">'
     +   '<div class="cr-backdrop" onclick="edReasignarClose()"></div>'
-    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Reasignar tarea" style="max-width:520px">'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Reasignar tarea" style="max-width:580px">'
     +     '<div class="cr-head">'
-    +       '<div>'
-    +         '<div class="cr-eye">— Reasignar tarea</div>'
-    +         '<div class="cr-title">' + esc(task.id) + ' · ' + esc(task.nombre || '') + '</div>'
+    +       '<div style="width:32px;height:32px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;flex-shrink:0">'
+    +         paIcon('users', 16)
+    +       '</div>'
+    +       '<div style="flex:1">'
+    +         '<div class="cr-title">Reasignar tarea</div>'
+    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">El nuevo responsable va a recibir una notificación. La asignación previa queda en el historial.</div>'
     +       '</div>'
     +       '<button type="button" class="cr-x" onclick="edReasignarClose()" aria-label="Cerrar">×</button>'
     +     '</div>'
     +     '<div class="cr-body">'
-    +       '<div class="cr-field">'
-    +         '<div class="cr-label">Responsable actual</div>'
-    +         '<div style="font-size:14px;color:var(--ink);font-weight:600">' + esc(currentResp || '—') + '</div>'
-    +       '</div>'
-    +       '<div class="cr-field">'
-    +         '<div class="cr-label">Reasignar a <span class="req">*</span></div>'
-    +         '<select id="edReasignarSel" class="cr-input" onchange="edReasignarSetValue(this.value)">'
-    +           optsHtml
-    +         '</select>'
-    +         '<div class="cr-foot-info" style="margin-top:8px;padding:0">'
-    + (role === 'manager'
-        ? 'Solo podés reasignar dentro de tu equipo (' + esc(_effectiveUserCode() || '—') + ').'
-        : 'Como HQ podés reasignar a cualquier miembro del roster.')
+    +       '<div style="padding:10px 12px;background:var(--bg-2);border-radius:6px;margin-bottom:14px">'
+    +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">Vas a reasignar</div>'
+    +         '<div style="display:flex;align-items:center;gap:8px;font-size:13px">'
+    +           '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(task.id) + '</span>'
+    +           '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-1)">' + esc(task.nombre || '') + '</span>'
+    +           '<span style="font-size:11px;color:var(--fg-3);display:flex;align-items:center;gap:4px">de ' + paAvatar(currentResp || '?', 14) + ' ' + esc(currentResp || '—') + '</span>'
     +         '</div>'
     +       '</div>'
+    +       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">'
+    +         '<label style="font-size:12px;color:var(--fg-2);font-weight:500">Nuevo responsable <span class="req">*</span></label>'
+    +         '<span style="font-size:11px;color:var(--fg-3)">' + scopeMsg + '</span>'
+    +       '</div>'
+    +       '<div style="max-height:280px;overflow-y:auto">' + memberList + '</div>'
     +     '</div>'
     +     '<div class="cr-foot">'
-    +       '<div class="cr-foot-info">El backend valida permisos antes de aplicar el cambio.</div>'
-    +       '<button type="button" class="ed-btn" onclick="edReasignarClose()">Cancelar</button>'
-    +       '<button type="button" class="ed-btn accent" onclick="edReasignarConfirm()">Confirmar</button>'
+    +       '<div class="cr-foot-info">'
+    +         (selectedName ? paIcon('bell', 11) + ' Notifica a <b>' + esc(selectedName) + '</b> y al responsable actual.' : 'Elegí un responsable para continuar.')
+    +       '</div>'
+    +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edReasignarClose()">Cancelar</button>'
+    +       '<button type="button" class="pa-btn pa-btn-primary" ' + (selectedName ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"') + ' onclick="edReasignarConfirm()">' + paIcon('check', 12) + ' Reasignar' + (selectedName ? ' a ' + esc(selectedName.split(' ')[0]) : '') + '</button>'
     +     '</div>'
     +   '</div>'
     + '</div>';
 
-  // Inicializar EDR.value con el valor actual del select tras montar.
-  setTimeout(function(){
-    var s = $('edReasignarSel');
-    if (s) EDR.value = s.value || '';
-  }, 0);
+  if (selectedName) EDR.value = selectedName;
 }
 
 function edReasignarOpen(taskId) {
@@ -5844,72 +5954,81 @@ function rEdAgrupadas(D) {
   var tasks = (D && D.tasks) ? D.tasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; }) : [];
   var b = _agBuckets(tasks);
   var totalActive = b.overdue.length + b.today.length + b.week.length + b.later.length;
-  var firstName = name ? name.split(/\s+/)[0] : '';
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
 
-  var html = ''
-    + '<div class="ed-eye">' + esc((firstName ? firstName + ' · ' : '') + 'Mis tareas — por urgencia' + (todayLine ? ' · ' + todayLine : '')) + '</div>'
-    + '<h1 class="ed-h1">' + esc(String(totalActive).padStart(2,'0')) + ' tareas, cuatro <em>franjas de tiempo</em>.</h1>'
-    + '<p class="ed-lede">Lectura rápida antes de meterte en la tabla densa: dónde está cada cosa y qué resolver primero. Arrancá por las urgentes — el grupo "después" puede esperar.</p>'
-    + '<div class="ag-tabs">'
-    +   '<div class="ag-tab active">Por prioridad</div>'
-    +   '<div class="ag-tab disabled" title="Próximamente" aria-disabled="true">Por proyecto · pronto</div>'
-    +   '<div class="ag-tab disabled" title="Próximamente" aria-disabled="true">Por tipo · pronto</div>'
-    +   '<div class="ag-tab disabled" title="Próximamente" aria-disabled="true">Por riesgo · pronto</div>'
-    + '</div>';
+  var html = '<div class="pa-page">';
 
-  var buckets = [
-    { key: 'overdue', tone: 'warn', title: 'Vencidas',    tasks: b.overdue },
-    { key: 'today',   tone: 'warn', title: 'Vencen hoy',  tasks: b.today },
-    { key: 'week',    tone: '',     title: 'Esta semana', tasks: b.week },
-    { key: 'later',   tone: '',     title: 'Después',     tasks: b.later }
-  ];
+  // Page header
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">Por urgencia</span>'
+       +    '<span class="pa-page-sub">' + totalActive + ' tareas en 4 franjas</span>'
+       +    '<span class="pa-page-meta">' + esc(todayLine || '') + '</span>'
+       + '</div>';
 
-  for (var i = 0; i < buckets.length; i++) {
-    var bk = buckets[i];
-    html += '<div class="ag-bucket">'
-         +    '<div class="ag-bhead">'
-         +      '<div class="ag-btitle ' + bk.tone + '">— ' + esc(bk.title) + '</div>'
-         +      '<div class="ag-bcount">' + (bk.tasks.length ? String(bk.tasks.length) : "—") + '</div>'
-         +      '<div class="ag-bnarr">' + _agBucketNarr(bk.key, bk.tasks) + '</div>'
-         +    '</div>';
-    if (bk.tasks.length === 0) {
-      html += '<div style="padding:14px 0;font-size:12px;color:var(--dim)">No hay tareas en esta franja.</div>';
-    } else {
-      html += '<div class="ag-cards">';
-      for (var k = 0; k < bk.tasks.length; k++) {
-        var t = bk.tasks[k];
-        var tone = _etaToneClass(t.etaDays, t.status);
-        var pn = _projNameForTask(t);
-        var sla = t.slaTarget || '';
-        var cfLvl = _confLevel(t);
-        var cfMeta = ED_CONF_LEVELS[cfLvl];
-        var actionHtml = t.blockedReason
-          ? '<span class="warn">Waiting on ' + esc(t.blockedReason) + '.</span> ' + esc(t.accionable || '')
-          : esc(t.accionable || '');
-        html += '<div class="ag-card" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
-             +    '<div class="ag-card-meta">'
-             +      '<span>' + esc(t.id) + '</span>'
-             +      '<span class="sep">·</span>'
-             +      '<span>' + esc(pn) + '</span>'
-             +      (sla ? '<span class="sep">·</span><span>SLA ' + esc(sla) + '</span>' : '')
-             +      '<span class="sep">·</span>'
-             +      '<span class="cf-dot ' + cfLvl + '" title="Confidentiality: ' + esc(cfMeta.label) + '"></span>'
-             +    '</div>'
-             +    '<div class="ag-card-name">' + esc(t.nombre || '') + '</div>'
-             +    '<div class="ag-card-action">' + actionHtml + '</div>'
-             +    '<div class="ag-card-foot">'
-             +      '<span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(_priorityLabel(t.priority)) + '</span>'
-             +      '<span class="ed-pill ' + _statusClass(t.status) + '">' + esc(_statusLabel(t.status)) + '</span>'
-             +      '<span class="ag-card-eta ' + tone + '">' + esc(t.eta || '') + '</span>'
-             +    '</div>'
-             + '</div>';
-      }
-      html += '</div>';
-    }
-    html += '</div>';
+  if (totalActive > 0) {
+    html += '<div class="pa-narrative">Lectura rápida antes del tracker — arrancá por las urgentes; "Después" puede esperar.</div>';
   }
 
+  // 4 KPIs
+  html += '<div class="pa-kpis">'
+       +    '<div class="pa-kpi ' + (b.overdue.length ? 'is-critical' : '') + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas</div>'
+       +      '<div class="val">' + b.overdue.length + '</div>'
+       +      '<div class="delta">' + (b.overdue.length ? 'requieren acción ahora' : 'todo al día') + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (b.today.length ? 'is-warn' : '') + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> Vencen hoy</div>'
+       +      '<div class="val">' + b.today.length + '</div>'
+       +      '<div class="delta">' + (b.today.length ? 'cerrar antes de fin de día' : 'día limpio') + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi">'
+       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Esta semana</div>'
+       +      '<div class="val">' + b.week.length + '</div>'
+       +      '<div class="delta">en cola</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi">'
+       +      '<div class="lab"><span class="dot" style="background:var(--fg-3)"></span> Después</div>'
+       +      '<div class="val">' + b.later.length + '</div>'
+       +      '<div class="delta">SLA cómodo</div>'
+       +    '</div>'
+       + '</div>';
+
+  // Buckets como secciones con tabla densa
+  var buckets = [
+    { key: 'overdue', title: 'Vencidas',    tasks: b.overdue, dotColor: 'var(--critical)' },
+    { key: 'today',   title: 'Vencen hoy',  tasks: b.today,   dotColor: 'var(--warn)' },
+    { key: 'week',    title: 'Esta semana', tasks: b.week,    dotColor: 'var(--info)' },
+    { key: 'later',   title: 'Después',     tasks: b.later,   dotColor: 'var(--fg-3)' }
+  ];
+
+  buckets.forEach(function(bk) {
+    html += '<div class="pa-section-h">'
+         +    '<h3><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + bk.dotColor + ';margin-right:8px;vertical-align:middle"></span>' + esc(bk.title) + '</h3>'
+         +    '<span class="meta">' + (bk.tasks.length ? bk.tasks.length + (bk.tasks.length === 1 ? ' tarea' : ' tareas') : '—') + '</span>'
+         +    '<span class="meta" style="color:var(--fg-3);margin-left:auto">' + _agBucketNarr(bk.key, bk.tasks).replace(/<[^>]+>/g, '') + '</span>'
+         + '</div>';
+    if (bk.tasks.length === 0) {
+      html += '<div class="pa-card" style="text-align:center;color:var(--fg-3);padding:18px">No hay tareas en esta franja.</div>';
+    } else {
+      html += '<div class="pa-tbl">';
+      bk.tasks.forEach(function(t) {
+        var pn = _projNameForTask(t);
+        var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
+        var conf = _confLevel(t);
+        html += '<div class="pa-tbl-r" style="grid-template-columns: 20px 64px 1fr 100px 110px 90px" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
+             +    paConfDot(conf)
+             +    '<span class="id mono">' + esc(t.id) + '</span>'
+             +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + '</span></div>'
+             +    paPriorityPill(t.priority)
+             +    paStatusPill(t.status)
+             +    '<span class="eta mono' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(t.eta || paEtaText(t.etaDays)) + '</span>'
+             + '</div>';
+      });
+      html += '</div>';
+    }
+  });
+
+  html += '</div>'; // pa-page
   v.innerHTML = html;
 }
 
@@ -6984,57 +7103,77 @@ function rEdProyectosIndex(D) {
   var totalParticipant = open.length - totalOwner;
   var myTasksInOpen    = open.reduce(function(acc, p){ return acc + tasks.filter(function(t){ return t.proyectoId == p.id && t.resp === userName; }).length; }, 0);
 
-  var html = ''
-    + '<div class="ed-eye">Mis proyectos</div>'
-    + '<h1 class="ed-h1">' + cActivos + ' frente' + (cActivos === 1 ? '' : 's') + ' abiertos. <em>' + totalOwner + ' propio' + (totalOwner === 1 ? '' : 's') + ',</em><br>' + totalParticipant + ' acompañado' + (totalParticipant === 1 ? '' : 's') + '.</h1>'
-    + '<p class="ed-lede">'
-    +   'Estás en <b>' + cActivos + ' proyectos activos</b>. Sos owner de <b>' + totalOwner + '</b> y participante de <b>' + totalParticipant + '</b>. Sumadas, son <b>' + myTasksInOpen + ' tarea' + (myTasksInOpen === 1 ? '' : 's') + ' tuya' + (myTasksInOpen === 1 ? '' : 's') + '</b> repartidas entre ellos.'
-    + '</p>';
+  var html = '<div class="pa-page">';
 
-  function tab(key, label, count) {
-    var active = EDP.tab === key ? ' active' : '';
-    return '<span class="pi-tab' + active + '" onclick="edPSetTab(\'' + key + '\')">'
-         +    esc(label) + '<span class="pi-tab-c">' + count + '</span>'
-         + '</span>';
-  }
-  html += '<div class="pi-toolbar">'
-       +    '<div class="pi-tabs">'
-       +      tab('activos',    'Activos',          cActivos)
-       +      tab('participas', 'Donde participas', cParticipas)
-       +      tab('lideras',    'Que lideras',      cLideras)
-       +      tab('cerrados',   'Cerrados',         cCerrados)
+  // Page header
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">Proyectos</span>'
+       +    '<span class="pa-page-sub">' + cActivos + ' activos · ' + totalOwner + ' tuyos · ' + totalParticipant + ' acompañando</span>'
+       +    '<div class="pa-page-meta">'
+       +      '<button class="pa-btn pa-btn-outline" onclick="goEd(\'historial\')">' + paIcon('refresh', 12) + ' Historial</button>'
+       +      '<button class="pa-btn pa-btn-primary" onclick="if(typeof edCrearProyectoOpen===\'function\')edCrearProyectoOpen();else openCreate(\'newProj\')">' + paIcon('plus', 12) + ' Nuevo proyecto</button>'
        +    '</div>'
-       +    '<div class="pi-sort">Orden: por urgencia ↓</div>'
+       + '</div>';
+
+  if (cActivos > 0) {
+    html += '<div class="pa-narrative">Estás en <b>' + cActivos + ' proyectos activos</b> con <b>' + myTasksInOpen + ' tarea' + (myTasksInOpen === 1 ? '' : 's') + ' tuya' + (myTasksInOpen === 1 ? '' : 's') + '</b>.</div>';
+  }
+
+  // Filter chips
+  function chip(key, label, count) {
+    var cls = 'pa-chip' + (EDP.tab === key ? ' is-active' : '');
+    return '<div class="' + cls + '" onclick="edPSetTab(\'' + key + '\')">' + esc(label) + ' <span class="ct">' + count + '</span></div>';
+  }
+  html += '<div class="pa-filterbar">'
+       +    chip('activos', 'Activos', cActivos)
+       +    chip('participas', 'Donde participo', cParticipas)
+       +    chip('lideras', 'Que lidero', cLideras)
+       +    '<div class="pa-chip-divider"></div>'
+       +    chip('cerrados', 'Cerrados', cCerrados)
+       +    '<div style="margin-left:auto;font-size:11px;color:var(--fg-3)">Orden: por urgencia</div>'
        + '</div>';
 
   if (enriched.length === 0) {
-    html += _emptyState('📁', 'No projects here',
-                        'Try changing the filter or create a new one.',
-                        '+ Create project',
-                        "if(typeof edCrearProyectoOpen==='function')edCrearProyectoOpen();else if(typeof openCreate==='function')openCreate('newProj')");
+    html += '<div class="pa-card" style="text-align:center;padding:48px 20px">'
+         +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon('folder', 20) + '</div>'
+         +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">No hay proyectos en este filtro</div>'
+         +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0 14px">Cambiá el filtro o creá uno nuevo.</div>'
+         +    '<button class="pa-btn pa-btn-outline" onclick="if(typeof edCrearProyectoOpen===\'function\')edCrearProyectoOpen();else openCreate(\'newProj\')">+ Nuevo proyecto</button>'
+         + '</div>';
   } else {
-    var startIdx = 1;
-    if (EDP.tab !== 'cerrados') {
-      html += _piRenderHero(enriched[0]);
-      startIdx = 2;
-      enriched = enriched.slice(1);
-    }
-    if (enriched.length > 0) {
-      html += '<section class="ed-section" style="margin-bottom:0">'
-           +    '<div class="ed-h2">— Otros proyectos donde estás</div>';
-      for (var i = 0; i < enriched.length; i++) {
-        html += _piRenderRow(enriched[i], startIdx + i);
-      }
-      html += '</section>';
-    }
+    // Cards grid de proyectos
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));gap:12px;margin-top:6px">';
+    var paletteByIdx = ['#5b8def','#8a7ff0','#d0a86b','#3fa888','#e07a7a','#6aa6e0','#a06bcb','#cc7470'];
+    enriched.forEach(function(p, i) {
+      var color = paletteByIdx[i % paletteByIdx.length];
+      var open = (D.tasks || []).filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; }).length;
+      var done = (D.historial || []).filter(function(t){ return t.proyectoId == p.id; }).length;
+      var total = open + done;
+      var pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      var role = p.lider === userName ? 'Líder' : 'Participante';
+      html += '<div class="pa-card" style="padding:16px;cursor:pointer" onclick="edPiOpen(' + p.id + ')">'
+           +    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">'
+           +      '<span style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.04em">' + esc(role) + (p.pais ? ' · ' + esc(p.pais) : '') + '</span>'
+           +      paStatusPill(p.status === 'Activo' ? 'En curso' : (p.status === 'En pausa' ? 'Bloqueado' : 'Listo'))
+           +    '</div>'
+           +    '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px">'
+           +      '<span style="width:3px;height:32px;background:' + color + ';border-radius:2px;flex-shrink:0;margin-top:2px"></span>'
+           +      '<div style="flex:1;min-width:0">'
+           +        '<div style="font-size:14px;font-weight:600;color:var(--fg-1);line-height:1.3">' + esc(p.nombre || '') + '</div>'
+           +        '<div style="font-size:11px;color:var(--fg-3);margin-top:4px">Líder: ' + esc(p.lider || '—') + '</div>'
+           +      '</div>'
+           +    '</div>'
+           +    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+           +      '<span style="flex:1;height:4px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + pct + '%;background:' + color + '"></span></span>'
+           +      '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + done + '/' + total + '</span>'
+           +    '</div>'
+           +    '<div style="font-size:11px;color:var(--fg-3)">' + open + ' tareas activas' + (p.deadline ? ' · vence ' + esc(p.deadline) : '') + '</div>'
+           + '</div>';
+    });
+    html += '</div>';
   }
 
-  html += '<div class="pi-foot">'
-       +    '<div class="pi-foot-info"><b>' + cActivos + ' activos · ' + cCerrados + ' cerrados.</b> Los proyectos cerrados quedan en historial.</div>'
-       +    '<button class="ed-btn" onclick="goEd(\'historial\')">Ver historial</button>'
-       +    '<button class="ed-btn accent" onclick="if(typeof edCrearProyectoOpen===\'function\')edCrearProyectoOpen();else if(typeof openCreate===\'function\')openCreate(\'newProj\')">+ Nuevo proyecto</button>'
-       + '</div>';
-
+  html += '</div>'; // pa-page
   v.innerHTML = html;
 }
 
@@ -7087,25 +7226,40 @@ function rEdMisTareas(D) {
     lede = ledeBits.join(' · ') + '. Click en una fila para abrir el tracker.';
   }
 
-  var html = ''
-    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
-    + '<h1 class="ed-h1" style="margin-bottom:8px">' + h1Inner + '</h1>'
-    + '<p class="ed-lede" style="margin-bottom:28px">' + lede + '</p>';
+  var html = '<div class="pa-page">';
 
-  // HERO stats (4)
-  html += '<div class="esp-hero">'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Total activas</div>'
-       +      '<div class="esp-stat-num">' + (total ? String(total) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">en tu agenda</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
-       +      '<div class="esp-stat-num crit">' + (overdue ? String(overdue) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (overdue ? 'Resolver primero' : 'Al día') + '</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Vencen hoy</div>'
-       +      '<div class="esp-stat-num warn">' + (dueToday ? String(dueToday) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (dueToday ? 'Cerrar hoy' : 'Día limpio') + '</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Bloqueadas</div>'
-       +      '<div class="esp-stat-num crit">' + (blocked ? String(blocked) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (blocked ? 'Necesitan empuje' : '—') + '</div></div>'
+  // Page header
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">Mis tareas</span>'
+       +    '<span class="pa-page-sub">' + total + ' activas · ' + esc(todayLine || '') + '</span>'
+       + '</div>';
+
+  if (lede && total > 0) {
+    html += '<div class="pa-narrative">' + lede + '</div>';
+  }
+
+  // KPIs
+  html += '<div class="pa-kpis">'
+       +    '<div class="pa-kpi" onclick="goEd(\'agrupadas\')">'
+       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Total activas</div>'
+       +      '<div class="val">' + total + '</div>'
+       +      '<div class="delta">en tu agenda</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (overdue ? 'is-critical' : '') + '" onclick="edSetFilter(\'overdue\');goEd(\'tracker\')">'
+       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas</div>'
+       +      '<div class="val">' + overdue + '</div>'
+       +      '<div class="delta">' + (overdue ? 'resolver primero' : 'al día') + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (dueToday ? 'is-warn' : '') + '" onclick="edSetFilter(\'today\');goEd(\'tracker\')">'
+       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> Vencen hoy</div>'
+       +      '<div class="val">' + dueToday + '</div>'
+       +      '<div class="delta">' + (dueToday ? 'cerrar hoy' : 'día limpio') + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (blocked ? 'is-critical' : '') + '" onclick="edSetFilter(\'blocked\');goEd(\'tracker\')">'
+       +      '<div class="lab"><span class="dot" style="background:var(--fg-3)"></span> Bloqueadas</div>'
+       +      '<div class="val">' + blocked + '</div>'
+       +      '<div class="delta">' + (blocked ? 'necesitan empuje' : '—') + '</div>'
+       +    '</div>'
        + '</div>';
 
   // PERFORMANCE
@@ -7116,65 +7270,59 @@ function rEdMisTareas(D) {
              || (me.avgMedia && me.avgMedia !== '—')
              || (me.avgBaja && me.avgBaja !== '—');
   if (hasPerf) {
-    html += '<section class="ed-section">'
-         +    '<div class="ed-h2">— Tu mes hasta ahora</div>'
-         +    '<div class="esp-perf">'
-         +      '<div class="esp-stat"><div class="esp-stat-lbl">🔥 Racha en tiempo</div>'
-         +        '<div class="esp-stat-num good">' + (streak ? String(streak) : '—') + '</div>'
-         +        '<div class="esp-stat-ctx">tareas seguidas</div></div>'
-         +      '<div class="esp-stat"><div class="esp-stat-lbl">Prioridad alta</div>'
-         +        '<div class="esp-stat-num">' + esc(me.avgAlta || '—') + '</div>'
-         +        '<div class="esp-stat-ctx">cierre promedio · SLA 2d</div></div>'
-         +      '<div class="esp-stat"><div class="esp-stat-lbl">Media</div>'
-         +        '<div class="esp-stat-num">' + esc(me.avgMedia || '—') + '</div>'
-         +        '<div class="esp-stat-ctx">cierre promedio · SLA 5d</div></div>'
-         +      '<div class="esp-stat"><div class="esp-stat-lbl">Baja</div>'
-         +        '<div class="esp-stat-num">' + esc(me.avgBaja || '—') + '</div>'
-         +        '<div class="esp-stat-ctx">cierre promedio · SLA 7d</div></div>'
+    html += '<div class="pa-section-h"><h3>Tu mes hasta ahora</h3><span class="meta">cierre promedio · racha on-time</span></div>'
+         +  '<div class="pa-card">'
+         +    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px">'
+         +      '<div><div style="font-size:11px;color:var(--fg-3)">🔥 Racha en tiempo</div>'
+         +        '<div class="mono" style="font-size:24px;font-weight:600;color:var(--good-fg);margin-top:4px">' + (streak || '—') + '</div>'
+         +        '<div style="font-size:11px;color:var(--fg-3)">tareas seguidas</div></div>'
+         +      '<div><div style="font-size:11px;color:var(--fg-3)">Prioridad alta</div>'
+         +        '<div class="mono" style="font-size:24px;font-weight:600;margin-top:4px">' + esc(me.avgAlta || '—') + '</div>'
+         +        '<div style="font-size:11px;color:var(--fg-3)">cierre · SLA 2d</div></div>'
+         +      '<div><div style="font-size:11px;color:var(--fg-3)">Media</div>'
+         +        '<div class="mono" style="font-size:24px;font-weight:600;margin-top:4px">' + esc(me.avgMedia || '—') + '</div>'
+         +        '<div style="font-size:11px;color:var(--fg-3)">cierre · SLA 5d</div></div>'
+         +      '<div><div style="font-size:11px;color:var(--fg-3)">Baja</div>'
+         +        '<div class="mono" style="font-size:24px;font-weight:600;margin-top:4px">' + esc(me.avgBaja || '—') + '</div>'
+         +        '<div style="font-size:11px;color:var(--fg-3)">cierre · SLA 7d</div></div>'
          +    '</div>'
-         + '</section>';
+         +  '</div>';
   }
 
   // ACTIVE TASKS TABLE
-  html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Tus tareas activas</div>';
+  html += '<div class="pa-section-h">'
+       +    '<h3>Tus tareas activas</h3>'
+       +    '<span class="meta">' + total + (total === 1 ? ' tarea' : ' tareas') + '</span>'
+       +    '<button class="link" onclick="goEd(\'tracker\')">Abrir en tracker →</button>'
+       + '</div>';
 
   if (mine.length === 0) {
-    html += '<div class="ed-lede">No tenés tareas activas asignadas. '
-         +    '<button class="ed-btn" style="margin-left:12px" onclick="goEd(\'agrupadas\')">Planificar por urgencia →</button>'
-         +  '</div>';
+    html += '<div class="pa-card" style="text-align:center;padding:48px 20px">'
+         +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon('inbox', 20) + '</div>'
+         +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">Día limpio. No tenés tareas activas.</div>'
+         +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0 14px">Aprovechá para avanzar trabajo de proyecto.</div>'
+         +    '<button class="pa-btn pa-btn-outline" onclick="goEd(\'agrupadas\')">Ver por urgencia →</button>'
+         + '</div>';
   } else {
     var rows = (typeof _edSortByUrgency === 'function') ? _edSortByUrgency(mine) : mine.slice();
-    html += '<table class="tk-table">'
-         +    '<thead><tr>'
-         +      '<th></th><th>ID</th><th>Tarea</th><th>Proyecto</th>'
-         +      '<th>Prioridad</th><th>Estado</th><th>ETA</th>'
-         +    '</tr></thead><tbody>';
-    for (var i = 0; i < rows.length; i++) {
-      var t = rows[i];
+    html += '<div class="pa-tbl">';
+    rows.forEach(function(t) {
       var pn = _projNameForTask(t);
-      var meta = (t.tipoTrabajo || '—') + (t.pais ? ' · ' + t.pais : '');
-      var etaTxt = t.eta || (typeof _etaTextFromDays === 'function' ? _etaTextFromDays(t.etaDays) : '');
-      var etaTone = _etaToneClass(t.etaDays, t.status);
-      var cfLvl = _confLevel(t);
-      var cfMeta = ED_CONF_LEVELS[cfLvl];
-      html += '<tr class="tk-row" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
-           +    '<td><span class="cf-dot ' + cfLvl + '" title="' + esc(cfMeta.label) + '"></span></td>'
-           +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
-           +    '<td>'
-           +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
-           +      '<div class="tk-name-meta">' + esc(meta) + '</div>'
-           +    '</td>'
-           +    '<td>' + esc(pn) + '</td>'
-           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(_priorityLabel(t.priority)) + '</span></td>'
-           +    '<td><span class="ed-pill ' + _statusClass(t.status) + '">' + esc(_statusLabel(t.status)) + '</span></td>'
-           +    '<td><span class="tk-eta ' + etaTone + '">' + esc(etaTxt) + '</span></td>'
-           + '</tr>';
-    }
-    html += '</tbody></table>';
+      var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
+      var conf = _confLevel(t);
+      html += '<div class="pa-tbl-r" style="grid-template-columns: 20px 64px 1fr 100px 110px 90px" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
+           +    paConfDot(conf)
+           +    '<span class="id mono">' + esc(t.id) + '</span>'
+           +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + '</span></div>'
+           +    paPriorityPill(t.priority)
+           +    paStatusPill(t.status)
+           +    '<span class="eta mono' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(t.eta || paEtaText(t.etaDays)) + '</span>'
+           + '</div>';
+    });
+    html += '</div>';
   }
-  html += '</section>';
 
+  html += '</div>'; // pa-page
   v.innerHTML = html;
 }
 
@@ -7297,86 +7445,90 @@ function rEdHistorial(D) {
     lede = bits.join(' · ') + '.';
   }
 
-  var html = ''
-    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
-    + '<h1 class="ed-h1" style="margin-bottom:8px">' + h1Inner + '</h1>'
-    + '<p class="ed-lede" style="margin-bottom:28px">' + lede + '</p>';
+  var roleScope = role === 'specialist' ? 'tu historial' : (role === 'manager' ? 'en tu equipo' : 'en LATAM');
+  var html = '<div class="pa-page">';
 
-  // HERO stats (4)
-  html += '<div class="esp-hero">'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Total cerradas</div>'
-       +      '<div class="esp-stat-num">' + (total ? String(total) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (role === 'specialist' ? 'tu historial' : (role === 'manager' ? 'en tu equipo' : 'en LATAM')) + '</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">En tiempo</div>'
-       +      '<div class="esp-stat-num good">' + (onTime ? String(onTime) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">dentro de SLA</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Tarde</div>'
-       +      '<div class="esp-stat-num ' + (late > 0 ? 'crit' : '') + '">' + (late ? String(late) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (late > 0 ? 'fuera de SLA' : 'sin incumplimientos') + '</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Esta semana</div>'
-       +      '<div class="esp-stat-num">' + (thisWeek ? String(thisWeek) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">cerradas en 7d</div></div>'
+  // Page header
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">Historial</span>'
+       +    '<span class="pa-page-sub">' + total + ' cerradas · ' + esc(roleScope) + '</span>'
+       +    '<span class="pa-page-meta">' + esc(todayLine || '') + '</span>'
+       + '</div>';
+
+  if (total > 0) {
+    html += '<div class="pa-narrative">' + lede + '</div>';
+  }
+
+  // KPIs
+  html += '<div class="pa-kpis">'
+       +    '<div class="pa-kpi">'
+       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Total cerradas</div>'
+       +      '<div class="val">' + total + '</div>'
+       +      '<div class="delta">' + esc(roleScope) + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi is-good">'
+       +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> En tiempo</div>'
+       +      '<div class="val">' + onTime + '</div>'
+       +      '<div class="delta">dentro de SLA</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (late ? 'is-critical' : '') + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Tarde</div>'
+       +      '<div class="val">' + late + '</div>'
+       +      '<div class="delta">' + (late ? 'fuera de SLA' : 'sin incumplimientos') + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi">'
+       +      '<div class="lab"><span class="dot" style="background:var(--accent)"></span> Esta semana</div>'
+       +      '<div class="val">' + thisWeek + '</div>'
+       +      '<div class="delta">cerradas en 7d</div>'
+       +    '</div>'
        + '</div>';
 
   // Table
-  html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— ' + (role === 'specialist' ? 'Tus tareas cerradas' : (role === 'manager' ? 'Cerradas del equipo' : 'Cerradas LATAM')) + '</div>';
+  html += '<div class="pa-section-h">'
+       +    '<h3>' + (role === 'specialist' ? 'Tus tareas cerradas' : (role === 'manager' ? 'Cerradas del equipo' : 'Cerradas LATAM')) + '</h3>'
+       +    '<span class="meta">ordenadas por fecha (más recientes primero)</span>'
+       + '</div>';
 
   if (total === 0) {
-    html += '<div class="ed-lede">Aún no hay tareas cerradas. Cuando cierres tu primera, va a aparecer acá.</div>';
+    html += '<div class="pa-card" style="text-align:center;padding:48px 20px">'
+         +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon('refresh', 20) + '</div>'
+         +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">Aún no hay tareas cerradas.</div>'
+         +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0">Cuando cierres tu primera, va a aparecer acá.</div>'
+         + '</div>';
   } else {
-    // Order: most recent first
     var rows = hist.slice().sort(function(a, b){
       var fa = pd(a.cerrado), fb = pd(b.cerrado);
       var ta = fa ? fa.getTime() : 0;
       var tb = fb ? fb.getTime() : 0;
       return tb - ta;
     });
-
     var showResp = (role === 'manager' || role === 'head');
-
-    html += '<table class="tk-table">'
-         +    '<thead><tr>'
-         +      '<th></th><th>ID</th><th>Tarea</th><th>Proyecto</th>'
-         +      (showResp ? '<th>Responsable</th>' : '')
-         +      '<th>Prioridad</th><th>Cerrada el</th><th>Días vs SLA</th>'
-         +    '</tr></thead><tbody>';
-
-    for (var i = 0; i < rows.length; i++) {
-      var t = rows[i];
+    var cols = showResp ? '20px 64px 1fr 130px 90px 110px 90px' : '20px 64px 1fr 90px 120px 110px';
+    html += '<div class="pa-tbl">';
+    rows.forEach(function(t) {
       var pn = _projNameForTask(t);
-      var meta = (t.tipoTrabajo || '—') + (t.pais ? ' · ' + t.pais : '');
+      var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
       var dvs = _edDaysVsSla(t);
-      var cfLvl = _confLevel(t);
-      var cfMeta = ED_CONF_LEVELS[cfLvl];
-      var slaTxt, slaTone;
-      if (dvs === null) {
-        slaTxt = '—'; slaTone = 'dim';
-      } else if (dvs <= 0) {
-        slaTxt = (dvs === 0 ? 'en tiempo' : (Math.abs(dvs) + 'd antes'));
-        slaTone = 'good';
-      } else {
-        slaTxt = '+' + dvs + 'd tarde';
-        slaTone = 'crit';
-      }
-      html += '<tr class="tk-row" onclick="_edHistOnClick()">'
-           +    '<td><span class="cf-dot ' + cfLvl + '" title="Confidencialidad: ' + esc(cfMeta.label) + '"></span></td>'
-           +    '<td><span class="tk-id">' + esc(t.id) + '</span></td>'
-           +    '<td>'
-           +      '<div class="tk-name">' + esc(t.nombre || '') + '</div>'
-           +      '<div class="tk-name-meta">' + esc(meta) + '</div>'
-           +    '</td>'
-           +    '<td>' + esc(pn) + '</td>'
-           +    (showResp ? '<td>' + esc(t.resp || '—') + '</td>' : '')
-           +    '<td><span class="ed-pill ' + (t.priority || '').toLowerCase() + '">' + esc(_priorityLabel(t.priority)) + '</span></td>'
-           +    '<td style="font-family:var(--mono);font-size:12px">' + esc(t.cerrado || '—') + '</td>'
-           +    '<td><span class="tk-eta ' + slaTone + '">' + esc(slaTxt) + '</span></td>'
-           + '</tr>';
-    }
-    html += '</tbody></table>';
+      var conf = _confLevel(t);
+      var slaTxt, slaCls;
+      if (dvs === null) { slaTxt = '—'; slaCls = ''; }
+      else if (dvs <= 0) { slaTxt = (dvs === 0 ? 'en tiempo' : (Math.abs(dvs) + 'd antes')); slaCls = 'good'; }
+      else { slaTxt = '+' + dvs + 'd tarde'; slaCls = 'overdue'; }
+      var slaColor = slaCls === 'good' ? 'var(--good-fg)' : slaCls === 'overdue' ? 'var(--critical-fg)' : 'var(--fg-3)';
+      html += '<div class="pa-tbl-r" style="grid-template-columns:' + cols + '" onclick="_edHistOnClick()">'
+           +    paConfDot(conf)
+           +    '<span class="id mono">' + esc(t.id) + '</span>'
+           +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + '</span></div>'
+           +    (showResp ? '<span class="resp">' + paAvatar(t.resp || '?', 18) + '<span style="font-size:12px">' + esc(t.resp || '—') + '</span></span>' : '')
+           +    paPriorityPill(t.priority)
+           +    '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(t.cerrado || '—') + '</span>'
+           +    '<span class="mono" style="font-size:11px;color:' + slaColor + '">' + esc(slaTxt) + '</span>'
+           + '</div>';
+    });
+    html += '</div>';
   }
-  html += '</section>';
 
+  html += '</div>'; // pa-page
   v.innerHTML = html;
 }
 
@@ -7455,73 +7607,54 @@ function rEdMiequipo(D) {
     if (atRisk)    ledeBits.push('<b>' + atRisk + '</b> en riesgo');
   }
 
-  var html = ''
-    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
-    + '<h1 class="ed-h1">' + h1 + '</h1>'
-    + '<p class="ed-lede">' + ledeBits.join(' · ') + '.</p>';
+  var html = '<div class="pa-page">';
 
-  // ── Hero stats (esp-hero, 4 cells) ────────────────────────────
-  var loadCls = totalCap === 0 ? '' : (loadPct > 90 ? 'warn' : '');
-  html += '<div class="esp-hero">'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">' + (role === 'manager' ? 'Personas activas' : 'Personas LATAM') + '</div>'
-       +      '<div class="esp-stat-num">' + (visible.length || '—') + '</div>'
-       +      '<div class="esp-stat-ctx">' + (role === 'manager'
-                ? (userCode || 'tu país')
-                : (countries.length + (countries.length === 1 ? ' país' : ' países')))
-       +      '</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Carga promedio</div>'
-       +      '<div class="esp-stat-num ' + loadCls + '">' + (totalCap ? loadPct + '%' : '—') + '</div>'
-       +      '<div class="esp-stat-ctx">' + totalLoad + '/' + totalCap + ' capacidad</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Vencidas</div>'
-       +      '<div class="esp-stat-num crit">' + (totalOver ? String(totalOver) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (totalOver ? 'reasignar' : 'todo en orden') + '</div></div>'
-       +    '<div class="esp-stat"><div class="esp-stat-lbl">Bloqueadas</div>'
-       +      '<div class="esp-stat-num crit">' + (totalBlk ? String(totalBlk) : "—") + '</div>'
-       +      '<div class="esp-stat-ctx">' + (totalBlk ? 'desbloquear' : '—') + '</div></div>'
+  // Page header
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">' + (role === 'manager' ? 'Mi equipo' : 'Equipos LATAM') + '</span>'
+       +    '<span class="pa-page-sub">' + visible.length + (visible.length === 1 ? ' persona' : ' personas') + (role === 'head' ? ' · ' + countries.length + (countries.length === 1 ? ' país' : ' países') : (userCode ? ' · ' + userCode : '')) + '</span>'
        + '</div>';
 
-  // ── Empty state ───────────────────────────────────────────────
+  if (visible.length > 0) {
+    html += '<div class="pa-narrative">' + ledeBits.join(' · ') + '.</div>';
+  }
+
+  // KPIs
+  html += '<div class="pa-kpis">'
+       +    '<div class="pa-kpi">'
+       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> ' + (role === 'manager' ? 'Personas activas' : 'Personas LATAM') + '</div>'
+       +      '<div class="val">' + visible.length + '</div>'
+       +      '<div class="delta">' + (role === 'manager' ? (userCode || 'tu país') : countries.length + (countries.length === 1 ? ' país' : ' países')) + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (loadPct > 90 ? 'is-warn' : '') + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--accent)"></span> Carga promedio</div>'
+       +      '<div class="val">' + (totalCap ? loadPct + '%' : '—') + '</div>'
+       +      '<div class="delta">' + totalLoad + '/' + totalCap + ' capacidad</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (totalOver ? 'is-critical' : '') + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas</div>'
+       +      '<div class="val">' + totalOver + '</div>'
+       +      '<div class="delta">' + (totalOver ? 'reasignar' : 'todo en orden') + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (totalBlk ? 'is-warn' : '') + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> Bloqueadas</div>'
+       +      '<div class="val">' + totalBlk + '</div>'
+       +      '<div class="delta">' + (totalBlk ? 'desbloquear' : '—') + '</div>'
+       +    '</div>'
+       + '</div>';
+
+  // Empty state
   if (visible.length === 0) {
-    html += '<section class="ed-section">'
-         +    '<div class="ed-h2">— ' + (role === 'head' ? 'Equipos' : 'Tu equipo') + '</div>'
-         +    '<div class="ed-lede">'
-         +      (role === 'manager'
-                  ? 'No hay miembros del equipo visibles para tu país. Si esperabas ver gente acá, contactá a quien gestiona los equipos.'
-                  : 'No hay equipos cargados todavía. Agregá personas desde la hoja Equipos.')
-         +    '</div>'
-         + '</section>';
+    html += '<div class="pa-card" style="text-align:center;padding:48px 20px;margin-top:18px">'
+         +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon('users', 20) + '</div>'
+         +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">' + (role === 'manager' ? 'Sin miembros visibles' : 'No hay equipos cargados') + '</div>'
+         +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0">' + (role === 'manager' ? 'Si esperabas ver gente, contactá a quien gestiona equipos.' : 'Agregá personas desde la hoja Equipos.') + '</div>'
+         + '</div></div>';
     v.innerHTML = html;
     return;
   }
 
-  // ── Render rows (shared between manager and head) ─────────
-  function _miqHeaderRow() {
-    return '<div class="mgr-team-row" style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;font-weight:700">'
-         +   '<span></span><span>Persona</span><span>Carga</span><span>Vencidas</span><span>Bloqueadas</span><span>SLA del mes</span>'
-         + '</div>';
-  }
-  function _miqMemberRow(m) {
-    var pct = (m.capacity > 0) ? Math.round((m.load || 0) / m.capacity * 100) : 0;
-    var over = pct > 80;
-    var ov = m.overdue || 0;
-    var bl = m.blocked || 0;
-    var nm = esc(m.name || '');
-    return '<div class="mgr-team-row clickable" data-act="miq-open-person" data-arg="' + esc(m.name || '') + '" '
-         +   'tabindex="0" role="button" aria-label="Detalle de ' + nm + '" '
-         +   'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}">'
-         +   '<div class="ed-foot-av" style="background:var(--accent)">' + esc(m.initials || _userInitials(m.name)) + '</div>'
-         +   '<div class="mgr-team-name"><b>' + nm + '</b><span class="role">' + esc(m.country || '—') + '</span></div>'
-         +   '<div class="mgr-load-cell">'
-         +     '<div class="mgr-load-bar"><div class="mgr-load-fill ' + (over ? 'over' : '') + '" style="width:' + Math.min(pct, 100) + '%"></div></div>'
-         +     '<span class="mgr-load-num">' + (m.load || 0) + '/' + (m.capacity || 0) + '</span>'
-         +   '</div>'
-         +   '<div class="mgr-team-num ' + (ov > 0 ? 'crit' : 'dim') + '">' + ov + '</div>'
-         +   '<div class="mgr-team-num ' + (bl > 0 ? 'crit' : 'dim') + '">' + bl + '</div>'
-         +   '<div class="mgr-team-num dim">—</div>'
-         + '</div>';
-  }
-
-  // Sort: vencidas/bloqueadas primero (heat), después por nombre
+  // Sort: vencidas/bloqueadas primero
   function _miqSorted(arr) {
     return arr.slice().sort(function(a, b){
       var heatA = ((a && a.overdue) || 0) * 2 + ((a && a.blocked) || 0);
@@ -7531,44 +7664,64 @@ function rEdMiequipo(D) {
     });
   }
 
-  if (role === 'manager') {
-    html += '<section class="ed-section">'
-         +    '<div class="ed-h2">— Your team</div>'
-         +    _miqHeaderRow();
-    var sorted = _miqSorted(visible);
-    for (var i = 0; i < sorted.length; i++) html += _miqMemberRow(sorted[i]);
-    html += '</section>';
-  } else {
-    // Head: agrupado por país. Si un miembro no tiene country, va a "—".
-    var groups = {};
-    for (var gi = 0; gi < visible.length; gi++) {
-      var mm = visible[gi];
-      var key = (mm && mm.country) || '—';
-      (groups[key] = groups[key] || []).push(mm);
-    }
-    var keys = Object.keys(groups).sort();
-    for (var ki = 0; ki < keys.length; ki++) {
-      var k = keys[ki];
-      var arr = _miqSorted(groups[k]);
-      // Métricas mini por país para el sub-header
-      var gOver = 0, gBlk = 0, gLoad = 0, gCap = 0;
-      arr.forEach(function(m){
-        gOver += (m.overdue || 0); gBlk += (m.blocked || 0);
-        gLoad += (m.load || 0);    gCap += (m.capacity || 0);
-      });
-      var gPct = gCap > 0 ? Math.round(gLoad / gCap * 100) : 0;
-      html += '<section class="ed-section">'
-           +   '<div class="ed-h2">— ' + esc(k) + ' · ' + arr.length
-           +     ' ' + (arr.length === 1 ? 'persona' : 'personas')
-           +     (gCap ? ' · ' + gPct + '% carga' : '')
-           +     (gOver ? ' · ' + gOver + ' vencida' + (gOver === 1 ? '' : 's') : '')
-           +   '</div>'
-           +   _miqHeaderRow();
-      for (var ri = 0; ri < arr.length; ri++) html += _miqMemberRow(arr[ri]);
-      html += '</section>';
-    }
+  function _miqRow(m) {
+    var pct = (m.capacity > 0) ? Math.round((m.load || 0) / m.capacity * 100) : 0;
+    var over = pct > 100;
+    var loadColor = over ? 'var(--critical)' : pct > 85 ? 'var(--warn)' : 'var(--accent)';
+    var loadFg = over ? 'var(--critical-fg)' : 'var(--fg-2)';
+    var ov = m.overdue || 0;
+    var bl = m.blocked || 0;
+    return '<div class="pa-tbl-r" style="grid-template-columns: 1fr 220px 80px 90px 100px;height:48px" data-act="miq-open-person" data-arg="' + esc(m.name || '') + '">'
+         +   '<div style="display:flex;align-items:center;gap:10px">' + paAvatar(m.name || '?', 22)
+         +     '<div><div style="font-size:13px;font-weight:500">' + esc(m.name || '') + '</div>'
+         +     '<div style="font-size:11px;color:var(--fg-3)">' + esc(m.role || 'Specialist') + (m.country ? ' · ' + esc(m.country) : '') + '</div></div>'
+         +   '</div>'
+         +   '<div style="display:flex;align-items:center;gap:8px">'
+         +     '<span style="flex:1;height:6px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + Math.min(pct, 100) + '%;background:' + loadColor + '"></span></span>'
+         +     '<span class="mono" style="font-size:11px;color:' + loadFg + ';min-width:50px;text-align:right">' + (m.load || 0) + '/' + (m.capacity || 0) + '</span>'
+         +   '</div>'
+         +   '<div class="mono" style="font-size:12px;color:' + (ov ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + ov + '</div>'
+         +   '<div class="mono" style="font-size:12px;color:' + (bl ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + bl + '</div>'
+         +   '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="event.stopPropagation();_miqOpenPerson(\'' + esc(m.name || '') + '\')">Detalle →</button></div>'
+         + '</div>';
   }
 
+  if (role === 'manager') {
+    html += '<div class="pa-section-h"><h3>Tu equipo</h3><span class="meta">Carga, vencidas y bloqueadas</span></div>'
+         +  '<div class="pa-tbl">'
+         +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 220px 80px 90px 100px">'
+         +      '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div></div>'
+         +    '</div>';
+    var sorted = _miqSorted(visible);
+    sorted.forEach(function(m) { html += _miqRow(m); });
+    html += '</div>';
+  } else {
+    // Head: por país
+    var groups = {};
+    visible.forEach(function(mm) {
+      var key = (mm && mm.country) || '—';
+      (groups[key] = groups[key] || []).push(mm);
+    });
+    var keys = Object.keys(groups).sort();
+    keys.forEach(function(k) {
+      var arr = _miqSorted(groups[k]);
+      var gOver = 0, gLoad = 0, gCap = 0;
+      arr.forEach(function(m){ gOver += (m.overdue || 0); gLoad += (m.load || 0); gCap += (m.capacity || 0); });
+      var gPct = gCap > 0 ? Math.round(gLoad / gCap * 100) : 0;
+      html += '<div class="pa-section-h">'
+           +    '<h3><span class="pa-pill pa-pill-country" style="margin-right:8px">' + esc(k) + '</span>' + arr.length + (arr.length === 1 ? ' persona' : ' personas') + '</h3>'
+           +    '<span class="meta">' + (gCap ? gPct + '% carga · ' : '') + (gOver ? gOver + ' vencidas' : 'sin vencidas') + '</span>'
+           + '</div>'
+           + '<div class="pa-tbl">'
+           +   '<div class="pa-tbl-h" style="grid-template-columns: 1fr 220px 80px 90px 100px">'
+           +     '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div></div>'
+           +   '</div>';
+      arr.forEach(function(m) { html += _miqRow(m); });
+      html += '</div>';
+    });
+  }
+
+  html += '</div>'; // pa-page
   v.innerHTML = html;
 }
 
@@ -7860,55 +8013,64 @@ function rEdAnalytics(D) {
          + (cerradasMes ? ' Se cerraron <b>' + cerradasMes + ' tareas</b> este mes.' : '');
   }
 
-  var html = ''
-    + '<div class="ed-eye">' + esc(eyebrow) + '</div>'
-    + '<h1 class="ed-h1">' + h1 + '</h1>'
-    + '<p class="ed-lede">' + lede + '</p>'
-    // HERO 4 KPIs
-    + '<div class="eda-hero">'
-    +   '<div class="eda-stat"><div class="eda-stat-lbl">Activas</div>'
-    +     '<div class="eda-stat-num">' + (activas ? String(activas).padStart(2, '0') : '—') + '</div>'
-    +     '<div class="eda-stat-ctx">' + (role === 'head' ? 'en LATAM' : 'en tu equipo') + '</div></div>'
-    +   '<div class="eda-stat"><div class="eda-stat-lbl">Cerradas (mes)</div>'
-    +     '<div class="eda-stat-num good">' + (cerradasMes ? String(cerradasMes).padStart(2, '0') : '—') + '</div>'
-    +     '<div class="eda-stat-ctx">' + (cerradasMes ? 'completadas' : 'sin cierres aún') + '</div></div>'
-    +   '<div class="eda-stat"><div class="eda-stat-lbl">En tiempo</div>'
-    +     '<div class="eda-stat-num ' + (onTimePct >= 90 ? 'good' : (onTimePct >= 75 ? 'warn' : 'crit')) + '">'
-    +       (totalSla ? onTimePct + '%' : '—') + '</div>'
-    +     '<div class="eda-stat-ctx">dentro de SLA</div></div>'
-    +   '<div class="eda-stat"><div class="eda-stat-lbl">SLA cumplido</div>'
-    +     '<div class="eda-stat-num ' + (slaPct >= 90 ? 'good' : (slaPct >= 75 ? 'warn' : 'crit')) + '">'
-    +       (totalSla ? slaPct + '%' : '—') + '</div>'
-    +     '<div class="eda-stat-ctx">' + (sla.overdue ? sla.overdue + ' vencidas' : 'sin vencidas') + '</div></div>'
-    + '</div>';
+  var html = '<div class="pa-page">';
 
-  // For HQ: country comparison matrix + projects at risk (insight #1, #2)
+  // Page header
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">' + (role === 'head' ? 'Analytics LATAM' : 'Métricas del equipo') + '</span>'
+       +    '<span class="pa-page-sub">' + (sem ? 'semana ' + sem : 'al día') + '</span>'
+       + '</div>';
+
+  if (lede) {
+    html += '<div class="pa-narrative">' + lede + '</div>';
+  }
+
+  // KPIs
+  html += '<div class="pa-kpis">'
+       +    '<div class="pa-kpi">'
+       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Activas</div>'
+       +      '<div class="val">' + activas + '</div>'
+       +      '<div class="delta">' + (role === 'head' ? 'en LATAM' : 'en tu equipo') + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi is-good">'
+       +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> Cerradas (mes)</div>'
+       +      '<div class="val">' + cerradasMes + '</div>'
+       +      '<div class="delta">' + (cerradasMes ? 'completadas' : 'sin cierres aún') + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (onTimePct >= 90 ? 'is-good' : (onTimePct >= 75 ? 'is-warn' : 'is-critical')) + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> En tiempo</div>'
+       +      '<div class="val">' + (totalSla ? onTimePct + '%' : '—') + '</div>'
+       +      '<div class="delta">dentro de SLA</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (slaPct >= 90 ? 'is-good' : (slaPct >= 75 ? 'is-warn' : 'is-critical')) + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--accent)"></span> SLA cumplido</div>'
+       +      '<div class="val">' + (totalSla ? slaPct + '%' : '—') + '</div>'
+       +      '<div class="delta">' + (sla.overdue ? sla.overdue + ' vencidas' : 'sin vencidas') + '</div>'
+       +    '</div>'
+       + '</div>';
+
+  // For HQ: country comparison matrix + projects at risk
   if (role === 'head') {
     html += _edaHQCountriesSection(D);
     html += _edaHQRiskSection(D);
   }
 
-  // For both manager and HQ: Aging buckets + SLA compliance trend.
-  // Aging surfaces stale active tasks (>14d, 7-14d, 3-7d, <3d).
-  // SLA trend shows weekly on-time % over last 8 weeks.
+  // Aging + SLA trend (manager + HQ)
   html += _edaAgingSection(tasks);
   html += _edaSlaTrendSection(D, tasks, role, userCode);
 
-  // Sección charts: prioridad + estado por responsable (lado a lado)
-  html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— ' + (role === 'head' ? 'Carga por prioridad' : 'Distribución por prioridad') + '</div>'
-       +    '<div class="eda-charts-grid">'
-       +      '<div class="ed-chart-wrap"><canvas id="cEdAPrio" height="220"></canvas></div>'
-       +      '<div class="ed-chart-wrap"><canvas id="cEdAResp" height="220"></canvas></div>'
-       +    '</div>'
-       + '</section>';
+  // Charts: prioridad + estado por responsable
+  html += '<div class="pa-section-h"><h3>' + (role === 'head' ? 'Carga por prioridad' : 'Distribución por prioridad') + '</h3><span class="meta">tareas activas</span></div>'
+       +  '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">'
+       +    '<div class="pa-card" style="min-height:280px"><canvas id="cEdAPrio" height="220"></canvas></div>'
+       +    '<div class="pa-card" style="min-height:280px"><canvas id="cEdAResp" height="220"></canvas></div>'
+       +  '</div>';
 
-  // Sección SLA
-  html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Cumplimiento de SLA</div>'
-       +    '<div class="ed-chart-wrap"><canvas id="cEdASla" height="180"></canvas></div>'
-       + '</section>';
+  // SLA chart
+  html += '<div class="pa-section-h"><h3>Cumplimiento de SLA</h3><span class="meta">tareas activas vs SLA target</span></div>'
+       +  '<div class="pa-card"><canvas id="cEdASla" height="180"></canvas></div>';
 
+  html += '</div>'; // pa-page
   v.innerHTML = html;
 
   // Charts.js: destruir instances previas y crear nuevas con tokens editoriales.
@@ -8209,76 +8371,75 @@ function rEdResumen(D) {
   var eyeBits = ['Por país', countries.length + (countries.length === 1 ? ' país activo' : ' países activos')];
   if (sem) eyeBits.push(sem);
 
-  var html = ''
-    + '<div class="ed-eye">' + esc(eyeBits.join(' · ')) + '</div>'
-    + '<h1 class="ed-h1">LATAM <em>en detalle</em>.</h1>'
-    + '<p class="ed-lede">' + lede + '</p>'
-    + '<div class="hq-hero">'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Total LATAM</div>'
-    +     '<div class="hq-stat-num">' + (totalOpen || '—') + '</div>'
-    +     '<div class="hq-stat-ctx">' + countries.length + (countries.length === 1 ? ' país' : ' países') + '</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Vencidas</div>'
-    +     '<div class="hq-stat-num crit">' + (totalOverdue ? String(totalOverdue) : "—") + '</div>'
-    +     '<div class="hq-stat-ctx">' + (totalOverdue ? 'reasignar' : 'todo en orden') + '</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">SLA promedio</div>'
-    +     '<div class="hq-stat-num good">' + (slaAvg || '—') + (slaAvg ? '%' : '') + '</div>'
-    +     '<div class="hq-stat-ctx">LATAM</div></div>'
-    +   '<div class="hq-stat"><div class="hq-stat-lbl">Países en riesgo</div>'
-    +     '<div class="hq-stat-num crit">' + (atRisk ? String(atRisk) : "—") + '</div>'
-    +     '<div class="hq-stat-ctx">' + (atRisk ? 'monitorear' : 'todo OK') + '</div></div>'
-    + '</div>';
+  var html = '<div class="pa-page">';
 
-  // ── By country table
-  html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Por país</div>';
-  if (countries.length === 0) {
-    html += '<div class="ed-lede">No hay datos de países disponibles.</div>';
-  } else {
-    html += '<div class="hq-country-row" style="font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.4px;font-weight:700">'
-         +    '<span></span><span>País / Líder</span><span>Abiertas</span><span>Vencidas</span><span>SLA</span><span>Tendencia 30d</span>'
-         + '</div>';
-    var maxTrend = countries.reduce(function(m, c){
-      var arr = c.trend || [];
-      for (var i = 0; i < arr.length; i++) if (arr[i] > m) m = arr[i];
-      return m;
-    }, 1);
-    for (var ci = 0; ci < countries.length; ci++) {
-      var c = countries[ci];
-      var sla = c.slaPct || 0;
-      var slaCls = sla >= 90 ? 'good' : (sla >= 85 ? 'warn' : 'crit');
-      var ovCls  = (c.overdue || 0) > 3 ? 'crit' : ((c.overdue || 0) > 0 ? 'warn' : 'dim');
-      var trend = c.trend || [];
-      var sparkColor = '';
-      if (trend.length >= 3) {
-        var third = Math.floor(trend.length / 3);
-        var firstAvg = 0, lastAvg = 0;
-        for (var fi = 0; fi < third; fi++) firstAvg += trend[fi];
-        for (var li = trend.length - third; li < trend.length; li++) lastAvg += trend[li];
-        firstAvg /= third || 1; lastAvg /= third || 1;
-        var ratio = firstAvg > 0 ? lastAvg / firstAvg : 1;
-        if (ratio > 1.10) sparkColor = 'good';
-        else if (ratio < 0.90) sparkColor = 'crit';
-      }
-      var sparkHtml = '';
-      for (var k = 0; k < trend.length; k++) {
-        var ratioH = maxTrend > 0 ? trend[k] / maxTrend : 0;
-        var h = Math.max(4, Math.round(ratioH * 22));
-        var isHigh = (k === trend.length - 1);
-        sparkHtml += '<span class="bar' + (isHigh ? ' high' : '') + (sparkColor ? ' ' + sparkColor : '') + '" style="height:' + h + 'px"></span>';
-      }
-      // Click en la fila → setear filtro de país en EDT y navegar al tracker.
-      var cCode2 = (c.code || '').replace(/'/g, "\\'");
-      html += '<div class="hq-country-row clickable" onclick="edSetCountryFilter(\'' + esc(cCode2) + '\'); goEd(\'tracker\');">'
-           +    '<div class="hq-flag">' + esc(c.code || '') + '</div>'
-           +    '<div class="hq-country-name"><b>' + esc(c.name || c.code || '') + '</b><span class="lead">' + esc(c.leader || '—') + '</span></div>'
-           +    '<div class="hq-num">' + (c.open || 0) + '</div>'
-           +    '<div class="hq-num ' + ovCls + '">' + (c.overdue || 0) + '</div>'
-           +    '<div class="hq-num ' + slaCls + '">' + (sla || '—') + (sla ? '%' : '') + '</div>'
-           +    '<div class="hq-spark">' + sparkHtml + '</div>'
-           + '</div>';
-    }
+  // Page header
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">Por país</span>'
+       +    '<span class="pa-page-sub">' + countries.length + (countries.length === 1 ? ' país activo' : ' países activos') + (sem ? ' · ' + sem : '') + '</span>'
+       + '</div>';
+
+  if (lede) {
+    html += '<div class="pa-narrative">' + lede + '</div>';
   }
-  html += '</section>';
+
+  // KPIs
+  html += '<div class="pa-kpis">'
+       +    '<div class="pa-kpi">'
+       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Total LATAM</div>'
+       +      '<div class="val">' + totalOpen + '</div>'
+       +      '<div class="delta">' + countries.length + (countries.length === 1 ? ' país' : ' países') + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (totalOverdue ? 'is-critical' : '') + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas</div>'
+       +      '<div class="val">' + totalOverdue + '</div>'
+       +      '<div class="delta">' + (totalOverdue ? 'reasignar' : 'todo en orden') + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (slaAvg >= 90 ? 'is-good' : '') + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> SLA promedio</div>'
+       +      '<div class="val">' + (slaAvg || '—') + (slaAvg ? '%' : '') + '</div>'
+       +      '<div class="delta">LATAM</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (atRisk ? 'is-warn' : '') + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> Países en riesgo</div>'
+       +      '<div class="val">' + atRisk + '</div>'
+       +      '<div class="delta">' + (atRisk ? 'monitorear' : 'todo OK') + '</div>'
+       +    '</div>'
+       + '</div>';
+
+  // By country table
+  html += '<div class="pa-section-h">'
+       +    '<h3>Por país · detalle</h3>'
+       +    '<span class="meta">click para filtrar tracker</span>'
+       + '</div>';
+  if (countries.length === 0) {
+    html += '<div class="pa-card" style="text-align:center;color:var(--fg-3);padding:24px">No hay datos de países disponibles.</div>';
+  } else {
+    html += '<div class="pa-tbl">'
+         +    '<div class="pa-tbl-h" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px">'
+         +      '<div>País</div><div>Líder</div><div>Activas</div><div>Vencidas</div><div>SLA mes</div><div>Tendencia 12s</div>'
+         +    '</div>';
+    countries.forEach(function(c) {
+      var sla = c.slaPct || 0;
+      var ovColor = (c.overdue || 0) > 3 ? 'var(--critical-fg)' : 'var(--fg-2)';
+      var slaColor = sla < 90 ? 'var(--warn-fg)' : 'var(--good-fg)';
+      var sparkTone = sla < 90 ? 'warn' : 'accent';
+      var trend = c.trend || [3,4,5,4,6,5,7,6,5,4,5,4];
+      html += '<div class="pa-tbl-r" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px;height:52px" onclick="edSetCountryFilter(\'' + esc(c.code) + '\');goEd(\'tracker\')">'
+           +    '<div style="display:flex;align-items:center;gap:10px">'
+           +      '<span style="width:28px;height:20px;border-radius:4px;background:var(--bg-2);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:var(--fg-1);font-weight:600">' + esc(c.code || '') + '</span>'
+           +      '<span style="font-size:13px;font-weight:500">' + esc(c.name || '') + '</span>'
+           +    '</div>'
+           +    '<div style="display:flex;align-items:center;gap:8px">' + paAvatar(c.leader || '?', 22)
+           +      '<span style="font-size:13px">' + esc(c.leader || '—') + '</span></div>'
+           +    '<div class="mono" style="font-size:13px">' + (c.open || 0) + '</div>'
+           +    '<div class="mono" style="font-size:13px;color:' + ovColor + '">' + (c.overdue || 0) + '</div>'
+           +    '<div class="mono" style="font-size:13px;color:' + slaColor + '">' + (sla || '—') + (sla ? '%' : '') + '</div>'
+           +    '<div>' + paSparkline(trend, 110, 28, sparkTone) + '</div>'
+           + '</div>';
+    });
+    html += '</div>';
+  }
 
   // ── Proyectos en riesgo (derivado de tasks; ordenado por % atrasadas).
   var risky = projects
@@ -8300,29 +8461,32 @@ function rEdResumen(D) {
     })
     .slice(0, 12);
 
-  html += '<section class="ed-section">'
-       +    '<div class="ed-h2">— Proyectos en riesgo</div>';
+  html += '<div class="pa-section-h">'
+       +    '<h3>Proyectos en riesgo</h3>'
+       +    '<span class="meta">ordenados por % vencidas</span>'
+       + '</div>';
   if (!risky.length) {
-    html += '<div class="ed-lede">No hay proyectos en riesgo. <span class="good">Todo bajo control.</span></div>';
+    html += '<div class="pa-card" style="text-align:center;color:var(--good-fg);padding:18px"><b>Todo bajo control.</b> No hay proyectos en riesgo.</div>';
   } else {
-    for (var ri = 0; ri < risky.length; ri++) {
-      var x = risky[ri];
+    html += '<div class="pa-tbl">';
+    risky.forEach(function(x) {
       var pais = x.p.pais || '—';
       var pctTxt = x.total > 0 ? Math.round(x.pct * 100) + '%' : '—';
-      var pillCls = x.pct >= 0.5 ? 'crit' : (x.pct >= 0.25 ? 'warn' : 'dim');
-      html += '<div class="ed-risk-row" onclick="goEd(\'tracker\')">'
-           +    '<div class="ed-risk-name">' + esc(x.p.nombre || ('Proyecto #' + x.p.id)) + '</div>'
-           +    '<div class="ed-risk-meta">' + esc(pais)
-           +      (x.p.responsable ? ' · ' + esc(x.p.responsable.split(' ').slice(0,2).join(' ')) : '')
-           +      ' · ' + x.total + ' activas'
+      var pillTone = x.pct >= 0.5 ? 'pa-pill-alta' : (x.pct >= 0.25 ? 'pa-pill-media' : 'pa-pill-baja');
+      html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr 130px 80px 110px" onclick="goEd(\'tracker\')">'
+           +    '<div class="title">'
+           +      '<span class="t">' + esc(x.p.nombre || ('Proyecto #' + x.p.id)) + '</span>'
+           +      '<span class="meta">' + esc(pais) + (x.p.responsable ? ' · ' + esc(x.p.responsable.split(' ').slice(0,2).join(' ')) : '') + ' · ' + x.total + ' activas</span>'
            +    '</div>'
-           +    '<div class="hq-num crit">' + x.overdue + '</div>'
-           +    '<div class="ed-risk-pill ' + pillCls + '">' + esc(pctTxt) + ' vencidas</div>'
+           +    '<span class="pa-pill pa-pill-country">' + esc(pais) + '</span>'
+           +    '<span class="mono" style="font-size:12px;color:var(--critical-fg)">' + x.overdue + ' venc.</span>'
+           +    '<span class="pa-pill ' + pillTone + '"><span class="dot"></span>' + esc(pctTxt) + '</span>'
            + '</div>';
-    }
+    });
+    html += '</div>';
   }
-  html += '</section>';
 
+  html += '</div>'; // pa-page
   v.innerHTML = html;
 }
 
