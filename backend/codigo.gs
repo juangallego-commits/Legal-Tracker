@@ -2986,3 +2986,62 @@ function setupSheets() {
   log('—— setupSheets terminó ——');
   return report;
 }
+
+// ════════════════════════════════════════════════════════════════
+// WIPE TEST DATA
+// ════════════════════════════════════════════════════════════════
+// Borra TODAS las filas de data de: Tracking Activo, Historial,
+// Proyectos y Comments. Preserva headers + formato + Equipos + Config
+// + Feriados + Templates.
+//
+// Para correr: en el editor de Apps Script, seleccionar wipeTestData
+// en el dropdown de funciones y darle Run. El log devuelve cuántas
+// filas se borraron por hoja.
+//
+// IMPORTANTE: es destructivo y no hay deshacer. Si necesitás guardar
+// algo, primero hacé una copia del sheet (Archivo → Hacer una copia).
+
+function wipeTestData() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var report = [];
+  var log = function(msg) { report.push(msg); Logger.log(msg); };
+
+  // Hojas a limpiar con la row donde empieza la data (header arriba).
+  var targets = [
+    { name: SHEET_ACTIVO,    dataStart: 4 }, // headers en rows 1-3
+    { name: SHEET_HISTORIAL, dataStart: 4 }, // mismo formato que Tracking Activo
+    { name: SHEET_PROYECTOS, dataStart: 2 }, // header en row 1
+    { name: SHEET_COMMENTS,  dataStart: 2 }  // header en row 1 (auto-creada)
+  ];
+
+  targets.forEach(function(t) {
+    var ws = ss.getSheetByName(t.name);
+    if (!ws) {
+      log('· Hoja "' + t.name + '" no existe — skip');
+      return;
+    }
+    var lastRow = ws.getLastRow();
+    if (lastRow < t.dataStart) {
+      log('· Hoja "' + t.name + '" ya está vacía (lastRow=' + lastRow + ')');
+      return;
+    }
+    var numRows = lastRow - t.dataStart + 1;
+    ws.deleteRows(t.dataStart, numRows);
+    log('✓ "' + t.name + '": ' + numRows + ' filas borradas (preservados headers)');
+  });
+
+  // Invalidar caches para que el siguiente lector vea el sheet vacío.
+  try {
+    var cache = CacheService.getScriptCache();
+    cache.remove(CACHE_KEY);
+    cache.remove('feriados_v1');
+    cache.remove('templates_v1');
+    log('✓ Caches invalidadas');
+  } catch (e) {
+    log('⚠ Cache flush falló: ' + e.message);
+  }
+
+  log('—— wipeTestData terminó ——');
+  log('Preservados: Equipos, Config, Feriados, Templates');
+  return report;
+}
