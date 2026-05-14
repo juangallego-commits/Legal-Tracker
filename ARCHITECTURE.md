@@ -49,7 +49,6 @@ UI completamente en inglés (la data en sheets sigue en español por compatibili
 │   └── analysis/
 │       ├── CURRENT-STATE-AUDIT.md
 │       └── PROPOSAL-MAPPING.md
-├── pendientes/         # Drafts del rediseño editorial (source de portación)
 ├── ARCHITECTURE.md     # Este archivo
 ├── DEMO_BRIEF.md       # Tour de features + demo script + Q&A
 ├── .github/workflows/deploy-appsscript.yml

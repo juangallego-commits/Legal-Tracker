@@ -1,0 +1,22 @@
+# Lo único que va a Apps Script: backend/*.gs, frontend/*.html y appsscript.json.
+# clasp incluye todo por default; este archivo restringe a esa lista.
+
+# Por defecto excluir TODO
+**/**
+
+# Whitelist explícita de lo que SÍ se sube
+!appsscript.json
+!backend/**
+!frontend/**
+
+# Belt-and-suspenders: aunque alguien recree pendientes/ o suba docs por error,
+# nunca terminan en el editor.
+pendientes/**
+plan/**
+.github/**
+.claude/**
+*.md
+*.zip
+*.xlsx
+*.jsx
+node_modules/**
