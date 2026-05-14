@@ -2981,7 +2981,7 @@ var ED_NAV_BY_ROLE = {
     { section: 'Donde trabajo', items: [
       { id: 'tracker',    label: 'Tracker',     icon: 'inbox',  view: 'tracker' },
       { id: 'proyectos',  label: 'Proyectos',   icon: 'folder', view: 'proyectos' },
-      { id: 'plantillas', label: 'Plantillas', icon: 'doc',    view: 'plantillas' }
+      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
       { id: 'analytics', label: 'Mi desempeño', icon: 'chart',   view: 'analytics' },
@@ -2997,7 +2997,7 @@ var ED_NAV_BY_ROLE = {
     { section: 'Operación', items: [
       { id: 'agrupadas',  label: 'Por urgencia', icon: 'calendar', view: 'agrupadas' },
       { id: 'proyectos',  label: 'Proyectos',    icon: 'folder',   view: 'proyectos' },
-      { id: 'plantillas', label: 'Plantillas',   icon: 'doc',      view: 'plantillas' }
+      { id: 'plantillas', label: 'Biblioteca',   icon: 'doc',      view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
       { id: 'analytics', label: 'Métricas',  icon: 'chart',   view: 'analytics' },
@@ -3013,7 +3013,7 @@ var ED_NAV_BY_ROLE = {
     { section: 'Personas', items: [
       { id: 'miequipo',   label: 'Equipo',     icon: 'users',  view: 'miequipo' },
       { id: 'proyectos',  label: 'Proyectos',  icon: 'folder', view: 'proyectos' },
-      { id: 'plantillas', label: 'Plantillas', icon: 'doc',    view: 'plantillas' }
+      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
       { id: 'analytics', label: 'Analytics',  icon: 'chart',   view: 'analytics' },
@@ -3029,11 +3029,69 @@ var ED_NAV_BY_ROLE = {
 // se registra a su nombre).
 // Persiste en localStorage. Solo visible cuando USER.role === 'head'.
 // ───────────────────────────────────────────────────────────────
-// Helpers de identidad de usuario. Antes existía un "Ver como"
-// (DEMO_AS) que permitía a HQ ver la app como otro rol; se removió
-// en el piloto interno para evitar confusión de contexto.
-function _effectiveRole() {
+// Helpers de identidad de usuario. El user real puede ser head/manager/specialist;
+// si el real es 'head', además puede activar un modo "ver como" via localStorage
+// para previsualizar la app desde la perspectiva de Specialist o Manager. Las
+// mutaciones siguen ejecutándose con su identidad real (el backend resuelve por
+// email, no confía en este flag de UI).
+var DEMO_ROLE_KEY = 'mydash-demo-role';
+function _realRole() {
   return (USER && USER.role) || (D && D._role) || 'specialist';
+}
+function _demoRole() {
+  if (_realRole() !== 'head') return null; // solo head puede demoear
+  try {
+    var v = localStorage.getItem(DEMO_ROLE_KEY);
+    if (v === 'specialist' || v === 'manager' || v === 'head') return v;
+  } catch(e) {}
+  return null;
+}
+function _effectiveRole() {
+  return _demoRole() || _realRole();
+}
+function edSetDemoRole(role) {
+  if (_realRole() !== 'head') return;
+  try {
+    if (!role || role === 'head') localStorage.removeItem(DEMO_ROLE_KEY);
+    else localStorage.setItem(DEMO_ROLE_KEY, role);
+  } catch(e) {}
+  // Cerrar dropdown si está abierto
+  var dd = document.getElementById('edDemoDD'); if (dd) dd.remove();
+  // Re-mount sidebar + re-render vista activa para que tomen el nuevo rol
+  if (typeof mountEdShell === 'function') mountEdShell();
+  if (typeof goEd === 'function') goEd('home');
+}
+function edToggleDemoDropdown(ev) {
+  if (ev) ev.stopPropagation();
+  if (_realRole() !== 'head') return;
+  var existing = document.getElementById('edDemoDD');
+  if (existing) { existing.remove(); return; }
+  var anchor = document.querySelector('.pa-sb-workspace');
+  if (!anchor) return;
+  var current = _effectiveRole();
+  var r = anchor.getBoundingClientRect();
+  var dd = document.createElement('div');
+  dd.id = 'edDemoDD';
+  dd.className = 'ed-demo-dropdown';
+  dd.style.left = (r.right + 6) + 'px';
+  dd.style.top = r.top + 'px';
+  dd.innerHTML =
+      '<div class="ed-demo-h">Ver app como</div>'
+    + ['specialist','manager','head'].map(function(role) {
+        var label = role === 'head' ? 'Global (tu rol real)' : (role === 'manager' ? 'Manager' : 'Specialist');
+        var isCur = (role === current);
+        return '<div class="ed-demo-item' + (isCur ? ' is-active' : '') + '" onclick="edSetDemoRole(\'' + role + '\')">'
+             +   '<span class="dot"></span>' + label
+             + '</div>';
+      }).join('')
+    + '<div class="ed-demo-foot">Las mutaciones siguen registrándose con tu identidad real.</div>';
+  document.body.appendChild(dd);
+  // Cerrar al click fuera
+  setTimeout(function() {
+    document.addEventListener('click', function _close(e) {
+      if (!dd.contains(e.target)) { dd.remove(); document.removeEventListener('click', _close); }
+    });
+  }, 0);
 }
 function _effectiveUserName() {
   return (USER && USER.name) || (D && D._user && D._user.name) || '';
@@ -3187,16 +3245,26 @@ function renderEdSidebar(role, activeViewId) {
   var subtitle = _roleSubtitle(navRole, code);
   var theme = (document.body && document.body.dataset.theme) || 'dark';
 
+  var realRole = _realRole();
+  var demoActive = !!_demoRole();
+  var displayRole = _roleLabel(navRole);
+  var canSwitch = (realRole === 'head');
+  var wsClickable = canSwitch ? ' is-clickable' : '';
+  var wsHandler = canSwitch ? ' onclick="edToggleDemoDropdown(event)"' : '';
+
   var html = ''
     + '<div class="pa-sb-top">'
     +   '<div class="pa-sb-logo">M</div>'
     +   '<div class="pa-sb-name">MyDash</div>'
     +   '<div class="pa-sb-version">v3.6</div>'
     + '</div>'
-    + '<div class="pa-sb-workspace">'
+    + '<div class="pa-sb-workspace' + wsClickable + '"' + wsHandler + '>'
     +   '<div class="pa-sb-ws-av">R+</div>'
-    +   '<div class="pa-sb-ws-name">Rappi+ Legal</div>'
-    +   paIcon('chevUD', 12, 'pa-sb-ws-caret')
+    +   '<div class="pa-sb-ws-stack">'
+    +     '<div class="pa-sb-ws-name">' + esc(displayRole) + (demoActive ? ' <span class="pa-sb-ws-demo">demo</span>' : '') + '</div>'
+    +     '<div class="pa-sb-ws-sub">Rappi+ Legal</div>'
+    +   '</div>'
+    +   (canSwitch ? paIcon('chevUD', 12, 'pa-sb-ws-caret') : '')
     + '</div>'
     + '<nav class="pa-sb-nav">';
 
@@ -3258,7 +3326,7 @@ var _ED_CRUMBS_BY_VIEW = {
   mistareas:  ['Mi día', 'Mis tareas'],
   tracker:    ['Donde trabajo', 'Tracker'],
   proyectos:  ['Donde trabajo', 'Proyectos'],
-  plantillas: ['Donde trabajo', 'Plantillas'],
+  plantillas: ['Donde trabajo', 'Biblioteca'],
   miequipo:   ['Personas', 'Mi equipo'],
   paises:     ['LATAM', 'Por país'],
   resumen:    ['LATAM', 'Por país'],
@@ -3345,7 +3413,10 @@ function _edSearchEnsureMounted() {
   ov.onclick = function(e) { if (e.target === ov) edSearchClose(); };
   ov.innerHTML =
       '<div class="ed-search-modal" role="dialog" aria-label="Búsqueda global">'
-    +   '<input type="text" class="ed-search-input" id="edSearchInput" placeholder="Buscar tareas, proyectos, personas…" autocomplete="off" spellcheck="false">'
+    +   '<div class="ed-search-head">'
+    +     '<input type="text" class="ed-search-input" id="edSearchInput" placeholder="Buscar tareas, proyectos, personas…" autocomplete="off" spellcheck="false">'
+    +     '<button type="button" class="ed-search-close" onclick="edSearchClose()" aria-label="Cerrar">×</button>'
+    +   '</div>'
     +   '<div class="ed-search-results" id="edSearchResults"></div>'
     +   '<div class="ed-search-hint">Esc para cerrar · Enter para abrir el primero</div>'
     + '</div>';
@@ -8907,20 +8978,10 @@ function edCrearProyectoSubmit() {
 // BIBLIOTECA DE PLANTILLAS · feature nueva
 // Plantillas aprobadas que precargan campos del wizard de Crear.
 // ═══════════════════════════════════════════════════════════════
-var TEMPLATES = [
-  { id: 'TPL-001', name: 'NDA bilateral · plataforma de pagos',  cat: 'Contractual', country: 'LATAM', maintainer: 'Anna Lindgren',  approved: true, usage30d: 124, last: 'hace 4 d',  fav: true,  desc: 'Confidencialidad estándar para integraciones con PSPs y fintechs.' },
-  { id: 'TPL-002', name: 'MSA con courier · paquete estándar',   cat: 'Contractual', country: 'CO+MX', maintainer: 'Carlos Mora',    approved: true, usage30d: 47,  last: 'hace 12 d', fav: true,  desc: 'Master Service Agreement con couriers independientes — incluye SLA, terminación y exclusividad.' },
-  { id: 'TPL-003', name: 'Respuesta a requerimiento SIC',        cat: 'Contencioso', country: 'CO',    maintainer: 'Juan Restrepo',  approved: true, usage30d: 23,  last: 'hace 2 d',  fav: true,  desc: 'Plazo 15 días hábiles · checklist de soportes obligatorios + delegación.' },
-  { id: 'TPL-004', name: 'DPA con tercero · Privacy Annex',      cat: 'Privacy',     country: 'LATAM', maintainer: 'Anna Lindgren',  approved: true, usage30d: 22,  last: 'hace 8 d',  fav: false, desc: 'Anexo de tratamiento de datos para cualquier vendor que procese PII de usuarios.' },
-  { id: 'TPL-005', name: 'Onboarding proveedor logístico',       cat: 'Operativo',   country: 'CO+MX', maintainer: 'Diego Nava',     approved: true, usage30d: 18,  last: 'hace 1 d',  fav: false, desc: 'Checklist KYC + revisión de contratos + alta en sistemas.' },
-  { id: 'TPL-006', name: 'Revisión ToS de app',                  cat: 'Regulatorio', country: 'LATAM', maintainer: 'Anna Lindgren',  approved: true, usage30d: 16,  last: 'hace 21 d', fav: false, desc: 'Revisión periódica de Términos y Condiciones por país, con foco en consumer law.' },
-  { id: 'TPL-007', name: 'Litigio laboral · apertura',           cat: 'Contencioso', country: 'CO',    maintainer: 'Carlos Mora',    approved: true, usage30d: 12,  last: 'hace 30 d', fav: false, desc: 'Estructura de expediente, comunicación interna y plazos procesales.' },
-  { id: 'TPL-008', name: 'Aviso de privacidad · política',       cat: 'Privacy',     country: 'LATAM', maintainer: 'Anna Lindgren',  approved: true, usage30d: 12,  last: 'hace 45 d', fav: false, desc: 'Política interna y aviso externo · adaptable por jurisdicción.' },
-  { id: 'TPL-009', name: 'Análisis regulatorio ley fintech',     cat: 'Regulatorio', country: 'CO+MX', maintainer: 'Carlos Mora',    approved: true, usage30d: 8,   last: 'hace 60 d', fav: false, desc: 'Framework de análisis · gap analysis + plan de remediación.' },
-  { id: 'TPL-010', name: 'Term sheet de inversión',              cat: 'Contractual', country: 'LATAM', maintainer: 'Anna Lindgren',  approved: false, usage30d: 0,  last: 'hace 3 d',  fav: false, desc: 'Borrador inicial para revisión de finance — pendiente firma de Carlos.' },
-  { id: 'TPL-011', name: 'Conciliación pre-judicial',            cat: 'Contencioso', country: 'CO',    maintainer: 'Juan Restrepo',  approved: true, usage30d: 9,   last: 'hace 18 d', fav: false, desc: 'Audiencia + acta + estrategia para asuntos laborales y comerciales menores.' },
-  { id: 'TPL-012', name: 'Auditoría de privacy LATAM',           cat: 'Privacy',     country: 'LATAM', maintainer: 'Anna Lindgren',  approved: true, usage30d: 4,   last: 'hace 90 d', fav: false, desc: 'Revisión anual · controles, gaps y plan de remediación.' }
-];
+// Biblioteca de plantillas — datos vienen del backend (hoja 'Templates').
+// Vacío hasta que tu equipo cree plantillas reales en el sheet.
+// TODO: cargar via google.script.run.getTemplates() cuando el shape esté listo.
+var TEMPLATES = [];
 var CAT_TONE = { Contractual: 'accent', Privacy: 'info', Regulatorio: 'warn', Contencioso: 'critical', Operativo: 'dim' };
 
 var EDPLT = { selectedId: 'TPL-001', filter: 'todas' };
@@ -8940,6 +9001,27 @@ function rEdPlantillas(D) {
   var v = $('vEdPlantillas'); if (!v) return;
   var role = _effectiveRole();
   var userName = _effectiveUserName();
+
+  // Empty state — hasta que existan plantillas reales en la hoja 'Templates'
+  if (!TEMPLATES.length) {
+    v.innerHTML = ''
+      + '<div class="pa-page">'
+      +   '<div class="pa-page-h">'
+      +     '<span class="pa-page-title">Biblioteca</span>'
+      +     '<span class="pa-page-sub">Plantillas aprobadas para crear tareas al toque</span>'
+      +   '</div>'
+      +   '<div style="margin-top:48px;padding:48px;border:1px dashed var(--line-2);border-radius:var(--r-3);text-align:center;background:var(--bg-1)">'
+      +     '<div style="font-size:28px;opacity:.4;margin-bottom:8px">📚</div>'
+      +     '<div style="font-size:14px;font-weight:600;color:var(--fg-1);margin-bottom:4px">Tu biblioteca está vacía</div>'
+      +     '<div style="font-size:12px;color:var(--fg-3);max-width:420px;margin:0 auto;line-height:1.5">'
+      +       'Acá van las plantillas aprobadas por el equipo legal. '
+      +       'Para crear una, agregá filas a la hoja <span class="mono" style="background:var(--bg-2);padding:1px 5px;border-radius:3px">Templates</span> '
+      +       'del spreadsheet (columnas: tipoTrabajo, checklist en JSON).'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+    return;
+  }
   var counts = {
     todas: TEMPLATES.length,
     Contractual: TEMPLATES.filter(function(t){ return t.cat === 'Contractual'; }).length,
@@ -8965,7 +9047,7 @@ function rEdPlantillas(D) {
 
   // Header
   html += '<div class="pa-page-h">'
-       +    '<span class="pa-page-title">Plantillas</span>'
+       +    '<span class="pa-page-title">Biblioteca</span>'
        +    '<span class="pa-page-sub">' + TEMPLATES.length + ' plantillas · ' + (TEMPLATES.length - counts.draft) + ' aprobadas · ' + counts.draft + ' en revisión</span>'
        +    '<div class="pa-page-meta">'
        +      '<button class="pa-btn pa-btn-outline">' + paIcon('download', 12) + ' Exportar</button>'
