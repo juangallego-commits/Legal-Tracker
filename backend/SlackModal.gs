@@ -454,7 +454,7 @@ function openCreateModal(triggerId, channel, ts, prefillText) {
         type     : 'input',
         block_id : 'deadline',
         optional : true,
-        label    : { type: 'plain_text', text: 'Deadline' },
+        label    : { type: 'plain_text', text: 'Plazo' },
         element  : {
           type        : 'plain_text_input',
           action_id   : 'value',
