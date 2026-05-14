@@ -222,14 +222,15 @@ input, select, textarea { font-family: inherit; color: inherit; }
   background: rgba(255,255,255,0.05); font-family: var(--font-mono);
 }
 
+/* Workspace strip · placeholder estático. No hay multi-workspace por ahora,
+   así que no debe sugerir interactividad (ni cursor pointer ni hover). */
 .pa-sb-workspace {
   margin: 4px 8px 12px; padding: 6px 8px;
   border-radius: 6px;
   display: flex; align-items: center; gap: 8px;
   background: rgba(255,255,255,0.02);
-  cursor: pointer;
 }
-.pa-sb-workspace:hover { background: rgba(255,255,255,0.05); }
+.pa-sb-ws-caret { display: none; } /* hide chevron until multi-workspace exists */
 .pa-sb-ws-av {
   width: 18px; height: 18px; border-radius: 4px;
   background: #5b8def; color: #fff;

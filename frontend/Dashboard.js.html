@@ -2981,7 +2981,7 @@ var ED_NAV_BY_ROLE = {
     { section: 'Donde trabajo', items: [
       { id: 'tracker',    label: 'Tracker',     icon: 'inbox',  view: 'tracker' },
       { id: 'proyectos',  label: 'Proyectos',   icon: 'folder', view: 'proyectos' },
-      { id: 'plantillas', label: 'Biblioteca',  icon: 'doc',    view: 'plantillas' }
+      { id: 'plantillas', label: 'Plantillas', icon: 'doc',    view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
       { id: 'analytics', label: 'Mi desempeño', icon: 'chart',   view: 'analytics' },
@@ -2997,7 +2997,7 @@ var ED_NAV_BY_ROLE = {
     { section: 'Operación', items: [
       { id: 'agrupadas',  label: 'Por urgencia', icon: 'calendar', view: 'agrupadas' },
       { id: 'proyectos',  label: 'Proyectos',    icon: 'folder',   view: 'proyectos' },
-      { id: 'plantillas', label: 'Biblioteca',   icon: 'doc',      view: 'plantillas' }
+      { id: 'plantillas', label: 'Plantillas',   icon: 'doc',      view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
       { id: 'analytics', label: 'Métricas',  icon: 'chart',   view: 'analytics' },
@@ -3011,9 +3011,9 @@ var ED_NAV_BY_ROLE = {
       { id: 'tracker', label: 'Tracker',     icon: 'inbox', view: 'tracker' }
     ]},
     { section: 'Personas', items: [
-      { id: 'miequipo',   label: 'Equipos',    icon: 'users',  view: 'miequipo' },
+      { id: 'miequipo',   label: 'Equipo',     icon: 'users',  view: 'miequipo' },
       { id: 'proyectos',  label: 'Proyectos',  icon: 'folder', view: 'proyectos' },
-      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' }
+      { id: 'plantillas', label: 'Plantillas', icon: 'doc',    view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
       { id: 'analytics', label: 'Analytics',  icon: 'chart',   view: 'analytics' },
@@ -3054,7 +3054,7 @@ function _userInitials(name) {
 }
 function _roleLabel(role) {
   if (role === 'manager') return 'Manager';
-  if (role === 'head') return 'HQ';
+  if (role === 'head') return 'Global';
   return 'Specialist';
 }
 function _roleSubtitle(role, code) {
@@ -3258,7 +3258,7 @@ var _ED_CRUMBS_BY_VIEW = {
   mistareas:  ['Mi día', 'Mis tareas'],
   tracker:    ['Donde trabajo', 'Tracker'],
   proyectos:  ['Donde trabajo', 'Proyectos'],
-  plantillas: ['Donde trabajo', 'Biblioteca'],
+  plantillas: ['Donde trabajo', 'Plantillas'],
   miequipo:   ['Personas', 'Mi equipo'],
   paises:     ['LATAM', 'Por país'],
   resumen:    ['LATAM', 'Por país'],
@@ -3843,8 +3843,8 @@ function goEd(viewId) {
         vDeny.classList.add('active');
         vDeny.innerHTML = ''
           + '<div class="ed-eye">Acceso restringido</div>'
-          + '<h1 class="ed-h1">Solo HQ <em>puede ver esta vista</em>.</h1>'
-          + '<p class="ed-lede">La vista <b>Por país</b> está reservada al rol <b>head</b>.</p>'
+          + '<h1 class="ed-h1">Solo Global <em>puede ver esta vista</em>.</h1>'
+          + '<p class="ed-lede">La vista <b>Por país</b> está reservada al rol <b>Global</b>.</p>'
           + '<div style="margin-top:18px"><button class="ed-btn primary" onclick="goEd(\'home\')">Volver a inicio →</button></div>';
       }
       return;
@@ -8420,8 +8420,8 @@ function rEdResumen(D) {
   if (role !== 'head') {
     v.innerHTML = ''
       + '<div class="ed-eye">Restringido</div>'
-      + '<h1 class="ed-h1">Solo HQ <em>puede ver esta vista</em>.</h1>'
-      + '<p class="ed-lede">La vista <b>Por país</b> está reservada para el rol <b>head</b>.</p>'
+      + '<h1 class="ed-h1">Solo Global <em>puede ver esta vista</em>.</h1>'
+      + '<p class="ed-lede">La vista <b>Por país</b> está reservada para el rol <b>Global</b>.</p>'
       + '<div style="margin-top:18px"><button class="ed-btn primary" onclick="goEd(\'home\')">Volver a Inicio →</button></div>';
     return;
   }
@@ -8965,7 +8965,7 @@ function rEdPlantillas(D) {
 
   // Header
   html += '<div class="pa-page-h">'
-       +    '<span class="pa-page-title">Biblioteca</span>'
+       +    '<span class="pa-page-title">Plantillas</span>'
        +    '<span class="pa-page-sub">' + TEMPLATES.length + ' plantillas · ' + (TEMPLATES.length - counts.draft) + ' aprobadas · ' + counts.draft + ' en revisión</span>'
        +    '<div class="pa-page-meta">'
        +      '<button class="pa-btn pa-btn-outline">' + paIcon('download', 12) + ' Exportar</button>'
