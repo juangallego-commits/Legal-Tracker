@@ -222,15 +222,25 @@ input, select, textarea { font-family: inherit; color: inherit; }
   background: rgba(255,255,255,0.05); font-family: var(--font-mono);
 }
 
-/* Workspace strip · placeholder estático. No hay multi-workspace por ahora,
-   así que no debe sugerir interactividad (ni cursor pointer ni hover). */
+/* Workspace strip · muestra rol efectivo (Specialist/Manager/Global) +
+   workspace name. Clickable solo si el usuario real es 'head' (puede activar
+   "ver app como Specialist/Manager" desde el dropdown). */
 .pa-sb-workspace {
   margin: 4px 8px 12px; padding: 6px 8px;
   border-radius: 6px;
   display: flex; align-items: center; gap: 8px;
   background: rgba(255,255,255,0.02);
 }
-.pa-sb-ws-caret { display: none; } /* hide chevron until multi-workspace exists */
+.pa-sb-workspace.is-clickable { cursor: pointer; }
+.pa-sb-workspace.is-clickable:hover { background: rgba(255,255,255,0.06); }
+.pa-sb-ws-stack { flex: 1; min-width: 0; line-height: 1.2; }
+.pa-sb-ws-sub { font-size: 10px; color: var(--fg-on-dark-3); margin-top: 1px; }
+.pa-sb-ws-demo {
+  display: inline-block; font-size: 9px; padding: 1px 5px; margin-left: 4px;
+  border-radius: 3px; background: var(--accent-soft-strong); color: var(--accent);
+  text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600;
+  vertical-align: middle;
+}
 .pa-sb-ws-av {
   width: 18px; height: 18px; border-radius: 4px;
   background: #5b8def; color: #fff;
@@ -369,12 +379,17 @@ input, select, textarea { font-family: inherit; color: inherit; }
    PAGE LAYOUT
    ═══════════════════════════════════════════════════════════════ */
 .pa-body { flex: 1; overflow: auto; min-height: 0; position: relative; }
+/* `.view.active` vive dentro de .ed-main (flex column con header + view + footer).
+   Antes usaba height: 100% que provocaba overflow porque .ed-main es flex y los
+   tres hijos sumaban > 100% del padre. flex: 1; min-height: 0 lo deja crecer
+   solo en el espacio sobrante, sin desbordar. (Diagnóstico: Chrome DevTools AI). */
 .view {
   display: none;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
-.view.active { display: block; }
+.view.active { display: flex; flex-direction: column; }
 
 .pa-page {
   padding: 24px 32px 56px;
@@ -1712,19 +1727,48 @@ table tr:hover td { background: var(--bg-2); }
   box-shadow: var(--shadow-pop);
   overflow: hidden;
 }
+.ed-search-head { display: flex; align-items: stretch; border-bottom: 1px solid var(--line-1); }
 .ed-search-input {
-  width: 100%; padding: 14px 18px;
+  flex: 1; padding: 14px 18px;
   border: 0; background: transparent;
   font-size: 16px; color: var(--fg-1);
-  outline: none; border-bottom: 1px solid var(--line-1);
+  outline: none;
 }
 .ed-search-input::placeholder { color: var(--fg-4); }
+.ed-search-close {
+  width: 44px; flex: 0 0 44px;
+  background: transparent; border: 0; border-left: 1px solid var(--line-1);
+  color: var(--fg-3); font-size: 22px; line-height: 1; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.ed-search-close:hover { background: var(--bg-2); color: var(--fg-1); }
 .ed-search-results { max-height: 400px; overflow-y: auto; }
 .ed-search-result { padding: 10px 18px; cursor: pointer; border-bottom: 1px solid var(--line-1); }
 .ed-search-result:hover, .ed-search-result.active { background: var(--bg-2); }
 .ed-search-result-name { font-size: 13px; color: var(--fg-1); font-weight: 500; }
 .ed-search-result-meta { font-size: 11px; color: var(--fg-3); margin-top: 2px; }
 .ed-search-hint { padding: 8px 18px; font-size: 11px; color: var(--fg-3); border-top: 1px solid var(--line-1); }
+
+/* Demo role dropdown (solo visible para usuarios con rol 'head') */
+.ed-demo-dropdown {
+  position: fixed; min-width: 220px; z-index: 200;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-pop);
+  padding: 6px;
+  font-family: var(--font-sans);
+}
+.ed-demo-h { padding: 6px 10px 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3); font-weight: 600; }
+.ed-demo-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-radius: var(--r-2);
+  font-size: 13px; color: var(--fg-1); cursor: pointer;
+}
+.ed-demo-item:hover { background: var(--bg-2); }
+.ed-demo-item .dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--line-3); flex: 0 0 8px; }
+.ed-demo-item.is-active .dot { background: var(--accent); border-color: var(--accent); }
+.ed-demo-foot { padding: 6px 10px; margin-top: 4px; border-top: 1px solid var(--line-1); font-size: 11px; color: var(--fg-3); line-height: 1.4; }
 
 /* Help modal */
 .ed-help-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
