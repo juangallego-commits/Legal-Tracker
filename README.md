@@ -23,7 +23,6 @@ Web app del equipo Global Legal de Rappi+ para hacer seguimiento de tareas y pro
 │   ├── Dashboard.html       Shell HTML del dashboard
 │   ├── Dashboard.css.html   Estilos
 │   └── Dashboard.js.html    Lógica del cliente
-├── pendientes/              Cosas sin implementar todavía (handoffs, drafts)
 ├── .github/workflows/
 │   └── deploy-appsscript.yml   CI que despliega a Apps Script en cada push a main
 └── .clasp.json.example      Plantilla para tu .clasp.json local

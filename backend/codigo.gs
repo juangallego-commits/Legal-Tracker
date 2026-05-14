@@ -40,7 +40,6 @@ const PROJ_CONTRAPARTES_COL = 17; // 1-indexed
 
 const STATUS_ORDER = {'Bloqueado':0,'En curso':1,'Pendiente':2,'En revisión':3,'Listo':4};
 const PRIO_ORDER   = {'Alta':0,'Media':1,'Baja':2};
-const PROJ_STATUSES = ['Activo','En pausa','Completado','Cancelado'];
 
 // ── CACHE ───────────────────────────────────────────────────────
 // Cacheamos el snapshot completo por 30s. Cualquier escritura llama a invalidateCache().
@@ -977,32 +976,6 @@ function _addProjectImpl(obj) {
   }
 }
 
-function updateProjectField(projId, field, value) { return _safeMutation(function() { return _updateProjectFieldImpl(projId, field, value); }); }
-function _updateProjectFieldImpl(projId, field, value) {
-  var ctx = _getAuthContext();
-  var current = _readProjectById(ctx.ss, projId);
-  if (!current) return { success: false, error: 'Project #' + projId + ' not found' };
-  _authorizeProjectWrite(ctx, current);
-  var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
-  var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15,'contrapartesConflicto':17};
-  var col = fieldMap[field];
-  if (!col) return { success: false, error: 'Invalid field: ' + field };
-  // Normalizar contrapartesConflicto: array → csv; string → trust.
-  if (field === 'contrapartesConflicto' && Array.isArray(value)) {
-    value = value.map(function(s){ return (s == null ? '' : s.toString()).trim(); }).filter(Boolean).join(', ');
-  }
-  // Lock para serializar mutaciones concurrentes sobre la hoja Proyectos.
-  var lock = LockService.getScriptLock();
-  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
-  try {
-    ws.getRange(current.row, col).setValue(_sanitizeCell(value));
-    return { success: true };
-  } finally {
-    lock.releaseLock();
-    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
-  }
-}
-
 // Batch update de proyectos: aplica varios campos en una sola llamada.
 // Valida permisos contra el estado actual antes de cualquier escritura.
 function updateProjectFields(projId, fields) { return _safeMutation(function() { return _updateProjectFieldsImpl(projId, fields); }); }
@@ -1301,8 +1274,6 @@ function _updateTaskFieldImpl(taskId, field, value) {
   // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true };
 }
-function updateTaskStatus(taskId, newStatus) { return updateTaskField(taskId, 'status', newStatus); }
-
 // Batch update: aplica varios campos en una sola llamada.
 // Si `status` es 'Listo', se aplica al final y dispara el move a Historial (los demás campos ya quedaron escritos).
 function updateTaskFields(taskId, fields) {
@@ -2058,14 +2029,6 @@ function _blockTaskByIdImpl(taskId, reason, slackUser) {
     invalidateCache();
   }
 }
-function testData() {
-  var d = getTrackerData();
-  Logger.log('Tasks: ' + d.tasks.length);
-  Logger.log('Equipos: ' + d.equipos.length);
-  Logger.log('Projects: ' + d.projects.length);
-  Logger.log('Team: ' + d.team.length);
-}
-
 // ════════════════════════════════════════════════════════════════
 // DAILY DIGEST · trigger time-driven 8am Bogotá
 // ════════════════════════════════════════════════════════════════
@@ -2094,13 +2057,6 @@ function sendDailyDigest() {
 function _sendDailyDigestPreview(emailDestino) {
   if (!emailDestino) throw new Error('emailDestino requerido. Uso: _sendDailyDigestPreview("tu@email.com")');
   return _runDailyDigest(emailDestino);
-}
-
-// Wrapper sin args para correr desde el editor de Apps Script (botón Run)
-// El editor no permite pasar argumentos, así que esta función envía el
-// digest de prueba a juan.gallego@rappi.com. Cambiar el email si rota el owner.
-function _previewDigestParaMi() {
-  return _sendDailyDigestPreview('juan.gallego@rappi.com');
 }
 
 function _runDailyDigest(forcedEmail) {
