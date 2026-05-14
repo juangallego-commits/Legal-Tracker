@@ -14,11 +14,11 @@ const SHEET_FERIADOS  = 'Feriados'; // Manual; cols: pais (CO/MX/CR/...) | fecha
 const SHEET_TEMPLATES = 'Templates'; // Optional; cols: tipoTrabajo, checklist (JSON array of strings). See sample at EOF.
 
 // ── DAILY DIGEST ────────────────────────────────────────────────
-// URL del web app deployado (/exec). Se usa en los emails para
-// construir deep-links como WEB_APP_URL + '?task=ID'. Reemplazar el
-// placeholder con la URL real después del primer deploy a /exec.
-// Si quedara como placeholder, los emails siguen mandándose pero los
-// links no van a ningún lado útil — los logs no fallan.
+// URL del web app deployado (/exec). Se usa en los emails del digest
+// para construir deep-links como WEB_APP_URL + '?task=ID'.
+// Si rotás el deployment (Deploy → Manage deployments → nuevo /exec),
+// actualizá esta constante o los links del email apuntarán al
+// deployment viejo. Validar contra Apps Script editor → Deploy.
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyWIOIHZzUJ9yzk9nDYMm26FcEAVE6M-VisDHM8cqyA_ijnCG3YjeNIgVt2_MaJveYdCg/exec';
 const DIGEST_TZ = 'America/Bogota';
 const DIGEST_SKIP_WEEKENDS = true; // En sáb/dom el trigger corre pero hace early return.
@@ -2984,5 +2984,64 @@ function setupSheets() {
   }
 
   log('—— setupSheets terminó ——');
+  return report;
+}
+
+// ════════════════════════════════════════════════════════════════
+// WIPE TEST DATA
+// ════════════════════════════════════════════════════════════════
+// Borra TODAS las filas de data de: Tracking Activo, Historial,
+// Proyectos y Comments. Preserva headers + formato + Equipos + Config
+// + Feriados + Templates.
+//
+// Para correr: en el editor de Apps Script, seleccionar wipeTestData
+// en el dropdown de funciones y darle Run. El log devuelve cuántas
+// filas se borraron por hoja.
+//
+// IMPORTANTE: es destructivo y no hay deshacer. Si necesitás guardar
+// algo, primero hacé una copia del sheet (Archivo → Hacer una copia).
+
+function wipeTestData() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var report = [];
+  var log = function(msg) { report.push(msg); Logger.log(msg); };
+
+  // Hojas a limpiar con la row donde empieza la data (header arriba).
+  var targets = [
+    { name: SHEET_ACTIVO,    dataStart: 4 }, // headers en rows 1-3
+    { name: SHEET_HISTORIAL, dataStart: 4 }, // mismo formato que Tracking Activo
+    { name: SHEET_PROYECTOS, dataStart: 2 }, // header en row 1
+    { name: SHEET_COMMENTS,  dataStart: 2 }  // header en row 1 (auto-creada)
+  ];
+
+  targets.forEach(function(t) {
+    var ws = ss.getSheetByName(t.name);
+    if (!ws) {
+      log('· Hoja "' + t.name + '" no existe — skip');
+      return;
+    }
+    var lastRow = ws.getLastRow();
+    if (lastRow < t.dataStart) {
+      log('· Hoja "' + t.name + '" ya está vacía (lastRow=' + lastRow + ')');
+      return;
+    }
+    var numRows = lastRow - t.dataStart + 1;
+    ws.deleteRows(t.dataStart, numRows);
+    log('✓ "' + t.name + '": ' + numRows + ' filas borradas (preservados headers)');
+  });
+
+  // Invalidar caches para que el siguiente lector vea el sheet vacío.
+  try {
+    var cache = CacheService.getScriptCache();
+    cache.remove(CACHE_KEY);
+    cache.remove('feriados_v1');
+    cache.remove('templates_v1');
+    log('✓ Caches invalidadas');
+  } catch (e) {
+    log('⚠ Cache flush falló: ' + e.message);
+  }
+
+  log('—— wipeTestData terminó ——');
+  log('Preservados: Equipos, Config, Feriados, Templates');
   return report;
 }
