@@ -1712,13 +1712,17 @@ table tr:hover td { background: var(--bg-2); }
 /* Tags input refinement */
 .tags-text { background: transparent; border: 0; outline: none; color: var(--fg-1); font: inherit; font-size: 13px; flex: 1; min-width: 80px; }
 
-/* Search modal (Cmd+K) */
+/* Search modal (Cmd+K) · hidden por default, .show lo activa.
+   IMPORTANTE: antes la regla .show estaba ausente y display:flex era el
+   default — efecto: el modal nunca se cerraba visualmente con Esc/X/click
+   fuera. Fix: display:none por default + .show toggles a flex. */
 .ed-search-overlay {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.5);
-  display: flex; align-items: flex-start; justify-content: center;
+  display: none; align-items: flex-start; justify-content: center;
   z-index: 100; padding-top: 80px;
 }
+.ed-search-overlay.show { display: flex; }
 .ed-search-modal {
   width: 100%; max-width: 600px;
   background: var(--bg-1);
@@ -1771,7 +1775,8 @@ table tr:hover td { background: var(--bg-2); }
 .ed-demo-foot { padding: 6px 10px; margin-top: 4px; border-top: 1px solid var(--line-1); font-size: 11px; color: var(--fg-3); line-height: 1.4; }
 
 /* Help modal */
-.ed-help-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.ed-help-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; }
+.ed-help-overlay.show { display: flex; }
 .ed-help-modal { width: 100%; max-width: 560px; background: var(--bg-1); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow-pop); padding: 24px; }
 .ed-help-modal h3 { margin: 0 0 16px; font-size: 16px; font-weight: 600; }
 .ed-help-modal kbd { font-family: var(--font-mono); font-size: 11px; padding: 2px 6px; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 4px; }
