@@ -1567,7 +1567,7 @@ function uf(id, f, v) {
   google.script.run
     .withSuccessHandler(function(r) {
       if (r.success) {
-        toast(r.moved ? '✅ Moved to history' : '✅ OK', 'success');
+        toast(r.moved ? '✅ Movida al historial' : '✅ OK', 'success');
         reload(); // Sincroniza stats reales del server
       } else {
         // Rollback: restaurar valor previo
@@ -1627,15 +1627,15 @@ function edSpMenuClose() {
 function _relativeAgo(ms) {
   if (!ms) return '';
   var diff = Date.now() - ms;
-  if (diff < 0) return 'today';
+  if (diff < 0) return 'hoy';
   var days = Math.floor(diff / 86400000);
-  if (days < 1) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return days + 'd ago';
+  if (days < 1) return 'hoy';
+  if (days === 1) return 'ayer';
+  if (days < 7) return 'hace ' + days + 'd';
   var weeks = Math.floor(days / 7);
-  if (weeks < 5) return weeks + 'w ago';
+  if (weeks < 5) return 'hace ' + weeks + ' sem';
   var months = Math.floor(days / 30);
-  return months + 'mo ago';
+  return 'hace ' + months + ' mes' + (months > 1 ? 'es' : '');
 }
 
 // Feed de actividad reciente para el sidebar editorial. Combina las
@@ -1660,7 +1660,7 @@ function _edActivityFeed() {
   if (!items.length) return '';
   var icons = { closed: '✓', created: '+' };
   var html = '<div class="ed-feed">'
-           + '<div class="ed-feed-head">Recent activity</div>';
+           + '<div class="ed-feed-head">Actividad reciente</div>';
   items.forEach(function(it) {
     var truncated = it.name.length > 20 ? (it.name.slice(0, 20) + '…') : it.name;
     html += '<div class="ed-feed-row" title="' + esc(it.name) + '">'
@@ -1698,7 +1698,7 @@ function _edRecentClosedSection(hist, title, limit) {
     .slice(0, limit || 5);
   if (!entries.length) return '';
   var html = '<section class="ed-section">'
-           + '<div class="ed-h2">— ' + esc(title || 'Recent') + '</div>';
+           + '<div class="ed-h2">— ' + esc(title || 'Reciente') + '</div>';
   entries.forEach(function(h) {
     var meta = (h.priority || '') + ' · ' + (h.resp || '—')
              + (h.pais ? ' · ' + h.pais : '')
@@ -3545,7 +3545,7 @@ function _edSearchRender() {
   var host = $('edSearchResults'); if (!host) return;
   var q = (EDS.query || '').trim();
   if (!q) {
-    host.innerHTML = '<div class="ed-search-empty">Start typing to search…</div>';
+    host.innerHTML = '<div class="ed-search-empty">Escribí para buscar…</div>';
     return;
   }
   var results = _edSearchFilter(q);
@@ -3695,8 +3695,8 @@ function edHelpOpen() {
       { keys: ['Esc'], desc: 'Cerrar el panel de detalle' }
     ]},
     { title: 'Panel de detalle', items: [
-      { keys: ['Click'], desc: 'sobre el valor de una celda para editarla inline' },
-      { keys: ['2x click'], desc: 'sobre el título para renombrar la tarea' }
+      { keys: ['Clic'], desc: 'sobre el valor de una celda para editarla inline' },
+      { keys: ['Doble clic'], desc: 'sobre el título para renombrar la tarea' }
     ]},
     { title: 'Crear', items: [
       { keys: ['N'], desc: 'Asistente de nueva tarea' }
@@ -5262,7 +5262,7 @@ function _panelCell(lbl, val, valCls) {
 function _panelCellEditable(lbl, val, valCls, taskId, fieldKey) {
   var cellId = 'pcell-' + taskId + '-' + fieldKey;
   var displayVal = (val == null || val === '') ? '—' : val;
-  return '<div class="tk-panel-cell editable" data-pcell-id="' + esc(cellId) + '" title="Click to edit">'
+  return '<div class="tk-panel-cell editable" data-pcell-id="' + esc(cellId) + '" title="Clic para editar">'
        +   '<div class="lbl">' + esc(lbl) + '</div>'
        +   '<div class="val' + (valCls ? ' ' + valCls : '') + '" onclick="edPanelEditCell(\'' + esc(taskId) + '\', \'' + fieldKey + '\')">' + esc(displayVal) + '</div>'
        + '</div>';
