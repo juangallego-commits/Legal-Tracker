@@ -94,7 +94,7 @@
             <th scope="col" style="cursor:pointer" onclick="tSort('resp')">Resp. <span id="sI_resp"></span></th>
             <th scope="col" style="cursor:pointer" onclick="tSort('priority')">Prioridad <span id="sI_priority"></span></th>
             <th scope="col" style="cursor:pointer" onclick="tSort('status')">Estado <span id="sI_status"></span></th>
-            <th scope="col" style="cursor:pointer" onclick="tSort('deadline')">Deadline <span id="sI_deadline"></span></th>
+            <th scope="col" style="cursor:pointer" onclick="tSort('deadline')">Plazo <span id="sI_deadline"></span></th>
             <th scope="col">Tipo</th>
             <th scope="col">Riesgo</th>
             <th scope="col">Accionable</th>
@@ -180,7 +180,7 @@
             <th scope="col">Tarea</th>
             <th scope="col">Responsable</th>
             <th scope="col">Estado</th>
-            <th scope="col">Deadline</th>
+            <th scope="col">Plazo</th>
             <th scope="col">Días</th>
             <th scope="col" style="width:36px" aria-label="Acciones"></th>
           </tr>
@@ -282,7 +282,7 @@
             <th scope="col">Proyecto</th>
             <th scope="col">Prioridad</th>
             <th scope="col">Estado</th>
-            <th scope="col">Deadline</th>
+            <th scope="col">Plazo</th>
             <th scope="col">Accionable</th>
             <th scope="col" style="width:36px" aria-label="Acciones"></th>
           </tr>
@@ -316,7 +316,7 @@
         <div id="fConflictWarn" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;border:1px solid var(--warn);background:var(--warn-soft,rgba(255,185,56,.14));color:var(--warn);font-size:13px;font-weight:600"></div>
       </div>
       <div class="form-section"><div class="form-section-title">Asignación</div>
-        <div class="form-3col"><div class="form-group"><label>Responsable *</label><select id="fResp"><option value="">Seleccionar...</option></select></div><div class="form-group"><label>Líder</label><select id="fLider"><option value="">Auto</option></select></div><div class="form-group"><label>Deadline</label><input type="date" id="fDl"></div></div>
+        <div class="form-3col"><div class="form-group"><label>Responsable *</label><select id="fResp"><option value="">Seleccionar...</option></select></div><div class="form-group"><label>Líder</label><select id="fLider"><option value="">Auto</option></select></div><div class="form-group"><label>Plazo</label><input type="date" id="fDl"></div></div>
       </div>
       <div class="form-section"><div class="form-section-title">Detalle</div>
         <div class="form-grid">
@@ -337,7 +337,7 @@
       <div class="form-section"><div class="form-section-title">Información del proyecto</div>
         <div class="form-group" style="margin-bottom:14px"><label>Nombre del proyecto *</label><input type="text" id="pNom" placeholder="Ej: Compliance GDPR Brasil" maxlength="80"></div>
         <div class="form-group" style="margin-bottom:14px"><label>Descripción</label><textarea id="pDesc" placeholder="¿De qué se trata este proyecto?" rows="2"></textarea></div>
-        <div class="form-3col"><div class="form-group"><label>País</label><select id="pPais"><option value="">Seleccionar...</option></select></div><div class="form-group"><label>Prioridad</label><select id="pPrio"><option value="Alta">🔴 Alta</option><option value="Media" selected>🟡 Media</option><option value="Baja">🟢 Baja</option></select></div><div class="form-group"><label>Deadline</label><input type="date" id="pDl"></div></div>
+        <div class="form-3col"><div class="form-group"><label>País</label><select id="pPais"><option value="">Seleccionar...</option></select></div><div class="form-group"><label>Prioridad</label><select id="pPrio"><option value="Alta">🔴 Alta</option><option value="Media" selected>🟡 Media</option><option value="Baja">🟢 Baja</option></select></div><div class="form-group"><label>Plazo</label><input type="date" id="pDl"></div></div>
         <div class="form-grid"><div class="form-group"><label>Tipo de trabajo</label><select id="pTipo"><option value="">Sin definir</option><option>Contencioso</option><option>Regulatorio</option><option>Contractual</option><option>Privacy</option><option>Operativo</option></select></div><div class="form-group"><label>Nivel de riesgo</label><select id="pRiesgo"><option value="">Sin definir</option><option>Legal alto</option><option>Reputacional</option><option>Operativo</option></select></div></div>
       </div>
       <div class="form-section"><div class="form-section-title">Asignación</div>

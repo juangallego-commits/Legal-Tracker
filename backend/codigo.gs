@@ -2096,6 +2096,13 @@ function _sendDailyDigestPreview(emailDestino) {
   return _runDailyDigest(emailDestino);
 }
 
+// Wrapper sin args para correr desde el editor de Apps Script (botón Run)
+// El editor no permite pasar argumentos, así que esta función envía el
+// digest de prueba a juan.gallego@rappi.com. Cambiar el email si rota el owner.
+function _previewDigestParaMi() {
+  return _sendDailyDigestPreview('juan.gallego@rappi.com');
+}
+
 function _runDailyDigest(forcedEmail) {
   var isPreview = !!forcedEmail;
   try {
@@ -2190,24 +2197,24 @@ function _sendSpecialistDigest(email, name, buckets, originalRecipient) {
   if (total === 0) return;
 
   var firstName = (name || '').split(' ')[0] || name;
-  var subject = '[Legal Tracker] ' + total + ' task' + (total > 1 ? 's' : '') + ' need attention';
-  if (originalRecipient) subject = '[PREVIEW for ' + originalRecipient + '] ' + subject;
+  var subject = '[Legal Tracker] ' + total + (total > 1 ? ' tareas requieren atención' : ' tarea requiere atención');
+  if (originalRecipient) subject = '[VISTA PREVIA para ' + originalRecipient + '] ' + subject;
 
   var headerNote = originalRecipient
-    ? '<p style="background:#fffbe6;padding:10px 12px;border-left:3px solid #fa8c16;font-size:13px;margin:0 0 16px;color:#7a4f02;">Preview · este digest estaba destinado a <strong>' + _digestEsc(originalRecipient) + '</strong> (' + _digestEsc(name) + ').</p>'
+    ? '<p style="background:#fffbe6;padding:10px 12px;border-left:3px solid #fa8c16;font-size:13px;margin:0 0 16px;color:#7a4f02;">Vista previa · este resumen estaba destinado a <strong>' + _digestEsc(originalRecipient) + '</strong> (' + _digestEsc(name) + ').</p>'
     : '';
 
   var html =
     '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;color:#222;max-width:680px;">' +
       headerNote +
-      '<h2 style="font-family:Georgia,serif;font-weight:400;margin:0 0 4px;font-size:24px;">Hi ' + _digestEsc(firstName) + ',</h2>' +
+      '<h2 style="font-family:Georgia,serif;font-weight:400;margin:0 0 4px;font-size:24px;">Hola ' + _digestEsc(firstName) + ',</h2>' +
       '<p style="margin:0 0 20px;color:#555;">Tu agenda de tareas que necesitan atención hoy.</p>' +
-      (nO > 0 ? _renderDigestTable(buckets.overdue, 'Overdue · ' + nO, '#cf1322') : '') +
-      (nT > 0 ? _renderDigestTable(buckets.today,   'Due today · ' + nT, '#d48806') : '') +
-      (nS > 0 ? _renderDigestTable(buckets.soon,    'Due in 48 hours · ' + nS, '#389e0d') : '') +
+      (nO > 0 ? _renderDigestTable(buckets.overdue, 'Vencidas · ' + nO, '#cf1322') : '') +
+      (nT > 0 ? _renderDigestTable(buckets.today,   'Vencen hoy · ' + nT, '#d48806') : '') +
+      (nS > 0 ? _renderDigestTable(buckets.soon,    'Vencen en 48 horas · ' + nS, '#389e0d') : '') +
       '<p style="margin:28px 0 0;color:#888;font-size:12px;border-top:1px solid #eee;padding-top:12px;">' +
-        'Open the tracker: <a href="' + _digestEsc(WEB_APP_URL) + '" style="color:#1565c0;">' + _digestEsc(WEB_APP_URL) + '</a><br>' +
-        'You\'re getting this because you have tasks assigned in Legal Tracker.' +
+        'Abrir el tracker: <a href="' + _digestEsc(WEB_APP_URL) + '" style="color:#1565c0;">' + _digestEsc(WEB_APP_URL) + '</a><br>' +
+        'Recibís este email porque tenés tareas asignadas en Legal Tracker.' +
       '</p>' +
     '</div>';
 
@@ -2231,33 +2238,33 @@ function _sendManagerDigest(email, team, teamTasks, originalRecipient) {
     .slice(0, 3);
 
   var country = team.country || team.code;
-  var subject = '[Legal Tracker · ' + country + '] Team digest — ' + nO + ' overdue';
-  if (originalRecipient) subject = '[PREVIEW for ' + originalRecipient + '] ' + subject;
+  var subject = '[Legal Tracker · ' + country + '] Resumen del equipo — ' + nO + ' vencidas';
+  if (originalRecipient) subject = '[VISTA PREVIA para ' + originalRecipient + '] ' + subject;
 
   var headerNote = originalRecipient
-    ? '<p style="background:#fffbe6;padding:10px 12px;border-left:3px solid #fa8c16;font-size:13px;margin:0 0 16px;color:#7a4f02;">Preview · este digest estaba destinado a <strong>' + _digestEsc(originalRecipient) + '</strong> (líder de ' + _digestEsc(country) + ').</p>'
+    ? '<p style="background:#fffbe6;padding:10px 12px;border-left:3px solid #fa8c16;font-size:13px;margin:0 0 16px;color:#7a4f02;">Vista previa · este resumen estaba destinado a <strong>' + _digestEsc(originalRecipient) + '</strong> (líder de ' + _digestEsc(country) + ').</p>'
     : '';
 
   var top3Html = top3.length === 0
-    ? '<p style="color:#888;font-style:italic;margin:0;">Nadie con overdue. ✓</p>'
+    ? '<p style="color:#888;font-style:italic;margin:0;">Nadie con tareas vencidas. ✓</p>'
     : '<ol style="padding-left:20px;margin:0;">' + top3.map(function(p){
-        return '<li style="margin:4px 0;"><strong>' + _digestEsc(p.name) + '</strong> — ' + p.count + ' overdue</li>';
+        return '<li style="margin:4px 0;"><strong>' + _digestEsc(p.name) + '</strong> — ' + p.count + ' vencida' + (p.count > 1 ? 's' : '') + '</li>';
       }).join('') + '</ol>';
 
   var html =
     '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;color:#222;max-width:680px;">' +
       headerNote +
-      '<h2 style="font-family:Georgia,serif;font-weight:400;margin:0 0 4px;font-size:24px;">' + _digestEsc(country) + ' team digest</h2>' +
+      '<h2 style="font-family:Georgia,serif;font-weight:400;margin:0 0 4px;font-size:24px;">Resumen del equipo · ' + _digestEsc(country) + '</h2>' +
       '<p style="margin:0 0 20px;color:#555;">Resumen agregado del equipo. Por confidencialidad no se listan tareas individuales aquí — abrí el tracker para ver detalle.</p>' +
       '<table style="border-collapse:collapse;margin:0 0 20px;">' +
-        '<tr><td style="padding:10px 18px;background:#fff1f0;border-left:3px solid #cf1322;font-size:28px;font-weight:600;line-height:1;">' + nO + '</td><td style="padding:10px 14px;color:#555;font-size:14px;">overdue</td></tr>' +
-        '<tr><td style="padding:10px 18px;background:#fff7e6;border-left:3px solid #d48806;font-size:28px;font-weight:600;line-height:1;">' + nT + '</td><td style="padding:10px 14px;color:#555;font-size:14px;">due today</td></tr>' +
-        '<tr><td style="padding:10px 18px;background:#f6ffed;border-left:3px solid #389e0d;font-size:28px;font-weight:600;line-height:1;">' + nS + '</td><td style="padding:10px 14px;color:#555;font-size:14px;">due in 48h</td></tr>' +
+        '<tr><td style="padding:10px 18px;background:#fff1f0;border-left:3px solid #cf1322;font-size:28px;font-weight:600;line-height:1;">' + nO + '</td><td style="padding:10px 14px;color:#555;font-size:14px;">vencidas</td></tr>' +
+        '<tr><td style="padding:10px 18px;background:#fff7e6;border-left:3px solid #d48806;font-size:28px;font-weight:600;line-height:1;">' + nT + '</td><td style="padding:10px 14px;color:#555;font-size:14px;">vencen hoy</td></tr>' +
+        '<tr><td style="padding:10px 18px;background:#f6ffed;border-left:3px solid #389e0d;font-size:28px;font-weight:600;line-height:1;">' + nS + '</td><td style="padding:10px 14px;color:#555;font-size:14px;">vencen en 48h</td></tr>' +
       '</table>' +
-      '<h3 style="font-family:Georgia,serif;font-weight:400;margin:16px 0 8px;font-size:16px;">Top people with overdue tasks</h3>' +
+      '<h3 style="font-family:Georgia,serif;font-weight:400;margin:16px 0 8px;font-size:16px;">Personas con más tareas vencidas</h3>' +
       top3Html +
       '<p style="margin:28px 0 0;color:#888;font-size:12px;border-top:1px solid #eee;padding-top:12px;">' +
-        'Open the team view: <a href="' + _digestEsc(WEB_APP_URL) + '" style="color:#1565c0;">' + _digestEsc(WEB_APP_URL) + '</a>' +
+        'Abrir la vista de equipo: <a href="' + _digestEsc(WEB_APP_URL) + '" style="color:#1565c0;">' + _digestEsc(WEB_APP_URL) + '</a>' +
       '</p>' +
     '</div>';
 
@@ -2281,9 +2288,9 @@ function _renderDigestTable(tasks, title, color) {
     '<table style="border-collapse:collapse;width:100%;margin:0 0 8px;font-size:14px;">' +
       '<thead><tr style="background:#fafafa;text-align:left;">' +
         '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">ID</th>' +
-        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Task</th>' +
-        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Project</th>' +
-        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Priority</th>' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Tarea</th>' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Proyecto</th>' +
+        '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Prioridad</th>' +
         '<th style="padding:6px 10px;color:#888;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">ETA</th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
@@ -2519,7 +2526,7 @@ function _exportTrackerXLSXImpl(filters) {
   var sheet = ss.getActiveSheet();
   sheet.setName('Tracker');
 
-  var headers = ['ID','Task','Owner','Country','Lead','Status','Priority','Deadline','ETA','Created','Project','Type','Risk','Counterparty','Confidentiality','Notes'];
+  var headers = ['ID','Tarea','Responsable','País','Líder','Estado','Prioridad','Plazo','ETA','Creada','Proyecto','Tipo','Riesgo','Contraparte','Confidencialidad','Notas'];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
 
   var rows = tasks.map(function(t) {
@@ -2710,12 +2717,12 @@ function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
   }
 
   function rowsClosed(arr) {
-    if (!arr.length) return '<tr><td colspan="5" class="empty">No closed tasks in this month.</td></tr>';
+    if (!arr.length) return '<tr><td colspan="5" class="empty">No hay tareas cerradas en este mes.</td></tr>';
     return arr.map(function(t) {
       var c = parseCreado(t), cl = parseCerrado(t);
       var biz = (c && cl) ? countBizDays(c, cl) : null;
       var lim = slaLimits[t.priority] || 5;
-      var sla = (biz == null) ? '—' : (biz <= lim ? 'On time (' + biz + 'd ≤ ' + lim + 'd)' : 'Late (' + biz + 'd > ' + lim + 'd)');
+      var sla = (biz == null) ? '—' : (biz <= lim ? 'En tiempo (' + biz + 'd ≤ ' + lim + 'd)' : 'Fuera de tiempo (' + biz + 'd > ' + lim + 'd)');
       return '<tr>'
         + '<td>' + _pdfEsc(t.id) + '</td>'
         + '<td>' + _pdfEsc(t.nombre || '') + '</td>'
@@ -2726,7 +2733,7 @@ function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
     }).join('');
   }
   function rowsOpen(arr) {
-    if (!arr.length) return '<tr><td colspan="5" class="empty">No open tasks at end of month.</td></tr>';
+    if (!arr.length) return '<tr><td colspan="5" class="empty">No hay tareas abiertas al cierre del mes.</td></tr>';
     return arr.map(function(t) {
       return '<tr>'
         + '<td>' + _pdfEsc(t.id) + '</td>'
@@ -2738,9 +2745,9 @@ function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
     }).join('');
   }
   function rowsTop(arr, kind) {
-    if (!arr.length) return '<tr><td colspan="2" class="empty">No data.</td></tr>';
+    if (!arr.length) return '<tr><td colspan="2" class="empty">Sin datos.</td></tr>';
     return arr.map(function(r) {
-      return '<tr><td>' + _pdfEsc(r.name) + '</td><td>' + r.count + ' closed</td></tr>';
+      return '<tr><td>' + _pdfEsc(r.name) + '</td><td>' + r.count + ' cerradas</td></tr>';
     }).join('');
   }
 
@@ -2766,35 +2773,35 @@ function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
     +   '.footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #eee; font-size: 10px; color: #999; }'
     + '</style></head><body>'
     + '<div class="eyebrow">' + _pdfEsc(countryCode) + ' · Legal Tracker</div>'
-    + '<h1>Monthly report · ' + _pdfEsc(monthLabel) + '</h1>'
-    + '<div class="lede">' + _pdfEsc(countryName) + ' team activity during ' + _pdfEsc(monthLabel) + '.</div>'
+    + '<h1>Reporte mensual · ' + _pdfEsc(monthLabel) + '</h1>'
+    + '<div class="lede">Actividad del equipo de ' + _pdfEsc(countryName) + ' durante ' + _pdfEsc(monthLabel) + '.</div>'
     + '<div class="kpis">'
-    +   statCard('Opened', openedInMonth.length, 'tasks created in month')
-    +   statCard('Closed', closedInMonth.length, 'tasks closed in month')
-    +   statCard('Overdue @ EOM', overdueAtEOM.length, 'open past deadline')
-    +   statCard('On-time %', onTimePct == null ? '—' : (onTimePct + '%'), onTimePct == null ? 'no closures' : 'within SLA')
+    +   statCard('Abiertas', openedInMonth.length, 'tareas creadas en el mes')
+    +   statCard('Cerradas', closedInMonth.length, 'tareas cerradas en el mes')
+    +   statCard('Vencidas al cierre', overdueAtEOM.length, 'abiertas pasado el plazo')
+    +   statCard('% en tiempo', onTimePct == null ? '—' : (onTimePct + '%'), onTimePct == null ? 'sin cierres' : 'dentro de SLA')
     + '</div>'
-    + '<h2>Tasks closed in month</h2>'
+    + '<h2>Tareas cerradas en el mes</h2>'
     + '<table class="data">'
-    +   '<thead><tr><th>ID</th><th>Task</th><th>Owner</th><th>Closed</th><th>SLA result</th></tr></thead>'
+    +   '<thead><tr><th>ID</th><th>Tarea</th><th>Responsable</th><th>Cerrada</th><th>Resultado SLA</th></tr></thead>'
     +   '<tbody>' + rowsClosed(closedInMonth) + '</tbody>'
     + '</table>'
-    + '<h2>Still open at end of month</h2>'
+    + '<h2>Aún abiertas al cierre del mes</h2>'
     + '<table class="data">'
-    +   '<thead><tr><th>ID</th><th>Task</th><th>Owner</th><th>Priority</th><th>Deadline</th></tr></thead>'
+    +   '<thead><tr><th>ID</th><th>Tarea</th><th>Responsable</th><th>Prioridad</th><th>Plazo</th></tr></thead>'
     +   '<tbody>' + rowsOpen(stillOpenAtEOM) + '</tbody>'
     + '</table>'
     + '<div class="two-col">'
     +   '<div>'
-    +     '<h2>Top performers</h2>'
+    +     '<h2>Top responsables</h2>'
     +     '<table class="data"><tbody>' + rowsTop(topMembers, 'member') + '</tbody></table>'
     +   '</div>'
     +   '<div>'
-    +     '<h2>Top projects</h2>'
+    +     '<h2>Top proyectos</h2>'
     +     '<table class="data"><tbody>' + rowsTop(topProjects, 'project') + '</tbody></table>'
     +   '</div>'
     + '</div>'
-    + '<div class="footer">Generated ' + _pdfEsc(generatedAt) + ' · Confidential — internal use only.</div>'
+    + '<div class="footer">Generado el ' + _pdfEsc(generatedAt) + ' · Confidencial — uso interno únicamente.</div>'
     + '</body></html>';
 
   var pdfBlob = HtmlService.createHtmlOutput(html).getAs('application/pdf');
