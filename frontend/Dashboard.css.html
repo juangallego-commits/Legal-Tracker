@@ -1337,8 +1337,12 @@ table tr:hover td { background: var(--bg-2); }
    nuevos para que mantengan look consistente.
    ═══════════════════════════════════════════════════════════════ */
 .view { padding: 0; }
-.view.active { padding: 24px 32px 56px; max-width: 1280px; margin: 0 auto; }
-#vEdHome.view.active, #vEdTracker.view.active, #vEdPlantillas.view.active { padding: 0; max-width: none; }
+/* Editorial views: padding handled by inner .pa-page wrapper. NO outer padding. */
+.view.active { padding: 0; max-width: none; margin: 0; }
+/* Legacy views (vTracker, vResumen, etc.) — they keep their own padding from card patterns */
+#vTracker.view.active, #vResumen.view.active, #vProyectos.view.active,
+#vMiequipo.view.active, #vAnalytics.view.active, #vHistorial.view.active,
+#vMistareas.view.active { padding: 24px 32px 56px; max-width: 1280px; margin: 0 auto; }
 
 .ed-eye {
   font-size: 11px; font-weight: 600;
@@ -1855,6 +1859,110 @@ table tr:hover td { background: var(--bg-2); }
 .ua-flow-line.is-done, .ua-flow-line.done,
 .cr-flow-line.is-done, .cr-flow-line.done,
 .crp-flow-line.is-done, .crp-flow-line.done { background: var(--accent); }
+
+/* Step indicator for wizards (cr-/crp-) */
+.cr-steps, .crp-steps {
+  display: flex; gap: 8px;
+  padding: 0 0 14px; margin: 0 0 16px;
+  border-bottom: 1px solid var(--line-1);
+}
+.cr-step, .crp-step {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: 6px;
+  background: var(--bg-2); color: var(--fg-3);
+  font-size: 12px; font-weight: 500;
+  cursor: default;
+  border: 1px solid transparent;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.cr-step.active, .cr-step.is-active, .crp-step.active, .crp-step.is-active {
+  background: var(--accent-soft); color: var(--accent);
+  border-color: var(--accent);
+}
+.cr-step.done, .crp-step.done {
+  background: var(--good-soft); color: var(--good-fg);
+}
+.cr-step-num, .crp-step-num {
+  font-family: var(--font-mono); font-size: 11px;
+  font-weight: 700;
+  display: inline-grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--bg-3); color: inherit;
+}
+.cr-step.active .cr-step-num, .cr-step.is-active .cr-step-num,
+.crp-step.active .crp-step-num, .crp-step.is-active .crp-step-num {
+  background: var(--accent); color: var(--accent-fg);
+}
+.cr-step.done .cr-step-num, .crp-step.done .crp-step-num {
+  background: var(--good); color: var(--bg-1);
+}
+
+/* Grid 2 cols para campos */
+.cr-grid2, .crp-grid2 {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.cr-grid3, .crp-grid3 {
+  display: grid; grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+}
+
+/* Pills de selección múltiple (botones tipo radio visual) */
+.cr-pills-row, .crp-pills-row, .ua-pills-row {
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
+.cr-pill-btn, .crp-pill-btn, .ua-pill-btn {
+  padding: 6px 10px; border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  font-size: 12px; color: var(--fg-2);
+  cursor: pointer; font-family: inherit; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.cr-pill-btn:hover, .crp-pill-btn:hover, .ua-pill-btn:hover {
+  background: var(--bg-3); border-color: var(--line-3);
+}
+.cr-pill-btn.active, .crp-pill-btn.active, .ua-pill-btn.active,
+.cr-pill-btn.is-active, .crp-pill-btn.is-active, .ua-pill-btn.is-active {
+  background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
+}
+.cr-pill-btn .dot, .crp-pill-btn .dot, .ua-pill-btn .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+}
+.cr-pill-btn.cf-estandar.active { background: var(--bg-3); border-color: var(--fg-3); color: var(--fg-1); }
+.cr-pill-btn.cf-restringido.active { background: var(--warn-soft); border-color: var(--warn); color: var(--warn-fg); }
+.cr-pill-btn.cf-confidencial.active { background: var(--critical-soft); border-color: var(--critical); color: var(--critical-fg); }
+
+/* Required asterisk */
+.req { color: var(--critical-fg); margin-left: 2px; }
+.opt, .ua-label .opt, .cr-label .opt { color: var(--fg-4); font-weight: 400; margin-left: 4px; }
+
+/* Foot info text en modales */
+.cr-foot-info, .crp-foot-info, .ua-foot-info {
+  font-size: 11px; color: var(--fg-3); flex: 1;
+}
+
+/* Buttons en footers de wizards: heredan pa-btn pero también soportar ed-btn legacy */
+.cr-foot .ed-btn, .crp-foot .ed-btn, .ua-foot .ed-btn {
+  height: 32px; padding: 0 14px;
+  font-size: 13px; border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-1); color: var(--fg-1);
+  font-family: inherit; cursor: pointer;
+}
+.cr-foot .ed-btn:hover, .crp-foot .ed-btn:hover, .ua-foot .ed-btn:hover {
+  background: var(--bg-2); border-color: var(--line-3);
+}
+.cr-foot .ed-btn.accent, .crp-foot .ed-btn.accent, .ua-foot .ed-btn.accent,
+.cr-foot .ed-btn.primary, .crp-foot .ed-btn.primary, .ua-foot .ed-btn.primary {
+  background: var(--accent); color: var(--accent-fg);
+  border-color: var(--accent);
+}
+.cr-foot .ed-btn.accent:hover, .crp-foot .ed-btn.accent:hover, .ua-foot .ed-btn.accent:hover,
+.cr-foot .ed-btn.primary:hover, .crp-foot .ed-btn.primary:hover, .ua-foot .ed-btn.primary:hover {
+  background: var(--accent-hover);
+}
 
 /* ua-options / ua-opt: variant picker */
 .ua-options, .cr-options, .crp-options {
