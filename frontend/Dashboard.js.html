@@ -1245,10 +1245,20 @@ function reopenEditWithFreshData() {
 
 function openEdit(id) {
   var t = D.tasks.find(function(x) { return x.id == id; });
+  if (!t) {
+    // Tarea cerrada: buscar en historial (read-only fallback)
+    t = ((D && D.historial) || []).find(function(x) { return x.id == id; });
+  }
   if (!t) return;
   EDIT_ID = id;
   EDIT_KIND = 'task';
   $('editT').textContent = 'Editar tarea #' + id;
+
+  // Rol effectivo: specialist no puede reasignar; el backend rechaza igual,
+  // pero si el field es visible y editable, el specialist guarda y recibe
+  // toast de error post-roundtrip. Mejor disabled visible.
+  var editRole = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var canReassign = (editRole === 'manager' || editRole === 'head');
 
   var members   = getAllMembers();
   var rOpts     = buildOptions(members, t.resp);
@@ -1259,10 +1269,14 @@ function openEdit(id) {
   var tipoOpts  = buildOptions(['Contencioso','Regulatorio','Contractual','Privacy','Operativo'], t.tipoTrabajo, 'Sin definir');
   var riesgoOpts= buildOptions(['Legal alto','Reputacional','Operativo'], t.riesgo, 'Sin definir');
 
+  var respField = canReassign
+    ? '<div class="form-group"><label>Responsable</label><select id="eResp">' + rOpts + '</select></div>'
+    : '<div class="form-group"><label>Responsable</label><select id="eResp" disabled title="Solo manager/Global pueden reasignar">' + rOpts + '</select></div>';
+
   $('editB').innerHTML =
     '<div class="form-group" style="margin-bottom:14px"><label>Nombre</label><input type="text" id="eNom" value="' + esc(t.nombre) + '"></div>' +
     '<div class="form-3col" style="margin-bottom:14px">' +
-      '<div class="form-group"><label>Responsable</label><select id="eResp">' + rOpts + '</select></div>' +
+      respField +
       '<div class="form-group"><label>Prioridad</label><select id="ePrio">' + prioOpts + '</select></div>' +
       '<div class="form-group"><label>Estado</label><select id="eStat">' + statOpts + '</select></div>' +
     '</div>' +
@@ -2577,7 +2591,18 @@ var ACTIONS = {
   'show-task-menu':  function(el){ showTM({stopPropagation:function(){}, target: el}, Number(el.dataset.id)); },
   'toggle-ptasks':   function(el){ togglePTasks(el); },
   'update-field':    function(el){ uf(Number(el.dataset.id), el.dataset.field, el.dataset.val); },
-  'update-field-confirm': function(el){ cfUp(Number(el.dataset.id), el.dataset.field, el.dataset.val); },
+  // 'update-field-confirm': cuando es status→Listo redirige al wizard
+  // edUOpen('cerrar') que exige resumen mandatory (consistencia con el
+  // botón "Cerrar como Listo" del panel detalle). Antes confirm_ aplicaba
+  // status='Listo' sin pedir resumen — 2 paths con políticas distintas.
+  'update-field-confirm': function(el){
+    var id = Number(el.dataset.id);
+    if (el.dataset.field === 'status' && el.dataset.val === 'Listo' && typeof edUOpen === 'function') {
+      edUOpen(id, 'cerrar');
+    } else {
+      cfUp(id, el.dataset.field, el.dataset.val);
+    }
+  },
   'add-tag':         function(el){ addTag(el.dataset.container, el.dataset.val); },
   'remove-tag':      function(el){ removeTag(el.dataset.container, Number(el.dataset.i)); },
   'clear-filter':    function(el){ var i = Number(el.dataset.i); if (_filterClearers[i]) { _filterClearers[i](); persistFilters(); render(); } },
@@ -3963,7 +3988,14 @@ function _edSearchRender() {
 }
 
 function edSearchPickTask(taskId) {
-  if (typeof EDT !== 'undefined') EDT.selectedId = taskId;
+  // Si la tarea está cerrada (vive en historial), setear filter='closed' para
+  // que el tracker la muestre. Sino el panel queda colgado sobre un tracker
+  // vacío y el user no entiende qué pasó.
+  if (typeof EDT !== 'undefined') {
+    EDT.selectedId = taskId;
+    var inHist = ((D && D.historial) || []).some(function(t){ return String(t.id) === String(taskId); });
+    if (inHist) EDT.filter = 'closed';
+  }
   edSearchClose();
   if (typeof goEd === 'function') goEd('tracker');
 }
@@ -4501,7 +4533,17 @@ function rEdHomeManager(D) {
   var slaThisW = myCountry ? myCountry.slaPctThisWeek : null;
   var slaPrevW = myCountry ? myCountry.slaPctLastWeek : null;
   var slaDeltaW = (typeof slaThisW === 'number' && typeof slaPrevW === 'number') ? (slaThisW - slaPrevW) : null;
-  var att = active.slice().sort(function(a, b) {
+  // "Requieren tu atención" filtra activamente: solo las asignadas a vos +
+  // las bloqueadas/vencidas/alta-vencida del país (donde manager necesita
+  // intervenir). Sin esto mostraba TODAS las tareas activas del país, lo que
+  // es información ruidosa cuando hay 50+.
+  var att = active.filter(function(t) {
+    if (t.resp === name) return true; // tuyas
+    if (t.status === 'Bloqueado') return true; // requieren desbloqueo
+    if (typeof t.etaDays === 'number' && t.etaDays < 0) return true; // vencidas del equipo
+    if (t.priority === 'Alta' && typeof t.etaDays === 'number' && t.etaDays <= 1) return true; // alta urgente
+    return false;
+  }).sort(function(a, b) {
     var aBlk = a.status === 'Bloqueado' ? -1 : 0;
     var bBlk = b.status === 'Bloqueado' ? -1 : 0;
     if (aBlk !== bBlk) return aBlk - bBlk;
@@ -5207,7 +5249,7 @@ function edTkBulkReasignOpen(ids) {
     +       '</div>'
     +       '<div style="flex:1">'
     +         '<div class="cr-title">Reasignar ' + n + (n === 1 ? ' tarea' : ' tareas') + '</div>'
-    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">El nuevo responsable va a recibir una notificación. La asignación previa queda en el historial.</div>'
+    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">La asignación previa queda en el historial. Avisale al nuevo responsable por Slack/email manualmente.</div>'
     +       '</div>'
     +       '<button type="button" class="cr-x" onclick="edTkBulkReasignClose()" aria-label="Cerrar">×</button>'
     +     '</div>'
@@ -5224,7 +5266,7 @@ function edTkBulkReasignOpen(ids) {
     +     '</div>'
     +     '<div class="cr-foot">'
     +       '<div class="cr-foot-info">'
-    +         (selectedName ? paIcon('bell', 11) + ' Notifica a <b>' + esc(selectedName) + '</b> y a los responsables actuales' : 'Elegí un responsable para continuar.')
+    +         (selectedName ? paIcon('check', 11) + ' Reasignará a <b>' + esc(selectedName) + '</b>' : 'Elegí un responsable para continuar.')
     +       '</div>'
     +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edTkBulkReasignClose()">Cancelar</button>'
     +       '<button type="button" class="pa-btn pa-btn-primary" ' + (selectedName ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"') + ' onclick="edTkBulkReasignConfirm()">' + paIcon('check', 12) + ' Reasignar' + (selectedName ? ' a ' + esc(selectedName.split(' ')[0]) : '') + '</button>'
@@ -5289,11 +5331,17 @@ function edTkAttachLink(taskId) {
   var url  = ($('tkLinkUrl')  && $('tkLinkUrl').value  || '').trim();
   var name = ($('tkLinkName') && $('tkLinkName').value || '').trim();
   if (!url) { toast('Primero pegá un enlace', 'error'); return; }
+  // Validar scheme http(s) en cliente — el backend rechaza igual, pero
+  // validar acá evita un round-trip y da feedback inmediato.
+  if (!/^https?:\/\//i.test(url)) {
+    toast('El enlace debe empezar con http:// o https://', 'error');
+    return;
+  }
   showLoader();
   google.script.run
     .withSuccessHandler(function(res) {
       hideLoader();
-      if (res && res.success) { toast('✅ Link attached', 'success'); reload(); }
+      if (res && res.success) { toast('✅ Enlace adjuntado', 'success'); reload(); }
       else { toast('Error: ' + ((res && res.error) || ''), 'error'); }
     })
     .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
@@ -5448,7 +5496,7 @@ function _edReasignarRender() {
     +       '</div>'
     +       '<div style="flex:1">'
     +         '<div class="cr-title">Reasignar tarea</div>'
-    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">El nuevo responsable va a recibir una notificación. La asignación previa queda en el historial.</div>'
+    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">La asignación previa queda en el historial. Avisale al nuevo responsable por Slack/email manualmente.</div>'
     +       '</div>'
     +       '<button type="button" class="cr-x" onclick="edReasignarClose()" aria-label="Cerrar">×</button>'
     +     '</div>'
@@ -5469,7 +5517,7 @@ function _edReasignarRender() {
     +     '</div>'
     +     '<div class="cr-foot">'
     +       '<div class="cr-foot-info">'
-    +         (selectedName ? paIcon('bell', 11) + ' Notifica a <b>' + esc(selectedName) + '</b> y al responsable actual.' : 'Elegí un responsable para continuar.')
+    +         (selectedName ? paIcon('check', 11) + ' Reasignará a <b>' + esc(selectedName) + '</b>.' : 'Elegí un responsable para continuar.')
     +       '</div>'
     +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edReasignarClose()">Cancelar</button>'
     +       '<button type="button" class="pa-btn pa-btn-primary" ' + (selectedName ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"') + ' onclick="edReasignarConfirm()">' + paIcon('check', 12) + ' Reasignar' + (selectedName ? ' a ' + esc(selectedName.split(' ')[0]) : '') + '</button>'
@@ -5519,6 +5567,9 @@ function edReasignarConfirm() {
       if (r && r.success) {
         if (typeof toast === 'function') toast('✅ Reasignada a ' + newResp, 'success');
         edReasignarClose();
+        // Cerrar el panel también: el manager acabó de reasignar, la tarea ya
+        // no es suya. Si el panel sigue abierto post-reload, confunde.
+        if (typeof edClosePanel === 'function') edClosePanel();
         if (typeof reload === 'function') reload();
       } else {
         if (typeof toast === 'function') toast('Error: ' + ((r && r.error) || 'no se pudo reasignar'), 'error');
@@ -6432,12 +6483,9 @@ function rEdTracker(D) {
     } else if (EDT.search || EDT.filter !== 'all' || EDT.projectFilter || EDT.respFilter || EDT.confFilter) {
       ctaBtn = '<button class="pa-btn pa-btn-outline" onclick="edClearSecondaryFilters();edSetFilter(\'all\');edSetSearch(\'\')" style="margin-top:6px">Limpiar filtros</button>';
     }
-    html += '<div style="padding:48px 20px;text-align:center">'
-         +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon(emptyIc, 20) + '</div>'
-         +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">' + esc(emptyMsg) + '</div>'
-         +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0 14px">' + esc(emptyHint) + '</div>'
-         +    ctaBtn
-         + '</div>';
+    // Empty state homogéneo con resto de la app (paEmpty helper) + CTA centrado.
+    html += paEmpty(emptyIc, emptyMsg, emptyHint);
+    if (ctaBtn) html += '<div style="margin-top:8px;text-align:center">' + ctaBtn + '</div>';
   } else {
     rows.forEach(function(t) {
       var pn = _projNameForTask(t);
@@ -7439,6 +7487,7 @@ function _crRenderStep2() {
     +   '<div class="' + _crFieldCls('deadline') + '">'
     +     '<div class="cr-label">Plazo <span class="req">*</span></div>'
     +     '<input type="date" class="cr-input" id="crDeadline" value="' + esc(v.deadline) + '" '
+    +       'min="' + esc((D && D.today) || '') + '" '
     +       'onchange="edCrearSetField(\'deadline\', this.value)">'
     +     _crErr('deadline')
     +   '</div>'
@@ -7572,6 +7621,11 @@ function edCrearOpen() {
   // editable.
   var currentName = (typeof _effectiveUserName === 'function') ? _effectiveUserName() : '';
   var currentCode = (typeof _effectiveUserCode === 'function') ? _effectiveUserCode() : '';
+  // Invalidar cache de templates: si un manager creó/editó plantillas en
+  // otra pestaña/sesión, queremos verlas reflejadas en este wizard sin
+  // pedir reload de la página. _loadTemplates re-fetcha la primera vez
+  // que se accede después de null.
+  _TEMPLATES_CACHE = null;
   EDC.step = 1;
   EDC.errors = {};
   EDC.values = {
@@ -9650,14 +9704,18 @@ function _crpRender(step) {
   else bodyHtml = _crpRenderStep3();
 
   var footBtns = '';
+  // Cancelar persistente en los 3 pasos (consistente con wizard de tareas).
+  var cancelBtn = '<button type="button" class="ed-btn ghost" onclick="edCrearProyectoClose()">Cancelar</button>';
   if (s === 1) {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoClose()">Cancelar</button>'
+    footBtns = cancelBtn
              + '<button type="button" class="ed-btn accent" onclick="edCrearProyectoGoStep(2)">Continuar →</button>';
   } else if (s === 2) {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoGoStep(1)">← Atrás</button>'
+    footBtns = cancelBtn
+             + '<button type="button" class="ed-btn" onclick="edCrearProyectoGoStep(1)">← Atrás</button>'
              + '<button type="button" class="ed-btn accent" onclick="edCrearProyectoGoStep(3)">Revisar y publicar →</button>';
   } else {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearProyectoGoStep(2)">← Editar</button>'
+    footBtns = cancelBtn
+             + '<button type="button" class="ed-btn" onclick="edCrearProyectoGoStep(2)">← Editar</button>'
              + '<button type="button" class="ed-btn accent" id="crpSubmit" onclick="edCrearProyectoSubmit()">Publicar proyecto</button>';
   }
 
@@ -9846,13 +9904,22 @@ function rEdPlantillas(D) {
   var dict = _TEMPLATES_CACHE || {};
   var tipos = Object.keys(dict).sort();
   var templates = tipos.map(function(t){ return { tipo: t, items: dict[t] || [] }; });
+  // Detectamos si quedan tipos sin plantilla. Si todos están usados, el botón
+  // "Nueva plantilla" se deshabilita con tooltip explicativo (sino el user
+  // clickea, abre modal sin botón Guardar, y se confunde).
+  var availableTiposCount = (typeof _CR_TIPOS !== 'undefined')
+    ? _CR_TIPOS.filter(function(t){ return tipos.indexOf(t) < 0; }).length
+    : 0;
+  var newBtnAttrs = availableTiposCount > 0
+    ? 'onclick="edPltOpenEditor(null)"'
+    : 'disabled title="Ya tenés una plantilla por cada tipo de trabajo. Editá las existentes o eliminá alguna para crear otra."';
 
   var html = '<div class="pa-page">';
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">Biblioteca</span>'
        +    '<span class="pa-page-sub">' + templates.length + (templates.length === 1 ? ' plantilla' : ' plantillas') + ' · una por tipo de trabajo</span>'
        +    '<div class="pa-page-meta">'
-       +      (canEdit ? '<button class="pa-btn pa-btn-primary" onclick="edPltOpenEditor(null)">' + paIcon('plus', 12) + ' Nueva plantilla</button>' : '')
+       +      (canEdit ? '<button class="pa-btn pa-btn-primary" ' + newBtnAttrs + '>' + paIcon('plus', 12) + ' Nueva plantilla</button>' : '')
        +    '</div>'
        + '</div>';
 
@@ -9884,7 +9951,7 @@ function rEdPlantillas(D) {
         +   '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px;color:var(--critical-fg)" onclick="event.stopPropagation();edPltDelete(\'' + esc(t.tipo) + '\')">Eliminar</button>'
         + '</div>'
       : '';
-    html += '<div class="pa-tbl-r" style="grid-template-columns: 200px 1fr 90px 200px;height:auto;min-height:48px;padding:10px 12px">'
+    html += '<div class="pa-tbl-r" style="grid-template-columns: 200px 1fr 90px 200px;height:48px">'
          +    '<div><span class="pa-pill pa-pill-tipo">' + esc(t.tipo) + '</span></div>'
          +    '<div style="font-size:12px;color:var(--fg-2);line-height:1.45">' + esc(preview) + '</div>'
          +    '<div class="mono" style="font-size:12px;color:var(--fg-3)">' + t.items.length + '</div>'
