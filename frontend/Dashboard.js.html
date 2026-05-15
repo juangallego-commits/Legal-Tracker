@@ -1375,7 +1375,7 @@ function saveEditTask() {
   // antes del confirm para no apilar dos overlays.
   if (fields.status === 'Listo') {
     closeEdit();
-    confirm_('Mark as Done? It will move to History.', function(){ batchU(id, fields); });
+    confirm_('¿Marcar como Listo? La tarea se moverá al Historial.', function(){ batchU(id, fields); });
     return;
   }
   _setSaving(true);
@@ -2640,8 +2640,14 @@ document.addEventListener('keydown', function(e) {
   var inInput = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT');
   if (inInput) return;
   if (e.key === '/') {
-    var sInput = $('sInput');
-    if (sInput) { e.preventDefault(); sInput.focus(); sInput.select(); }
+    // Buscar primero el input del tracker (cuando está visible);
+    // sino, abrir el Cmd+K global (search universal).
+    var trackerInput = document.querySelector('#vEdTracker .pa-search input');
+    if (trackerInput) {
+      e.preventDefault(); trackerInput.focus(); trackerInput.select();
+    } else if (typeof edSearchOpen === 'function') {
+      e.preventDefault(); edSearchOpen();
+    }
     return;
   }
   // N → abrir wizard editorial de crear (con fallback al modal viejo)
@@ -2973,11 +2979,17 @@ function paStatusPill(status) {
 }
 function paConfDot(level, title) {
   level = level || 'estandar';
-  return '<span class="pa-conf pa-conf-' + level + '" title="' + esc(title || level) + '"></span>';
+  // Tooltip: usar el label + descripción de ED_CONF_LEVELS si está cargado,
+  // sino fallback al slug crudo (compat).
+  var meta = (typeof ED_CONF_LEVELS !== 'undefined') ? ED_CONF_LEVELS[level] : null;
+  var tip = title || (meta ? (meta.label + ' · ' + meta.desc) : level);
+  return '<span class="pa-conf pa-conf-' + level + '" title="' + esc(tip) + '"></span>';
 }
 function paEtaText(etaDays, deadline) {
   if (etaDays == null) return '—';
-  if (etaDays < 0) return 'Vencida ' + etaDays + 'd';
+  // etaDays viene como entero (negativo si vencida). Usar Math.abs para no
+  // mostrar "Vencida -3d" — el "Vencida" ya indica el signo.
+  if (etaDays < 0) return 'Vencida hace ' + Math.abs(etaDays) + 'd';
   if (etaDays === 0) return 'Hoy';
   if (etaDays === 1) return 'Mañana';
   return '+' + etaDays + ' d';
@@ -4098,12 +4110,16 @@ function rEdHomeSpecialist(D) {
   // Grid 2 cols: month + projects
   var me = (D && D.team || []).find(function(m){ return m.name === name; }) || {};
   var streak = (typeof me.streak === 'number' && me.streak > 0) ? me.streak : 0;
+  // Cerradas este mes: el backend expone 'cerrado' en formato dd/MM/yyyy
+  // (no 'cerradaIso' — ese campo nunca existió). Parsear manualmente.
   var closedThisMonth = ((D && D.historial) || []).filter(function(t){
-    if (t.resp !== name) return false;
-    if (!t.cerradaIso) return false;
-    var dd = new Date(t.cerradaIso);
+    if (t.resp !== name || !t.cerrado) return false;
+    var parts = String(t.cerrado).split('/');
+    if (parts.length !== 3) return false;
+    var month = parseInt(parts[1], 10) - 1;
+    var year  = parseInt(parts[2], 10);
     var now = new Date();
-    return dd.getMonth() === now.getMonth() && dd.getFullYear() === now.getFullYear();
+    return month === now.getMonth() && year === now.getFullYear();
   }).length;
 
   var projs = (D && D.projects) ? D.projects.filter(function(p){
@@ -4323,7 +4339,7 @@ function rEdHomeManager(D) {
            +    '<div class="mono" style="font-size:12px;color:' + ((m.overdue || 0) ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + (m.overdue || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.blocked || 0) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + (m.blocked || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + slaColorM + '">' + (slaM != null ? slaM + '%' : '—') + '</div>'
-           +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px">Reasignar →</button></div>'
+           +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="edSetRespFilter(\'' + esc(m.name || '') + '\');goEd(\'tracker\')">Ver tareas →</button></div>'
            + '</div>';
     });
     html += '</div>';
@@ -4531,7 +4547,7 @@ function rEdHomeHQ(D) {
            +      '<b style="color:var(--fg-1);font-weight:500">' + esc(h.resp || '—') + '</b> cerró '
            +      '<span style="color:var(--fg-1)">#' + esc(h.id || '') + ' ' + esc((h.nombre || '').substring(0, 60)) + '</span>'
            +    '</div>'
-           +    '<div style="font-size:11px;color:var(--fg-3)">' + esc(h.cerrada || '') + '</div>'
+           +    '<div style="font-size:11px;color:var(--fg-3)">' + esc(h.cerrado || '') + '</div>'
            + '</div>';
     });
     html += '</div>';
@@ -4805,7 +4821,7 @@ function edTkBulkAction(action) {
       if (next) toRun.push({ id: id, value: next });
     });
     if (!toRun.length) { toast('Ninguna de las seleccionadas puede avanzar.', 'info'); return; }
-    confirm_('Advance ' + toRun.length + ' task' + (toRun.length === 1 ? '' : 's') + ' to next status?', function() {
+    confirm_('¿Avanzar ' + toRun.length + (toRun.length === 1 ? ' tarea' : ' tareas') + ' al siguiente estado?', function() {
       _edTkBulkRunMixed(toRun, 'status', 'Advanced');
     });
     return;
@@ -4951,7 +4967,7 @@ function edTkBulkReasignConfirm() {
   var ids = EDT._pendingReassignIds || [];
   edTkBulkReasignClose();
   if (!ids.length) return;
-  _edTkBulkRun(ids, 'resp', newResp, 'Reassigned');
+  _edTkBulkRun(ids, 'resp', newResp, 'Reasignadas');
 }
 
 function _edTkBulkRun(ids, field, value, label) {
@@ -4977,7 +4993,7 @@ function _edTkBulkRunMixed(items, field, label) {
 function _edTkBulkDone(label, ok, fail) {
   if (fail === 0) toast('✅ ' + label + ': ' + ok, 'success');
   else if (ok === 0) toast('Error: no se pudo aplicar ninguna', 'error');
-  else toast('⚠ ' + label + ': ' + ok + ' OK, ' + fail + ' failed', 'info');
+  else toast('⚠ ' + label + ': ' + ok + ' OK, ' + fail + ' fallaron', 'info');
   EDT.selectedIds = [];
   if (typeof reload === 'function') reload();
 }
@@ -5191,7 +5207,7 @@ function _edReasignarRender() {
 function edReasignarOpen(taskId) {
   var role = _effectiveRole();
   if (role !== 'manager' && role !== 'head') {
-    if (typeof toast === 'function') toast('You don\'t have permission to reassign.', 'error');
+    if (typeof toast === 'function') toast('No tenés permisos para reasignar.', 'error');
     return;
   }
   EDR.taskId = taskId;
@@ -6067,7 +6083,10 @@ function rEdTracker(D) {
   // Bulk action bar
   var bulkCount = (EDT.selectedIds || []).length;
   var canReassign = (role === 'manager' || role === 'head');
-  if (bulkCount > 0) {
+  // Bulk actions no aplican a tareas cerradas (Listo) — el backend espera
+  // tasks activas. Si filter === 'closed' ocultamos la barra para no
+  // exponer botones que tirarian 404 silenciosos al ejecutarse.
+  if (bulkCount > 0 && EDT.filter !== 'closed') {
     html += '<div class="pa-bulkbar">'
          +    paIcon('check', 13)
          +    '<b style="font-weight:600">' + bulkCount + ' seleccionada' + (bulkCount > 1 ? 's' : '') + '</b>'
@@ -6090,12 +6109,12 @@ function rEdTracker(D) {
        +    '<div class="pa-tbl-h">'
        +      '<div onclick="edTkMasterToggle()" title="' + masterTitle + '" style="cursor:pointer;display:grid;place-items:center"><span class="' + masterCls + '"></span></div>'
        +      '<div title="Confidencialidad" aria-label="Confidencialidad"></div>'
-       +      '<div>ID ' + paIcon('sort', 10) + '</div>'
+       +      '<div>ID</div>'
        +      '<div>Tarea</div>'
        +      '<div>' + (role === 'specialist' ? 'Proyecto' : 'Responsable') + '</div>'
        +      '<div>Prioridad</div>'
        +      '<div>Estado</div>'
-       +      '<div>ETA ' + paIcon('sort', 10) + '</div>'
+       +      '<div>ETA</div>'
        +    '</div>';
   if (rows.length === 0) {
     var emptyIc = cAll === 0 ? 'inbox' : 'search';
@@ -6247,7 +6266,9 @@ function _renderTkPanel(sel) {
        +      paIcon('lock', 12)
        +      esc(selCfMeta.label.toUpperCase()) + ' · ' + esc(selCfMeta.desc)
        +    '</div>'
-       +    '<h1 class="tk-title editable" data-task-id="' + esc(sel.id) + '" ondblclick="edPanelEditTitle(this)" title="Doble-click para editar">' + esc(sel.nombre || '') + '</h1>'
+       +    '<h1 class="tk-title' + (sel.status === 'Listo' ? '' : ' editable') + '" data-task-id="' + esc(sel.id) + '"'
+       +      (sel.status === 'Listo' ? '' : ' ondblclick="edPanelEditTitle(this)" title="Doble-click para editar"')
+       +      '>' + esc(sel.nombre || '') + '</h1>'
        +    '<div class="tk-pillrow">'
        +      paPriorityPill(sel.priority)
        +      paStatusPill(sel.status)
@@ -6284,7 +6305,9 @@ function _renderTkPanel(sel) {
   // Notas
   html += '<div class="tk-section">'
        +    '<div class="tk-section-h">Notas</div>'
-       +    '<textarea class="tk-notes" data-task-id="' + esc(sel.id) + '" placeholder="Sin notas…" oninput="edPanelAutosizeNotes(this)" onblur="edPanelSaveNotes(this)" style="width:100%;border:1px solid var(--line-1);background:var(--bg-1);color:var(--fg-1);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>'
+       +    (sel.status === 'Listo'
+            ? '<textarea class="tk-notes" readonly placeholder="Sin notas…" style="width:100%;border:1px solid var(--line-1);background:var(--bg-2);color:var(--fg-2);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>'
+            : '<textarea class="tk-notes" data-task-id="' + esc(sel.id) + '" placeholder="Sin notas…" oninput="edPanelAutosizeNotes(this)" onblur="edPanelSaveNotes(this)" style="width:100%;border:1px solid var(--line-1);background:var(--bg-1);color:var(--fg-1);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>')
        + '</div>';
 
   // Historial
@@ -6314,13 +6337,29 @@ function _renderTkPanel(sel) {
   if (docs.length === 0) {
     html += '<div style="font-size:12px;color:var(--fg-3)">Sin documentos adjuntos</div>';
   } else {
-    docs.forEach(function(d) {
-      html += '<div class="tk-doc">'
+    docs.forEach(function(d, idx) {
+      // d.url puede venir como string. d.kind = 'task' (siempre acá). Link
+      // abre en pestaña nueva. Botón × elimina (solo si la tarea no esta cerrada
+      // y el rol puede mutar — backend valida igual).
+      var url = (d.url || '').toString();
+      var safeUrl = url && /^https?:/i.test(url) ? url : '';
+      var nameHtml = safeUrl
+        ? '<a href="' + esc(safeUrl) + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">' + esc(d.name || 'Documento') + '</a>'
+        : esc(d.name || 'Documento');
+      var canRemove = sel.status !== 'Listo';
+      html += '<div class="tk-doc" style="display:flex;align-items:center;gap:8px">'
            +    paConfDot(d.conf || 'estandar')
            +    paIcon('doc', 14, '', 'color:var(--fg-3)')
-           +    '<div style="flex:1;min-width:0"><div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(d.name || 'Documento') + '</div>'
-           +    '<div class="meta">' + esc(d.uploadedBy || 'Enlace externo') + '</div></div>'
-           +    paIcon('arrowUR', 11, '', 'color:var(--fg-3)')
+           +    '<div style="flex:1;min-width:0">'
+           +      '<div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:var(--fg-1)">' + nameHtml + '</div>'
+           +      '<div class="meta" style="font-size:11px;color:var(--fg-3)">' + esc(d.uploadedBy || 'Enlace externo') + '</div>'
+           +    '</div>'
+           +    (safeUrl
+                ? '<a href="' + esc(safeUrl) + '" target="_blank" rel="noopener" style="display:grid;place-items:center;width:22px;height:22px;border-radius:4px;color:var(--fg-3);text-decoration:none" title="Abrir">' + paIcon('arrowUR', 11) + '</a>'
+                : '')
+           +    (canRemove
+                ? '<button class="pa-btn pa-btn-ghost" style="height:22px;font-size:11px;padding:0 6px;color:var(--critical-fg)" title="Quitar del tracker" data-act="remove-doc" data-kind="task" data-item-id="' + esc(sel.id) + '" data-i="' + idx + '">×</button>'
+                : '')
            + '</div>';
     });
   }
@@ -6721,8 +6760,12 @@ function _uaRenderBody(task, variant) {
               +   '<textarea class="ua-input ua-textarea" id="uaNota" placeholder="ej: prestar especial atención a la cláusula 7.2."></textarea>'
               + '</div>';
   }
-  // Confidencialidad opcional sólo en cerrar/bloquear (avanzar es transición de estado pura)
-  var confHtml = (variant === 'cerrar' || variant === 'bloquear') ? _uaRenderConfField(task) : '';
+  // Confidencialidad opcional sólo en cerrar/bloquear (avanzar es transición de estado pura).
+  // Restringido a manager/head — si lo mostrásemos al specialist y eligiera un nivel, el
+  // backend rechaza con "Sin permiso: solo manager o head" y aborta el cierre entero.
+  var uaRole = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var uaCanConf = (uaRole === 'manager' || uaRole === 'head');
+  var confHtml = (uaCanConf && (variant === 'cerrar' || variant === 'bloquear')) ? _uaRenderConfField(task) : '';
   return '<div class="ua-body">' + _uaRenderOptions(variant) + actionCard + fieldHtml + confHtml + '</div>';
 }
 
@@ -6980,10 +7023,12 @@ function _crRiesgoMod(val) {
   return '';
 }
 function _crConfMod(val) {
-  // Mapea el nivel a la clase de confidencialidad para el pill (.estandar/.restringido/.confidencial)
-  if (val === 'estandar') return 'estandar';
-  if (val === 'restringido') return 'restringido';
-  if (val === 'confidencial') return 'confidencial';
+  // Mapea el nivel a la clase del pill. El CSS espera cf-estandar / cf-restringido /
+  // cf-confidencial (líneas ~2077-2079 de Dashboard.css.html) — sin prefijo cf- las
+  // pills no muestran color distintivo al seleccionarlas (solo el active genérico).
+  if (val === 'estandar') return 'cf-estandar';
+  if (val === 'restringido') return 'cf-restringido';
+  if (val === 'confidencial') return 'cf-confidencial';
   return '';
 }
 var _CR_CONF_OPTS = [
@@ -7056,10 +7101,33 @@ function _crRenderStep1() {
 
 function _crRenderStep2() {
   var v = EDC.values;
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var canAssignOthers = (role === 'manager' || role === 'head');
   var resp = _crResponsables().map(function(n){ return { value: n, label: n }; });
   var projs = _crProjects().map(function(p){ return { value: p.id, label: p.nombre }; });
   var confLvl = v.confidencialidad || 'estandar';
   var confDesc = (ED_CONF_LEVELS[confLvl] || ED_CONF_LEVELS.estandar).desc;
+  // Specialist: el resp YA está autoseteado a su nombre en edCrearOpen. No le
+  // mostramos un selector — solo le confirmamos visualmente "Asignada a vos".
+  // Manager/head: select normal para que puedan reasignar a otro miembro.
+  var respFieldHtml;
+  if (canAssignOthers) {
+    respFieldHtml = ''
+      + '<div class="' + _crFieldCls('resp') + '">'
+      +   '<div class="cr-label">Responsable <span class="req">*</span></div>'
+      +   _crSelectHtml('crResp', resp, v.resp, 'Seleccionar…').replace('<select id="crResp"', '<select id="crResp" onchange="edCrearSetField(\'resp\', this.value)"')
+      +   _crErr('resp')
+      + '</div>';
+  } else {
+    respFieldHtml = ''
+      + '<div class="cr-field">'
+      +   '<div class="cr-label">Responsable</div>'
+      +   '<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:6px;background:var(--accent-soft);border:1px solid color-mix(in oklab, var(--accent) 30%, transparent);font-size:13px">'
+      +     paIcon('check', 12, '', 'color:var(--accent)')
+      +     '<span><b>Asignada a vos</b> · ' + esc(v.resp || _effectiveUserName() || '') + '</span>'
+      +   '</div>'
+      + '</div>';
+  }
   return ''
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
@@ -7072,11 +7140,7 @@ function _crRenderStep2() {
     +   '</div>'
     + '</div>'
     + '<div class="cr-grid2">'
-    +   '<div class="' + _crFieldCls('resp') + '">'
-    +     '<div class="cr-label">Responsable <span class="req">*</span></div>'
-    +     _crSelectHtml('crResp', resp, v.resp, 'Seleccionar…').replace('<select id="crResp"', '<select id="crResp" onchange="edCrearSetField(\'resp\', this.value)"')
-    +     _crErr('resp')
-    +   '</div>'
+    +   respFieldHtml
     +   '<div class="' + _crFieldCls('deadline') + '">'
     +     '<div class="cr-label">Plazo <span class="req">*</span></div>'
     +     '<input type="date" class="cr-input" id="crDeadline" value="' + esc(v.deadline) + '" '
@@ -7088,11 +7152,16 @@ function _crRenderStep2() {
     +   '<div class="cr-label">Ligar a proyecto</div>'
     +   _crSelectHtml('crProj', projs, v.proyectoId, 'Sin proyecto').replace('<select id="crProj"', '<select id="crProj" onchange="edCrearSetField(\'proyectoId\', this.value)"')
     + '</div>'
-    + '<div class="cr-field">'
-    +   '<div class="cr-label">Confidencialidad</div>'
-    +   '<div class="cr-pills-row">' + _crPillsHtml('confidencialidad', _CR_CONF_OPTS, confLvl, _crConfMod) + '</div>'
-    +   '<div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.45">' + esc(confDesc) + '</div>'
-    + '</div>';
+    // Confidencialidad solo para manager/head — consistente con backend que
+    // valida el rol en updateTaskField. Specialist no la ve; queda en 'estandar'
+    // (que es el default seguro).
+    + (canAssignOthers
+      ? '<div class="cr-field">'
+        + '<div class="cr-label">Confidencialidad</div>'
+        + '<div class="cr-pills-row">' + _crPillsHtml('confidencialidad', _CR_CONF_OPTS, confLvl, _crConfMod) + '</div>'
+        + '<div style="font-size:11px;color:var(--fg-3);margin-top:6px;line-height:1.45">' + esc(confDesc) + '</div>'
+        + '</div>'
+      : '');
 }
 
 function _crRenderStep3() {
@@ -7755,7 +7824,10 @@ function rEdProyectosIndex(D) {
       html += '<div class="pa-card" style="padding:16px;cursor:pointer" onclick="edPiOpen(' + p.id + ')">'
            +    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">'
            +      '<span style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.04em">' + esc(role) + (p.pais ? ' · ' + esc(p.pais) : '') + '</span>'
-           +      paStatusPill(p.status === 'Activo' ? 'En curso' : (p.status === 'En pausa' ? 'Bloqueado' : 'Listo'))
+           +      paStatusPill(p.status === 'Activo' ? 'En curso'
+                              : p.status === 'En pausa' ? 'Bloqueado'
+                              : p.status === 'Cancelado' ? 'Cancelado'
+                              : 'Listo')
            +    '</div>'
            +    '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px">'
            +      '<span style="width:3px;height:32px;background:' + color + ';border-radius:2px;flex-shrink:0;margin-top:2px"></span>'
@@ -8826,85 +8898,108 @@ function _rEdAnalyticsSpecialist(D) {
   }
   var maxWeek = weeks.reduce(function(m, w){ return Math.max(m, w.count); }, 0);
 
-  // Priority mix (closed by priority)
+  // Priority mix
   var byPrio = { 'Alta': 0, 'Media': 0, 'Baja': 0 };
   entries.forEach(function(e){ if (byPrio[e.priority] != null) byPrio[e.priority]++; });
 
-  var ontimeCls = onTimePct == null ? '' : (onTimePct >= 90 ? 'good' : (onTimePct >= 75 ? 'warn' : 'crit'));
+  var html = '<div class="pa-page">';
 
-  var html = ''
-    + '<div class="ed-eye">Mi desempeño</div>'
-    + '<h1 class="ed-h1">Cómo <em>te está yendo</em>, ' + esc(firstName) + '.</h1>'
-    + '<p class="ed-lede">'
-    +   (totalClosed === 0
-        ? 'Aún no cerraste tareas. Cuando empieces a cerrar, tus stats van a aparecer acá.'
-        : 'Cerraste <b>' + totalClosed + (totalClosed === 1 ? ' tarea' : ' tareas') + '</b>'
-          + (onTimePct != null ? ' con un <b>' + onTimePct + '% en tiempo</b>' : '')
-          + '. ' + (myActive.length > 0 ? 'Actualmente tenés <b>' + myActive.length + ' activas</b>.' : 'No tenés tareas activas ahora.'))
-    + '</p>'
-    // Hero (3 KPIs)
-    + '<div class="esp-hero">'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">% en tiempo</div>'
-    +     '<div class="esp-stat-num ' + ontimeCls + '">' + (onTimePct == null ? '—' : onTimePct + '%') + '</div>'
-    +     '<div class="esp-stat-ctx">' + (totalClosed ? 'de ' + totalClosed + ' cerradas' : 'sin datos aún') + '</div></div>'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">Cerradas total</div>'
-    +     '<div class="esp-stat-num">' + (totalClosed || '—') + '</div>'
-    +     '<div class="esp-stat-ctx">' + (totalClosed ? 'tareas completadas' : 'empezá a cerrar') + '</div></div>'
-    +   '<div class="esp-stat"><div class="esp-stat-lbl">🔥 Racha actual</div>'
-    +     '<div class="esp-stat-num good">' + (streak || '—') + '</div>'
-    +     '<div class="esp-stat-ctx">' + (streak ? 'seguidas, en tiempo' : 'arrancá una racha') + '</div></div>'
-    + '</div>';
+  // Page header
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">Mi desempeño</span>'
+       +    '<span class="pa-page-sub">Cómo te está yendo, ' + esc(firstName) + '</span>'
+       + '</div>';
 
-  // Card 1: Throughput (last 8 weeks)
-  html += '<section class="ed-section">'
-       +   '<div class="ed-h2">— Tareas cerradas, últimas 8 semanas</div>';
-  if (maxWeek === 0) {
-    html += '<div class="ed-lede">Aún no hay cierres. Empezá a cerrar tareas para armar tu tendencia.</div>';
+  // Narrative
+  if (totalClosed === 0) {
+    html += '<div class="pa-narrative">Aún no cerraste tareas. Cuando empieces a cerrar, tus stats van a aparecer acá.</div>';
   } else {
-    html += '<div class="sp-bars">';
-    weeks.forEach(function(w) {
-      var h = maxWeek > 0 ? Math.max(2, Math.round(w.count / maxWeek * 100)) : 2;
-      var ontimeShare = w.count > 0 ? Math.round(w.onTime / w.count * 100) : 0;
-      var fillCls = w.count === 0 ? 'empty' : (ontimeShare >= 80 ? 'good' : (ontimeShare >= 50 ? 'warn' : 'crit'));
-      html += '<div class="sp-bar-col" title="' + w.label + ': ' + w.count + ' cerradas, ' + w.onTime + ' en tiempo">'
-           +    '<div class="sp-bar-fill ' + fillCls + '" style="height:' + h + '%"></div>'
-           +    '<div class="sp-bar-num">' + (w.count || '—') + '</div>'
-           +    '<div class="sp-bar-lbl">' + w.label + '</div>'
+    var bits = ['Cerraste <b>' + totalClosed + (totalClosed === 1 ? ' tarea' : ' tareas') + '</b>'];
+    if (onTimePct != null) bits.push('con un <b>' + onTimePct + '% en tiempo</b>');
+    html += '<div class="pa-narrative">' + bits.join(' ') + '. '
+         +    (myActive.length > 0
+                ? 'Actualmente tenés <b>' + myActive.length + ' activas</b>.'
+                : 'No tenés tareas activas ahora.')
+         + '</div>';
+  }
+
+  // KPIs (3)
+  var ontimeCls = onTimePct == null ? '' : (onTimePct >= 90 ? 'is-good' : (onTimePct >= 75 ? 'is-warn' : 'is-critical'));
+  html += '<div class="pa-kpis">'
+       +    '<div class="pa-kpi ' + ontimeCls + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> % en tiempo</div>'
+       +      '<div class="val">' + (onTimePct == null ? '—' : onTimePct + '%') + '</div>'
+       +      '<div class="delta">' + (totalClosed ? 'de ' + totalClosed + ' cerradas' : 'sin datos aún') + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi">'
+       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Cerradas total</div>'
+       +      '<div class="val">' + (totalClosed || '—') + '</div>'
+       +      '<div class="delta">' + (totalClosed ? 'tareas completadas' : 'empezá a cerrar') + '</div>'
+       +    '</div>'
+       +    '<div class="pa-kpi ' + (streak ? 'is-good' : '') + '">'
+       +      '<div class="lab"><span style="display:inline-block;margin-right:4px">🔥</span> Racha actual</div>'
+       +      '<div class="val">' + (streak || '—') + '</div>'
+       +      '<div class="delta">' + (streak ? 'seguidas, en tiempo' : 'arrancá una racha') + '</div>'
+       +    '</div>'
+       + '</div>';
+
+  // Throughput (last 8 weeks): bar chart inline con SVG
+  html += '<div class="pa-section-h">'
+       +    '<h3>Tareas cerradas, últimas 8 semanas</h3>'
+       +    '<span class="meta">Alto = total cerradas · color = % en tiempo</span>'
+       + '</div>';
+  if (maxWeek === 0) {
+    html += paEmpty('refresh', 'Aún no hay cierres.', 'Empezá a cerrar tareas para armar tu tendencia.');
+  } else {
+    html += '<div class="pa-card" style="padding:18px 22px;display:flex;align-items:flex-end;gap:14px;height:200px">';
+    weeks.forEach(function(wk) {
+      var pct = maxWeek > 0 ? Math.max(6, Math.round(wk.count / maxWeek * 100)) : 6;
+      var ontimeShare = wk.count > 0 ? Math.round(wk.onTime / wk.count * 100) : 0;
+      var color = wk.count === 0
+        ? 'var(--bg-3)'
+        : (ontimeShare >= 80 ? 'var(--good)' : (ontimeShare >= 50 ? 'var(--warn)' : 'var(--critical)'));
+      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;height:100%;gap:6px" title="' + esc(wk.label) + ': ' + wk.count + ' cerradas, ' + wk.onTime + ' en tiempo">'
+           +    '<div style="font-size:11px;color:var(--fg-2);font-family:var(--font-mono)">' + (wk.count || '—') + '</div>'
+           +    '<div style="flex:1;width:100%;display:flex;align-items:flex-end">'
+           +      '<div style="width:100%;background:' + color + ';height:' + pct + '%;border-radius:4px 4px 0 0;transition:height .3s"></div>'
+           +    '</div>'
+           +    '<div style="font-size:10px;color:var(--fg-3);font-weight:500">' + esc(wk.label) + '</div>'
            + '</div>';
     });
     html += '</div>';
-    html += '<div class="sp-legend">Alto de la barra = total cerradas · color = % en tiempo (verde ≥80%, ámbar ≥50%, rojo &lt;50%)</div>';
   }
-  html += '</section>';
 
-  // Card 2: Priority mix donut + Card 3: avg close time per priority
+  // Priority mix
   var totalP = byPrio.Alta + byPrio.Media + byPrio.Baja;
-  html += '<section class="ed-section">'
-       +   '<div class="ed-h2">— Lo que más manejás</div>'
-       +   '<div class="sp-mix">';
+  html += '<div class="pa-section-h">'
+       +    '<h3>Lo que más manejás</h3>'
+       +    '<span class="meta">Por prioridad · promedio de días vs SLA</span>'
+       + '</div>';
   if (totalP === 0) {
-    html += '<div class="ed-lede" style="grid-column:1/-1">Aún no hay tareas cerradas para desglosar.</div>';
+    html += paEmpty('chart', 'Aún no hay tareas cerradas para desglosar.', 'Cuando cierres tareas, vas a ver tu mix acá.');
   } else {
+    html += '<div class="pa-card" style="padding:14px 18px">';
     var rows = [
-      { lbl: 'Alta',  val: byPrio.Alta,  cls: 'crit', avg: me.avgAlta  || '—', sla: 'SLA 2d' },
-      { lbl: 'Media', val: byPrio.Media, cls: 'warn', avg: me.avgMedia || '—', sla: 'SLA 5d' },
-      { lbl: 'Baja',  val: byPrio.Baja,  cls: 'good', avg: me.avgBaja  || '—', sla: 'SLA 7d' }
+      { lbl: 'Alta',  val: byPrio.Alta,  color: 'var(--critical)', avg: me.avgAlta  || '—', sla: 'SLA 2d' },
+      { lbl: 'Media', val: byPrio.Media, color: 'var(--warn)',     avg: me.avgMedia || '—', sla: 'SLA 5d' },
+      { lbl: 'Baja',  val: byPrio.Baja,  color: 'var(--good)',     avg: me.avgBaja  || '—', sla: 'SLA 7d' }
     ];
-    rows.forEach(function(r) {
-      var pct = Math.round(r.val / totalP * 100);
-      html += '<div class="sp-mix-row">'
-           +    '<div class="sp-mix-lbl">' + r.lbl + ' <span class="sp-mix-sla">' + r.sla + '</span></div>'
-           +    '<div class="sp-mix-bar"><div class="sp-mix-fill ' + r.cls + '" style="width:' + pct + '%"></div></div>'
-           +    '<div class="sp-mix-stats">'
-           +      '<span class="sp-mix-count">' + r.val + '</span>'
-           +      '<span class="sp-mix-pct">' + pct + '%</span>'
-           +      '<span class="sp-mix-avg">promedio ' + esc(r.avg) + '</span>'
+    rows.forEach(function(r, i) {
+      var pct = totalP > 0 ? Math.round(r.val / totalP * 100) : 0;
+      html += '<div style="display:grid;grid-template-columns:140px 1fr 200px;gap:14px;align-items:center;padding:10px 0;border-top:' + (i ? '1px solid var(--line-1)' : '0') + '">'
+           +    '<div style="font-size:13px;font-weight:500;color:var(--fg-1)">' + esc(r.lbl) + ' <span style="font-size:11px;color:var(--fg-3);font-weight:400;margin-left:6px">' + esc(r.sla) + '</span></div>'
+           +    '<div style="height:8px;background:var(--bg-2);border-radius:999px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + r.color + '"></div></div>'
+           +    '<div style="font-size:12px;color:var(--fg-2);display:flex;gap:10px;justify-content:flex-end">'
+           +      '<span class="mono">' + r.val + '</span>'
+           +      '<span class="mono" style="color:var(--fg-3)">' + pct + '%</span>'
+           +      '<span style="color:var(--fg-3)">prom. ' + esc(r.avg) + '</span>'
            +    '</div>'
            + '</div>';
     });
+    html += '</div>';
   }
-  html += '</div></section>';
 
+  html += '</div>'; // pa-page
   v.innerHTML = html;
 }
 
@@ -9025,7 +9120,10 @@ function rEdResumen(D) {
       var ovColor = (c.overdue || 0) > 3 ? 'var(--critical-fg)' : 'var(--fg-2)';
       var slaColor = sla < 90 ? 'var(--warn-fg)' : 'var(--good-fg)';
       var sparkTone = sla < 90 ? 'warn' : 'accent';
-      var trend = c.trend || [3,4,5,4,6,5,7,6,5,4,5,4];
+      // Trend real del backend (12 semanas de cierres). Si no hay data, mostrar
+      // "—" en vez de una línea ficticia que el head interpretaría como real.
+      var trend = c.trend || [0,0,0,0,0,0,0,0,0,0,0,0];
+      var hasTrend = trend.some(function(x){ return x > 0; });
       html += '<div class="pa-tbl-r" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px;height:52px" onclick="edSetCountryFilter(\'' + esc(c.code) + '\');goEd(\'tracker\')">'
            +    '<div style="display:flex;align-items:center;gap:10px">'
            +      '<span style="width:28px;height:20px;border-radius:4px;background:var(--bg-2);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:var(--fg-1);font-weight:600">' + esc(c.code || '') + '</span>'
@@ -9036,7 +9134,7 @@ function rEdResumen(D) {
            +    '<div class="mono" style="font-size:13px">' + (c.open || 0) + '</div>'
            +    '<div class="mono" style="font-size:13px;color:' + ovColor + '">' + (c.overdue || 0) + '</div>'
            +    '<div class="mono" style="font-size:13px;color:' + slaColor + '">' + (sla || '—') + (sla ? '%' : '') + '</div>'
-           +    '<div>' + paSparkline(trend, 110, 28, sparkTone) + '</div>'
+           +    '<div>' + (hasTrend ? paSparkline(trend, 110, 28, sparkTone) : '<span style="font-size:11px;color:var(--fg-4)">—</span>') + '</div>'
            + '</div>';
     });
     html += '</div>';

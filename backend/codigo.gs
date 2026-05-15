@@ -158,6 +158,7 @@ function resolveVisitor(equipos) {
 // Renderiza una página simple de "acceso denegado" con el mismo look del tracker.
 function renderAccessDenied(authResult) {
   var safeMsg = (authResult.message || 'Acceso denegado').replace(/</g, '&lt;');
+  var deniedEmail = (authResult.email || '').toString().replace(/</g, '&lt;');
   var body = ''
     + '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">'
     + '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -165,18 +166,33 @@ function renderAccessDenied(authResult) {
     + '<style>'
     +   'body{background:#0C0E14;color:#F0F2F8;font-family:system-ui,sans-serif;'
     +        'margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}'
-    +   '.box{max-width:420px;background:#151820;border:1px solid rgba(255,255,255,.08);'
+    +   '.box{max-width:480px;background:#151820;border:1px solid rgba(255,255,255,.08);'
     +        'border-radius:16px;padding:40px;text-align:center}'
     +   '.logo{width:56px;height:56px;border-radius:16px;background:#FF4940;display:flex;'
     +         'align-items:center;justify-content:center;font-size:26px;margin:0 auto 20px}'
     +   'h1{font-size:20px;font-weight:800;margin:0 0 12px}'
-    +   'p{color:#9099B0;font-size:13px;line-height:1.55;margin:0}'
+    +   'p{color:#9099B0;font-size:13px;line-height:1.55;margin:0 0 8px}'
     +   '.email{font-family:ui-monospace,monospace;color:#FFB938;word-break:break-all}'
+    +   '.actions{display:flex;flex-direction:column;gap:8px;margin-top:24px}'
+    +   '.btn{padding:10px 16px;border-radius:8px;font-size:13px;font-weight:500;'
+    +        'cursor:pointer;border:0;display:inline-flex;align-items:center;justify-content:center;gap:6px;text-decoration:none}'
+    +   '.btn-pri{background:#FF4940;color:#fff}'
+    +   '.btn-sec{background:transparent;color:#F0F2F8;border:1px solid rgba(255,255,255,.15)}'
+    +   '.hint{margin-top:18px;padding-top:18px;border-top:1px solid rgba(255,255,255,.06);'
+    +         'font-size:12px;color:#6a6a72;line-height:1.55}'
+    +   '.hint a{color:#FFB938;text-decoration:none}'
     + '</style></head><body>'
     + '<div class="box">'
     +   '<div class="logo">🔒</div>'
     +   '<h1>Sin acceso al Legal Tracker</h1>'
     +   '<p>' + safeMsg + '</p>'
+    +   (deniedEmail ? '<p>Entraste como <span class="email">' + deniedEmail + '</span></p>' : '')
+    +   '<div class="actions">'
+    +     '<a class="btn btn-pri" href="javascript:location.reload()">Reintentar</a>'
+    +     '<a class="btn btn-sec" href="https://accounts.google.com/AccountChooser" target="_blank">Cambiar cuenta de Google</a>'
+    +   '</div>'
+    +   '<div class="hint">¿Crees que es un error? Pedile a tu líder de equipo legal que verifique '
+    +     'la hoja <b>Equipos</b> del spreadsheet, o escribile a soporte interno.</div>'
     + '</div></body></html>';
   return HtmlService.createHtmlOutput(body)
     .setTitle('Legal Tracker · Sin acceso')
@@ -685,6 +701,18 @@ function _buildViewForRole(raw, role, user, feriadosByCountry) {
 
   // Per-person stats: construidas solo a partir de responsables visibles en tasks
   var teamMap = {};
+  // Pre-poblar con TODOS los miembros del sheet Equipos. Antes el teamMap se
+  // construia solo de quienes tenian tasks activas, asi que specialists sin
+  // tareas no aparecian en el team — y data.team.find(name === me) retornaba
+  // undefined → KPIs de "Mi desempeño" mostraban "—" incluso teniendo historial.
+  equipos.forEach(function(eq) {
+    (eq.members || []).forEach(function(memberName, i) {
+      if (!memberName) return;
+      if (!teamMap[memberName]) {
+        teamMap[memberName] = { total:0, alta:0, media:0, baja:0, pendiente:0, enCurso:0, bloqueado:0, enRevision:0, listo:0 };
+      }
+    });
+  });
   tasks.forEach(function(t) {
     if (!t.resp) return;
     if (!teamMap[t.resp]) teamMap[t.resp] = { total:0, alta:0, media:0, baja:0, pendiente:0, enCurso:0, bloqueado:0, enRevision:0, listo:0 };
@@ -1138,7 +1166,7 @@ function readTasks(ws) {
       tipoTrabajo:(row[14]||'').toString().trim(),
       riesgo:(row[15]||'').toString().trim(),
       documentos: _parseDocs(row[16]),
-      confidencialidad: (row[17] || 'estandar').toString().trim() || 'estandar',
+      confidencialidad: ((row[17] || 'estandar').toString().trim().toLowerCase()) || 'estandar',
       // Col 19 (índice 18): single text. Default '' si la columna aún no existe.
       contraparte: (row[18] || '').toString().trim()
     });
@@ -1183,7 +1211,14 @@ function _addTaskImpl(taskObj) {
     var pid = taskObj.proyectoId || taskObj.proyecto || '';
     var pidNum = parseInt(pid, 10);
     var pidCell = isNaN(pidNum) ? '' : pidNum;
-    var conf = (taskObj.confidencialidad || 'estandar').toString().trim() || 'estandar';
+    // Confidencialidad: specialist solo puede crear con 'estandar'. Manager/head
+    // pueden elegir. Esto es consistente con updateTaskField que ya restringe los
+    // cambios. Sin esta protección, un specialist con cliente bugueado podía crear
+    // tareas confidenciales sin permiso.
+    var conf = (taskObj.confidencialidad || 'estandar').toString().trim().toLowerCase() || 'estandar';
+    if (ctx.role === 'specialist' && conf !== 'estandar') {
+      conf = 'estandar';
+    }
     // Auto-prefill de notas con checklist del template si:
     //  (a) hay tipoTrabajo con plantilla en la hoja 'Templates', y
     //  (b) el usuario no escribió notas (vacío o solo whitespace).
