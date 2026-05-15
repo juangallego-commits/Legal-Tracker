@@ -2996,11 +2996,11 @@ var ED_NAV_BY_ROLE = {
     { section: 'Donde trabajo', items: [
       { id: 'tracker',    label: 'Tracker',     icon: 'inbox',  view: 'tracker' },
       { id: 'proyectos',  label: 'Proyectos',   icon: 'folder', view: 'proyectos' },
-      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' }
+      { id: 'plantillas', label: 'Plantillas', icon: 'doc',    view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
-      { id: 'analytics', label: 'Mi desempeño', icon: 'chart',   view: 'analytics' },
-      { id: 'historial', label: 'Historial',    icon: 'refresh', view: 'historial' }
+      { id: 'analytics', label: 'Mi desempeño',  icon: 'chart',   view: 'analytics' },
+      { id: 'historial', label: 'Cerradas',      icon: 'refresh', view: 'historial' }
     ]}
   ],
   manager: [
@@ -3012,11 +3012,11 @@ var ED_NAV_BY_ROLE = {
     { section: 'Operación', items: [
       { id: 'agrupadas',  label: 'Por urgencia', icon: 'calendar', view: 'agrupadas' },
       { id: 'proyectos',  label: 'Proyectos',    icon: 'folder',   view: 'proyectos' },
-      { id: 'plantillas', label: 'Biblioteca',   icon: 'doc',      view: 'plantillas' }
+      { id: 'plantillas', label: 'Plantillas',   icon: 'doc',      view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
-      { id: 'analytics', label: 'Métricas',  icon: 'chart',   view: 'analytics' },
-      { id: 'historial', label: 'Historial', icon: 'refresh', view: 'historial' }
+      { id: 'analytics', label: 'Métricas',   icon: 'chart',   view: 'analytics' },
+      { id: 'historial', label: 'Cerradas',   icon: 'refresh', view: 'historial' }
     ]}
   ],
   head: [
@@ -3028,11 +3028,11 @@ var ED_NAV_BY_ROLE = {
     { section: 'Personas', items: [
       { id: 'miequipo',   label: 'Equipo',     icon: 'users',  view: 'miequipo' },
       { id: 'proyectos',  label: 'Proyectos',  icon: 'folder', view: 'proyectos' },
-      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' }
+      { id: 'plantillas', label: 'Plantillas', icon: 'doc',    view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
-      { id: 'analytics', label: 'Analytics',  icon: 'chart',   view: 'analytics' },
-      { id: 'historial', label: 'Historial',  icon: 'refresh', view: 'historial' }
+      { id: 'analytics', label: 'Analítica',  icon: 'chart',   view: 'analytics' },
+      { id: 'historial', label: 'Cerradas',   icon: 'refresh', view: 'historial' }
     ]}
   ]
 };
@@ -3316,7 +3316,7 @@ function renderEdSidebar(role, activeViewId) {
   }
   html += '</nav>'
        + '<div class="pa-sb-footer">'
-       +   '<div class="pa-sb-user" onclick="edHelpOpen()">'
+       +   '<div class="pa-sb-user" title="' + esc(name) + ' · ' + esc(subtitle) + '" style="cursor:default">'
        +     '<div class="pa-sb-av">' + esc(initials.charAt(0)) + '</div>'
        +     '<div class="pa-sb-user-info">'
        +       '<div class="pa-sb-user-name">' + esc(name) + '</div>'
@@ -3372,11 +3372,7 @@ function renderEdHead(viewId) {
     + '</div>'
     + '<div class="pa-hd-actions">'
     +   '<button class="pa-btn pa-btn-icon" title="Atajos (?)" onclick="edHelpOpen()">' + paIcon('help', 14) + '</button>'
-    +   '<button class="pa-btn pa-btn-icon" title="Notificaciones">' + paIcon('bell', 14) + '</button>'
-    +   '<span class="pa-btn-split">'
-    +     '<button class="pa-btn pa-btn-primary" title="Nueva tarea (N)" onclick="edCrearOpen()">' + paIcon('plus', 12) + ' Nueva tarea</button>'
-    +     '<button class="pa-btn pa-btn-primary" title="Plantillas" onclick="goEd(\'plantillas\')">' + paIcon('chevD', 11) + '</button>'
-    +   '</span>'
+    +   '<button class="pa-btn pa-btn-primary" title="Nueva tarea (N)" onclick="edCrearOpen()">' + paIcon('plus', 12) + ' Nueva tarea</button>'
     +   '<div class="pa-hd-avatar" title="' + esc(name) + '">' + esc(initial) + '</div>'
     + '</div>';
 }
@@ -4574,6 +4570,9 @@ function _edApplyFilter(tasks, filter) {
   if (filter === 'blocked') return tasks.filter(function(t){ return t.status === 'Bloqueado'; });
   if (filter === 'alta')    return tasks.filter(function(t){ return t.priority === 'Alta' && t.status !== 'Listo'; });
   if (filter === 'mine')    return tasks.filter(function(t){ return t.resp === _effectiveUserName() && t.status !== 'Listo'; });
+  // 'closed': mostrar cerradas (vienen del historial, no de D.tasks; rEdTracker
+  // las concatena cuando filter === 'closed').
+  if (filter === 'closed')  return tasks.filter(function(t){ return t.status === 'Listo'; });
   return tasks.filter(function(t){ return t.status !== 'Listo'; });
 }
 
@@ -5903,6 +5902,11 @@ function rEdTracker(D) {
   }
 
   var roleTasks = _edFilterByRole(allTasks, role, userName, userCode);
+  // Para el filter 'closed' incluimos también las del historial (que ya están
+  // cerradas — sheet Historial). Aplicamos el mismo filtro de rol.
+  var allHist = (D && D.historial) || [];
+  var roleHist = _edFilterByRole(allHist, role, userName, userCode);
+  var cClosed = roleHist.length;
 
   var cAll      = roleTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
   var cOverdue  = roleTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
@@ -5911,10 +5915,19 @@ function rEdTracker(D) {
   var cMine     = roleTasks.filter(function(t){ return t.resp === userName && t.status !== 'Listo'; }).length;
   var cAlta     = roleTasks.filter(function(t){ return t.priority === 'Alta' && t.status !== 'Listo'; }).length;
 
-  var rows = _edApplySearch(_edApplySecondaryFilters(_edApplyFilter(roleTasks, EDT.filter)), EDT.search);
+  // Cuando el filtro es 'closed', la fuente de tareas es el historial (las que
+  // ya fueron movidas al sheet Historial). Sino, la fuente es D.tasks (activas).
+  var sourceTasks = EDT.filter === 'closed' ? roleHist : roleTasks;
+  var rows = _edApplySearch(_edApplySecondaryFilters(_edApplyFilter(sourceTasks, EDT.filter)), EDT.search);
   rows = _edSortByUrgency(rows);
 
-  var sel = EDT.selectedId ? rows.find(function(t){ return t.id == EDT.selectedId; }) || roleTasks.find(function(t){ return t.id == EDT.selectedId; }) : null;
+  // sel puede venir de rows visibles, de roleTasks (activas) o de roleHist (cerradas).
+  // Necesario buscar en historial también para abrir tareas Listo desde el panel.
+  var sel = EDT.selectedId
+    ? (rows.find(function(t){ return t.id == EDT.selectedId; })
+       || roleTasks.find(function(t){ return t.id == EDT.selectedId; })
+       || roleHist.find(function(t){ return t.id == EDT.selectedId; }))
+    : null;
 
   var scopeLabel;
   if (EDT.country) scopeLabel = EDT.country;
@@ -5951,13 +5964,14 @@ function rEdTracker(D) {
   }
 
   html += '<div class="pa-filterbar">'
-       +    chip('all',     'Todas',         cAll,     null,       EDT.filter === 'all')
+       +    chip('all',     'Activas',       cAll,     null,       EDT.filter === 'all')
        +    chip('overdue', 'Vencidas',      cOverdue, 'critical', EDT.filter === 'overdue')
        +    chip('today',   'Vencen hoy',    cToday,   'warn',     EDT.filter === 'today')
        +    chip('blocked', 'Bloqueadas',    cBlocked, null,       EDT.filter === 'blocked')
        +    chip('alta',    'Prioridad alta',cAlta,    null,       EDT.filter === 'alta')
        +    '<div class="pa-chip-divider"></div>'
        +    chip('mine',    'Asignadas a mí',cMine,    null,       EDT.filter === 'mine')
+       +    chip('closed',  'Cerradas',      cClosed,  null,       EDT.filter === 'closed')
        +    '<div style="margin-left:auto;display:flex;gap:6px;align-items:center">'
        +      '<div class="pa-search" style="width:220px">'
        +        paIcon('search', 12)
@@ -6294,18 +6308,31 @@ function _renderTkPanel(sel) {
        + '</div>';
   html += '</aside>';
 
-  // Bottom action bar
-  html += '<div class="tk-panel-actions">'
-       +    (sel.status === 'Bloqueado'
-            ? '<button class="pa-btn pa-btn-outline" onclick="edUOpen(\'' + esc(sel.id) + '\',\'avanzar\')">' + paIcon('block', 12) + ' Desbloquear</button>'
-            : '<button class="pa-btn pa-btn-outline" onclick="edUOpen(\'' + esc(sel.id) + '\',\'bloquear\')">' + paIcon('block', 12) + ' Bloquear</button>')
-       +    (canReassign ? '<button class="pa-btn pa-btn-outline" onclick="edReasignarOpen(\'' + esc(sel.id) + '\')">' + paIcon('users', 12) + ' Reasignar</button>' : '')
-       +    '<button class="pa-btn pa-btn-outline" onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')">' + paIcon('more', 12) + ' Más</button>'
-       +    '<div style="margin-left:auto;display:flex;gap:8px">'
-       +      '<button class="pa-btn pa-btn-outline" onclick="edUOpen(\'' + esc(sel.id) + '\',\'cerrar\')">Cerrar como ✓ Listo</button>'
-       +      '<button class="pa-btn pa-btn-primary" onclick="edUOpen(\'' + esc(sel.id) + '\',\'avanzar\')">Avanzar →</button>'
-       +    '</div>'
-       + '</div>';
+  // Bottom action bar — readonly cuando la tarea ya está cerrada (Listo).
+  // Tareas cerradas viven en el historial; solo pueden verse, no modificarse
+  // desde el panel. Para reabrir el user usa "Más" → editar manual.
+  if (sel.status === 'Listo') {
+    html += '<div class="tk-panel-actions">'
+         +    '<span style="font-size:12px;color:var(--fg-3);display:flex;align-items:center;gap:6px">'
+         +      paIcon('check', 12) + 'Tarea cerrada' + (sel.cerrado ? ' · ' + esc(sel.cerrado) : '')
+         +    '</span>'
+         +    '<div style="margin-left:auto">'
+         +      '<button class="pa-btn pa-btn-outline" onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')">' + paIcon('more', 12) + ' Edición avanzada</button>'
+         +    '</div>'
+         + '</div>';
+  } else {
+    html += '<div class="tk-panel-actions">'
+         +    (sel.status === 'Bloqueado'
+              ? '<button class="pa-btn pa-btn-outline" onclick="edUDesbloquear(\'' + esc(sel.id) + '\')">' + paIcon('block', 12) + ' Desbloquear</button>'
+              : '<button class="pa-btn pa-btn-outline" onclick="edUOpen(\'' + esc(sel.id) + '\',\'bloquear\')">' + paIcon('block', 12) + ' Bloquear</button>')
+         +    (canReassign ? '<button class="pa-btn pa-btn-outline" onclick="edReasignarOpen(\'' + esc(sel.id) + '\')">' + paIcon('users', 12) + ' Reasignar</button>' : '')
+         +    '<button class="pa-btn pa-btn-outline" onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')">' + paIcon('more', 12) + ' Más</button>'
+         +    '<div style="margin-left:auto;display:flex;gap:8px">'
+         +      '<button class="pa-btn pa-btn-outline" onclick="edUOpen(\'' + esc(sel.id) + '\',\'cerrar\')">Cerrar como ✓ Listo</button>'
+         +      '<button class="pa-btn pa-btn-primary" onclick="edUOpen(\'' + esc(sel.id) + '\',\'avanzar\')">Avanzar →</button>'
+         +    '</div>'
+         + '</div>';
+  }
 
   html += '</aside>';
   return html;
@@ -6707,6 +6734,29 @@ function edUOpen(taskId, variant) {
   EDU.newConf = null;
   var host = $('uaHost'); if (!host) return;
   host.innerHTML = _uaRender(task, EDU.variant);
+}
+
+// Desbloquear: una tarea Bloqueada vuelve a 'En curso' (asume que estaba en
+// progreso cuando se bloqueó). El usuario puede ajustar después con inline edit
+// si era 'Pendiente'. Sin modal — acción directa con toast de feedback.
+function edUDesbloquear(taskId) {
+  if (!taskId) return;
+  if (typeof showLoader === 'function') showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (res && res.success) {
+        toast('Tarea desbloqueada', 'success');
+        if (typeof reload === 'function') reload();
+      } else {
+        toast((res && res.error) || 'No se pudo desbloquear.', 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      if (typeof hideLoader === 'function') hideLoader();
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .updateTaskField(taskId, 'status', 'En curso');
 }
 
 function edUClose() {
@@ -7893,10 +7943,15 @@ function _edDaysVsSla(t) {
   return biz - lim;
 }
 
-function _edHistOnClick() {
-  if (typeof toast === 'function') {
-    toast('Tarea cerrada — el historial detallado llega pronto', 'info');
-  }
+// Click en una fila del historial: navega al tracker filtrado por "Cerradas"
+// con la tarea seleccionada. El panel detalle se abre readonly (el render del
+// panel detecta status === 'Listo' y oculta las acciones).
+function _edHistOnClick(taskId) {
+  if (!taskId) return;
+  EDT.filter = 'closed';
+  EDT.selectedId = String(taskId);
+  if (typeof _edPersistEDT === 'function') _edPersistEDT();
+  if (typeof goEd === 'function') goEd('tracker');
 }
 
 function rEdHistorial(D) {
@@ -8020,7 +8075,7 @@ function rEdHistorial(D) {
       else if (dvs <= 0) { slaTxt = (dvs === 0 ? 'en tiempo' : (Math.abs(dvs) + 'd antes')); slaCls = 'good'; }
       else { slaTxt = '+' + dvs + 'd tarde'; slaCls = 'overdue'; }
       var slaColor = slaCls === 'good' ? 'var(--good-fg)' : slaCls === 'overdue' ? 'var(--critical-fg)' : 'var(--fg-3)';
-      html += '<div class="pa-tbl-r" style="grid-template-columns:' + cols + '" onclick="_edHistOnClick()">'
+      html += '<div class="pa-tbl-r" style="grid-template-columns:' + cols + ';cursor:pointer" onclick="_edHistOnClick(\'' + esc(t.id) + '\')">'
            +    paConfDot(conf)
            +    '<span class="id mono">' + esc(t.id) + '</span>'
            +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + '</span></div>'

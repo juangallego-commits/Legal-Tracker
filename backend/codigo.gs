@@ -1314,8 +1314,8 @@ function _editTaskCommentImpl(commentId, newBody) {
     if (targetIdx < 0) return { success: false, error: 'Comment not found' };
     var row = data[targetIdx];
     var rowAuthor = (row[2] || '').toString().toLowerCase().trim();
-    var currentEmail = (ctx.user && ctx.user.email || '').toLowerCase().trim();
-    if (rowAuthor !== currentEmail) return { success: false, error: 'Solo el autor puede editar.' };
+    var currentEmail = (ctx.email || '').toLowerCase().trim();
+    if (!currentEmail || rowAuthor !== currentEmail) return { success: false, error: 'Solo el autor puede editar.' };
     if (row[7]) return { success: false, error: 'No se puede editar un comentario eliminado.' };
     var editedTs = new Date();
     var sheetRow = targetIdx + 2;
@@ -1361,8 +1361,8 @@ function _deleteTaskCommentImpl(commentId) {
     if (targetIdx < 0) return { success: false, error: 'Comment not found' };
     var row = data[targetIdx];
     var rowAuthor = (row[2] || '').toString().toLowerCase().trim();
-    var currentEmail = (ctx.user && ctx.user.email || '').toLowerCase().trim();
-    if (rowAuthor !== currentEmail) return { success: false, error: 'Solo el autor puede eliminar.' };
+    var currentEmail = (ctx.email || '').toLowerCase().trim();
+    if (!currentEmail || rowAuthor !== currentEmail) return { success: false, error: 'Solo el autor puede eliminar.' };
     if (row[7]) return { success: true, alreadyDeleted: true };
     var deletedTs = new Date();
     var sheetRow = targetIdx + 2;
@@ -1383,21 +1383,23 @@ function _addTaskCommentImpl(taskId, body) {
   var trimmed = (body || '').toString().trim();
   if (!trimmed) return { success: false, error: 'Comment body required' };
   if (trimmed.length > 5000) return { success: false, error: 'Comment too long (max 5000 chars)' };
+  var authorEmail = ctx.email || '';
+  var authorName  = (ctx.user && ctx.user.name) || '';
   var ws = _commentsSheet(ctx.ss);
   var lock = LockService.getScriptLock();
   try { lock.waitLock(8000); } catch (e) { throw new Error('Server busy, retry in a moment.'); }
   try {
     var newId = _nextCommentId(ws);
     var ts = new Date();
-    var row = [newId, taskId, ctx.user && ctx.user.email || '', ctx.user && ctx.user.name || '', ts, trimmed];
+    var row = [newId, taskId, authorEmail, authorName, ts, trimmed];
     ws.appendRow(_sanitizeRow(row));
     return {
       success: true,
       comment: {
         id: newId,
         task_id: taskId,
-        author_email: ctx.user && ctx.user.email || '',
-        author_name: ctx.user && ctx.user.name || '',
+        author_email: authorEmail,
+        author_name: authorName,
         ts: ts.toISOString(),
         body: trimmed
       }
