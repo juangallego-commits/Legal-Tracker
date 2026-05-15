@@ -205,7 +205,7 @@ function chartTheme() {
 }
 
 Chart.defaults.color = getTok('--muted');
-Chart.defaults.font.family = "'Nunito Sans',sans-serif";
+Chart.defaults.font.family = "'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif";
 Chart.defaults.font.size = 12;
 
 // ════════════════════════════════════════════════════════════════
@@ -6687,7 +6687,7 @@ function _uaRender(task, variant) {
        +   '<aside class="ua-panel" role="dialog" aria-modal="true" aria-label="Actualizar tarea">'
        +     '<div class="ua-head">'
        +       '<button type="button" class="ua-x" onclick="edUClose()" aria-label="Cerrar">×</button>'
-       +       '<div class="ua-eye">— Update status</div>'
+       +       '<div class="ua-eye">— Actualizar estado</div>'
        +       '<div class="ua-id">' + esc(task.id + ' · ' + pn) + '</div>'
        +       '<div class="ua-title">' + esc(task.nombre || '') + '</div>'
        +     '</div>'
@@ -7810,12 +7810,8 @@ function rEdMisTareas(D) {
        + '</div>';
 
   if (mine.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;padding:48px 20px">'
-         +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon('inbox', 20) + '</div>'
-         +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">Día limpio. No tenés tareas activas.</div>'
-         +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0 14px">Aprovechá para avanzar trabajo de proyecto.</div>'
-         +    '<button class="pa-btn pa-btn-outline" onclick="goEd(\'agrupadas\')">Ver por urgencia →</button>'
-         + '</div>';
+    html += paEmpty('inbox', 'Día limpio. No tenés tareas activas.', 'Aprovechá para avanzar trabajo de proyecto.');
+    html += '<div style="margin-top:8px;text-align:center"><button class="pa-btn pa-btn-outline" onclick="goEd(\'agrupadas\')">Ver por urgencia →</button></div>';
   } else {
     var rows = (typeof _edSortByUrgency === 'function') ? _edSortByUrgency(mine) : mine.slice();
     html += '<div class="pa-tbl">';
@@ -8003,11 +7999,7 @@ function rEdHistorial(D) {
        + '</div>';
 
   if (total === 0) {
-    html += '<div class="pa-card" style="text-align:center;padding:48px 20px">'
-         +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon('refresh', 20) + '</div>'
-         +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">Aún no hay tareas cerradas.</div>'
-         +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0">Cuando cierres tu primera, va a aparecer acá.</div>'
-         + '</div>';
+    html += paEmpty('refresh', 'Aún no hay tareas cerradas.', 'Cuando cierres tu primera, va a aparecer acá.');
   } else {
     var rows = hist.slice().sort(function(a, b){
       var fa = pd(a.cerrado), fb = pd(b.cerrado);
@@ -9398,8 +9390,8 @@ function rEdPlantillas(D) {
        +    '<span class="pa-page-title">Biblioteca</span>'
        +    '<span class="pa-page-sub">' + TEMPLATES.length + ' plantillas · ' + (TEMPLATES.length - counts.draft) + ' aprobadas · ' + counts.draft + ' en revisión</span>'
        +    '<div class="pa-page-meta">'
-       +      '<button class="pa-btn pa-btn-outline">' + paIcon('download', 12) + ' Exportar</button>'
-       +      (canEdit ? '<button class="pa-btn pa-btn-primary">' + paIcon('plus', 12) + ' Nueva plantilla</button>' : '')
+       +      '<button class="pa-btn pa-btn-outline" disabled title="Próximamente">' + paIcon('download', 12) + ' Exportar</button>'
+       +      (canEdit ? '<button class="pa-btn pa-btn-primary" disabled title="Próximamente">' + paIcon('plus', 12) + ' Nueva plantilla</button>' : '')
        +    '</div>'
        + '</div>';
 
@@ -9444,7 +9436,7 @@ function rEdPlantillas(D) {
        +    '<div class="pa-chip-divider"></div>'
        +    fchip('mias', 'Las mías', counts.mias)
        +    fchip('draft', 'En revisión', counts.draft, 'warn')
-       +    '<div style="margin-left:auto"><div class="pa-search" style="width:200px"><input type="text" placeholder="Buscar plantilla…"></div></div>'
+       +    '<div style="margin-left:auto"><div class="pa-search" style="width:200px"><input type="text" placeholder="Buscar plantilla…" disabled title="Próximamente"></div></div>'
        + '</div>';
 
   // Table
@@ -9527,8 +9519,8 @@ function rEdPlantillas(D) {
          +    '</button>'
          +    (canEdit
          ?    '<div style="display:flex;gap:6px">'
-         +      '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center">' + paIcon('doc', 12) + ' Duplicar</button>'
-         +      '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center">' + paIcon('save', 12) + ' Editar</button>'
+         +      '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center" disabled title="Próximamente">' + paIcon('doc', 12) + ' Duplicar</button>'
+         +      '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center" disabled title="Próximamente">' + paIcon('save', 12) + ' Editar</button>'
          +    '</div>'
          :    '')
          + '</div>';

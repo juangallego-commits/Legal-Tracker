@@ -2225,6 +2225,108 @@ table tr:hover td { background: var(--bg-2); }
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   PROYECTO · DETALLE (pi-detail-*)
+   ═══════════════════════════════════════════════════════════════ */
+.pi-detail-back {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: 0; color: var(--fg-2);
+  font: inherit; font-size: 12px; cursor: pointer;
+  padding: 6px 0; margin-bottom: 14px;
+}
+.pi-detail-back:hover { color: var(--fg-1); }
+
+.pi-detail-head {
+  background: var(--bg-1); border: 1px solid var(--line-1);
+  border-radius: var(--r-3); padding: 20px 22px;
+  margin-bottom: 16px;
+}
+.pi-detail-name {
+  font-size: 22px; font-weight: 600;
+  letter-spacing: -0.015em; line-height: 1.2;
+  color: var(--fg-1); margin: 0 0 10px;
+}
+.pi-detail-pills {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 12px;
+}
+.pi-detail-meta {
+  display: flex; flex-wrap: wrap; gap: 18px;
+  font-size: 13px; color: var(--fg-2);
+  padding: 8px 0; margin-bottom: 6px;
+}
+.pi-detail-meta .lbl {
+  display: block; font-size: 11px; color: var(--fg-3);
+  margin-bottom: 2px; text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pi-detail-desc {
+  font-size: 13px; color: var(--fg-2);
+  line-height: 1.6; margin: 8px 0 0;
+}
+.pi-detail-people {
+  display: flex; gap: -6px; margin-top: 12px;
+}
+.pi-detail-av {
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--bg-2); color: var(--fg-1);
+  font-size: 11px; font-weight: 600;
+  border: 2px solid var(--bg-1);
+  margin-left: -6px;
+}
+.pi-detail-av:first-child { margin-left: 0; }
+.pi-detail-av.more { background: var(--accent-soft); color: var(--accent); }
+
+.pi-detail-progress {
+  background: var(--bg-1); border: 1px solid var(--line-1);
+  border-radius: var(--r-3); padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.pi-detail-bar {
+  display: flex; height: 8px; border-radius: 999px; overflow: hidden;
+  background: var(--bg-2);
+}
+.pi-detail-seg { height: 100%; transition: width .3s; }
+.pi-detail-seg.pend  { background: var(--fg-4); }
+.pi-detail-seg.curso { background: var(--info); }
+.pi-detail-seg.rev   { background: var(--accent); }
+.pi-detail-seg.blk   { background: var(--warn); }
+.pi-detail-seg.done  { background: var(--good); }
+.pi-detail-legend {
+  display: flex; flex-wrap: wrap; gap: 14px;
+  font-size: 11px; color: var(--fg-3);
+  margin-top: 12px;
+}
+.pi-detail-legend .dot {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; margin-right: 6px;
+  vertical-align: -1px;
+}
+.pi-detail-legend .dot.pend  { background: var(--fg-4); }
+.pi-detail-legend .dot.curso { background: var(--info); }
+.pi-detail-legend .dot.rev   { background: var(--accent); }
+.pi-detail-legend .dot.blk   { background: var(--warn); }
+.pi-detail-legend .dot.done  { background: var(--good); }
+
+.pi-detail-kpis {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  margin-bottom: 16px;
+}
+.pi-detail-kpi {
+  background: var(--bg-1); border: 1px solid var(--line-1);
+  border-radius: var(--r-3); padding: 14px 16px;
+}
+.pi-detail-kpi .num {
+  font-size: 28px; font-weight: 600;
+  letter-spacing: -0.02em; line-height: 1.1;
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+}
+.pi-detail-kpi .num.small { font-size: 16px; font-family: var(--font-sans); }
+.pi-detail-kpi .num em { font-size: 18px; font-weight: 500; font-style: normal; color: var(--fg-3); margin-left: 2px; }
+.pi-detail-kpi .lbl { font-size: 12px; color: var(--fg-3); margin-top: 4px; }
+
+/* ═══════════════════════════════════════════════════════════════
    ANALYTICS (TIER 2) — eda-* classes
    ═══════════════════════════════════════════════════════════════ */
 .eda-hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
