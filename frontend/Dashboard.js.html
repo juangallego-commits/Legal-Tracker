@@ -3351,8 +3351,14 @@ var _ED_CRUMBS_BY_VIEW = {
 function _edCrumbs(viewId) {
   var c = _ED_CRUMBS_BY_VIEW[viewId] || ['Inicio'];
   return c.map(function(seg, i){
-    return (i > 0 ? '<span class="sep">/</span>' : '') +
-      '<span class="' + (i === c.length - 1 ? 'cur' : '') + '">' + esc(seg) + '</span>';
+    var isLast = i === c.length - 1;
+    var sep = i > 0 ? '<span class="sep">/</span>' : '';
+    // El primer crumb (sección) navega a Home; el último es el view actual (no clickeable).
+    // Los intermedios también van al Home para simplificar (la nav real es vía sidebar).
+    if (isLast) {
+      return sep + '<span class="cur">' + esc(seg) + '</span>';
+    }
+    return sep + '<span class="seg" style="cursor:pointer" onclick="goEd(\'home\')">' + esc(seg) + '</span>';
   }).join(' ');
 }
 
@@ -4040,6 +4046,10 @@ function rEdHomeSpecialist(D) {
        + '</div>';
   if (top.length === 0) {
     html += paEmpty('inbox', 'No tenés tareas activas en tu agenda.', 'Aprovechá para trabajo de proyecto o cerrar pendientes viejos.');
+    html += '<div style="margin-top:8px;text-align:center;display:flex;gap:8px;justify-content:center">'
+         +    '<button class="pa-btn pa-btn-outline" onclick="goEd(\'historial\')">' + paIcon('refresh', 12) + ' Ver mis cerradas</button>'
+         +    '<button class="pa-btn pa-btn-outline" onclick="goEd(\'proyectos\')">' + paIcon('folder', 12) + ' Ver proyectos</button>'
+         + '</div>';
   } else {
     html += '<div class="pa-tbl">';
     for (var i = 0; i < top.length; i++) {

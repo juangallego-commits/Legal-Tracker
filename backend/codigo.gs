@@ -1161,6 +1161,16 @@ function _addTaskImpl(taskObj) {
   // manager solo dentro de su país; head sin restricción.
   _authorizeTaskWrite(ctx, { resp: proposedResp, pais: proposedPais });
 
+  // Validar enums: si el cliente manda valores fuera del dominio (string arbitrario),
+  // los normalizamos al default. Previene contaminar el sheet con valores raros que
+  // luego confunden filtros y stats.
+  var VALID_PRIO   = { 'Alta': 1, 'Media': 1, 'Baja': 1 };
+  var VALID_STATUS = { 'Pendiente': 1, 'En curso': 1, 'En revisión': 1, 'Listo': 1, 'Bloqueado': 1, 'Cancelado': 1 };
+  var VALID_CONF   = { 'estandar': 1, 'restringido': 1, 'confidencial': 1 };
+  if (taskObj.priority && !VALID_PRIO[taskObj.priority]) taskObj.priority = 'Media';
+  if (taskObj.status && !VALID_STATUS[taskObj.status]) taskObj.status = 'Pendiente';
+  if (taskObj.confidencialidad && !VALID_CONF[taskObj.confidencialidad]) taskObj.confidencialidad = 'estandar';
+
   var ss = ctx.ss, ws = ss.getSheetByName(SHEET_ACTIVO);
   // Lock para que nextTaskId + appendRow sean atómicos frente a creaciones concurrentes.
   var lock = LockService.getScriptLock();
@@ -1254,6 +1264,32 @@ function _nextCommentId(ws) {
 function getTaskComments(taskId) {
   return _telemetry('getTaskComments', function() {
     var ctx = _getAuthContext();
+    // Validar que el usuario tenga visibilidad a esta tarea antes de leer comments.
+    // Si specialist/manager no puede ver la tarea (otro país, confidencialidad
+    // restringida, etc.), tampoco puede ver los comentarios.
+    var task = _readTaskById(ctx.ss, taskId);
+    if (!task) {
+      // Puede estar en historial (cerrada). Buscar ahí.
+      var hist = ctx.ss.getSheetByName(SHEET_HISTORIAL);
+      if (hist) {
+        var lr2 = hist.getLastRow();
+        if (lr2 >= 2) {
+          var d2 = hist.getRange(2, 1, lr2 - 1, hist.getLastColumn()).getValues();
+          for (var j = 0; j < d2.length; j++) {
+            if (String(d2[j][0]) === String(taskId)) {
+              task = { id: d2[j][0], resp: d2[j][2], pais: d2[j][12], confidencialidad: 'estandar' };
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (!task) return [];
+    // Aplicar el filtro de rol como hacemos en lectura general.
+    var visible = (typeof filterTasksForRole === 'function')
+      ? filterTasksForRole([task], ctx.role, ctx.user, ctx.equipos)
+      : [task];
+    if (!visible.length) return []; // no autorizado a ver esta tarea
     var ws = _commentsSheet(ctx.ss);
     var lr = ws.getLastRow();
     if (lr < 2) return [];
@@ -2253,7 +2289,7 @@ function _findTaskCandidatesImpl(text) {
 // debe tener permiso sobre la tarea según su rol.
 function closeTaskById(taskId, slackUser) {
   return _telemetry('closeTaskById', function() {
-    return _closeTaskByIdImpl(taskId, slackUser);
+    return _safeMutation(function() { return _closeTaskByIdImpl(taskId, slackUser); });
   }, { taskId: taskId, viaSlack: !!slackUser });
 }
 function _closeTaskByIdImpl(taskId, slackUser) {
@@ -2283,7 +2319,7 @@ function _closeTaskByIdImpl(taskId, slackUser) {
 // Bloquea una tarea por ID. Mismas validaciones que closeTaskById.
 function blockTaskById(taskId, reason, slackUser) {
   return _telemetry('blockTaskById', function() {
-    return _blockTaskByIdImpl(taskId, reason, slackUser);
+    return _safeMutation(function() { return _blockTaskByIdImpl(taskId, reason, slackUser); });
   }, { taskId: taskId, viaSlack: !!slackUser, hasReason: !!reason });
 }
 function _blockTaskByIdImpl(taskId, reason, slackUser) {
