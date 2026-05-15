@@ -5471,6 +5471,31 @@ function edPanelAutosizeNotes(el) {
   el.style.height = Math.min(el.scrollHeight, 200) + 'px';
 }
 
+// ─── PANEL DETALLE: TABS DE COMENTARIOS Y DOCUMENTOS ───────────
+// Switch entre paneles "Comentarios" y "Documentos" en el right rail
+// del task panel. Solo uno visible a la vez. Por default arranca en
+// Comentarios. El click marca el tab activo + muestra/oculta los panes.
+function edTkPanelSwitchTab(btn) {
+  if (!btn) return;
+  var pane = btn.dataset.pane;
+  var tabs = btn.parentNode;
+  if (!tabs) return;
+  // Toggle is-active en tabs
+  var allTabs = tabs.querySelectorAll('.tk-panel-tab');
+  for (var i = 0; i < allTabs.length; i++) allTabs[i].classList.remove('is-active');
+  btn.classList.add('is-active');
+  // Mostrar/ocultar panes (.tk-pane) bajo el rail-body
+  var rail = tabs.nextElementSibling;
+  if (!rail) return;
+  var panes = rail.querySelectorAll('.tk-pane');
+  for (var j = 0; j < panes.length; j++) {
+    panes[j].style.display = (panes[j].dataset.pane === pane) ? '' : 'none';
+  }
+  // El input de comentarios solo tiene sentido en el pane de comments
+  var input = document.querySelector('.tk-panel-rail-input');
+  if (input) input.style.display = (pane === 'comments') ? '' : 'none';
+}
+
 // ─── COMMENTS THREAD DEL PANEL ──────────────────────────────────
 // Lazy-load: cuando el panel se renderea, se llama edPanelLoadComments
 // con el taskId para fetch async. Antes muestra "Loading…", al
@@ -5502,6 +5527,9 @@ function edPanelLoadComments(taskId) {
 }
 function _edPanelRenderComments(comments, taskId) {
   var host = $('tkComments'); if (!host) return;
+  // Actualizar el count en la tab "Comentarios · N"
+  var countSpan = $('tkCommentsCount');
+  if (countSpan) countSpan.textContent = '· ' + comments.length;
   if (!comments.length) {
     host.innerHTML = '<div class="tk-comments-empty">Aún no hay comentarios. Iniciá la conversación.</div>';
     return;
@@ -6020,17 +6048,21 @@ function _renderTkPanel(sel) {
   }
   html += '</div>'; // tk-panel-main
 
-  // Right rail
+  // Right rail con tabs funcionales (Comentarios / Documentos)
+  var docs = sel.documentos || [];
+  var docsCount = docs.length;
+  // Comments count se desconoce hasta que async load termine — leave dynamic
   html += '<aside class="tk-panel-rail">'
-       +    '<div class="tk-panel-tabs">'
-       +      '<button class="tk-panel-tab is-active">Comentarios</button>'
-       +      '<button class="tk-panel-tab">Documentos</button>'
+       +    '<div class="tk-panel-tabs" data-task-id="' + esc(sel.id) + '">'
+       +      '<button class="tk-panel-tab is-active" data-pane="comments" onclick="edTkPanelSwitchTab(this)">Comentarios <span class="ct" id="tkCommentsCount">·</span></button>'
+       +      '<button class="tk-panel-tab" data-pane="docs" onclick="edTkPanelSwitchTab(this)">Documentos <span class="ct">· ' + docsCount + '</span></button>'
        +    '</div>'
        +    '<div class="tk-panel-rail-body" data-task-id="' + esc(sel.id) + '">'
-       +      '<div class="tk-comments" id="tkComments"><div style="color:var(--fg-3);font-size:12px">Cargando conversación…</div></div>'
-       +      '<div class="tk-section" style="margin-top:14px;border-top:1px solid var(--line-1);padding-top:14px">'
-       +        '<div class="tk-section-h">Documentos</div>';
-  var docs = sel.documentos || [];
+       +      '<div class="tk-pane" data-pane="comments">'
+       +        '<div class="tk-comments" id="tkComments"><div style="color:var(--fg-3);font-size:12px">Cargando conversación…</div></div>'
+       +      '</div>'
+       +      '<div class="tk-pane" data-pane="docs" style="display:none">'
+       +        '<div class="tk-section-h" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--fg-3);margin-bottom:10px">Documentos</div>';
   if (docs.length === 0) {
     html += '<div style="font-size:12px;color:var(--fg-3)">Sin documentos adjuntos</div>';
   } else {
@@ -6050,7 +6082,7 @@ function _renderTkPanel(sel) {
        +      '<input type="file" id="tkDocFileInput" data-task-id="' + esc(sel.id) + '" style="display:none" onchange="edTkUploadFile(this)">'
        +    '</label>'
        + '</div>'
-       + '<div id="tkLinkForm" style="display:none;margin-top:8px;display:flex;flex-direction:column;gap:6px">'
+       + '<div id="tkLinkForm" style="display:none;margin-top:8px;flex-direction:column;gap:6px">'
        +   '<input type="text" id="tkLinkUrl" placeholder="Pegá el enlace de Drive" class="pa-input">'
        +   '<input type="text" id="tkLinkName" placeholder="Nombre (opcional)" class="pa-input">'
        +   '<button class="pa-btn pa-btn-primary" onclick="edTkAttachLink(\'' + esc(sel.id) + '\')">Adjuntar</button>'

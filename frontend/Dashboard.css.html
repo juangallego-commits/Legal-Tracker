@@ -1041,7 +1041,10 @@ input, select, textarea { font-family: inherit; color: inherit; }
   cursor: pointer;
 }
 .tk-panel-tab.is-active { color: var(--fg-1); border-bottom-color: var(--accent); }
+.tk-panel-tab .ct { font-family: var(--font-mono); font-size: 10px; color: var(--fg-4); margin-left: 2px; }
+.tk-panel-tab.is-active .ct { color: var(--fg-3); }
 .tk-panel-rail-body { flex: 1; overflow: auto; padding: 14px; }
+.tk-pane { display: flex; flex-direction: column; }
 .tk-panel-rail-input {
   border-top: 1px solid var(--line-1);
   padding: 12px;
