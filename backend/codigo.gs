@@ -317,15 +317,16 @@ function _getEditorialDataImpl() {
 
     data.countries.forEach(function(c) {
       var countryTasks = tasksByPais[c.code] || [];
-      c.open    = countryTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
-      c.overdue = countryTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
+      c.open     = countryTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
+      c.overdue  = countryTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
+      c.dueToday = countryTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; }).length;
       var countryHist = histByPais[c.code] || [];
 
       // slaPct: % de cierres dentro de SLA en los últimos 30 días.
-      // Sin historial reciente → 100 (no penalizar países sin cierres).
+      // Sin historial reciente → null (no penalizar países sin cierres).
       var recent = countryHist.filter(function(h){ return (nowMs - h.cerradoMs) <= THIRTY_DAYS_MS; });
       if (recent.length === 0) {
-        c.slaPct = 100;
+        c.slaPct = null;
       } else {
         var onTime = 0;
         recent.forEach(function(h) {
@@ -334,6 +335,18 @@ function _getEditorialDataImpl() {
         });
         c.slaPct = Math.round((onTime / recent.length) * 100);
       }
+
+      // SLA semana actual vs semana anterior — habilita insights tipo
+      // "MX cayó debajo del 90% por primera vez". null si <3 cierres.
+      var thisWeek = countryHist.filter(function(h){ return (nowMs - h.cerradoMs) <= WEEK_MS; });
+      var lastWeek = countryHist.filter(function(h){
+        var age = nowMs - h.cerradoMs;
+        return age > WEEK_MS && age <= 2 * WEEK_MS;
+      });
+      c.slaPctThisWeek = _slaPctOf(thisWeek, SLA_BY_PRIO_C);
+      c.slaPctLastWeek = _slaPctOf(lastWeek, SLA_BY_PRIO_C);
+      c.closedThisWeek = thisWeek.length;
+      c.closedLastWeek = lastWeek.length;
 
       // trend: 12 buckets semanales, índice 11 = semana actual.
       // Proxy autorizado: cerradas por semana (throughput) en lugar de
@@ -347,6 +360,30 @@ function _getEditorialDataImpl() {
       });
       c.trend = trend;
     });
+
+    // Agregados LATAM-wide para el HQ home.
+    var latam = data.latam = {};
+    latam.totalOpen     = data.countries.reduce(function(a,c){ return a + (c.open || 0); }, 0);
+    latam.totalOverdue  = data.countries.reduce(function(a,c){ return a + (c.overdue || 0); }, 0);
+    latam.totalDueToday = data.countries.reduce(function(a,c){ return a + (c.dueToday || 0); }, 0);
+    latam.closedThisWeek = data.countries.reduce(function(a,c){ return a + (c.closedThisWeek || 0); }, 0);
+    latam.closedLastWeek = data.countries.reduce(function(a,c){ return a + (c.closedLastWeek || 0); }, 0);
+    // SLA agregado: promedio ponderado por cantidad de cierres recientes.
+    var allRecent = [];
+    Object.keys(histByPais).forEach(function(cc){
+      (histByPais[cc] || []).forEach(function(h){
+        if ((nowMs - h.cerradoMs) <= THIRTY_DAYS_MS) allRecent.push(h);
+      });
+    });
+    latam.slaPct = allRecent.length ? _slaPctOf(allRecent, SLA_BY_PRIO_C) : null;
+    // SLA esta semana vs semana anterior para LATAM completo.
+    var latamThis = allRecent.filter(function(h){ return (nowMs - h.cerradoMs) <= WEEK_MS; });
+    var latamPrev = allRecent.filter(function(h){
+      var age = nowMs - h.cerradoMs;
+      return age > WEEK_MS && age <= 2 * WEEK_MS;
+    });
+    latam.slaPctThisWeek = _slaPctOf(latamThis, SLA_BY_PRIO_C);
+    latam.slaPctLastWeek = _slaPctOf(latamPrev, SLA_BY_PRIO_C);
   }
 
   // Globales
@@ -355,6 +392,18 @@ function _getEditorialDataImpl() {
   data.roleSpecific.narrative = _buildNarrative(data);
 
   return data;
+}
+
+// Helper: % de cierres dentro de SLA dado un array de histos. null si vacío.
+function _slaPctOf(histArr, slaByPrio) {
+  if (!histArr || histArr.length === 0) return null;
+  var onTime = 0;
+  for (var i = 0; i < histArr.length; i++) {
+    var h = histArr[i];
+    var sla = slaByPrio[h.priority] || 5;
+    if (h.bizDays <= sla) onTime++;
+  }
+  return Math.round((onTime / histArr.length) * 100);
 }
 
 // Calcula y agrega los campos derivados a una tarea: eta, etaDays,
@@ -650,14 +699,27 @@ function _buildViewForRole(raw, role, user, feriadosByCountry) {
     };
   });
 
-  // Per-country stats: solo países que tienen al menos una tarea visible
+  // Per-country stats: arrancamos pre-poblando con TODOS los equipos del
+  // sheet Equipos (aunque no tengan tareas todavía), así HQ ve el país desde
+  // el día uno sin esperar a que se creen tareas. Después las tareas suman
+  // counts a los buckets ya inicializados.
   var countryMap = {};
+  equipos.forEach(function(eq) {
+    if (!eq || !eq.code) return;
+    countryMap[eq.code] = {
+      code: eq.code,
+      name: eq.country || eq.code,
+      leader: eq.leader || '',
+      specialists: (eq.members || []).length,
+      total: 0, alta: 0, media: 0, baja: 0
+    };
+  });
   tasks.forEach(function(t) {
     var cc = t.pais || getCountryForMember(t.resp, equipos);
     if (!cc) return;
     if (!countryMap[cc]) {
-      var eq = equipos.find(function(e){ return e.code === cc; });
-      countryMap[cc] = { code: cc, name: eq ? eq.country : cc, leader: eq ? eq.leader : '', total:0, alta:0, media:0, baja:0 };
+      // País con tareas pero sin entry en Equipos — agregamos placeholder.
+      countryMap[cc] = { code: cc, name: cc, leader: '', specialists: 0, total: 0, alta: 0, media: 0, baja: 0 };
     }
     var c = countryMap[cc];
     c.total++;

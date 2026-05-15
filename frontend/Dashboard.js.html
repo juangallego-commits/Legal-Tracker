@@ -4262,19 +4262,39 @@ function rEdHomeManager(D) {
 function rEdHomeHQ(D) {
   var v = $('vEdHome'); if (!v) return;
   var countries = (D && D.countries) || [];
-  var allTasks = (D && D.tasks) || [];
-  var totalOpen = allTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
-  var totalOverdue = countries.reduce(function(a, c){ return a + (c.overdue || 0); }, 0);
-  var dueToday = allTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; }).length;
-  var slaAvg = 0;
-  if (countries.length) {
-    var slaSum = countries.reduce(function(a, c){ return a + (c.slaPct || 0); }, 0);
-    slaAvg = Math.round(slaSum / countries.length);
+  var latam = (D && D.latam) || {};
+  var totalOpen     = latam.totalOpen != null     ? latam.totalOpen     : countries.reduce(function(a,c){ return a + (c.open||0); }, 0);
+  var totalOverdue  = latam.totalOverdue != null  ? latam.totalOverdue  : countries.reduce(function(a,c){ return a + (c.overdue||0); }, 0);
+  var dueToday      = latam.totalDueToday != null ? latam.totalDueToday : countries.reduce(function(a,c){ return a + (c.dueToday||0); }, 0);
+  var slaAvg        = latam.slaPct;
+  var slaThis       = latam.slaPctThisWeek;
+  var slaPrev       = latam.slaPctLastWeek;
+  var slaDelta      = (typeof slaThis === 'number' && typeof slaPrev === 'number') ? (slaThis - slaPrev) : null;
+  var closedThis    = latam.closedThisWeek || 0;
+  var closedPrev    = latam.closedLastWeek || 0;
+  var closedDelta   = closedThis - closedPrev;
+  var atRiskCount   = countries.filter(function(c){ return (c.overdue || 0) > 3 || (c.slaPct != null && c.slaPct < 85); }).length;
+  // Specialists ahora vienen del backend por país (sum de members del sheet Equipos).
+  var totalSpec = countries.reduce(function(a, c){ return a + (c.specialists || 0); }, 0);
+  if (!totalSpec) {
+    totalSpec = (D && D.team || []).filter(function(m){ return (m.role || '').toLowerCase().indexOf('special') !== -1; }).length;
   }
-  var atRisk = countries.filter(function(c){ return (c.overdue || 0) > 3 || (c.slaPct || 100) < 85; }).length;
-  var totalSpec = (D && D.team || []).filter(function(m){ return (m.role || '').toLowerCase().indexOf('special') !== -1; }).length;
-  var totalMgr = (D && D.team || []).filter(function(m){ return (m.role || '').toLowerCase().indexOf('manager') !== -1; }).length;
+  var totalMgr = countries.filter(function(c){ return c.leader; }).length
+              || (D && D.team || []).filter(function(m){ return (m.role || '').toLowerCase().indexOf('manager') !== -1; }).length;
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
+  // Mayor caída de SLA esta semana (para insight contextual).
+  var biggestDrop = null;
+  countries.forEach(function(c) {
+    if (typeof c.slaPctThisWeek === 'number' && typeof c.slaPctLastWeek === 'number') {
+      var d = c.slaPctThisWeek - c.slaPctLastWeek;
+      if (d < -3 && (!biggestDrop || d < biggestDrop.delta)) biggestDrop = { c: c, delta: d };
+    }
+  });
+  // País con más vencidas concentradas (para el delta line del KPI).
+  var maxOverdueC = null;
+  countries.forEach(function(c) {
+    if (!maxOverdueC || (c.overdue || 0) > (maxOverdueC.overdue || 0)) maxOverdueC = c;
+  });
 
   var html = '<div class="pa-page">';
 
@@ -4286,34 +4306,70 @@ function rEdHomeHQ(D) {
        + '</div>';
 
   if (totalOpen > 0) {
+    var slaInsight = '';
+    if (typeof slaDelta === 'number' && Math.abs(slaDelta) >= 1) {
+      slaInsight = '. ' + (slaDelta < 0 ? 'Bajó' : 'Subió') + ' ' + Math.abs(Math.round(slaDelta)) + 'pt vs la semana anterior';
+    } else if (biggestDrop) {
+      slaInsight = '. ' + esc(biggestDrop.c.code) + ' cayó ' + Math.abs(Math.round(biggestDrop.delta)) + 'pt esta semana';
+    }
     html += '<div class="pa-narrative">'
          +    'LATAM está corriendo <b>' + totalOpen + ' tareas activas</b>'
-         +    (slaAvg ? ' con SLA agregado del <b style="color:var(--good-fg)">' + slaAvg + '%</b>' : '')
+         +    (slaAvg != null ? ' con SLA agregado del <b style="color:var(--' + (slaAvg >= 90 ? 'good' : 'warn') + '-fg)">' + slaAvg + '%</b>' : '')
+         +    slaInsight
          +    '.'
          + '</div>';
   }
 
+  // Helper para deltas con triangulito (▲ peor / ▼ mejor para vencidas y vencen-hoy;
+  // ▲ mejor / ▼ peor para SLA y cerradas).
+  function _deltaLine(value, opts) {
+    if (value == null || value === 0) return opts.zero || '';
+    var positive = value > 0;
+    var upIsGood = !!opts.upIsGood;
+    var goodOrBad = (positive === upIsGood) ? 'up' : 'down';
+    var arrow = positive ? '▲' : '▼';
+    return '<span class="delta ' + goodOrBad + '">' + arrow + ' ' + Math.abs(value) + (opts.suffix || '') + '</span>';
+  }
+
   // KPIs
+  var overdueDelta = ''; // backend no expone esto todavía; vacío por ahora.
+  var dueTodayHint = '';
+  if (dueToday > 0) {
+    dueTodayHint = countries
+      .filter(function(c){ return (c.dueToday || 0) > 0; })
+      .map(function(c){ return c.code + ' ' + c.dueToday; })
+      .join(' · ');
+  }
+  var concentratedHint = '';
+  if (totalOverdue > 0 && maxOverdueC && (maxOverdueC.overdue || 0) > 0) {
+    concentratedHint = 'concentradas en ' + esc(maxOverdueC.code) + ' (' + maxOverdueC.overdue + ')';
+  }
   html += '<div class="pa-kpis">'
        +    '<div class="pa-kpi ' + (totalOverdue ? 'is-critical' : '') + '" onclick="goEd(\'tracker\')">'
        +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas LATAM</div>'
        +      '<div class="val">' + totalOverdue + '</div>'
-       +      '<div class="delta">' + (atRisk ? 'concentradas en ' + atRisk + ' país(es)' : 'distribuidas') + '</div>'
+       +      '<div class="delta">' + (concentratedHint || (totalOverdue ? 'distribuidas' : 'sin vencidas')) + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (dueToday ? 'is-warn' : '') + '" onclick="goEd(\'tracker\')">'
        +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> Vencen hoy</div>'
        +      '<div class="val">' + dueToday + '</div>'
-       +      '<div class="delta">cerrar hoy</div>'
+       +      '<div class="delta">' + (dueTodayHint || 'día limpio') + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi" onclick="goEd(\'tracker\')">'
        +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Activas LATAM</div>'
        +      '<div class="val">' + totalOpen + '</div>'
        +      '<div class="delta">' + countries.map(function(c){ return c.code + ' ' + (c.open || 0); }).join(' · ') + '</div>'
        +    '</div>'
-       +    '<div class="pa-kpi ' + (slaAvg >= 90 ? 'is-good' : '') + '">'
+       +    '<div class="pa-kpi ' + (slaAvg != null && slaAvg >= 90 ? 'is-good' : (slaAvg != null && slaAvg < 85 ? 'is-warn' : '')) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> SLA agregado</div>'
-       +      '<div class="val">' + (slaAvg || '—') + (slaAvg ? '%' : '') + '</div>'
-       +      '<div class="delta">LATAM</div>'
+       +      '<div class="val">' + (slaAvg != null ? slaAvg + '%' : '—') + '</div>'
+       +      '<div class="delta' + (slaDelta != null && slaDelta < 0 ? ' down' : (slaDelta != null && slaDelta > 0 ? ' up' : '')) + '">'
+       +        (slaDelta != null && Math.abs(slaDelta) >= 1
+           ? (slaDelta > 0 ? '▲' : '▼') + ' ' + Math.abs(Math.round(slaDelta)) + 'pt vs semana anterior'
+           : (closedDelta !== 0 && closedPrev > 0
+                ? (closedDelta > 0 ? '▲' : '▼') + ' ' + Math.abs(closedDelta) + ' cierres vs semana anterior'
+                : 'LATAM'))
+       +      '</div>'
        +    '</div>'
        + '</div>';
 
@@ -4330,25 +4386,35 @@ function rEdHomeHQ(D) {
          +    '<div class="pa-tbl-h" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px">'
          +      '<div>País</div><div>Manager · equipo</div><div>Activas</div><div>Vencidas</div><div>SLA mes</div><div>Tendencia 12s</div>'
          +    '</div>';
-    countries.forEach(function(c) {
-      var sla = c.slaPct || 0;
+    // Pre-sort: países con datos primero (más activos arriba), inactivos al final.
+    var sortedC = countries.slice().sort(function(a, b) {
+      var aActive = (a.open || 0) + (a.specialists || 0) > 0 ? 1 : 0;
+      var bActive = (b.open || 0) + (b.specialists || 0) > 0 ? 1 : 0;
+      if (aActive !== bActive) return bActive - aActive;
+      return (b.open || 0) - (a.open || 0);
+    });
+    sortedC.forEach(function(c) {
+      var hasData = (c.open || 0) > 0 || (c.specialists || 0) > 0;
+      var sla = c.slaPct;
       var ovColor = (c.overdue || 0) > 3 ? 'var(--critical-fg)' : 'var(--fg-2)';
-      var slaColor = sla < 90 ? 'var(--warn-fg)' : 'var(--good-fg)';
-      var sparkTone = sla < 90 ? 'warn' : 'accent';
-      var trend = c.trend || [3,4,5,4,6,5,7,6,5,4,5,4];
-      html += '<div class="pa-tbl-r" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px;height:52px" onclick="edSetCountryFilter(\'' + esc(c.code) + '\');goEd(\'tracker\')">'
+      var slaColor = sla == null ? 'var(--fg-3)' : (sla < 85 ? 'var(--warn-fg)' : 'var(--good-fg)');
+      var sparkTone = sla != null && sla < 85 ? 'warn' : 'accent';
+      var trend = c.trend || [0,0,0,0,0,0,0,0,0,0,0,0];
+      var hasTrend = trend.some(function(x){ return x > 0; });
+      var rowOpacity = hasData ? '' : ';opacity:0.55';
+      html += '<div class="pa-tbl-r" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px;height:52px' + rowOpacity + '" onclick="edSetCountryFilter(\'' + esc(c.code) + '\');goEd(\'tracker\')">'
            +    '<div style="display:flex;align-items:center;gap:10px">'
-           +      '<span style="width:28px;height:20px;border-radius:4px;background:var(--bg-2);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:var(--fg-1);font-weight:600">' + esc(c.code || '') + '</span>'
-           +      '<span style="font-size:13px;font-weight:500">' + esc(c.name || '') + '</span>'
+           +      '<span style="width:28px;height:20px;border-radius:4px;background:var(--bg-2);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:' + (hasData ? 'var(--fg-1)' : 'var(--fg-3)') + ';font-weight:600">' + esc(c.code || '') + '</span>'
+           +      '<span style="font-size:13px;font-weight:' + (hasData ? '500' : '400') + ';color:' + (hasData ? 'var(--fg-1)' : 'var(--fg-3)') + '">' + esc(c.name || '') + '</span>'
            +    '</div>'
            +    '<div>'
-           +      '<div style="font-size:13px">' + esc(c.leader || '—') + '</div>'
-           +      '<div style="font-size:11px;color:var(--fg-3)">' + (c.specialists || '—') + ' specialists</div>'
+           +      '<div style="font-size:13px;color:' + (c.leader ? 'var(--fg-1)' : 'var(--fg-3)') + '">' + esc(c.leader || 'Pendiente onboarding') + '</div>'
+           +      '<div style="font-size:11px;color:var(--fg-3)">' + (c.specialists || 0) + ' specialists</div>'
            +    '</div>'
            +    '<div class="mono" style="font-size:13px">' + (c.open || 0) + '</div>'
            +    '<div class="mono" style="font-size:13px;color:' + ovColor + '">' + (c.overdue || 0) + '</div>'
-           +    '<div class="mono" style="font-size:13px;color:' + slaColor + '">' + (sla || '—') + (sla ? '%' : '') + '</div>'
-           +    '<div>' + paSparkline(trend, 110, 28, sparkTone) + '</div>'
+           +    '<div class="mono" style="font-size:13px;color:' + slaColor + '">' + (sla != null ? sla + '%' : '—') + '</div>'
+           +    '<div>' + (hasTrend ? paSparkline(trend, 110, 28, sparkTone) : '<span style="font-size:11px;color:var(--fg-4)">—</span>') + '</div>'
            + '</div>';
     });
     html += '</div>';
