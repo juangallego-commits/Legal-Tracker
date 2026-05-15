@@ -3496,7 +3496,7 @@ function _tourStepsForRole(role) {
           + '<li><b>Cerradas</b> — historial completo de tu trabajo</li>'
           + '</ul>'
           + '<p>Click en una fila abre el panel detalle. <kbd>↓</kbd>/<kbd>↑</kbd> navegan filas con teclado.</p>',
-      action: { label: 'Ir al Tracker', fn: function(){ goEd('tracker'); } }
+      action: { label: 'Ir al Tracker', fnCode: "edFinishTour();goEd('tracker')" }
     },
     {
       eye: 'Panel detalle',

@@ -749,6 +749,12 @@ input, select, textarea { font-family: inherit; color: inherit; }
 .pa-kpi.is-critical .val { color: var(--critical-fg); }
 .pa-kpi.is-warn .val { color: var(--warn-fg); }
 .pa-kpi.is-good .val { color: var(--good-fg); }
+/* Border accent for active states — refuerza la jerarquía visual del KPI */
+.pa-kpi.is-critical { border-color: color-mix(in oklab, var(--critical) 35%, var(--line-1)); }
+.pa-kpi.is-warn     { border-color: color-mix(in oklab, var(--warn) 35%, var(--line-1)); }
+.pa-kpi.is-good     { border-color: color-mix(in oklab, var(--good) 35%, var(--line-1)); }
+/* KPIs sin onclick no son interactivos — cursor:default explícito */
+.pa-kpi:not([onclick]) { cursor: default; }
 
 /* ═══════════════════════════════════════════════════════════════
    PILLS
