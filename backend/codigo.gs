@@ -255,6 +255,9 @@ function _getEditorialDataImpl() {
       (histByResp[t.resp] = histByResp[t.resp] || []).push(entry);
     });
 
+    var nowMsMember = new Date().getTime();
+    var THIRTY_DAYS_MS_M = 30 * 24 * 60 * 60 * 1000;
+
     data.team.forEach(function(member) {
       var memberTasks = tasksByResp[member.name] || [];
       var activeTasks = memberTasks.filter(function(t){ return t.status !== 'Listo' && t.status !== 'Cancelado'; });
@@ -264,6 +267,16 @@ function _getEditorialDataImpl() {
       member.blocked  = memberTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
 
       var memberHist = histByResp[member.name] || [];
+
+      // SLA mes: % de cierres on-time en últimos 30 días. null si no hay cierres recientes
+      // (la UI muestra "—" en ese caso). Usado en Home Manager y columna SLA de Mi Equipo.
+      var recent30 = memberHist.filter(function(h){ return (nowMsMember - h.cerradoDate.getTime()) <= THIRTY_DAYS_MS_M; });
+      if (recent30.length > 0) {
+        var onTime30 = recent30.filter(function(h){ var sla = SLA_BY_PRIO[h.priority] || 5; return h.bizDays <= sla; }).length;
+        member.slaPct = Math.round((onTime30 / recent30.length) * 100);
+      } else {
+        member.slaPct = null;
+      }
 
       // streak: tareas cerradas a tiempo consecutivamente (más reciente → antigua).
       var streak = 0;

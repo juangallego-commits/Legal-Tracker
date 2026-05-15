@@ -3346,6 +3346,7 @@ function renderEdHead(viewId) {
   var name = _effectiveUserName() || 'Usuario';
   var initial = (name.trim().charAt(0) || '?').toUpperCase();
   return ''
+    + '<button class="ed-burger" type="button" aria-label="Menú" onclick="edToggleSidebar()">&#9776;</button>'
     + '<div class="pa-hd-crumbs">' + _edCrumbs(viewId) + '</div>'
     + '<div class="pa-hd-search">'
     +   '<div class="pa-search" role="button" tabindex="0" onclick="edSearchOpen()">'
@@ -3685,6 +3686,7 @@ function edHelpOpen() {
   var sections = [
     { title: 'Navegación', items: [
       { keys: ['⌘', 'K'], desc: 'Abrir búsqueda global' },
+      { keys: ['/'], desc: 'Foco en el buscador del tracker' },
       { keys: ['?'], desc: 'Mostrar esta ayuda' },
       { keys: ['Esc'], desc: 'Cerrar cualquier modal o panel abierto' }
     ]},
@@ -3696,7 +3698,8 @@ function edHelpOpen() {
     ]},
     { title: 'Panel de detalle', items: [
       { keys: ['Clic'], desc: 'sobre el valor de una celda para editarla inline' },
-      { keys: ['Doble clic'], desc: 'sobre el título para renombrar la tarea' }
+      { keys: ['Doble clic'], desc: 'sobre el título para renombrar la tarea' },
+      { keys: ['⌘', 'Enter'], desc: 'Enviar comentario desde el textarea' }
     ]},
     { title: 'Crear', items: [
       { keys: ['N'], desc: 'Asistente de nueva tarea' }
@@ -3772,7 +3775,7 @@ document.addEventListener('keydown', function(e) {
   if (_anyModalOpen()) return;
 
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    var rows = document.querySelectorAll('#vEdTracker .tk-row[data-task-id]');
+    var rows = document.querySelectorAll('#vEdTracker .pa-tbl-r[data-task-id]');
     if (!rows.length) return;
     e.preventDefault();
     var ids = Array.prototype.map.call(rows, function(r){ return r.dataset.taskId; });
@@ -3789,7 +3792,7 @@ document.addEventListener('keydown', function(e) {
     if (D && typeof rEdTracker === 'function') rEdTracker(D);
     // Scroll en el siguiente tick (rEdTracker reemplazó el DOM).
     setTimeout(function() {
-      var newRow = document.querySelector('#vEdTracker .tk-row[data-task-id="' + ids[nextIdx] + '"]');
+      var newRow = document.querySelector('#vEdTracker .pa-tbl-r[data-task-id="' + ids[nextIdx] + '"]');
       if (newRow && newRow.scrollIntoView) newRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, 0);
     return;
@@ -4141,6 +4144,12 @@ function rEdHomeManager(D) {
   teamMine.forEach(function(m){ totalLoad += (m.load || 0); totalCap += (m.capacity || 0); });
   var loadPct = totalCap ? Math.round((totalLoad / totalCap) * 100) : 0;
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
+  // SLA del país del manager (últimos 30 días). Calculado en backend (data.countries[].slaPct).
+  var myCountry = ((D && D.countries) || []).find(function(c){ return c.code === userCode; });
+  var slaCountry = myCountry ? myCountry.slaPct : null;
+  var slaThisW = myCountry ? myCountry.slaPctThisWeek : null;
+  var slaPrevW = myCountry ? myCountry.slaPctLastWeek : null;
+  var slaDeltaW = (typeof slaThisW === 'number' && typeof slaPrevW === 'number') ? (slaThisW - slaPrevW) : null;
   var att = active.slice().sort(function(a, b) {
     var aBlk = a.status === 'Bloqueado' ? -1 : 0;
     var bBlk = b.status === 'Bloqueado' ? -1 : 0;
@@ -4185,10 +4194,14 @@ function rEdHomeManager(D) {
        +      '<div class="val">' + totalLoad + '</div>'
        +      '<div class="delta">capacidad ' + totalCap + ' · ' + loadPct + '%</div>'
        +    '</div>'
-       +    '<div class="pa-kpi is-good">'
+       +    '<div class="pa-kpi ' + (slaCountry == null ? '' : (slaCountry >= 90 ? 'is-good' : (slaCountry < 85 ? 'is-warn' : ''))) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> SLA del mes</div>'
-       +      '<div class="val">—</div>'
-       +      '<div class="delta">próximamente</div>'
+       +      '<div class="val">' + (slaCountry != null ? slaCountry + '%' : '—') + '</div>'
+       +      '<div class="delta' + (slaDeltaW != null && slaDeltaW < 0 ? ' down' : (slaDeltaW != null && slaDeltaW > 0 ? ' up' : '')) + '">'
+       +        (slaDeltaW != null && Math.abs(slaDeltaW) >= 1
+             ? (slaDeltaW > 0 ? '▲' : '▼') + ' ' + Math.abs(Math.round(slaDeltaW)) + 'pt vs semana anterior'
+             : (slaCountry == null ? 'sin cierres recientes' : 'últimos 30 días'))
+       +      '</div>'
        +    '</div>'
        + '</div>';
 
@@ -4230,13 +4243,15 @@ function rEdHomeManager(D) {
   } else {
     html += '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px">'
-         +      '<div>Specialist</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div>SLA</div><div></div>'
+         +      '<div>Specialist</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div>SLA mes</div><div></div>'
          +    '</div>';
     teamMine.forEach(function(m) {
       var pct = (m.capacity > 0) ? Math.round((m.load || 0) / m.capacity * 100) : 0;
       var over = pct > 100;
       var loadColor = over ? 'var(--critical)' : pct > 85 ? 'var(--warn)' : 'var(--accent)';
       var loadFg = over ? 'var(--critical-fg)' : 'var(--fg-2)';
+      var slaM = m.slaPct;
+      var slaColorM = slaM == null ? 'var(--fg-3)' : (slaM >= 90 ? 'var(--good-fg)' : (slaM < 85 ? 'var(--warn-fg)' : 'var(--fg-2)'));
       html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px;height:46px">'
            +    '<div style="display:flex;align-items:center;gap:8px">' + paAvatar(m.name || '?', 22)
            +      '<div><div style="font-size:13px;font-weight:500">' + esc(m.name || '') + '</div>'
@@ -4248,7 +4263,7 @@ function rEdHomeManager(D) {
            +    '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.overdue || 0) ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + (m.overdue || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.blocked || 0) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + (m.blocked || 0) + '</div>'
-           +    '<div class="mono" style="font-size:12px;color:var(--fg-3)">—</div>'
+           +    '<div class="mono" style="font-size:12px;color:' + slaColorM + '">' + (slaM != null ? slaM + '%' : '—') + '</div>'
            +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px">Reasignar →</button></div>'
            + '</div>';
     });
@@ -4669,17 +4684,24 @@ function edTkToggleSelect(input) {
   _edTkUpdateBulkBar();
 }
 function edTkSelectAll(checked) {
-  var rows = document.querySelectorAll('#vEdTracker .tk-row[data-task-id]');
+  var rows = document.querySelectorAll('#vEdTracker .pa-tbl-r[data-task-id]');
   var ids = Array.prototype.map.call(rows, function(r){ return String(r.dataset.taskId); });
   EDT.selectedIds = checked ? ids : [];
-  // Sync visual de los checkboxes sin re-render
-  document.querySelectorAll('#vEdTracker .tk-row-check[data-task-id]').forEach(function(cb) { cb.checked = checked; });
-  _edTkUpdateBulkBar();
+  // Re-render completo: los checkboxes son spans (.pa-check), no inputs;
+  // el render reflee el estado is-checked desde EDT.selectedIds.
+  if (D && typeof rEdTracker === 'function') rEdTracker(D);
 }
 function edTkBulkClear() {
   EDT.selectedIds = [];
-  document.querySelectorAll('#vEdTracker .tk-row-check').forEach(function(cb) { cb.checked = false; });
-  _edTkUpdateBulkBar();
+  if (D && typeof rEdTracker === 'function') rEdTracker(D);
+}
+// Master checkbox del header de la tabla: toggle all / none según estado actual.
+// Cuando hay alguno seleccionado pero no todos, click selecciona todos.
+function edTkMasterToggle() {
+  var rows = document.querySelectorAll('#vEdTracker .pa-tbl-r[data-task-id]');
+  var total = rows.length;
+  var selected = (EDT.selectedIds || []).length;
+  edTkSelectAll(selected < total);
 }
 function _edTkUpdateBulkBar() {
   var bar = $('tkBulkBar'); if (!bar) return;
@@ -5779,7 +5801,6 @@ function rEdTracker(D) {
          +    '<button class="dd-item" onclick="edExportPDFOpen()">' + paIcon('doc', 13, 'ico') + ' PDF mensual</button>'
          + '</div>';
   }
-  html += '<button class="pa-btn pa-btn-outline" onclick="alert(\'Más filtros próximamente\')">' + paIcon('filter', 12) + ' Más filtros</button>';
   html += '</div></div>';
 
   // Filter chips
@@ -5804,6 +5825,23 @@ function rEdTracker(D) {
        +        paIcon('search', 12)
        +        '<input type="text" placeholder="Buscar en tracker…" value="' + esc(EDT.search) + '" oninput="edSetSearch(this.value)">'
        +      '</div>';
+  // Country select (head only): drill-down rápido país-por-país sin volver al countries-first.
+  if (role === 'head') {
+    var allCountries = (D && D.countries) || [];
+    var countryOpts = allCountries
+      .slice()
+      .sort(function(a, b){ return (b.open || 0) - (a.open || 0); })
+      .map(function(c) {
+        var selA = (EDT.country === c.code) ? ' selected' : '';
+        var label = c.code + ' · ' + (c.name || c.code) + (c.open ? ' (' + c.open + ')' : '');
+        return '<option value="' + esc(c.code) + '"' + selA + '>' + esc(label) + '</option>';
+      }).join('');
+    if (countryOpts) {
+      html += '<select class="pa-select" style="width:auto;height:26px;font-size:12px;padding:0 28px 0 10px" onchange="edSetCountryFilter(this.value || \'__ALL__\')">'
+           +    '<option value="">Todos los países</option>' + countryOpts
+           + '</select>';
+    }
+  }
   // Project select
   var pIdsWithTasks = {};
   roleTasks.forEach(function(t){ if (t.proyectoId) pIdsWithTasks[t.proyectoId] = true; });
@@ -5856,9 +5894,16 @@ function rEdTracker(D) {
   }
 
   // TABLE
+  var totalRows = rows.length;
+  var selN = (EDT.selectedIds || []).length;
+  var masterCls = 'pa-check';
+  if (totalRows > 0 && selN === totalRows) masterCls += ' is-checked';
+  else if (selN > 0) masterCls += ' is-indeterminate';
+  var masterTitle = (selN === totalRows && totalRows > 0) ? 'Deseleccionar todo' : 'Seleccionar todo';
   html += '<div class="pa-tbl">'
        +    '<div class="pa-tbl-h">'
-       +      '<div></div><div></div>'
+       +      '<div onclick="edTkMasterToggle()" title="' + masterTitle + '" style="cursor:pointer;display:grid;place-items:center"><span class="' + masterCls + '"></span></div>'
+       +      '<div title="Confidencialidad" aria-label="Confidencialidad"></div>'
        +      '<div>ID ' + paIcon('sort', 10) + '</div>'
        +      '<div>Tarea</div>'
        +      '<div>' + (role === 'specialist' ? 'Proyecto' : 'Responsable') + '</div>'
@@ -6054,7 +6099,7 @@ function _renderTkPanel(sel) {
   // Comments count se desconoce hasta que async load termine — leave dynamic
   html += '<aside class="tk-panel-rail">'
        +    '<div class="tk-panel-tabs" data-task-id="' + esc(sel.id) + '">'
-       +      '<button class="tk-panel-tab is-active" data-pane="comments" onclick="edTkPanelSwitchTab(this)">Comentarios <span class="ct" id="tkCommentsCount">·</span></button>'
+       +      '<button class="tk-panel-tab is-active" data-pane="comments" onclick="edTkPanelSwitchTab(this)">Comentarios <span class="ct" id="tkCommentsCount">…</span></button>'
        +      '<button class="tk-panel-tab" data-pane="docs" onclick="edTkPanelSwitchTab(this)">Documentos <span class="ct">· ' + docsCount + '</span></button>'
        +    '</div>'
        +    '<div class="tk-panel-rail-body" data-task-id="' + esc(sel.id) + '">'
@@ -7937,7 +7982,9 @@ function rEdMiequipo(D) {
     var loadFg = over ? 'var(--critical-fg)' : 'var(--fg-2)';
     var ov = m.overdue || 0;
     var bl = m.blocked || 0;
-    return '<div class="pa-tbl-r" style="grid-template-columns: 1fr 220px 80px 90px 100px;height:48px" data-act="miq-open-person" data-arg="' + esc(m.name || '') + '">'
+    var sla = m.slaPct;
+    var slaColor = sla == null ? 'var(--fg-3)' : (sla >= 90 ? 'var(--good-fg)' : (sla < 85 ? 'var(--warn-fg)' : 'var(--fg-2)'));
+    return '<div class="pa-tbl-r" style="grid-template-columns: 1fr 220px 80px 90px 80px 100px;height:48px" data-act="miq-open-person" data-arg="' + esc(m.name || '') + '">'
          +   '<div style="display:flex;align-items:center;gap:10px">' + paAvatar(m.name || '?', 22)
          +     '<div><div style="font-size:13px;font-weight:500">' + esc(m.name || '') + '</div>'
          +     '<div style="font-size:11px;color:var(--fg-3)">' + esc(m.role || 'Specialist') + (m.country ? ' · ' + esc(m.country) : '') + '</div></div>'
@@ -7948,15 +7995,16 @@ function rEdMiequipo(D) {
          +   '</div>'
          +   '<div class="mono" style="font-size:12px;color:' + (ov ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + ov + '</div>'
          +   '<div class="mono" style="font-size:12px;color:' + (bl ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + bl + '</div>'
+         +   '<div class="mono" style="font-size:12px;color:' + slaColor + '">' + (sla != null ? sla + '%' : '—') + '</div>'
          +   '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="event.stopPropagation();_miqOpenPerson(\'' + esc(m.name || '') + '\')">Detalle →</button></div>'
          + '</div>';
   }
 
   if (role === 'manager') {
-    html += '<div class="pa-section-h"><h3>Tu equipo</h3><span class="meta">Carga, vencidas y bloqueadas</span></div>'
+    html += '<div class="pa-section-h"><h3>Tu equipo</h3><span class="meta">Carga, vencidas, bloqueadas y SLA mes</span></div>'
          +  '<div class="pa-tbl">'
-         +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 220px 80px 90px 100px">'
-         +      '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div></div>'
+         +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 220px 80px 90px 80px 100px">'
+         +      '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div>SLA mes</div><div></div>'
          +    '</div>';
     var sorted = _miqSorted(visible);
     sorted.forEach(function(m) { html += _miqRow(m); });
@@ -7979,8 +8027,8 @@ function rEdMiequipo(D) {
            +    '<span class="meta">' + (gCap ? gPct + '% carga · ' : '') + (gOver ? gOver + ' vencidas' : 'sin vencidas') + '</span>'
            + '</div>'
            + '<div class="pa-tbl">'
-           +   '<div class="pa-tbl-h" style="grid-template-columns: 1fr 220px 80px 90px 100px">'
-           +     '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div></div>'
+           +   '<div class="pa-tbl-h" style="grid-template-columns: 1fr 220px 80px 90px 80px 100px">'
+           +     '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div>SLA mes</div><div></div>'
            +   '</div>';
       arr.forEach(function(m) { html += _miqRow(m); });
       html += '</div>';

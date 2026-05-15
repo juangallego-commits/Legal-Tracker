@@ -596,6 +596,10 @@ input, select, textarea { font-family: inherit; color: inherit; }
   border-left: 1.5px solid #fff; border-bottom: 1.5px solid #fff;
   transform: rotate(-45deg) translate(0px, -1px);
 }
+.pa-check.is-indeterminate { background: var(--accent); border-color: var(--accent); }
+.pa-check.is-indeterminate::before {
+  content: ''; width: 8px; height: 0; border-top: 1.5px solid #fff;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    AVATARS
@@ -1003,6 +1007,10 @@ input, select, textarea { font-family: inherit; color: inherit; }
   border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
   color: var(--fg-1);
   font-size: 13px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 
 /* ═══════════════════════════════════════════════════════════════
