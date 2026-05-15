@@ -3561,7 +3561,13 @@ function _edSearchRender() {
   var host = $('edSearchResults'); if (!host) return;
   var q = (EDS.query || '').trim();
   if (!q) {
-    host.innerHTML = '<div class="ed-search-empty">Escribí para buscar…</div>';
+    host.innerHTML = ''
+      + '<div class="ed-search-empty">'
+      +   '<div style="font-size:13px;color:var(--fg-2)">Escribí para buscar tareas, proyectos o documentos…</div>'
+      +   '<div style="font-size:11px;color:var(--fg-3);margin-top:6px">'
+      +     '<kbd>↓</kbd> <kbd>↑</kbd> navegar · <kbd>Enter</kbd> abrir · <kbd>Esc</kbd> cerrar'
+      +   '</div>'
+      + '</div>';
     return;
   }
   var results = _edSearchFilter(q);
@@ -3575,7 +3581,11 @@ function _edSearchRender() {
   var docShow  = docAll.slice(0, 5);
 
   if (!taskShow.length && !projShow.length && !docShow.length) {
-    host.innerHTML = '<div class="ed-search-empty">Sin resultados para "' + esc(q) + '"</div>';
+    host.innerHTML = ''
+      + '<div class="ed-search-empty">'
+      +   '<div style="font-size:13px;color:var(--fg-2)">Sin resultados para "<b>' + esc(q) + '</b>"</div>'
+      +   '<div style="font-size:11px;color:var(--fg-3);margin-top:6px">Probá con menos términos, otra grafía, o un código de tarea (ej. <b>T-001</b>).</div>'
+      + '</div>';
     return;
   }
 
@@ -4453,6 +4463,27 @@ function rEdHomeHQ(D) {
            + '</div>';
     });
     html += '</div>';
+  }
+
+  // Equipo Global: si hay datos de hqTeam (líder + members del equipo HQ
+  // del sheet Equipos), los listamos como una card con avatares. Es admin
+  // del piloto — útil para que el head vea con quién contar para escalamiento.
+  var hq = D && D.hqTeam;
+  if (hq && (hq.leader || (hq.specialists != null && hq.specialists > 0))) {
+    html += '<div class="pa-section-h">'
+         +    '<h3>Equipo Global</h3>'
+         +    '<span class="meta">Admin del piloto — escalamientos y soporte</span>'
+         + '</div>'
+         + '<div class="pa-card" style="padding:14px 18px;display:flex;flex-wrap:wrap;gap:18px;align-items:center">'
+         +   (hq.leader ? '<div style="display:flex;align-items:center;gap:10px">'
+                          + paAvatar(hq.leader, 28)
+                          + '<div><div style="font-size:13px;font-weight:500">' + esc(hq.leader) + '</div>'
+                          + '<div style="font-size:11px;color:var(--fg-3)">Líder Global</div></div>'
+                       + '</div>' : '')
+         +   '<div style="margin-left:auto;font-size:12px;color:var(--fg-3)">'
+         +     (hq.specialists || 0) + ' miembros activos · ' + (hq.code || 'HQ')
+         +   '</div>'
+         + '</div>';
   }
 
   // Activity feed
@@ -5928,10 +5959,19 @@ function rEdTracker(D) {
       emptyMsg = 'No hay tareas en este filtro.';
       emptyHint = 'Cambiá a "Todas" para ver todo.';
     }
+    // CTA: si está vacío porque no hay tareas (no por filtros), invitar
+    // a crear la primera. Si está vacío por filtros/search, ofrecer limpiar.
+    var ctaBtn = '';
+    if (cAll === 0) {
+      ctaBtn = '<button class="pa-btn pa-btn-primary" onclick="edCrearOpen()" style="margin-top:6px">' + paIcon('plus', 12) + ' Crear tu primera tarea</button>';
+    } else if (EDT.search || EDT.filter !== 'all' || EDT.projectFilter || EDT.respFilter || EDT.confFilter) {
+      ctaBtn = '<button class="pa-btn pa-btn-outline" onclick="edClearSecondaryFilters();edSetFilter(\'all\');edSetSearch(\'\')" style="margin-top:6px">Limpiar filtros</button>';
+    }
     html += '<div style="padding:48px 20px;text-align:center">'
          +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon(emptyIc, 20) + '</div>'
          +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">' + esc(emptyMsg) + '</div>'
          +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0 14px">' + esc(emptyHint) + '</div>'
+         +    ctaBtn
          + '</div>';
   } else {
     rows.forEach(function(t) {
@@ -6073,8 +6113,8 @@ function _renderTkPanel(sel) {
     { l: 'SLA objetivo', v: sel.slaTarget || '—', icon: 'flag' },
     { l: 'Riesgo', v: sel.riesgo || '—', icon: 'alert', editable: true, key: 'riesgo' },
     { l: 'Proyecto', v: pn, icon: 'folder', editable: true, key: 'proyectoId' },
-    { l: 'Contraparte', v: sel.contraparte || '—', icon: 'globe', editable: true, key: 'contraparte' },
-    { l: 'Tipo de trabajo', v: sel.tipoTrabajo || '—', icon: 'doc' }
+    { l: 'Contraparte', v: sel.contraparte || '—', icon: 'globe', editable: true, key: 'contraparte' }
+    // Tipo de trabajo vive en la pillrow superior (línea ~6079), no duplicar acá.
   ];
   fields.forEach(function(f) {
     html += '<div class="tk-field">'
@@ -6108,7 +6148,7 @@ function _renderTkPanel(sel) {
   // Comments count se desconoce hasta que async load termine — leave dynamic
   html += '<aside class="tk-panel-rail">'
        +    '<div class="tk-panel-tabs" data-task-id="' + esc(sel.id) + '">'
-       +      '<button class="tk-panel-tab is-active" data-pane="comments" onclick="edTkPanelSwitchTab(this)">Comentarios <span class="ct" id="tkCommentsCount">…</span></button>'
+       +      '<button class="tk-panel-tab is-active" data-pane="comments" onclick="edTkPanelSwitchTab(this)">Comentarios <span class="ct" id="tkCommentsCount">· 0</span></button>'
        +      '<button class="tk-panel-tab" data-pane="docs" onclick="edTkPanelSwitchTab(this)">Documentos <span class="ct">· ' + docsCount + '</span></button>'
        +    '</div>'
        +    '<div class="tk-panel-rail-body" data-task-id="' + esc(sel.id) + '">'

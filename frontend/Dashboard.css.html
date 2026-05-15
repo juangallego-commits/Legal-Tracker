@@ -890,21 +890,8 @@ input, select, textarea { font-family: inherit; color: inherit; }
 .modal-footer .pa-meta { font-size: 11px; color: var(--fg-3); }
 .modal-footer .pa-actions { margin-left: auto; display: flex; gap: 8px; }
 
-/* Wizard step dots */
-.pa-wizard-dots { display: flex; align-items: center; gap: 8px; }
-.pa-wizard-dot {
-  width: 22px; height: 22px; border-radius: 50%;
-  font-size: 11px; font-weight: 600;
-  display: grid; place-items: center;
-  background: var(--bg-2); color: var(--fg-3);
-  font-family: var(--font-mono);
-}
-.pa-wizard-dot.is-current { background: var(--accent); color: var(--accent-fg); }
-.pa-wizard-dot.is-done { background: var(--accent-soft-strong); color: var(--accent); }
-.pa-wizard-bar {
-  flex: 0 0 32px; height: 1px; background: var(--line-2);
-}
-.pa-wizard-bar.is-done { background: var(--accent); }
+/* Wizard step dots: el wizard usa .cr-step en práctica (ver líneas 1930+).
+   Las clases .pa-wizard-* quedaron huérfanas tras la migración. */
 
 /* Sub tabs (legacy) */
 .sub-tabs {
