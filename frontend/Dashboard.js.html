@@ -1471,12 +1471,23 @@ function batchUpdateProject(id, fields) {
 }
 
 // ═══ CONFIRM ═══
-function confirm_(txt, fn) {
+// confirm_(txt, onConfirm) — modal custom, reemplaza window.confirm.
+// Variante "danger" cambia el botón a estilo crítico (rojo). Usar para
+// acciones irreversibles: delete comment/doc/template, eliminar tarea, etc.
+function confirm_(txt, fn, opts) {
+  opts = opts || {};
   $('confTxt').textContent = txt;
   $('confOv').classList.add('show');
-  $('confBtn').onclick = function(){ closeCf(); fn(); };
+  var btn = $('confBtn');
+  btn.textContent = opts.confirmLabel || 'Confirmar';
+  // toggle danger styling
+  btn.classList.toggle('btn-danger', !!opts.danger);
+  btn.onclick = function(){ closeCf(); fn && fn(); };
 }
-function closeCf() { $('confOv').classList.remove('show'); }
+function closeCf() {
+  var ov = $('confOv'); if (ov) ov.classList.remove('show');
+  var btn = $('confBtn'); if (btn) btn.classList.remove('btn-danger');
+}
 
 // ═══ DROPDOWNS ═══
 // Helper: build a dropdown item using data-act (event delegation)
@@ -2585,16 +2596,17 @@ var ACTIONS = {
     var kind = el.dataset.kind;
     var itemId = Number(el.dataset.itemId);
     var i = Number(el.dataset.i);
-    if (!confirm('¿Quitar este documento del tracker? (no se borra del Drive)')) return;
-    showLoader();
-    google.script.run
-      .withSuccessHandler(function(res) {
-        hideLoader();
-        if (res && res.success) { toast('✅ Documento eliminado', 'success'); reopenEditWithFreshData(); }
-        else toast('Error: ' + ((res && res.error) || ''), 'error');
-      })
-      .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
-      .removeDocument(kind, itemId, i);
+    confirm_('¿Quitar este documento del tracker? (no se borra del Drive)', function() {
+      showLoader();
+      google.script.run
+        .withSuccessHandler(function(res) {
+          hideLoader();
+          if (res && res.success) { toast('✅ Documento eliminado', 'success'); reopenEditWithFreshData(); }
+          else toast('Error: ' + ((res && res.error) || ''), 'error');
+        })
+        .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
+        .removeDocument(kind, itemId, i);
+    }, { danger: true, confirmLabel: 'Quitar' });
   }
 };
 document.addEventListener('click', function(e) {
@@ -2986,6 +2998,17 @@ function paEmpty(iconName, msg, hint) {
        + '</div>';
 }
 
+// Detect platform para mostrar el atajo correcto en la UI (⌘ en Mac, Ctrl
+// en Windows/Linux). El handler de Cmd+K acepta ambos, esto solo afecta el
+// chip que el user ve en el header y en el modal de Ayuda.
+function _isMac() {
+  try {
+    return /Mac|iPhone|iPad/i.test(navigator.platform || '')
+        || /Mac OS X/i.test(navigator.userAgent || '');
+  } catch(e) { return false; }
+}
+function _modKey() { return _isMac() ? '⌘' : 'Ctrl+'; }
+
 var ED_NAV_BY_ROLE = {
   specialist: [
     { section: 'Mi día', items: [
@@ -2996,11 +3019,11 @@ var ED_NAV_BY_ROLE = {
     { section: 'Donde trabajo', items: [
       { id: 'tracker',    label: 'Tracker',     icon: 'inbox',  view: 'tracker' },
       { id: 'proyectos',  label: 'Proyectos',   icon: 'folder', view: 'proyectos' },
-      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' }
+      { id: 'plantillas', label: 'Plantillas', icon: 'doc',    view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
-      { id: 'analytics', label: 'Mi desempeño', icon: 'chart',   view: 'analytics' },
-      { id: 'historial', label: 'Historial',    icon: 'refresh', view: 'historial' }
+      { id: 'analytics', label: 'Mi desempeño',  icon: 'chart',   view: 'analytics' },
+      { id: 'historial', label: 'Cerradas',      icon: 'refresh', view: 'historial' }
     ]}
   ],
   manager: [
@@ -3012,11 +3035,11 @@ var ED_NAV_BY_ROLE = {
     { section: 'Operación', items: [
       { id: 'agrupadas',  label: 'Por urgencia', icon: 'calendar', view: 'agrupadas' },
       { id: 'proyectos',  label: 'Proyectos',    icon: 'folder',   view: 'proyectos' },
-      { id: 'plantillas', label: 'Biblioteca',   icon: 'doc',      view: 'plantillas' }
+      { id: 'plantillas', label: 'Plantillas',   icon: 'doc',      view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
-      { id: 'analytics', label: 'Métricas',  icon: 'chart',   view: 'analytics' },
-      { id: 'historial', label: 'Historial', icon: 'refresh', view: 'historial' }
+      { id: 'analytics', label: 'Métricas',   icon: 'chart',   view: 'analytics' },
+      { id: 'historial', label: 'Cerradas',   icon: 'refresh', view: 'historial' }
     ]}
   ],
   head: [
@@ -3028,11 +3051,11 @@ var ED_NAV_BY_ROLE = {
     { section: 'Personas', items: [
       { id: 'miequipo',   label: 'Equipo',     icon: 'users',  view: 'miequipo' },
       { id: 'proyectos',  label: 'Proyectos',  icon: 'folder', view: 'proyectos' },
-      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' }
+      { id: 'plantillas', label: 'Plantillas', icon: 'doc',    view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
-      { id: 'analytics', label: 'Analytics',  icon: 'chart',   view: 'analytics' },
-      { id: 'historial', label: 'Historial',  icon: 'refresh', view: 'historial' }
+      { id: 'analytics', label: 'Analítica',  icon: 'chart',   view: 'analytics' },
+      { id: 'historial', label: 'Cerradas',   icon: 'refresh', view: 'historial' }
     ]}
   ]
 };
@@ -3316,7 +3339,7 @@ function renderEdSidebar(role, activeViewId) {
   }
   html += '</nav>'
        + '<div class="pa-sb-footer">'
-       +   '<div class="pa-sb-user" onclick="edHelpOpen()">'
+       +   '<div class="pa-sb-user" title="' + esc(name) + ' · ' + esc(subtitle) + '" style="cursor:default">'
        +     '<div class="pa-sb-av">' + esc(initials.charAt(0)) + '</div>'
        +     '<div class="pa-sb-user-info">'
        +       '<div class="pa-sb-user-name">' + esc(name) + '</div>'
@@ -3351,8 +3374,14 @@ var _ED_CRUMBS_BY_VIEW = {
 function _edCrumbs(viewId) {
   var c = _ED_CRUMBS_BY_VIEW[viewId] || ['Inicio'];
   return c.map(function(seg, i){
-    return (i > 0 ? '<span class="sep">/</span>' : '') +
-      '<span class="' + (i === c.length - 1 ? 'cur' : '') + '">' + esc(seg) + '</span>';
+    var isLast = i === c.length - 1;
+    var sep = i > 0 ? '<span class="sep">/</span>' : '';
+    // El primer crumb (sección) navega a Home; el último es el view actual (no clickeable).
+    // Los intermedios también van al Home para simplificar (la nav real es vía sidebar).
+    if (isLast) {
+      return sep + '<span class="cur">' + esc(seg) + '</span>';
+    }
+    return sep + '<span class="seg" style="cursor:pointer" onclick="goEd(\'home\')">' + esc(seg) + '</span>';
   }).join(' ');
 }
 
@@ -3367,16 +3396,12 @@ function renderEdHead(viewId) {
     +   '<div class="pa-search" role="button" tabindex="0" onclick="edSearchOpen()">'
     +     paIcon('search', 13)
     +     '<span class="ph">Buscar tarea, proyecto, persona…</span>'
-    +     '<span class="kbd">⌘K</span>'
+    +     '<span class="kbd">' + _modKey() + 'K</span>'
     +   '</div>'
     + '</div>'
     + '<div class="pa-hd-actions">'
     +   '<button class="pa-btn pa-btn-icon" title="Atajos (?)" onclick="edHelpOpen()">' + paIcon('help', 14) + '</button>'
-    +   '<button class="pa-btn pa-btn-icon" title="Notificaciones">' + paIcon('bell', 14) + '</button>'
-    +   '<span class="pa-btn-split">'
-    +     '<button class="pa-btn pa-btn-primary" title="Nueva tarea (N)" onclick="edCrearOpen()">' + paIcon('plus', 12) + ' Nueva tarea</button>'
-    +     '<button class="pa-btn pa-btn-primary" title="Plantillas" onclick="goEd(\'plantillas\')">' + paIcon('chevD', 11) + '</button>'
-    +   '</span>'
+    +   '<button class="pa-btn pa-btn-primary" title="Nueva tarea (N)" onclick="edCrearOpen()">' + paIcon('plus', 12) + ' Nueva tarea</button>'
     +   '<div class="pa-hd-avatar" title="' + esc(name) + '">' + esc(initial) + '</div>'
     + '</div>';
 }
@@ -3715,7 +3740,7 @@ function edHelpOpen() {
   ov.onclick = function(e) { if (e.target === ov) edHelpClose(); };
   var sections = [
     { title: 'Navegación', items: [
-      { keys: ['⌘', 'K'], desc: 'Abrir búsqueda global' },
+      { keys: [_isMac() ? '⌘' : 'Ctrl', 'K'], desc: 'Abrir búsqueda global' },
       { keys: ['/'], desc: 'Foco en el buscador del tracker' },
       { keys: ['?'], desc: 'Mostrar esta ayuda' },
       { keys: ['Esc'], desc: 'Cerrar cualquier modal o panel abierto' }
@@ -3729,7 +3754,7 @@ function edHelpOpen() {
     { title: 'Panel de detalle', items: [
       { keys: ['Clic'], desc: 'sobre el valor de una celda para editarla inline' },
       { keys: ['Doble clic'], desc: 'sobre el título para renombrar la tarea' },
-      { keys: ['⌘', 'Enter'], desc: 'Enviar comentario desde el textarea' }
+      { keys: [_isMac() ? '⌘' : 'Ctrl', 'Enter'], desc: 'Enviar comentario desde el textarea' }
     ]},
     { title: 'Crear', items: [
       { keys: ['N'], desc: 'Asistente de nueva tarea' }
@@ -4044,6 +4069,10 @@ function rEdHomeSpecialist(D) {
        + '</div>';
   if (top.length === 0) {
     html += paEmpty('inbox', 'No tenés tareas activas en tu agenda.', 'Aprovechá para trabajo de proyecto o cerrar pendientes viejos.');
+    html += '<div style="margin-top:8px;text-align:center;display:flex;gap:8px;justify-content:center">'
+         +    '<button class="pa-btn pa-btn-outline" onclick="goEd(\'historial\')">' + paIcon('refresh', 12) + ' Ver mis cerradas</button>'
+         +    '<button class="pa-btn pa-btn-outline" onclick="goEd(\'proyectos\')">' + paIcon('folder', 12) + ' Ver proyectos</button>'
+         + '</div>';
   } else {
     html += '<div class="pa-tbl">';
     for (var i = 0; i < top.length; i++) {
@@ -4574,6 +4603,9 @@ function _edApplyFilter(tasks, filter) {
   if (filter === 'blocked') return tasks.filter(function(t){ return t.status === 'Bloqueado'; });
   if (filter === 'alta')    return tasks.filter(function(t){ return t.priority === 'Alta' && t.status !== 'Listo'; });
   if (filter === 'mine')    return tasks.filter(function(t){ return t.resp === _effectiveUserName() && t.status !== 'Listo'; });
+  // 'closed': mostrar cerradas (vienen del historial, no de D.tasks; rEdTracker
+  // las concatena cuando filter === 'closed').
+  if (filter === 'closed')  return tasks.filter(function(t){ return t.status === 'Listo'; });
   return tasks.filter(function(t){ return t.status !== 'Listo'; });
 }
 
@@ -5691,33 +5723,34 @@ function edPanelSubmitEditComment(commentId) {
     .editTaskComment(commentId, newBody);
 }
 function edPanelDeleteComment(commentId) {
-  if (!confirm('¿Eliminar este comentario? El hilo conserva la marca de eliminado.')) return;
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (res && res.success) {
-        var item = document.querySelector('.tk-comment-item[data-comment-id="' + commentId + '"]');
-        if (item) {
-          item.classList.add('is-deleted');
-          var textEl = item.querySelector('.tk-comment-text');
-          if (textEl) textEl.innerHTML = '<i style="color:var(--fg-3)">(comentario eliminado)</i>';
-          var actionsEl = item.querySelector('.tk-comment-actions');
-          if (actionsEl) actionsEl.remove();
+  confirm_('¿Eliminar este comentario? El hilo conserva la marca de eliminado.', function() {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res && res.success) {
+          var item = document.querySelector('.tk-comment-item[data-comment-id="' + commentId + '"]');
+          if (item) {
+            item.classList.add('is-deleted');
+            var textEl = item.querySelector('.tk-comment-text');
+            if (textEl) textEl.innerHTML = '<i style="color:var(--fg-3)">(comentario eliminado)</i>';
+            var actionsEl = item.querySelector('.tk-comment-actions');
+            if (actionsEl) actionsEl.remove();
+          }
+          // Refresh count
+          var countSpan = $('tkCommentsCount');
+          if (countSpan) {
+            var n = document.querySelectorAll('#tkComments .tk-comment-item:not(.is-deleted)').length;
+            countSpan.textContent = '· ' + n;
+          }
+          toast('Comentario eliminado', 'success');
+        } else {
+          toast((res && res.error) || 'No se pudo eliminar.', 'error');
         }
-        // Refresh count
-        var countSpan = $('tkCommentsCount');
-        if (countSpan) {
-          var n = document.querySelectorAll('#tkComments .tk-comment-item:not(.is-deleted)').length;
-          countSpan.textContent = '· ' + n;
-        }
-        toast('Comentario eliminado', 'success');
-      } else {
-        toast((res && res.error) || 'No se pudo eliminar.', 'error');
-      }
-    })
-    .withFailureHandler(function(e) {
-      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
-    })
-    .deleteTaskComment(commentId);
+      })
+      .withFailureHandler(function(e) {
+        toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+      })
+      .deleteTaskComment(commentId);
+  }, { danger: true, confirmLabel: 'Eliminar' });
 }
 function _commentRelativeTime(iso) {
   if (!iso) return '';
@@ -5903,6 +5936,11 @@ function rEdTracker(D) {
   }
 
   var roleTasks = _edFilterByRole(allTasks, role, userName, userCode);
+  // Para el filter 'closed' incluimos también las del historial (que ya están
+  // cerradas — sheet Historial). Aplicamos el mismo filtro de rol.
+  var allHist = (D && D.historial) || [];
+  var roleHist = _edFilterByRole(allHist, role, userName, userCode);
+  var cClosed = roleHist.length;
 
   var cAll      = roleTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
   var cOverdue  = roleTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
@@ -5911,10 +5949,19 @@ function rEdTracker(D) {
   var cMine     = roleTasks.filter(function(t){ return t.resp === userName && t.status !== 'Listo'; }).length;
   var cAlta     = roleTasks.filter(function(t){ return t.priority === 'Alta' && t.status !== 'Listo'; }).length;
 
-  var rows = _edApplySearch(_edApplySecondaryFilters(_edApplyFilter(roleTasks, EDT.filter)), EDT.search);
+  // Cuando el filtro es 'closed', la fuente de tareas es el historial (las que
+  // ya fueron movidas al sheet Historial). Sino, la fuente es D.tasks (activas).
+  var sourceTasks = EDT.filter === 'closed' ? roleHist : roleTasks;
+  var rows = _edApplySearch(_edApplySecondaryFilters(_edApplyFilter(sourceTasks, EDT.filter)), EDT.search);
   rows = _edSortByUrgency(rows);
 
-  var sel = EDT.selectedId ? rows.find(function(t){ return t.id == EDT.selectedId; }) || roleTasks.find(function(t){ return t.id == EDT.selectedId; }) : null;
+  // sel puede venir de rows visibles, de roleTasks (activas) o de roleHist (cerradas).
+  // Necesario buscar en historial también para abrir tareas Listo desde el panel.
+  var sel = EDT.selectedId
+    ? (rows.find(function(t){ return t.id == EDT.selectedId; })
+       || roleTasks.find(function(t){ return t.id == EDT.selectedId; })
+       || roleHist.find(function(t){ return t.id == EDT.selectedId; }))
+    : null;
 
   var scopeLabel;
   if (EDT.country) scopeLabel = EDT.country;
@@ -5951,13 +5998,14 @@ function rEdTracker(D) {
   }
 
   html += '<div class="pa-filterbar">'
-       +    chip('all',     'Todas',         cAll,     null,       EDT.filter === 'all')
+       +    chip('all',     'Activas',       cAll,     null,       EDT.filter === 'all')
        +    chip('overdue', 'Vencidas',      cOverdue, 'critical', EDT.filter === 'overdue')
        +    chip('today',   'Vencen hoy',    cToday,   'warn',     EDT.filter === 'today')
        +    chip('blocked', 'Bloqueadas',    cBlocked, null,       EDT.filter === 'blocked')
        +    chip('alta',    'Prioridad alta',cAlta,    null,       EDT.filter === 'alta')
        +    '<div class="pa-chip-divider"></div>'
        +    chip('mine',    'Asignadas a mí',cMine,    null,       EDT.filter === 'mine')
+       +    chip('closed',  'Cerradas',      cClosed,  null,       EDT.filter === 'closed')
        +    '<div style="margin-left:auto;display:flex;gap:6px;align-items:center">'
        +      '<div class="pa-search" style="width:220px">'
        +        paIcon('search', 12)
@@ -6180,7 +6228,10 @@ function _renderTkPanel(sel) {
   var selCfMeta = ED_CONF_LEVELS[selCfLvl] || { label: 'Estándar', desc: '' };
   var canReassign = (role === 'manager' || role === 'head');
 
-  var html = '<aside class="tk-panel" id="tkPanel">';
+  // Overlay con backdrop: click fuera del modal cierra. Esto sustituyó el
+  // panel slide-in fixed que tapaba el sidebar de la app en pantallas <1600px.
+  var html = '<div class="tk-panel-overlay" id="tkPanelOv" onclick="if(event.target===this)edClosePanel()">';
+  html += '<aside class="tk-panel" id="tkPanel">';
   // Main column
   html += '<div class="tk-panel-main">'
        +    '<div class="tk-eyebrow">'
@@ -6287,27 +6338,41 @@ function _renderTkPanel(sel) {
   html += '</div></div>';
   // Comment input
   html += '<div class="tk-panel-rail-input">'
-       +    '<textarea class="tk-comment-input" id="tkCommentInput" placeholder="Agregá un comentario… ⌘↵ enviar" rows="2"></textarea>'
+       +    '<textarea class="tk-comment-input" id="tkCommentInput" placeholder="Agregá un comentario… ' + (_isMac() ? '⌘+↵' : 'Ctrl+↵') + ' enviar" rows="2"></textarea>'
        +    '<div style="display:flex;justify-content:flex-end;margin-top:6px">'
        +      '<button class="pa-btn pa-btn-primary" id="tkCommentSubmit" onclick="edPanelSubmitComment(\'' + esc(sel.id) + '\')">' + paIcon('msg', 11) + ' Enviar</button>'
        +    '</div>'
        + '</div>';
   html += '</aside>';
 
-  // Bottom action bar
-  html += '<div class="tk-panel-actions">'
-       +    (sel.status === 'Bloqueado'
-            ? '<button class="pa-btn pa-btn-outline" onclick="edUOpen(\'' + esc(sel.id) + '\',\'avanzar\')">' + paIcon('block', 12) + ' Desbloquear</button>'
-            : '<button class="pa-btn pa-btn-outline" onclick="edUOpen(\'' + esc(sel.id) + '\',\'bloquear\')">' + paIcon('block', 12) + ' Bloquear</button>')
-       +    (canReassign ? '<button class="pa-btn pa-btn-outline" onclick="edReasignarOpen(\'' + esc(sel.id) + '\')">' + paIcon('users', 12) + ' Reasignar</button>' : '')
-       +    '<button class="pa-btn pa-btn-outline" onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')">' + paIcon('more', 12) + ' Más</button>'
-       +    '<div style="margin-left:auto;display:flex;gap:8px">'
-       +      '<button class="pa-btn pa-btn-outline" onclick="edUOpen(\'' + esc(sel.id) + '\',\'cerrar\')">Cerrar como ✓ Listo</button>'
-       +      '<button class="pa-btn pa-btn-primary" onclick="edUOpen(\'' + esc(sel.id) + '\',\'avanzar\')">Avanzar →</button>'
-       +    '</div>'
-       + '</div>';
+  // Bottom action bar — readonly cuando la tarea ya está cerrada (Listo).
+  // Tareas cerradas viven en el historial; solo pueden verse, no modificarse
+  // desde el panel. Para reabrir el user usa "Más" → editar manual.
+  if (sel.status === 'Listo') {
+    html += '<div class="tk-panel-actions">'
+         +    '<span style="font-size:12px;color:var(--fg-3);display:flex;align-items:center;gap:6px">'
+         +      paIcon('check', 12) + 'Tarea cerrada' + (sel.cerrado ? ' · ' + esc(sel.cerrado) : '')
+         +    '</span>'
+         +    '<div style="margin-left:auto">'
+         +      '<button class="pa-btn pa-btn-outline" onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')">' + paIcon('more', 12) + ' Edición avanzada</button>'
+         +    '</div>'
+         + '</div>';
+  } else {
+    html += '<div class="tk-panel-actions">'
+         +    (sel.status === 'Bloqueado'
+              ? '<button class="pa-btn pa-btn-outline" onclick="edUDesbloquear(\'' + esc(sel.id) + '\')">' + paIcon('block', 12) + ' Desbloquear</button>'
+              : '<button class="pa-btn pa-btn-outline" onclick="edUOpen(\'' + esc(sel.id) + '\',\'bloquear\')">' + paIcon('block', 12) + ' Bloquear</button>')
+         +    (canReassign ? '<button class="pa-btn pa-btn-outline" onclick="edReasignarOpen(\'' + esc(sel.id) + '\')">' + paIcon('users', 12) + ' Reasignar</button>' : '')
+         +    '<button class="pa-btn pa-btn-outline" onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')">' + paIcon('more', 12) + ' Más</button>'
+         +    '<div style="margin-left:auto;display:flex;gap:8px">'
+         +      '<button class="pa-btn pa-btn-outline" onclick="edUOpen(\'' + esc(sel.id) + '\',\'cerrar\')">Cerrar como ✓ Listo</button>'
+         +      '<button class="pa-btn pa-btn-primary" onclick="edUOpen(\'' + esc(sel.id) + '\',\'avanzar\')">Avanzar →</button>'
+         +    '</div>'
+         + '</div>';
+  }
 
   html += '</aside>';
+  html += '</div>'; // close .tk-panel-overlay
   return html;
 }
 
@@ -6707,6 +6772,29 @@ function edUOpen(taskId, variant) {
   EDU.newConf = null;
   var host = $('uaHost'); if (!host) return;
   host.innerHTML = _uaRender(task, EDU.variant);
+}
+
+// Desbloquear: una tarea Bloqueada vuelve a 'En curso' (asume que estaba en
+// progreso cuando se bloqueó). El usuario puede ajustar después con inline edit
+// si era 'Pendiente'. Sin modal — acción directa con toast de feedback.
+function edUDesbloquear(taskId) {
+  if (!taskId) return;
+  if (typeof showLoader === 'function') showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (typeof hideLoader === 'function') hideLoader();
+      if (res && res.success) {
+        toast('Tarea desbloqueada', 'success');
+        if (typeof reload === 'function') reload();
+      } else {
+        toast((res && res.error) || 'No se pudo desbloquear.', 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      if (typeof hideLoader === 'function') hideLoader();
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .updateTaskField(taskId, 'status', 'En curso');
 }
 
 function edUClose() {
@@ -7893,10 +7981,15 @@ function _edDaysVsSla(t) {
   return biz - lim;
 }
 
-function _edHistOnClick() {
-  if (typeof toast === 'function') {
-    toast('Tarea cerrada — el historial detallado llega pronto', 'info');
-  }
+// Click en una fila del historial: navega al tracker filtrado por "Cerradas"
+// con la tarea seleccionada. El panel detalle se abre readonly (el render del
+// panel detecta status === 'Listo' y oculta las acciones).
+function _edHistOnClick(taskId) {
+  if (!taskId) return;
+  EDT.filter = 'closed';
+  EDT.selectedId = String(taskId);
+  if (typeof _edPersistEDT === 'function') _edPersistEDT();
+  if (typeof goEd === 'function') goEd('tracker');
 }
 
 function rEdHistorial(D) {
@@ -8020,7 +8113,7 @@ function rEdHistorial(D) {
       else if (dvs <= 0) { slaTxt = (dvs === 0 ? 'en tiempo' : (Math.abs(dvs) + 'd antes')); slaCls = 'good'; }
       else { slaTxt = '+' + dvs + 'd tarde'; slaCls = 'overdue'; }
       var slaColor = slaCls === 'good' ? 'var(--good-fg)' : slaCls === 'overdue' ? 'var(--critical-fg)' : 'var(--fg-3)';
-      html += '<div class="pa-tbl-r" style="grid-template-columns:' + cols + '" onclick="_edHistOnClick()">'
+      html += '<div class="pa-tbl-r" style="grid-template-columns:' + cols + ';cursor:pointer" onclick="_edHistOnClick(\'' + esc(t.id) + '\')">'
            +    paConfDot(conf)
            +    '<span class="id mono">' + esc(t.id) + '</span>'
            +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + '</span></div>'
@@ -9531,21 +9624,22 @@ function edPltSave() {
     .saveTemplate(tipo, items);
 }
 function edPltDelete(tipo) {
-  if (!confirm('¿Eliminar la plantilla de "' + tipo + '"? Las tareas ya creadas no se modifican.')) return;
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (res && res.success) {
-        if (_TEMPLATES_CACHE) delete _TEMPLATES_CACHE[tipo];
-        toast('Plantilla eliminada', 'success');
-        rEdPlantillas(D);
-      } else {
-        toast((res && res.error) || 'No se pudo eliminar.', 'error');
-      }
-    })
-    .withFailureHandler(function(e) {
-      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
-    })
-    .deleteTemplate(tipo);
+  confirm_('¿Eliminar la plantilla de "' + tipo + '"? Las tareas ya creadas no se modifican.', function() {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res && res.success) {
+          if (_TEMPLATES_CACHE) delete _TEMPLATES_CACHE[tipo];
+          toast('Plantilla eliminada', 'success');
+          rEdPlantillas(D);
+        } else {
+          toast((res && res.error) || 'No se pudo eliminar.', 'error');
+        }
+      })
+      .withFailureHandler(function(e) {
+        toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+      })
+      .deleteTemplate(tipo);
+  }, { danger: true, confirmLabel: 'Eliminar' });
 }
 
 // Mantengo la implementación mock antigua oculta para no romper referencias.
