@@ -1471,12 +1471,23 @@ function batchUpdateProject(id, fields) {
 }
 
 // ═══ CONFIRM ═══
-function confirm_(txt, fn) {
+// confirm_(txt, onConfirm) — modal custom, reemplaza window.confirm.
+// Variante "danger" cambia el botón a estilo crítico (rojo). Usar para
+// acciones irreversibles: delete comment/doc/template, eliminar tarea, etc.
+function confirm_(txt, fn, opts) {
+  opts = opts || {};
   $('confTxt').textContent = txt;
   $('confOv').classList.add('show');
-  $('confBtn').onclick = function(){ closeCf(); fn(); };
+  var btn = $('confBtn');
+  btn.textContent = opts.confirmLabel || 'Confirmar';
+  // toggle danger styling
+  btn.classList.toggle('btn-danger', !!opts.danger);
+  btn.onclick = function(){ closeCf(); fn && fn(); };
 }
-function closeCf() { $('confOv').classList.remove('show'); }
+function closeCf() {
+  var ov = $('confOv'); if (ov) ov.classList.remove('show');
+  var btn = $('confBtn'); if (btn) btn.classList.remove('btn-danger');
+}
 
 // ═══ DROPDOWNS ═══
 // Helper: build a dropdown item using data-act (event delegation)
@@ -2585,16 +2596,17 @@ var ACTIONS = {
     var kind = el.dataset.kind;
     var itemId = Number(el.dataset.itemId);
     var i = Number(el.dataset.i);
-    if (!confirm('¿Quitar este documento del tracker? (no se borra del Drive)')) return;
-    showLoader();
-    google.script.run
-      .withSuccessHandler(function(res) {
-        hideLoader();
-        if (res && res.success) { toast('✅ Documento eliminado', 'success'); reopenEditWithFreshData(); }
-        else toast('Error: ' + ((res && res.error) || ''), 'error');
-      })
-      .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
-      .removeDocument(kind, itemId, i);
+    confirm_('¿Quitar este documento del tracker? (no se borra del Drive)', function() {
+      showLoader();
+      google.script.run
+        .withSuccessHandler(function(res) {
+          hideLoader();
+          if (res && res.success) { toast('✅ Documento eliminado', 'success'); reopenEditWithFreshData(); }
+          else toast('Error: ' + ((res && res.error) || ''), 'error');
+        })
+        .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
+        .removeDocument(kind, itemId, i);
+    }, { danger: true, confirmLabel: 'Quitar' });
   }
 };
 document.addEventListener('click', function(e) {
@@ -2986,6 +2998,17 @@ function paEmpty(iconName, msg, hint) {
        + '</div>';
 }
 
+// Detect platform para mostrar el atajo correcto en la UI (⌘ en Mac, Ctrl
+// en Windows/Linux). El handler de Cmd+K acepta ambos, esto solo afecta el
+// chip que el user ve en el header y en el modal de Ayuda.
+function _isMac() {
+  try {
+    return /Mac|iPhone|iPad/i.test(navigator.platform || '')
+        || /Mac OS X/i.test(navigator.userAgent || '');
+  } catch(e) { return false; }
+}
+function _modKey() { return _isMac() ? '⌘' : 'Ctrl+'; }
+
 var ED_NAV_BY_ROLE = {
   specialist: [
     { section: 'Mi día', items: [
@@ -3373,7 +3396,7 @@ function renderEdHead(viewId) {
     +   '<div class="pa-search" role="button" tabindex="0" onclick="edSearchOpen()">'
     +     paIcon('search', 13)
     +     '<span class="ph">Buscar tarea, proyecto, persona…</span>'
-    +     '<span class="kbd">⌘K</span>'
+    +     '<span class="kbd">' + _modKey() + 'K</span>'
     +   '</div>'
     + '</div>'
     + '<div class="pa-hd-actions">'
@@ -3717,7 +3740,7 @@ function edHelpOpen() {
   ov.onclick = function(e) { if (e.target === ov) edHelpClose(); };
   var sections = [
     { title: 'Navegación', items: [
-      { keys: ['⌘', 'K'], desc: 'Abrir búsqueda global' },
+      { keys: [_isMac() ? '⌘' : 'Ctrl', 'K'], desc: 'Abrir búsqueda global' },
       { keys: ['/'], desc: 'Foco en el buscador del tracker' },
       { keys: ['?'], desc: 'Mostrar esta ayuda' },
       { keys: ['Esc'], desc: 'Cerrar cualquier modal o panel abierto' }
@@ -3731,7 +3754,7 @@ function edHelpOpen() {
     { title: 'Panel de detalle', items: [
       { keys: ['Clic'], desc: 'sobre el valor de una celda para editarla inline' },
       { keys: ['Doble clic'], desc: 'sobre el título para renombrar la tarea' },
-      { keys: ['⌘', 'Enter'], desc: 'Enviar comentario desde el textarea' }
+      { keys: [_isMac() ? '⌘' : 'Ctrl', 'Enter'], desc: 'Enviar comentario desde el textarea' }
     ]},
     { title: 'Crear', items: [
       { keys: ['N'], desc: 'Asistente de nueva tarea' }
@@ -5700,33 +5723,34 @@ function edPanelSubmitEditComment(commentId) {
     .editTaskComment(commentId, newBody);
 }
 function edPanelDeleteComment(commentId) {
-  if (!confirm('¿Eliminar este comentario? El hilo conserva la marca de eliminado.')) return;
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (res && res.success) {
-        var item = document.querySelector('.tk-comment-item[data-comment-id="' + commentId + '"]');
-        if (item) {
-          item.classList.add('is-deleted');
-          var textEl = item.querySelector('.tk-comment-text');
-          if (textEl) textEl.innerHTML = '<i style="color:var(--fg-3)">(comentario eliminado)</i>';
-          var actionsEl = item.querySelector('.tk-comment-actions');
-          if (actionsEl) actionsEl.remove();
+  confirm_('¿Eliminar este comentario? El hilo conserva la marca de eliminado.', function() {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res && res.success) {
+          var item = document.querySelector('.tk-comment-item[data-comment-id="' + commentId + '"]');
+          if (item) {
+            item.classList.add('is-deleted');
+            var textEl = item.querySelector('.tk-comment-text');
+            if (textEl) textEl.innerHTML = '<i style="color:var(--fg-3)">(comentario eliminado)</i>';
+            var actionsEl = item.querySelector('.tk-comment-actions');
+            if (actionsEl) actionsEl.remove();
+          }
+          // Refresh count
+          var countSpan = $('tkCommentsCount');
+          if (countSpan) {
+            var n = document.querySelectorAll('#tkComments .tk-comment-item:not(.is-deleted)').length;
+            countSpan.textContent = '· ' + n;
+          }
+          toast('Comentario eliminado', 'success');
+        } else {
+          toast((res && res.error) || 'No se pudo eliminar.', 'error');
         }
-        // Refresh count
-        var countSpan = $('tkCommentsCount');
-        if (countSpan) {
-          var n = document.querySelectorAll('#tkComments .tk-comment-item:not(.is-deleted)').length;
-          countSpan.textContent = '· ' + n;
-        }
-        toast('Comentario eliminado', 'success');
-      } else {
-        toast((res && res.error) || 'No se pudo eliminar.', 'error');
-      }
-    })
-    .withFailureHandler(function(e) {
-      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
-    })
-    .deleteTaskComment(commentId);
+      })
+      .withFailureHandler(function(e) {
+        toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+      })
+      .deleteTaskComment(commentId);
+  }, { danger: true, confirmLabel: 'Eliminar' });
 }
 function _commentRelativeTime(iso) {
   if (!iso) return '';
@@ -6314,7 +6338,7 @@ function _renderTkPanel(sel) {
   html += '</div></div>';
   // Comment input
   html += '<div class="tk-panel-rail-input">'
-       +    '<textarea class="tk-comment-input" id="tkCommentInput" placeholder="Agregá un comentario… ⌘↵ enviar" rows="2"></textarea>'
+       +    '<textarea class="tk-comment-input" id="tkCommentInput" placeholder="Agregá un comentario… ' + (_isMac() ? '⌘+↵' : 'Ctrl+↵') + ' enviar" rows="2"></textarea>'
        +    '<div style="display:flex;justify-content:flex-end;margin-top:6px">'
        +      '<button class="pa-btn pa-btn-primary" id="tkCommentSubmit" onclick="edPanelSubmitComment(\'' + esc(sel.id) + '\')">' + paIcon('msg', 11) + ' Enviar</button>'
        +    '</div>'
@@ -9600,21 +9624,22 @@ function edPltSave() {
     .saveTemplate(tipo, items);
 }
 function edPltDelete(tipo) {
-  if (!confirm('¿Eliminar la plantilla de "' + tipo + '"? Las tareas ya creadas no se modifican.')) return;
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (res && res.success) {
-        if (_TEMPLATES_CACHE) delete _TEMPLATES_CACHE[tipo];
-        toast('Plantilla eliminada', 'success');
-        rEdPlantillas(D);
-      } else {
-        toast((res && res.error) || 'No se pudo eliminar.', 'error');
-      }
-    })
-    .withFailureHandler(function(e) {
-      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
-    })
-    .deleteTemplate(tipo);
+  confirm_('¿Eliminar la plantilla de "' + tipo + '"? Las tareas ya creadas no se modifican.', function() {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res && res.success) {
+          if (_TEMPLATES_CACHE) delete _TEMPLATES_CACHE[tipo];
+          toast('Plantilla eliminada', 'success');
+          rEdPlantillas(D);
+        } else {
+          toast((res && res.error) || 'No se pudo eliminar.', 'error');
+        }
+      })
+      .withFailureHandler(function(e) {
+        toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+      })
+      .deleteTemplate(tipo);
+  }, { danger: true, confirmLabel: 'Eliminar' });
 }
 
 // Mantengo la implementación mock antigua oculta para no romper referencias.
