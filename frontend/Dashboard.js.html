@@ -1471,16 +1471,19 @@ function batchUpdateProject(id, fields) {
 }
 
 // ═══ CONFIRM ═══
-// confirm_(txt, onConfirm) — modal custom, reemplaza window.confirm.
+// confirm_(txt, onConfirm, opts) — modal custom, reemplaza window.confirm.
+// txt puede ser texto plano o HTML (auto-detect: si contiene "<", se trata
+// como HTML para permitir énfasis con <b>, <em>, etc. en microcopy).
 // Variante "danger" cambia el botón a estilo crítico (rojo). Usar para
 // acciones irreversibles: delete comment/doc/template, eliminar tarea, etc.
 function confirm_(txt, fn, opts) {
   opts = opts || {};
-  $('confTxt').textContent = txt;
+  var p = $('confTxt');
+  var s = String(txt || '');
+  if (s.indexOf('<') >= 0) p.innerHTML = s; else p.textContent = s;
   $('confOv').classList.add('show');
   var btn = $('confBtn');
   btn.textContent = opts.confirmLabel || 'Confirmar';
-  // toggle danger styling
   btn.classList.toggle('btn-danger', !!opts.danger);
   btn.onclick = function(){ closeCf(); fn && fn(); };
 }
@@ -3414,8 +3417,271 @@ function renderEdHead(viewId) {
     + '<div class="pa-hd-actions">'
     +   '<button class="pa-btn pa-btn-icon" title="Atajos (?)" onclick="edHelpOpen()">' + paIcon('help', 14) + '</button>'
     +   '<button class="pa-btn pa-btn-primary" title="Nueva tarea (N)" onclick="edCrearOpen()">' + paIcon('plus', 12) + ' Nueva tarea</button>'
-    +   '<div class="pa-hd-avatar" title="' + esc(name) + '">' + esc(initial) + '</div>'
+    +   '<button class="pa-hd-avatar" title="' + esc(name) + ' · Click para opciones" onclick="edUserMenuToggle(event)" type="button">' + esc(initial) + '</button>'
     + '</div>';
+}
+
+// ════════════════════════════════════════════════════════════════
+// TOUR DE LA HERRAMIENTA
+// ════════════════════════════════════════════════════════════════
+// Tour interactivo que aparece la primera vez que un usuario entra
+// (localStorage flag) y se puede re-disparar desde el user menu.
+// Los steps varían según el rol: specialist tiene flujo más simple,
+// manager/head tienen pasos adicionales para reasignar / dashboards.
+//
+// Cada step tiene:
+//   title: string
+//   body:  string con HTML permitido
+//   action: optional {label, fn} — botón que ejecuta algo y avanza
+//   target: optional selector — si está, hace spotlight del elemento
+//
+// El user puede saltar con Esc o el botón Cerrar. Al terminar se
+// marca lt-tour-done para no volver a aparecer.
+var TOUR_FLAG = 'lt-tour-done-v1';
+var TOUR_STATE = { step: 0, steps: [], role: null };
+
+function _tourStepsForRole(role) {
+  var name = _effectiveUserName() || '';
+  var firstName = name ? name.split(/\s+/)[0] : '';
+  var common = [
+    {
+      eye: 'Bienvenido',
+      title: 'Hola ' + esc(firstName) + ', te muestro MyDash',
+      body: '<p>Es la herramienta del equipo legal para hacer seguimiento de tareas y proyectos por país. Reemplaza el Excel viejo.</p>'
+          + '<p>Te lo explico en 6 pasos rápidos. Podés saltarlo con <kbd>Esc</kbd> en cualquier momento.</p>'
+    },
+    {
+      eye: 'Navegación',
+      title: 'El sidebar es tu mapa',
+      body: '<p>Cada sección agrupa cosas que pertenecen juntas:</p>'
+          + '<ul>'
+          + '<li><b>Mi día</b> — lo que tenés que hacer hoy</li>'
+          + '<li><b>Donde trabajo</b> — tracker, proyectos, plantillas</li>'
+          + '<li><b>Análisis</b> — tu desempeño y tareas cerradas</li>'
+          + '</ul>'
+          + '<p>El número al lado de cada item es el count de pendientes.</p>'
+    },
+    {
+      eye: 'Tracker',
+      title: 'Acá viven tus tareas',
+      body: '<p>El <b>Tracker</b> es la vista más usada. Tiene filtros rápidos en la parte de arriba:</p>'
+          + '<ul>'
+          + '<li><b>Activas</b> — todo lo no cerrado</li>'
+          + '<li><b>Vencidas</b> — pasaron de su plazo (rojo)</li>'
+          + '<li><b>Cerradas</b> — historial completo de tu trabajo</li>'
+          + '</ul>'
+          + '<p>Click en una fila abre el panel detalle. <kbd>↓</kbd>/<kbd>↑</kbd> navegan filas con teclado.</p>',
+      action: { label: 'Ir al Tracker', fn: function(){ goEd('tracker'); } }
+    },
+    {
+      eye: 'Panel detalle',
+      title: 'El centro de control de cada tarea',
+      body: '<p>Al hacer click en una tarea ves todos sus datos: prioridad, plazo, responsable, riesgo, contraparte, etc.</p>'
+          + '<p><b>Para cambiar algo</b>: click en el valor de la celda (responsable, plazo, etc.) → editor inline.</p>'
+          + '<p>Doble-click en el título para renombrarla.</p>'
+          + '<p>Las <b>notas</b> se autoguardan cuando salís del campo.</p>'
+    },
+    {
+      eye: 'Comentarios + Docs',
+      title: 'Colabora dentro de la tarea',
+      body: '<p>En el panel detalle, la columna derecha tiene dos tabs:</p>'
+          + '<ul>'
+          + '<li><b>Comentarios</b> — hilo con tu equipo. <kbd>' + (_isMac()?'⌘':'Ctrl+') + 'Enter</kbd> envía rápido. Podés editar/eliminar tus propios.</li>'
+          + '<li><b>Documentos</b> — subí archivos al Drive (auto-organizados por tipo/país/proyecto) o adjuntá links externos.</li>'
+          + '</ul>'
+    },
+    {
+      eye: 'Cerrar tarea',
+      title: 'Cuando terminás una tarea',
+      body: '<p>En la barra inferior del panel:</p>'
+          + '<ul>'
+          + '<li><b>Avanzar →</b> mueve al siguiente estado (Pendiente → En curso → En revisión → Listo)</li>'
+          + '<li><b>Cerrar como ✓ Listo</b> pide un resumen y la mueve al historial</li>'
+          + '<li><b>Bloquear</b> si dependés de algo externo; pide razón</li>'
+          + '</ul>'
+          + '<p>Las cerradas siempre podés volver a verlas en <b>Cerradas</b> del sidebar.</p>'
+    }
+  ];
+  var bySpecialist = [
+    {
+      eye: 'Búsqueda global',
+      title: '<kbd>' + (_isMac()?'⌘':'Ctrl+') + 'K</kbd> abre todo',
+      body: '<p>Buscador global: encuentra tareas, proyectos y documentos por nombre, ID, persona o tipo.</p>'
+          + '<p>Navegá con <kbd>↓</kbd>/<kbd>↑</kbd> y <kbd>Enter</kbd> abre el resultado.</p>'
+    },
+    {
+      eye: 'Listo',
+      title: 'Ya está. Te dejo trabajar.',
+      body: '<p>Si en algún momento necesitás re-ver esto, andá al <b>avatar</b> arriba a la derecha → <i>Tour de la herramienta</i>.</p>'
+          + '<p>Otros atajos útiles:</p>'
+          + '<ul>'
+          + '<li><kbd>?</kbd> abre la ayuda con todos los atajos</li>'
+          + '<li><kbd>N</kbd> nueva tarea desde cualquier vista</li>'
+          + '<li><kbd>/</kbd> foco en el search del tracker</li>'
+          + '</ul>'
+          + '<p>¡A trabajar!</p>'
+    }
+  ];
+  var byManager = [
+    {
+      eye: 'Tu equipo',
+      title: 'Visibilidad del equipo',
+      body: '<p>En <b>Mi equipo</b> ves todos los miembros de tu país con su carga, vencidas, bloqueadas y SLA del mes.</p>'
+          + '<p>Click en "Ver tareas →" filtra el tracker por esa persona — útil para 1:1s o re-balancear.</p>'
+    },
+    {
+      eye: 'Reasignar',
+      title: 'Mover tareas entre el equipo',
+      body: '<p>En el panel detalle (manager/head), botón <b>Reasignar</b> abre un picker visual con la carga actual de cada miembro.</p>'
+          + '<p>También podés hacer <b>bulk reasignar</b>: seleccionás varias tareas con checkbox → botón Reasignar en la barra sticky → un click para todas.</p>'
+    },
+    {
+      eye: 'Métricas',
+      title: 'KPIs y tendencias',
+      body: '<p>En <b>Métricas</b> ves charts: SLA del país, distribución por prioridad, top performers, aging buckets, tendencia SLA 8 semanas.</p>'
+          + '<p>El export PDF mensual te da un resumen listo para reportar arriba.</p>'
+    }
+  ];
+  var byHead = [
+    {
+      eye: 'LATAM dashboard',
+      title: 'Operaciones globales',
+      body: '<p>En <b>Inicio</b> ves los 4 KPIs LATAM y la tabla "Por país" con sparkline 12 semanas.</p>'
+          + '<p>Click en una fila de país te lleva al tracker filtrado por ese país. Click en KPI te filtra global.</p>'
+    },
+    {
+      eye: 'Drill-down',
+      title: 'Selector país-por-país',
+      body: '<p>En el tracker hay un <b>dropdown de país</b> que te permite saltar entre países sin volver al grid.</p>'
+          + '<p>"Todos los países" muestra la lista LATAM completa.</p>'
+          + '<p>El botón <b>Volver a países</b> regresa al grid de cards.</p>'
+    },
+    {
+      eye: 'Demo mode',
+      title: 'Ver como Specialist o Manager',
+      body: '<p>Como head, podés simular la vista de un specialist o manager desde el avatar → "Ver app como…". Útil para QA o entender qué ven tus equipos.</p>'
+          + '<p>Las mutaciones siguen registrándose con tu identidad real.</p>'
+    }
+  ];
+  var tail = [
+    {
+      eye: 'Plantillas',
+      title: 'Acelera la creación',
+      body: '<p>En <b>Plantillas</b> definís checklists por tipo de trabajo (ej. NDA, derecho de petición, etc.).</p>'
+          + '<p>Cuando alguien crea una tarea con ese tipo, el campo Notas se prellena con el checklist.</p>'
+          + (role === 'specialist' ? '<p><i>Solo manager/Global pueden crear plantillas; vos las ves read-only.</i></p>' : '<p>Como manager/head podés crear, editar y eliminar plantillas.</p>')
+    }
+  ];
+  if (role === 'specialist') return common.concat(bySpecialist).concat(tail);
+  if (role === 'manager')    return common.concat(byManager).concat(tail);
+  if (role === 'head')       return common.concat(byHead).concat(byManager).concat(tail);
+  return common.concat(tail);
+}
+
+function edStartTour() {
+  var role = _effectiveRole();
+  TOUR_STATE.role = role;
+  TOUR_STATE.steps = _tourStepsForRole(role);
+  TOUR_STATE.step = 0;
+  _tourRender();
+}
+function _tourRender() {
+  var s = TOUR_STATE.steps[TOUR_STATE.step];
+  if (!s) { edFinishTour(); return; }
+  var total = TOUR_STATE.steps.length;
+  var cur = TOUR_STATE.step + 1;
+  var existing = $('edTourOv'); if (existing) existing.remove();
+  var ov = document.createElement('div');
+  ov.id = 'edTourOv';
+  ov.className = 'ed-tour-overlay';
+  ov.onclick = function(e) { if (e.target === ov) edFinishTour(); };
+  ov.innerHTML = ''
+    + '<div class="ed-tour-modal" role="dialog" aria-modal="true" aria-label="Tour">'
+    +   '<div class="ed-tour-progress"><div class="ed-tour-progress-fill" style="width:' + Math.round(cur/total*100) + '%"></div></div>'
+    +   '<div class="ed-tour-head">'
+    +     '<div>'
+    +       '<div class="ed-tour-eye">— ' + esc(s.eye) + ' · paso ' + cur + ' de ' + total + '</div>'
+    +       '<div class="ed-tour-title">' + s.title + '</div>'
+    +     '</div>'
+    +     '<button class="ed-tour-x" type="button" onclick="edFinishTour()" aria-label="Cerrar tour">×</button>'
+    +   '</div>'
+    +   '<div class="ed-tour-body">' + s.body + '</div>'
+    +   '<div class="ed-tour-foot">'
+    +     '<button class="pa-btn pa-btn-ghost" onclick="edFinishTour()">' + (cur === total ? 'Listo' : 'Saltar tour') + '</button>'
+    +     '<div style="margin-left:auto;display:flex;gap:6px">'
+    +       (cur > 1 ? '<button class="pa-btn pa-btn-outline" onclick="edTourPrev()">← Atrás</button>' : '')
+    +       (s.action ? '<button class="pa-btn pa-btn-outline" onclick="' + s.action.fnCode + '">' + esc(s.action.label) + '</button>' : '')
+    +       '<button class="pa-btn pa-btn-primary" onclick="' + (cur === total ? 'edFinishTour()' : 'edTourNext()') + '">'
+    +         (cur === total ? 'Empezar a usar' : 'Siguiente →')
+    +       '</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+function edTourNext() {
+  TOUR_STATE.step = Math.min(TOUR_STATE.step + 1, TOUR_STATE.steps.length - 1);
+  _tourRender();
+}
+function edTourPrev() {
+  TOUR_STATE.step = Math.max(TOUR_STATE.step - 1, 0);
+  _tourRender();
+}
+function edFinishTour() {
+  var ov = $('edTourOv'); if (ov) ov.remove();
+  try { localStorage.setItem(TOUR_FLAG, '1'); } catch(e){}
+}
+
+// User menu del header: dropdown con perfil + tema + (head) ver como + ayuda.
+// Antes el avatar no tenía acción; el user lo clickeaba esperando algo y no
+// pasaba nada. Ahora abre un menú útil sin obligar al user a buscar atajos.
+function edUserMenuToggle(ev) {
+  if (ev) ev.stopPropagation();
+  var existing = document.getElementById('edUserMenu');
+  if (existing) { existing.remove(); return; }
+  var anchor = ev && ev.currentTarget;
+  if (!anchor) return;
+  var theme = (document.body && document.body.dataset.theme) || 'dark';
+  var name = _effectiveUserName() || 'Usuario';
+  var role = _effectiveRole();
+  var roleLabel = role === 'head' ? 'Global' : (role === 'manager' ? 'Manager' : 'Specialist');
+  var realRole = _realRole();
+  var canSwitch = (realRole === 'head');
+  var r = anchor.getBoundingClientRect();
+  var menu = document.createElement('div');
+  menu.id = 'edUserMenu';
+  menu.className = 'ed-user-menu';
+  menu.style.right = (window.innerWidth - r.right) + 'px';
+  menu.style.top = (r.bottom + 6) + 'px';
+  menu.innerHTML = ''
+    + '<div class="ed-user-menu-h">'
+    +   '<div class="ed-user-menu-name">' + esc(name) + '</div>'
+    +   '<div class="ed-user-menu-sub">' + esc(roleLabel) + '</div>'
+    + '</div>'
+    + '<button class="ed-user-menu-item" onclick="setTheme(\'' + (theme === 'dark' ? 'light' : 'dark') + '\');edUserMenuClose()">'
+    +   paIcon(theme === 'dark' ? 'sun' : 'moon', 14) + ' Tema: ' + (theme === 'dark' ? 'claro' : 'oscuro')
+    + '</button>'
+    + (canSwitch
+      ? '<button class="ed-user-menu-item" onclick="edUserMenuClose();edToggleDemoDropdown(event)">'
+        + paIcon('users', 14) + ' Ver app como…'
+        + '</button>'
+      : '')
+    + '<button class="ed-user-menu-item" onclick="edUserMenuClose();edHelpOpen()">'
+    +   paIcon('help', 14) + ' Atajos y ayuda'
+    + '</button>'
+    + '<button class="ed-user-menu-item" onclick="edStartTour();edUserMenuClose()">'
+    +   paIcon('spark', 14) + ' Tour de la herramienta'
+    + '</button>'
+    + '<div class="ed-user-menu-foot">Sesión de Google · cerrá la pestaña para salir</div>';
+  document.body.appendChild(menu);
+  setTimeout(function() {
+    document.addEventListener('click', function _close(e) {
+      if (!menu.contains(e.target)) { edUserMenuClose(); document.removeEventListener('click', _close); }
+    });
+  }, 0);
+}
+function edUserMenuClose() {
+  var m = document.getElementById('edUserMenu'); if (m) m.remove();
 }
 
 // Toggle del sidebar móvil (<=768px). force=true abre, false cierra,
@@ -3443,6 +3709,13 @@ function mountEdShell() {
   var head = $('edHead'); if (head) head.innerHTML = renderEdHead('home');
   // Esconder el FAB legacy: el header editorial ya tiene "+ Nueva".
   var fab = $('fabCreate'); if (fab) fab.style.display = 'none';
+  // Auto-launch del tour la primera vez (localStorage flag). 800ms delay
+  // para que el render de la vista termine y el user vea el shell antes.
+  try {
+    if (!localStorage.getItem(TOUR_FLAG) && typeof edStartTour === 'function') {
+      setTimeout(function(){ edStartTour(); }, 800);
+    }
+  } catch(e){}
 }
 
 // (setTheme está definido arriba en el módulo de bootstrap)
@@ -6061,7 +6334,26 @@ function rEdTracker(D) {
   }
   html += '</div></div>';
 
-  // Active secondary filters
+  // Indicador de filtro principal activo (no-default): cuando un user vuelve
+  // mañana y dejó "Bloqueadas" o "Cerradas" persistido, el chip se ve activo
+  // pero puede no ser obvio que solo está viendo una porción. Banner sutil
+  // arriba del filterbar con "X de Y" + atajo para limpiar.
+  var primaryNonDefault = EDT.filter && EDT.filter !== 'all';
+  var totalScope = (EDT.filter === 'closed') ? roleHist.length : cAll;
+  if (primaryNonDefault || EDT.search) {
+    var filterLabels = {
+      overdue: 'Vencidas', today: 'Vencen hoy', blocked: 'Bloqueadas',
+      alta: 'Prioridad alta', mine: 'Asignadas a mí', closed: 'Cerradas'
+    };
+    var filtLbl = filterLabels[EDT.filter] || 'filtro';
+    html += '<div class="pa-filter-active">'
+         +    paIcon('search', 12)
+         +    '<span>Viendo <b>' + (EDT.search ? 'búsqueda "' + esc(EDT.search) + '"' : filtLbl) + '</b> · ' + rows.length + ' de ' + totalScope + (totalScope === 1 ? ' tarea' : ' tareas') + '</span>'
+         +    '<button class="pa-btn pa-btn-ghost" style="margin-left:auto;font-size:11px;height:22px" onclick="edSetFilter(\'all\');edSetSearch(\'\')">Limpiar</button>'
+         + '</div>';
+  }
+
+  // Active secondary filters (proyecto, resp, conf)
   if (EDT.projectFilter || EDT.respFilter || EDT.confFilter) {
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;align-items:center">';
     if (EDT.projectFilter) {

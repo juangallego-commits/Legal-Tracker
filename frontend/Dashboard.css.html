@@ -351,12 +351,147 @@ input, select, textarea { font-family: inherit; color: inherit; }
 .pa-hd-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 
 .pa-hd-avatar {
-  width: 24px; height: 24px; border-radius: 50%;
+  width: 28px; height: 28px; border-radius: 50%;
   background: #d0a86b; color: #2a1c0a;
-  font-size: 10px; font-weight: 600;
+  font-size: 11px; font-weight: 600;
   display: grid; place-items: center;
   margin-left: 4px;
+  border: 0; cursor: pointer;
+  font-family: inherit;
 }
+.pa-hd-avatar:hover { transform: scale(1.05); transition: transform .12s; }
+
+/* User menu dropdown (sale del avatar header) */
+.ed-user-menu {
+  position: fixed;
+  z-index: 90;
+  min-width: 220px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  padding: 6px;
+  animation: pa-panel-in .12s ease-out;
+}
+.ed-user-menu-h {
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--line-1);
+  margin-bottom: 4px;
+}
+.ed-user-menu-name { font-size: 13px; font-weight: 600; color: var(--fg-1); }
+.ed-user-menu-sub { font-size: 11px; color: var(--fg-3); margin-top: 2px; }
+.ed-user-menu-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 10px;
+  border: 0; background: transparent;
+  font: inherit; font-size: 12px; color: var(--fg-1);
+  cursor: pointer; border-radius: 6px;
+  text-align: left;
+}
+.ed-user-menu-item:hover { background: var(--bg-2); }
+.ed-user-menu-foot {
+  padding: 8px 10px 4px;
+  border-top: 1px solid var(--line-1);
+  margin-top: 4px;
+  font-size: 11px; color: var(--fg-3); line-height: 1.4;
+}
+
+/* Tour overlay — onboarding interactivo de la herramienta */
+.ed-tour-overlay {
+  position: fixed; inset: 0;
+  z-index: 95;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  animation: pa-panel-fade-in .2s ease-out;
+}
+.ed-tour-modal {
+  width: 100%; max-width: 560px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  animation: pa-panel-in .25s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex; flex-direction: column;
+  max-height: 88vh;
+}
+.ed-tour-progress {
+  height: 3px; background: var(--bg-2);
+}
+.ed-tour-progress-fill {
+  height: 100%; background: var(--accent);
+  transition: width .3s ease-out;
+}
+.ed-tour-head {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 22px 24px 12px;
+}
+.ed-tour-eye {
+  font-size: 11px; color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  font-weight: 600; margin-bottom: 6px;
+}
+.ed-tour-title {
+  font-size: 20px; font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--fg-1); line-height: 1.25;
+}
+.ed-tour-title kbd {
+  display: inline-block;
+  padding: 2px 6px; border-radius: 4px;
+  background: var(--bg-2); border: 1px solid var(--line-2);
+  font-family: var(--font-mono); font-size: 13px;
+  color: var(--fg-1); font-weight: 500;
+  vertical-align: 2px;
+}
+.ed-tour-x {
+  margin-left: auto;
+  background: transparent; border: 0;
+  font-size: 22px; color: var(--fg-3);
+  cursor: pointer; line-height: 1;
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  display: grid; place-items: center;
+}
+.ed-tour-x:hover { background: var(--bg-2); color: var(--fg-1); }
+.ed-tour-body {
+  padding: 4px 24px 22px;
+  flex: 1; overflow-y: auto;
+  font-size: 13px; color: var(--fg-2);
+  line-height: 1.6;
+}
+.ed-tour-body p { margin: 0 0 10px; }
+.ed-tour-body ul { margin: 8px 0 10px; padding-left: 18px; }
+.ed-tour-body li { margin-bottom: 4px; }
+.ed-tour-body b { color: var(--fg-1); font-weight: 600; }
+.ed-tour-body kbd {
+  display: inline-block;
+  padding: 1px 5px; border-radius: 3px;
+  background: var(--bg-2); border: 1px solid var(--line-2);
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--fg-1); font-weight: 500;
+}
+.ed-tour-foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--line-1);
+  background: var(--bg-0);
+}
+
+/* Active filter indicator: banner sutil cuando hay filter no-default activo */
+.pa-filter-active {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in oklab, var(--accent) 25%, transparent);
+  font-size: 12px; color: var(--accent);
+}
+.pa-filter-active b { font-weight: 600; }
+.pa-filter-active .pa-btn-ghost { color: var(--accent); }
+.pa-filter-active .pa-btn-ghost:hover { background: var(--accent-soft-strong); }
 
 /* ═══════════════════════════════════════════════════════════════
    BUTTONS
