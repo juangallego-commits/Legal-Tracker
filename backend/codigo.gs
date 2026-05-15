@@ -1665,6 +1665,97 @@ function _getTemplatesImpl() {
   try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(dict), 3600); } catch (e) {}
   return dict;
 }
+
+// ── Save / Delete templates desde la UI ─────────────────────────
+// Permiten editar la hoja Templates sin tocar el spreadsheet manualmente.
+// Solo manager/head pueden mutar plantillas (specialist es read-only).
+// saveTemplate hace upsert por tipoTrabajo: si existe, reemplaza; si no, append.
+// Invalidan la cache templates_v1 inmediatamente para que el próximo
+// getTemplates() (incluido el del wizard de Crear) refleje el cambio.
+function saveTemplate(tipoTrabajo, checklistArray) {
+  return _telemetry('saveTemplate', function() {
+    return _safeMutation(function() { return _saveTemplateImpl(tipoTrabajo, checklistArray); });
+  }, { tipo: tipoTrabajo });
+}
+function _saveTemplateImpl(tipoTrabajo, checklistArray) {
+  var ctx = _getAuthContext();
+  if (ctx.role !== 'manager' && ctx.role !== 'head') {
+    return { success: false, error: 'Solo managers o Global pueden editar plantillas.' };
+  }
+  var tipo = (tipoTrabajo || '').toString().trim();
+  if (!tipo) return { success: false, error: 'Elegí un tipo de trabajo.' };
+  if (!Array.isArray(checklistArray)) return { success: false, error: 'checklist debe ser un array.' };
+  // Sanitize: trim cada item, cap 200 chars, drop empties, max 50 items.
+  var clean = checklistArray
+    .map(function(it){ return String(it == null ? '' : it).trim().slice(0, 200); })
+    .filter(Boolean)
+    .slice(0, 50);
+  if (!clean.length) return { success: false, error: 'Agregá al menos un ítem al checklist.' };
+  var ss = ctx.ss;
+  var ws = ss.getSheetByName(SHEET_TEMPLATES);
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_TEMPLATES);
+    ws.getRange(1, 1, 1, 2).setValues([['tipoTrabajo', 'checklist']]);
+    ws.getRange(1, 1, 1, 2).setFontWeight('bold');
+    ws.setFrozenRows(1);
+  }
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); } catch (e) { throw new Error('Server busy, retry in a moment.'); }
+  try {
+    var lr = ws.getLastRow();
+    var rowIdx = -1;
+    if (lr >= 2) {
+      var data = ws.getRange(2, 1, lr - 1, 1).getValues();
+      for (var i = 0; i < data.length; i++) {
+        if ((data[i][0] || '').toString().trim() === tipo) { rowIdx = i + 2; break; }
+      }
+    }
+    var payload = _sanitizeRow([tipo, JSON.stringify(clean)]);
+    if (rowIdx > 0) {
+      ws.getRange(rowIdx, 1, 1, 2).setValues([payload]);
+    } else {
+      ws.appendRow(payload);
+    }
+    try { CacheService.getScriptCache().remove('templates_v1'); } catch (e) {}
+    return { success: true, tipo: tipo, checklist: clean };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function deleteTemplate(tipoTrabajo) {
+  return _telemetry('deleteTemplate', function() {
+    return _safeMutation(function() { return _deleteTemplateImpl(tipoTrabajo); });
+  }, { tipo: tipoTrabajo });
+}
+function _deleteTemplateImpl(tipoTrabajo) {
+  var ctx = _getAuthContext();
+  if (ctx.role !== 'manager' && ctx.role !== 'head') {
+    return { success: false, error: 'Solo managers o Global pueden eliminar plantillas.' };
+  }
+  var tipo = (tipoTrabajo || '').toString().trim();
+  if (!tipo) return { success: false, error: 'Tipo requerido.' };
+  var ss = ctx.ss;
+  var ws = ss.getSheetByName(SHEET_TEMPLATES);
+  if (!ws) return { success: false, error: 'No hay plantillas todavía.' };
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); } catch (e) { throw new Error('Server busy, retry in a moment.'); }
+  try {
+    var lr = ws.getLastRow();
+    if (lr < 2) return { success: false, error: 'No hay plantillas.' };
+    var data = ws.getRange(2, 1, lr - 1, 1).getValues();
+    var rowIdx = -1;
+    for (var i = 0; i < data.length; i++) {
+      if ((data[i][0] || '').toString().trim() === tipo) { rowIdx = i + 2; break; }
+    }
+    if (rowIdx < 0) return { success: false, error: 'Plantilla no encontrada.' };
+    ws.deleteRow(rowIdx);
+    try { CacheService.getScriptCache().remove('templates_v1'); } catch (e) {}
+    return { success: true, tipo: tipo };
+  } finally {
+    lock.releaseLock();
+  }
+}
 // O(1) en lugar del while-day-by-day. Para historial extenso (años),
 // el loop original disparaba miles de iteraciones por entry × cientos
 // de entries → segundos de CPU. Algoritmo: total días entre fechas,

@@ -9337,7 +9337,221 @@ function _paApprovalPill(approved) {
     : '<span class="pa-pill pa-pill-warn">' + paIcon('alert', 10) + ' En revisión</span>';
 }
 
+// Render real de la vista Biblioteca: lee la hoja Templates vía getTemplates().
+// La data tiene forma { tipoTrabajo: [item1, item2, ...] }. Solo manager y
+// head pueden crear/editar/eliminar; specialist es read-only. Cuando se
+// cambia una plantilla, invalidamos _TEMPLATES_CACHE para forzar refresh
+// en el wizard de Crear (sino el dropdown sigue mostrando la versión vieja
+// hasta que recargue la página).
 function rEdPlantillas(D) {
+  var v = $('vEdPlantillas'); if (!v) return;
+  var role = _effectiveRole();
+  var canEdit = (role === 'manager' || role === 'head');
+
+  // Si la cache local no está cargada todavía, fetch — el render se llama
+  // de nuevo cuando responde.
+  if (_TEMPLATES_CACHE == null) {
+    v.innerHTML = '<div class="pa-page"><div style="padding:32px;text-align:center;color:var(--fg-3)">Cargando plantillas…</div></div>';
+    _loadTemplates(function() { rEdPlantillas(D); });
+    return;
+  }
+
+  // _TEMPLATES_CACHE = { tipoTrabajo: [items] } — convertir a array para iterar ordenado.
+  var dict = _TEMPLATES_CACHE || {};
+  var tipos = Object.keys(dict).sort();
+  var templates = tipos.map(function(t){ return { tipo: t, items: dict[t] || [] }; });
+
+  var html = '<div class="pa-page">';
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">Biblioteca</span>'
+       +    '<span class="pa-page-sub">' + templates.length + (templates.length === 1 ? ' plantilla' : ' plantillas') + ' · una por tipo de trabajo</span>'
+       +    '<div class="pa-page-meta">'
+       +      (canEdit ? '<button class="pa-btn pa-btn-primary" onclick="edPltOpenEditor(null)">' + paIcon('plus', 12) + ' Nueva plantilla</button>' : '')
+       +    '</div>'
+       + '</div>';
+
+  if (!canEdit) {
+    html += '<div class="pa-narrative">Las plantillas pre-cargan el checklist de notas al crear una tarea. Solo managers y Global pueden editarlas.</div>';
+  } else {
+    html += '<div class="pa-narrative">Las plantillas se aplican automáticamente al elegir el <b>Tipo de trabajo</b> en el wizard de Crear. Si el campo Notas está vacío, se prellena con los ítems del checklist.</div>';
+  }
+
+  if (templates.length === 0) {
+    html += paEmpty('doc', 'Tu biblioteca está vacía.', canEdit
+      ? 'Creá tu primera plantilla con "Nueva plantilla". Cada tipo de trabajo (Contractual, Privacy, etc.) puede tener una.'
+      : 'Pedile a tu manager que cree plantillas para tus tipos de trabajo más frecuentes.');
+    html += '</div>';
+    v.innerHTML = html;
+    return;
+  }
+
+  html += '<div class="pa-tbl" style="margin-top:14px">'
+       +    '<div class="pa-tbl-h" style="grid-template-columns: 200px 1fr 90px 200px">'
+       +      '<div>Tipo de trabajo</div><div>Checklist</div><div>Ítems</div><div></div>'
+       +    '</div>';
+  templates.forEach(function(t) {
+    var preview = t.items.slice(0, 3).join(' · ');
+    if (t.items.length > 3) preview += ' · …';
+    var actions = canEdit
+      ? '<div style="display:flex;gap:6px;justify-content:flex-end">'
+        +   '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="event.stopPropagation();edPltOpenEditor(\'' + esc(t.tipo) + '\')">Editar</button>'
+        +   '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px;color:var(--critical-fg)" onclick="event.stopPropagation();edPltDelete(\'' + esc(t.tipo) + '\')">Eliminar</button>'
+        + '</div>'
+      : '';
+    html += '<div class="pa-tbl-r" style="grid-template-columns: 200px 1fr 90px 200px;height:auto;min-height:48px;padding:10px 12px">'
+         +    '<div><span class="pa-pill pa-pill-tipo">' + esc(t.tipo) + '</span></div>'
+         +    '<div style="font-size:12px;color:var(--fg-2);line-height:1.45">' + esc(preview) + '</div>'
+         +    '<div class="mono" style="font-size:12px;color:var(--fg-3)">' + t.items.length + '</div>'
+         +    actions
+         + '</div>';
+  });
+  html += '</div></div>';
+  v.innerHTML = html;
+  return;
+}
+
+// Editor de plantilla: modal con dropdown de tipoTrabajo + textarea de items
+// (uno por línea). Si `tipo` se pasa, edita la existente; si null, crea nueva.
+var EDPLT_EDIT = { tipo: null, items: [], saving: false };
+function edPltOpenEditor(tipo) {
+  var role = _effectiveRole();
+  if (role !== 'manager' && role !== 'head') {
+    toast('Solo managers o Global pueden editar plantillas.', 'error');
+    return;
+  }
+  var dict = _TEMPLATES_CACHE || {};
+  EDPLT_EDIT.tipo = tipo || null;
+  EDPLT_EDIT.items = tipo && dict[tipo] ? dict[tipo].slice() : [];
+  EDPLT_EDIT.saving = false;
+  _edPltMountEditor();
+}
+function edPltCloseEditor() {
+  var host = $('edPltHost'); if (host) host.innerHTML = '';
+  EDPLT_EDIT.saving = false;
+}
+function _edPltMountEditor() {
+  var host = $('edPltHost');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'edPltHost';
+    document.body.appendChild(host);
+  }
+  var existingTipos = Object.keys(_TEMPLATES_CACHE || {});
+  var isNew = !EDPLT_EDIT.tipo;
+  // En modo "nueva" solo dejamos elegir tipos que NO tengan plantilla ya
+  // (una plantilla por tipo). En edición, el tipo está fijo (no se cambia).
+  var availableTipos = isNew
+    ? _CR_TIPOS.filter(function(t){ return existingTipos.indexOf(t) < 0; })
+    : [EDPLT_EDIT.tipo];
+  var noTiposLeft = isNew && availableTipos.length === 0;
+  var itemsText = (EDPLT_EDIT.items || []).join('\n');
+
+  var html = '<div class="cr-overlay" onclick="if(event.target===this)edPltCloseEditor()">'
+           +   '<div class="cr-backdrop" onclick="edPltCloseEditor()"></div>'
+           +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Editor de plantilla">'
+           +     '<div class="cr-head">'
+           +       '<div>'
+           +         '<div class="cr-eye">— ' + (isNew ? 'Nueva' : 'Editar') + ' plantilla</div>'
+           +         '<div class="cr-title">' + (isNew ? 'Crear plantilla' : ('Editar plantilla · ' + esc(EDPLT_EDIT.tipo))) + '</div>'
+           +       '</div>'
+           +       '<button type="button" class="cr-x" onclick="edPltCloseEditor()" aria-label="Cerrar">×</button>'
+           +     '</div>'
+           +     '<div class="cr-body">';
+
+  if (noTiposLeft) {
+    html += '<div class="pa-narrative">Ya tenés una plantilla para cada tipo de trabajo. Editá las existentes desde la lista, o eliminá alguna para crear otra con ese tipo.</div>';
+  } else {
+    html += '<div class="cr-field">'
+         +    '<div class="cr-label">Tipo de trabajo <span class="req">*</span></div>'
+         +    (isNew
+         ?      '<select id="edPltTipoSelect" class="cr-input" onchange="EDPLT_EDIT.tipo=this.value">'
+         +        '<option value="">Seleccionar…</option>'
+         +        availableTipos.map(function(t){
+                    return '<option value="' + esc(t) + '"' + (EDPLT_EDIT.tipo === t ? ' selected' : '') + '>' + esc(t) + '</option>';
+                  }).join('')
+         +      '</select>'
+         :      '<input class="cr-input" value="' + esc(EDPLT_EDIT.tipo) + '" disabled>')
+         + '</div>'
+         + '<div class="cr-field">'
+         +   '<div class="cr-label">Checklist · un ítem por línea <span class="req">*</span></div>'
+         +   '<textarea id="edPltItemsTa" class="cr-input cr-textarea" style="min-height:200px;font-family:var(--font-mono);font-size:12px" placeholder="Revisar contraparte\nValidar firma autorizada\nAdjuntar minuta\n…">' + esc(itemsText) + '</textarea>'
+         +   '<div style="font-size:11px;color:var(--fg-3);margin-top:6px">Máx 50 ítems, 200 caracteres por ítem. Líneas vacías se ignoran.</div>'
+         + '</div>';
+  }
+
+  html += '</div>'
+       +    '<div class="cr-foot">'
+       +      '<div class="cr-foot-info">' + (isNew ? 'La plantilla se aplica al elegir este tipo en el wizard de Crear.' : 'Los cambios afectan tareas nuevas — las ya creadas no se modifican.') + '</div>'
+       +      '<button type="button" class="ed-btn ghost" onclick="edPltCloseEditor()">Cancelar</button>'
+       +      (noTiposLeft ? '' : '<button type="button" class="ed-btn accent" id="edPltSaveBtn" onclick="edPltSave()">Guardar</button>')
+       +    '</div>'
+       +  '</div>'
+       + '</div>';
+  host.innerHTML = html;
+  setTimeout(function() {
+    var ta = $('edPltItemsTa');
+    if (ta) ta.focus();
+  }, 60);
+}
+function edPltSave() {
+  if (EDPLT_EDIT.saving) return;
+  var tipo = EDPLT_EDIT.tipo;
+  if (!tipo) {
+    var sel = $('edPltTipoSelect');
+    tipo = sel && sel.value;
+    if (!tipo) { toast('Elegí un tipo de trabajo.', 'error'); return; }
+    EDPLT_EDIT.tipo = tipo;
+  }
+  var ta = $('edPltItemsTa');
+  if (!ta) return;
+  var items = (ta.value || '').split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
+  if (!items.length) { toast('Agregá al menos un ítem.', 'error'); return; }
+  EDPLT_EDIT.saving = true;
+  var btn = $('edPltSaveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      EDPLT_EDIT.saving = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+      if (res && res.success) {
+        _TEMPLATES_CACHE = _TEMPLATES_CACHE || {};
+        _TEMPLATES_CACHE[res.tipo] = res.checklist || [];
+        toast('Plantilla guardada', 'success');
+        edPltCloseEditor();
+        rEdPlantillas(D);
+      } else {
+        toast((res && res.error) || 'No se pudo guardar.', 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      EDPLT_EDIT.saving = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .saveTemplate(tipo, items);
+}
+function edPltDelete(tipo) {
+  if (!confirm('¿Eliminar la plantilla de "' + tipo + '"? Las tareas ya creadas no se modifican.')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        if (_TEMPLATES_CACHE) delete _TEMPLATES_CACHE[tipo];
+        toast('Plantilla eliminada', 'success');
+        rEdPlantillas(D);
+      } else {
+        toast((res && res.error) || 'No se pudo eliminar.', 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .deleteTemplate(tipo);
+}
+
+// Mantengo la implementación mock antigua oculta para no romper referencias.
+// El array TEMPLATES = [] mock + funciones edPltSelect/edPltSetFilter/
+// edPltCreateFromTemplate quedan no-usadas. Se pueden borrar en próxima pasada.
+function _rEdPlantillasLegacyMock(D) {
   var v = $('vEdPlantillas'); if (!v) return;
   var role = _effectiveRole();
   var userName = _effectiveUserName();
