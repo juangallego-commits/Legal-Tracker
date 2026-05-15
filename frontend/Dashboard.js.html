@@ -6204,7 +6204,10 @@ function _renderTkPanel(sel) {
   var selCfMeta = ED_CONF_LEVELS[selCfLvl] || { label: 'Estándar', desc: '' };
   var canReassign = (role === 'manager' || role === 'head');
 
-  var html = '<aside class="tk-panel" id="tkPanel">';
+  // Overlay con backdrop: click fuera del modal cierra. Esto sustituyó el
+  // panel slide-in fixed que tapaba el sidebar de la app en pantallas <1600px.
+  var html = '<div class="tk-panel-overlay" id="tkPanelOv" onclick="if(event.target===this)edClosePanel()">';
+  html += '<aside class="tk-panel" id="tkPanel">';
   // Main column
   html += '<div class="tk-panel-main">'
        +    '<div class="tk-eyebrow">'
@@ -6345,6 +6348,7 @@ function _renderTkPanel(sel) {
   }
 
   html += '</aside>';
+  html += '</div>'; // close .tk-panel-overlay
   return html;
 }
 

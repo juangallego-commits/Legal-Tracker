@@ -1034,22 +1034,38 @@ input, select, textarea { font-family: inherit; color: inherit; }
 .pa-empty-hint { font-size: 12px; color: var(--fg-3); margin-top: 2px; }
 
 /* ═══════════════════════════════════════════════════════════════
-   TASK PANEL (slide-in detail)
+   TASK PANEL · modal overlay centrado (consistente con wizard Crear)
+   Antes era un slide-in lateral fixed que tapaba el sidebar de la
+   app en pantallas <1600px. Ahora aparece como modal centrado con
+   backdrop, como Crear/Editar.
    ═══════════════════════════════════════════════════════════════ */
-.tk-panel {
-  position: fixed;
-  top: var(--header-h); right: 0; bottom: 0;
-  width: 720px; max-width: 95vw;
-  background: var(--bg-0);
-  border-left: 1px solid var(--line-2);
-  box-shadow: var(--shadow-pop);
+.tk-panel-overlay {
+  position: fixed; inset: 0;
   z-index: 80;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  animation: pa-panel-fade-in .18s ease-out;
+}
+@keyframes pa-panel-fade-in {
+  from { background: rgba(0,0,0,0); }
+  to   { background: rgba(0,0,0,0.5); }
+}
+.tk-panel {
+  position: relative;
+  width: 100%; max-width: 1080px;
+  height: 100%; max-height: 86vh;
+  background: var(--bg-0);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
   display: grid;
   grid-template-columns: 1fr 360px;
   min-height: 0;
-  animation: pa-panel-in .25s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  animation: pa-panel-in .22s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.tk-panel-main { overflow: auto; padding: 20px 28px 100px; min-width: 0; }
+.tk-panel-main { overflow: auto; padding: 22px 28px 96px; min-width: 0; }
 .tk-panel-rail {
   border-left: 1px solid var(--line-1);
   background: var(--bg-1);
@@ -1083,6 +1099,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
   background: var(--bg-0);
   border-top: 1px solid var(--line-1);
   display: flex; align-items: center; gap: 10px;
+  border-bottom-left-radius: 12px;
 }
 
 .tk-eyebrow {
