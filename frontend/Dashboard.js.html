@@ -3303,7 +3303,7 @@ function renderEdSidebar(role, activeViewId) {
         });
       }
       html += '<button class="pa-sb-item' + (isActive ? ' is-active' : '') + (alert ? ' has-alert' : '')
-           +  '" type="button" data-viewid="' + esc(it.id) + '"'
+           +  '" type="button" data-viewid="' + esc(it.id) + '" data-label="' + esc(it.label) + '"'
            +  (isActive ? ' aria-current="page"' : '')
            +  ' onclick="goEd(\'' + esc(it.id) + '\')">'
            +    paIcon(it.icon || 'dot', 14, 'ico')
@@ -5582,33 +5582,142 @@ function edPanelLoadComments(taskId) {
     })
     .getTaskComments(taskId);
 }
+function _meCommentEmail() {
+  return (USER && USER.email) || (D && D._user && D._user.email) || '';
+}
+// Render de un solo comment item — usado por load (todos) y submit (append optimistic).
+// `c` = { id, author_name, author_email, ts, body, edited_ts, deleted_ts }
+function _commentItemHtml(c, opts) {
+  opts = opts || {};
+  var when = opts.fresh ? 'hace un momento' : _commentRelativeTime(c.ts);
+  var initials = (c.author_name || '?').split(/\s+/).slice(0, 2).map(function(w){ return (w[0] || '').toUpperCase(); }).join('') || '?';
+  var mine = c.author_email && (c.author_email === _meCommentEmail());
+  var deleted = !!c.deleted_ts;
+  var edited = !!c.edited_ts && !deleted;
+  var bodyHtml = deleted
+    ? '<i style="color:var(--fg-3)">(comentario eliminado)</i>'
+    : esc(c.body || '').replace(/\n/g, '<br>');
+  var actions = '';
+  if (mine && !deleted) {
+    actions = '<div class="tk-comment-actions">'
+            +   '<button class="pa-btn pa-btn-ghost" style="height:22px;font-size:11px;padding:0 8px" onclick="edPanelEditComment(\'' + esc(c.id) + '\')">Editar</button>'
+            +   '<button class="pa-btn pa-btn-ghost" style="height:22px;font-size:11px;padding:0 8px;color:var(--critical-fg)" onclick="edPanelDeleteComment(\'' + esc(c.id) + '\')">Eliminar</button>'
+            + '</div>';
+  }
+  return '<div class="tk-comment-item' + (mine ? ' mine' : '') + (deleted ? ' is-deleted' : '') + (opts.fresh ? ' new' : '') + '" data-comment-id="' + esc(c.id) + '" data-comment-body="' + esc(c.body || '') + '">'
+       +    '<div class="tk-comment-av" title="' + esc(c.author_name || c.author_email || '') + '">' + esc(initials) + '</div>'
+       +    '<div class="tk-comment-body">'
+       +      '<div class="tk-comment-head">'
+       +        '<span class="tk-comment-author">' + esc(c.author_name || c.author_email || 'Anónimo') + '</span>'
+       +        '<span class="tk-comment-when">' + esc(when) + (edited ? ' · editado' : '') + '</span>'
+       +        actions
+       +      '</div>'
+       +      '<div class="tk-comment-text">' + bodyHtml + '</div>'
+       +    '</div>'
+       + '</div>';
+}
+
 function _edPanelRenderComments(comments, taskId) {
   var host = $('tkComments'); if (!host) return;
-  // Actualizar el count en la tab "Comentarios · N"
+  // Count en la tab — excluye eliminados para que el badge refleje el thread activo.
+  var visible = comments.filter(function(c){ return !c.deleted_ts; });
   var countSpan = $('tkCommentsCount');
-  if (countSpan) countSpan.textContent = '· ' + comments.length;
+  if (countSpan) countSpan.textContent = '· ' + visible.length;
   if (!comments.length) {
     host.innerHTML = '<div class="tk-comments-empty">Aún no hay comentarios. Iniciá la conversación.</div>';
     return;
   }
-  var meEmail = (USER && USER.email) || (D && D._user && D._user.email) || '';
-  var html = '';
-  comments.forEach(function(c) {
-    var when = _commentRelativeTime(c.ts);
-    var initials = (c.author_name || '?').split(/\s+/).slice(0, 2).map(function(w){ return (w[0] || '').toUpperCase(); }).join('') || '?';
-    var mine = c.author_email && (c.author_email === meEmail);
-    html += '<div class="tk-comment-item' + (mine ? ' mine' : '') + '">'
-         +    '<div class="tk-comment-av" title="' + esc(c.author_name || c.author_email || '') + '">' + esc(initials) + '</div>'
-         +    '<div class="tk-comment-body">'
-         +      '<div class="tk-comment-head">'
-         +        '<span class="tk-comment-author">' + esc(c.author_name || c.author_email || 'Unknown') + '</span>'
-         +        '<span class="tk-comment-when">' + esc(when) + '</span>'
-         +      '</div>'
-         +      '<div class="tk-comment-text">' + esc(c.body || '').replace(/\n/g, '<br>') + '</div>'
-         +    '</div>'
-         + '</div>';
-  });
-  host.innerHTML = html;
+  host.innerHTML = comments.map(function(c){ return _commentItemHtml(c); }).join('');
+}
+
+// Edit inline: reemplaza el .tk-comment-text del item por un textarea + botones
+// Guardar/Cancelar. El body original lo guardamos en data-comment-body para
+// poder volver si se cancela.
+function edPanelEditComment(commentId) {
+  var item = document.querySelector('.tk-comment-item[data-comment-id="' + commentId + '"]');
+  if (!item) return;
+  var bodyOrig = item.getAttribute('data-comment-body') || '';
+  var textEl = item.querySelector('.tk-comment-text');
+  var actionsEl = item.querySelector('.tk-comment-actions');
+  if (!textEl) return;
+  if (actionsEl) actionsEl.style.display = 'none';
+  textEl.innerHTML = ''
+    + '<textarea class="tk-comment-edit-ta" style="width:100%;min-height:60px;padding:8px;border-radius:6px;border:1px solid var(--line-2);background:var(--bg-1);color:var(--fg-1);font:inherit;font-size:13px;resize:vertical">' + esc(bodyOrig) + '</textarea>'
+    + '<div style="display:flex;gap:6px;margin-top:6px">'
+    +   '<button class="pa-btn pa-btn-primary" style="height:26px;font-size:11px;padding:0 10px" onclick="edPanelSubmitEditComment(\'' + esc(commentId) + '\')">Guardar</button>'
+    +   '<button class="pa-btn" style="height:26px;font-size:11px;padding:0 10px" onclick="edPanelCancelEditComment(\'' + esc(commentId) + '\')">Cancelar</button>'
+    + '</div>';
+  var ta = textEl.querySelector('textarea');
+  if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+function edPanelCancelEditComment(commentId) {
+  var item = document.querySelector('.tk-comment-item[data-comment-id="' + commentId + '"]');
+  if (!item) return;
+  var bodyOrig = item.getAttribute('data-comment-body') || '';
+  var textEl = item.querySelector('.tk-comment-text');
+  var actionsEl = item.querySelector('.tk-comment-actions');
+  if (textEl) textEl.innerHTML = esc(bodyOrig).replace(/\n/g, '<br>');
+  if (actionsEl) actionsEl.style.display = '';
+}
+function edPanelSubmitEditComment(commentId) {
+  var item = document.querySelector('.tk-comment-item[data-comment-id="' + commentId + '"]');
+  if (!item) return;
+  var ta = item.querySelector('.tk-comment-edit-ta');
+  if (!ta) return;
+  var newBody = (ta.value || '').trim();
+  if (!newBody) { toast('El comentario no puede quedar vacío.', 'error'); return; }
+  ta.disabled = true;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success && res.comment) {
+        var c = res.comment;
+        item.setAttribute('data-comment-body', c.body || '');
+        var textEl = item.querySelector('.tk-comment-text');
+        if (textEl) textEl.innerHTML = esc(c.body || '').replace(/\n/g, '<br>');
+        var whenEl = item.querySelector('.tk-comment-when');
+        if (whenEl) whenEl.textContent = whenEl.textContent.replace(/ · editado$/, '') + ' · editado';
+        var actionsEl = item.querySelector('.tk-comment-actions');
+        if (actionsEl) actionsEl.style.display = '';
+        toast('Comentario actualizado', 'success');
+      } else {
+        ta.disabled = false;
+        toast((res && res.error) || 'No se pudo editar.', 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      ta.disabled = false;
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .editTaskComment(commentId, newBody);
+}
+function edPanelDeleteComment(commentId) {
+  if (!confirm('¿Eliminar este comentario? El hilo conserva la marca de eliminado.')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        var item = document.querySelector('.tk-comment-item[data-comment-id="' + commentId + '"]');
+        if (item) {
+          item.classList.add('is-deleted');
+          var textEl = item.querySelector('.tk-comment-text');
+          if (textEl) textEl.innerHTML = '<i style="color:var(--fg-3)">(comentario eliminado)</i>';
+          var actionsEl = item.querySelector('.tk-comment-actions');
+          if (actionsEl) actionsEl.remove();
+        }
+        // Refresh count
+        var countSpan = $('tkCommentsCount');
+        if (countSpan) {
+          var n = document.querySelectorAll('#tkComments .tk-comment-item:not(.is-deleted)').length;
+          countSpan.textContent = '· ' + n;
+        }
+        toast('Comentario eliminado', 'success');
+      } else {
+        toast((res && res.error) || 'No se pudo eliminar.', 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .deleteTaskComment(commentId);
 }
 function _commentRelativeTime(iso) {
   if (!iso) return '';
@@ -5626,27 +5735,21 @@ function edPanelSubmitComment(taskId) {
     .withSuccessHandler(function(res) {
       if (btn) { btn.disabled = false; btn.textContent = 'Enviar'; }
       if (res && res.success && res.comment) {
-        // Append optimistically al thread
         var host = $('tkComments');
         if (host) {
-          // Si era el primer comment, reemplazamos el empty state
           if (host.querySelector('.tk-comments-empty')) host.innerHTML = '';
           var c = res.comment;
-          var when = _commentRelativeTime(c.ts);
-          var initials = (c.author_name || '?').split(/\s+/).slice(0, 2).map(function(w){ return (w[0] || '').toUpperCase(); }).join('') || '?';
-          var div = document.createElement('div');
-          div.className = 'tk-comment-item mine new';
-          div.innerHTML = ''
-            + '<div class="tk-comment-av">' + esc(initials) + '</div>'
-            + '<div class="tk-comment-body">'
-            +   '<div class="tk-comment-head">'
-            +     '<span class="tk-comment-author">' + esc(c.author_name || 'Vos') + '</span>'
-            +     '<span class="tk-comment-when">hace un momento</span>'
-            +   '</div>'
-            +   '<div class="tk-comment-text">' + esc(c.body || '').replace(/\n/g, '<br>') + '</div>'
-            + '</div>';
-          host.appendChild(div);
+          // Reusar el helper para que el item recién creado tenga los mismos
+          // botones Editar/Eliminar que cargan al refresh — sin esto el botón
+          // aparece solo después de un reload.
+          host.insertAdjacentHTML('beforeend', _commentItemHtml(c, { fresh: true }));
           host.scrollTop = host.scrollHeight;
+          // Update count del tab
+          var countSpan = $('tkCommentsCount');
+          if (countSpan) {
+            var n = host.querySelectorAll('.tk-comment-item:not(.is-deleted)').length;
+            countSpan.textContent = '· ' + n;
+          }
         }
         ta.value = '';
         toast('Comentario enviado', 'success');

@@ -1185,6 +1185,13 @@ input, select, textarea { font-family: inherit; color: inherit; }
 .tk-comment-name { font-size: 13px; font-weight: 500; }
 .tk-comment-when { font-size: 11px; color: var(--fg-3); }
 .tk-comment-body { font-size: 13px; color: var(--fg-2); line-height: 1.5; padding-left: 28px; }
+/* Edit/delete actions visibles solo al hover sobre comments propios. */
+.tk-comment-item .tk-comment-head .tk-comment-actions {
+  display: none; gap: 4px; margin-left: auto;
+}
+.tk-comment-item.mine:hover .tk-comment-head .tk-comment-actions { display: inline-flex; }
+.tk-comment-item.is-deleted { opacity: 0.6; }
+.tk-comment-item.is-deleted .tk-comment-text { font-style: italic; }
 
 .tk-doc {
   display: flex; align-items: center; gap: 10px;
@@ -1350,10 +1357,24 @@ table tr:hover td { background: var(--bg-2); }
   .pa-sb-item .ct, .pa-sb-user-info { display: none; }
   .pa-sb-top { padding: 12px 8px; justify-content: center; }
   .pa-sb-workspace { margin: 4px; padding: 6px; justify-content: center; }
-  .pa-sb-item { padding: 8px; justify-content: center; }
+  .pa-sb-item { padding: 8px; justify-content: center; position: relative; }
   .pa-sb-footer { flex-direction: column; gap: 4px; }
   .pa-sb-user { padding: 4px; justify-content: center; }
   .pa-kpis { grid-template-columns: repeat(2, 1fr); }
+  /* Tooltip al hover sobre el item colapsado: muestra el label original. */
+  .pa-sb-item[data-label]:hover::after {
+    content: attr(data-label);
+    position: absolute;
+    left: calc(100% + 6px); top: 50%;
+    transform: translateY(-50%);
+    background: var(--bg-0); color: var(--fg-1);
+    padding: 4px 10px; border-radius: 6px;
+    border: 1px solid var(--line-2);
+    box-shadow: var(--shadow-1);
+    font-size: 12px; white-space: nowrap;
+    z-index: 100;
+    pointer-events: none;
+  }
 }
 @media (max-width: 768px) {
   .pa-page { padding: 16px; }
