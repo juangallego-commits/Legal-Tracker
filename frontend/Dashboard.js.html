@@ -4359,7 +4359,10 @@ function rEdHomeSpecialist(D) {
          +    '<button class="pa-btn pa-btn-outline" onclick="goEd(\'proyectos\')">' + paIcon('folder', 12) + ' Ver proyectos</button>'
          + '</div>';
   } else {
-    html += '<div class="pa-tbl">';
+    html += '<div class="pa-tbl">'
+         +    '<div class="pa-tbl-h" style="grid-template-columns: 20px 64px 1fr 100px 110px 90px">'
+         +      '<div title="Confidencialidad"></div><div>ID</div><div>Tarea</div><div>Prioridad</div><div>Estado</div><div>ETA</div>'
+         +    '</div>';
     for (var i = 0; i < top.length; i++) {
       var t = top[i];
       var pn = _projNameForTask(t);
@@ -4542,7 +4545,7 @@ function rEdHomeManager(D) {
        +      '<div class="val">' + totalLoad + '</div>'
        +      '<div class="delta">capacidad ' + totalCap + ' · ' + loadPct + '%</div>'
        +    '</div>'
-       +    '<div class="pa-kpi ' + (slaCountry == null ? '' : (slaCountry >= 90 ? 'is-good' : (slaCountry < 85 ? 'is-warn' : ''))) + '">'
+       +    '<div class="pa-kpi ' + (slaCountry == null ? '' : (slaCountry >= 90 ? 'is-good' : (slaCountry < 85 ? 'is-warn' : ''))) + '" onclick="goEd(\'analytics\')">'
        +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> SLA del mes</div>'
        +      '<div class="val">' + (slaCountry != null ? slaCountry + '%' : '—') + '</div>'
        +      '<div class="delta' + (slaDeltaW != null && slaDeltaW < 0 ? ' down' : (slaDeltaW != null && slaDeltaW > 0 ? ' up' : '')) + '">'

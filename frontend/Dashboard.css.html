@@ -479,6 +479,136 @@ input, select, textarea { font-family: inherit; color: inherit; }
   background: var(--bg-0);
 }
 
+/* Wizard Crear · Paso 3 (Resumen / "Lista para publicar") */
+.cr-conf-banner {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--good-soft);
+  border: 1px solid color-mix(in oklab, var(--good) 30%, transparent);
+  color: var(--good-fg);
+  margin-bottom: 16px;
+}
+.cr-conf-mark {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--good);
+  color: #fff;
+  display: grid; place-items: center;
+  font-size: 14px; font-weight: 700;
+  flex-shrink: 0;
+}
+.cr-conf-msg { font-size: 13px; line-height: 1.5; }
+.cr-conf-msg b { font-weight: 600; }
+.cr-conf-section {
+  background: var(--bg-1);
+  border: 1px solid var(--line-1);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 12px;
+}
+.cr-conf-eye {
+  font-size: 11px; color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  font-weight: 600; margin-bottom: 8px;
+}
+.cr-conf-title {
+  font-size: 18px; font-weight: 600;
+  letter-spacing: -0.015em; line-height: 1.3;
+  color: var(--fg-1); margin-bottom: 10px;
+}
+.cr-conf-pills {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 12px;
+}
+.cr-conf-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 12px 18px;
+  padding-top: 4px;
+}
+.cr-conf-cell { display: flex; flex-direction: column; gap: 2px; }
+.cr-conf-lbl {
+  font-size: 11px; color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.cr-conf-val { font-size: 13px; color: var(--fg-1); font-weight: 500; }
+.cr-conf-desc { font-size: 13px; color: var(--fg-2); line-height: 1.55; }
+
+/* Help modal · estructura de cuerpo (atajos por sección) */
+.ed-help-head {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 22px 24px 12px;
+  border-bottom: 1px solid var(--line-1);
+}
+.ed-help-eye {
+  font-size: 11px; color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  font-weight: 600; margin-bottom: 4px;
+}
+.ed-help-title {
+  font-size: 20px; font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--fg-1); line-height: 1.25;
+}
+.ed-help-x {
+  margin-left: auto;
+  background: transparent; border: 0;
+  font-size: 22px; color: var(--fg-3);
+  cursor: pointer; line-height: 1;
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  display: grid; place-items: center;
+}
+.ed-help-x:hover { background: var(--bg-2); color: var(--fg-1); }
+.ed-help-body { padding: 18px 24px; max-height: 70vh; overflow-y: auto; }
+.ed-help-section { margin-bottom: 20px; }
+.ed-help-section:last-child { margin-bottom: 0; }
+.ed-help-h {
+  font-size: 11px; color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  font-weight: 600; margin-bottom: 10px;
+}
+.ed-help-row {
+  display: grid; grid-template-columns: 140px 1fr;
+  gap: 14px; padding: 6px 0;
+  align-items: center;
+}
+.ed-help-keys { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.ed-help-keys kbd {
+  display: inline-block;
+  padding: 2px 6px; border-radius: 4px;
+  background: var(--bg-2); border: 1px solid var(--line-2);
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--fg-1); font-weight: 500;
+}
+.ed-help-plus { font-size: 11px; color: var(--fg-3); }
+.ed-help-desc { font-size: 12px; color: var(--fg-2); line-height: 1.5; }
+.ed-help-foot {
+  padding: 12px 24px;
+  border-top: 1px solid var(--line-1);
+  font-size: 11px; color: var(--fg-3);
+  background: var(--bg-0);
+}
+
+/* Botón "ghost" del wizard (Cancelar persistente) */
+.ed-btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-2);
+}
+.ed-btn.ghost:hover {
+  background: var(--bg-2);
+  color: var(--fg-1);
+  border-color: transparent;
+}
+
+/* Wizard Actualizar · estados del step indicator (avanzar/cerrar/bloquear) */
+.ua-flow-dot.now, .ua-flow-dot.target {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 /* Active filter indicator: banner sutil cuando hay filter no-default activo */
 .pa-filter-active {
   display: flex; align-items: center; gap: 8px;
@@ -639,7 +769,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
 .pa-pill-baja    { background: var(--good-soft); color: var(--good-fg); }
 .pa-pill-baja .dot { background: var(--good); }
 
-.pa-pill-state-pendiente   { background: var(--bg-2); color: var(--fg-2); }
+.pa-pill-state-pendiente   { background: var(--bg-3); color: var(--fg-2); }
 .pa-pill-state-pendiente .dot { background: var(--fg-3); }
 .pa-pill-state-curso       { background: var(--info-soft); color: var(--info-fg); }
 .pa-pill-state-curso .dot  { background: var(--info); }
@@ -1127,7 +1257,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
   pointer-events: auto;
 }
 .pa-toast-good { border-left-color: var(--good); }
-.pa-toast-warn { border-left-color: var(--warn); }
+/* warn variant definida más abajo junto a las demás (sin duplicar acá). */
 .pa-toast-critical, .toast-error { border-left-color: var(--critical); }
 .pa-toast-info, .toast-info { border-left-color: var(--info); }
 .toast-success { border-left-color: var(--good); }
@@ -1521,7 +1651,22 @@ table tr:hover td { background: var(--bg-2); }
   .ed-root { grid-template-columns: var(--sidebar-collapsed-w) 1fr; }
   .pa-sb-name, .pa-sb-version, .pa-sb-ws-name, .pa-sb-ws-caret,
   .pa-sb-group-h, .pa-sb-item span:not(.ico):not(.ct),
-  .pa-sb-item .ct, .pa-sb-user-info { display: none; }
+  .pa-sb-user-info { display: none; }
+  /* Counter del nav item: cuando el sidebar colapsa lo convertimos en dot
+     pequeño (signal de alerta) en lugar de ocultarlo. Si hay overdue (.has-alert),
+     el dot es rojo; sino es accent. Crítico: el user no pierde la señal de que
+     hay tareas pendientes al achicar la ventana. */
+  .pa-sb-item .ct {
+    position: absolute;
+    top: 4px; right: 4px;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    font-size: 0; color: transparent;
+    padding: 0; line-height: 0;
+    margin: 0;
+  }
+  .pa-sb-item.has-alert .ct { background: var(--critical); }
   .pa-sb-top { padding: 12px 8px; justify-content: center; }
   .pa-sb-workspace { margin: 4px; padding: 6px; justify-content: center; }
   .pa-sb-item { padding: 8px; justify-content: center; position: relative; }
