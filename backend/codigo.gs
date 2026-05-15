@@ -255,6 +255,9 @@ function _getEditorialDataImpl() {
       (histByResp[t.resp] = histByResp[t.resp] || []).push(entry);
     });
 
+    var nowMsMember = new Date().getTime();
+    var THIRTY_DAYS_MS_M = 30 * 24 * 60 * 60 * 1000;
+
     data.team.forEach(function(member) {
       var memberTasks = tasksByResp[member.name] || [];
       var activeTasks = memberTasks.filter(function(t){ return t.status !== 'Listo' && t.status !== 'Cancelado'; });
@@ -264,6 +267,16 @@ function _getEditorialDataImpl() {
       member.blocked  = memberTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
 
       var memberHist = histByResp[member.name] || [];
+
+      // SLA mes: % de cierres on-time en últimos 30 días. null si no hay cierres recientes
+      // (la UI muestra "—" en ese caso). Usado en Home Manager y columna SLA de Mi Equipo.
+      var recent30 = memberHist.filter(function(h){ return (nowMsMember - h.cerradoDate.getTime()) <= THIRTY_DAYS_MS_M; });
+      if (recent30.length > 0) {
+        var onTime30 = recent30.filter(function(h){ var sla = SLA_BY_PRIO[h.priority] || 5; return h.bizDays <= sla; }).length;
+        member.slaPct = Math.round((onTime30 / recent30.length) * 100);
+      } else {
+        member.slaPct = null;
+      }
 
       // streak: tareas cerradas a tiempo consecutivamente (más reciente → antigua).
       var streak = 0;
@@ -755,13 +768,21 @@ function _buildViewForRole(raw, role, user, feriadosByCountry) {
     visibleEquipos = equipos.filter(function(e){ return e.code === user.code; });
   }
 
+  // HQ team es admin/global, no operativo. Lo separamos del array `countries`
+  // (usado por las vistas "Por país", dropdown del tracker, totales LATAM, etc.)
+  // y lo expones aparte como `hqTeam` por si alguna vista lo necesita.
+  var allCountriesArr = Object.values(countryMap);
+  var operativeCountries = allCountriesArr.filter(function(c){ return (c.code || '').toUpperCase() !== 'HQ'; });
+  var hqTeam = allCountriesArr.find(function(c){ return (c.code || '').toUpperCase() === 'HQ'; }) || null;
+
   return {
     tasks: tasks,
     historial: historial,
     kpi: kpi,
     sla: sla,
     team: team,
-    countries: Object.values(countryMap),
+    countries: operativeCountries,
+    hqTeam: hqTeam,
     equipos: visibleEquipos,
     projects: projects,
     projectList: projectList,
@@ -1201,12 +1222,20 @@ function _addTaskImpl(taskObj) {
 
 function _commentsSheet(ss) {
   var ws = ss.getSheetByName(SHEET_COMMENTS);
-  if (ws) return ws;
-  // Crear la hoja con headers
-  ws = ss.insertSheet(SHEET_COMMENTS);
-  ws.getRange(1, 1, 1, 6).setValues([['id', 'task_id', 'author_email', 'author_name', 'ts', 'body']]);
-  ws.getRange(1, 1, 1, 6).setFontWeight('bold');
-  ws.setFrozenRows(1);
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_COMMENTS);
+    ws.getRange(1, 1, 1, 8).setValues([['id', 'task_id', 'author_email', 'author_name', 'ts', 'body', 'edited_ts', 'deleted_ts']]);
+    ws.getRange(1, 1, 1, 8).setFontWeight('bold');
+    ws.setFrozenRows(1);
+    return ws;
+  }
+  // Hoja existente puede tener solo 6 cols (versión vieja). Asegurar que las
+  // columnas 7 (edited_ts) y 8 (deleted_ts) existan — necesarias para edit/delete.
+  // Si faltan, agregar el header. Las filas viejas quedan con celdas vacías,
+  // que el read trata como null (comentario nunca editado, nunca eliminado).
+  var lc = ws.getLastColumn();
+  if (lc < 7) ws.getRange(1, 7).setValue('edited_ts');
+  if (lc < 8) ws.getRange(1, 8).setValue('deleted_ts');
   return ws;
 }
 
@@ -1228,9 +1257,14 @@ function getTaskComments(taskId) {
     var ws = _commentsSheet(ctx.ss);
     var lr = ws.getLastRow();
     if (lr < 2) return [];
-    var data = ws.getRange(2, 1, lr - 1, 6).getValues();
+    var lc = Math.max(ws.getLastColumn(), 8);
+    var data = ws.getRange(2, 1, lr - 1, lc).getValues();
     var out = [];
     var tid = String(taskId);
+    function _toIso(v) {
+      if (!v) return '';
+      return v instanceof Date ? v.toISOString() : String(v);
+    }
     for (var i = 0; i < data.length; i++) {
       var r = data[i];
       if (String(r[1]) !== tid) continue;
@@ -1239,14 +1273,104 @@ function getTaskComments(taskId) {
         task_id: r[1],
         author_email: r[2] || '',
         author_name: r[3] || '',
-        ts: r[4] ? (r[4] instanceof Date ? r[4].toISOString() : String(r[4])) : '',
-        body: r[5] || ''
+        ts: _toIso(r[4]),
+        body: r[5] || '',
+        edited_ts: _toIso(r[6]),
+        deleted_ts: _toIso(r[7])
       });
     }
     // Sort by ts asc (oldest first → chronological thread)
     out.sort(function(a, b) { return (a.ts || '').localeCompare(b.ts || ''); });
     return out;
   }, { taskId: taskId });
+}
+
+// Edit y delete son solo para el autor del comentario. El backend valida
+// identidad contra Session.getActiveUser() — no confía en el cliente.
+// Edit: sobrescribe body + setea edited_ts. Delete: setea deleted_ts (soft
+// delete; mantenemos la fila para preservar el hilo y la integridad del audit).
+function editTaskComment(commentId, newBody) {
+  return _telemetry('editTaskComment', function() {
+    return _safeMutation(function() { return _editTaskCommentImpl(commentId, newBody); });
+  }, { commentId: commentId });
+}
+function _editTaskCommentImpl(commentId, newBody) {
+  var ctx = _getAuthContext();
+  var trimmed = (newBody || '').toString().trim();
+  if (!trimmed) return { success: false, error: 'Comment body required' };
+  if (trimmed.length > 5000) return { success: false, error: 'Comment too long (max 5000 chars)' };
+  var ws = _commentsSheet(ctx.ss);
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); } catch (e) { throw new Error('Server busy, retry in a moment.'); }
+  try {
+    var lr = ws.getLastRow();
+    if (lr < 2) return { success: false, error: 'Comment not found' };
+    var lc = Math.max(ws.getLastColumn(), 8);
+    var data = ws.getRange(2, 1, lr - 1, lc).getValues();
+    var targetIdx = -1;
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]) === String(commentId)) { targetIdx = i; break; }
+    }
+    if (targetIdx < 0) return { success: false, error: 'Comment not found' };
+    var row = data[targetIdx];
+    var rowAuthor = (row[2] || '').toString().toLowerCase().trim();
+    var currentEmail = (ctx.user && ctx.user.email || '').toLowerCase().trim();
+    if (rowAuthor !== currentEmail) return { success: false, error: 'Solo el autor puede editar.' };
+    if (row[7]) return { success: false, error: 'No se puede editar un comentario eliminado.' };
+    var editedTs = new Date();
+    var sheetRow = targetIdx + 2;
+    ws.getRange(sheetRow, 6).setValue(_sanitizeRow([trimmed])[0]); // body
+    ws.getRange(sheetRow, 7).setValue(editedTs);                    // edited_ts
+    return {
+      success: true,
+      comment: {
+        id: row[0],
+        task_id: row[1],
+        author_email: row[2] || '',
+        author_name: row[3] || '',
+        ts: row[4] ? (row[4] instanceof Date ? row[4].toISOString() : String(row[4])) : '',
+        body: trimmed,
+        edited_ts: editedTs.toISOString(),
+        deleted_ts: ''
+      }
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function deleteTaskComment(commentId) {
+  return _telemetry('deleteTaskComment', function() {
+    return _safeMutation(function() { return _deleteTaskCommentImpl(commentId); });
+  }, { commentId: commentId });
+}
+function _deleteTaskCommentImpl(commentId) {
+  var ctx = _getAuthContext();
+  var ws = _commentsSheet(ctx.ss);
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); } catch (e) { throw new Error('Server busy, retry in a moment.'); }
+  try {
+    var lr = ws.getLastRow();
+    if (lr < 2) return { success: false, error: 'Comment not found' };
+    var lc = Math.max(ws.getLastColumn(), 8);
+    var data = ws.getRange(2, 1, lr - 1, lc).getValues();
+    var targetIdx = -1;
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]) === String(commentId)) { targetIdx = i; break; }
+    }
+    if (targetIdx < 0) return { success: false, error: 'Comment not found' };
+    var row = data[targetIdx];
+    var rowAuthor = (row[2] || '').toString().toLowerCase().trim();
+    var currentEmail = (ctx.user && ctx.user.email || '').toLowerCase().trim();
+    if (rowAuthor !== currentEmail) return { success: false, error: 'Solo el autor puede eliminar.' };
+    if (row[7]) return { success: true, alreadyDeleted: true };
+    var deletedTs = new Date();
+    var sheetRow = targetIdx + 2;
+    ws.getRange(sheetRow, 8).setValue(deletedTs);
+    return { success: true, deleted_ts: deletedTs.toISOString() };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function addTaskComment(taskId, body) {
@@ -1540,6 +1664,97 @@ function _getTemplatesImpl() {
   var dict = readTemplates(ss);
   try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(dict), 3600); } catch (e) {}
   return dict;
+}
+
+// ── Save / Delete templates desde la UI ─────────────────────────
+// Permiten editar la hoja Templates sin tocar el spreadsheet manualmente.
+// Solo manager/head pueden mutar plantillas (specialist es read-only).
+// saveTemplate hace upsert por tipoTrabajo: si existe, reemplaza; si no, append.
+// Invalidan la cache templates_v1 inmediatamente para que el próximo
+// getTemplates() (incluido el del wizard de Crear) refleje el cambio.
+function saveTemplate(tipoTrabajo, checklistArray) {
+  return _telemetry('saveTemplate', function() {
+    return _safeMutation(function() { return _saveTemplateImpl(tipoTrabajo, checklistArray); });
+  }, { tipo: tipoTrabajo });
+}
+function _saveTemplateImpl(tipoTrabajo, checklistArray) {
+  var ctx = _getAuthContext();
+  if (ctx.role !== 'manager' && ctx.role !== 'head') {
+    return { success: false, error: 'Solo managers o Global pueden editar plantillas.' };
+  }
+  var tipo = (tipoTrabajo || '').toString().trim();
+  if (!tipo) return { success: false, error: 'Elegí un tipo de trabajo.' };
+  if (!Array.isArray(checklistArray)) return { success: false, error: 'checklist debe ser un array.' };
+  // Sanitize: trim cada item, cap 200 chars, drop empties, max 50 items.
+  var clean = checklistArray
+    .map(function(it){ return String(it == null ? '' : it).trim().slice(0, 200); })
+    .filter(Boolean)
+    .slice(0, 50);
+  if (!clean.length) return { success: false, error: 'Agregá al menos un ítem al checklist.' };
+  var ss = ctx.ss;
+  var ws = ss.getSheetByName(SHEET_TEMPLATES);
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_TEMPLATES);
+    ws.getRange(1, 1, 1, 2).setValues([['tipoTrabajo', 'checklist']]);
+    ws.getRange(1, 1, 1, 2).setFontWeight('bold');
+    ws.setFrozenRows(1);
+  }
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); } catch (e) { throw new Error('Server busy, retry in a moment.'); }
+  try {
+    var lr = ws.getLastRow();
+    var rowIdx = -1;
+    if (lr >= 2) {
+      var data = ws.getRange(2, 1, lr - 1, 1).getValues();
+      for (var i = 0; i < data.length; i++) {
+        if ((data[i][0] || '').toString().trim() === tipo) { rowIdx = i + 2; break; }
+      }
+    }
+    var payload = _sanitizeRow([tipo, JSON.stringify(clean)]);
+    if (rowIdx > 0) {
+      ws.getRange(rowIdx, 1, 1, 2).setValues([payload]);
+    } else {
+      ws.appendRow(payload);
+    }
+    try { CacheService.getScriptCache().remove('templates_v1'); } catch (e) {}
+    return { success: true, tipo: tipo, checklist: clean };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function deleteTemplate(tipoTrabajo) {
+  return _telemetry('deleteTemplate', function() {
+    return _safeMutation(function() { return _deleteTemplateImpl(tipoTrabajo); });
+  }, { tipo: tipoTrabajo });
+}
+function _deleteTemplateImpl(tipoTrabajo) {
+  var ctx = _getAuthContext();
+  if (ctx.role !== 'manager' && ctx.role !== 'head') {
+    return { success: false, error: 'Solo managers o Global pueden eliminar plantillas.' };
+  }
+  var tipo = (tipoTrabajo || '').toString().trim();
+  if (!tipo) return { success: false, error: 'Tipo requerido.' };
+  var ss = ctx.ss;
+  var ws = ss.getSheetByName(SHEET_TEMPLATES);
+  if (!ws) return { success: false, error: 'No hay plantillas todavía.' };
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); } catch (e) { throw new Error('Server busy, retry in a moment.'); }
+  try {
+    var lr = ws.getLastRow();
+    if (lr < 2) return { success: false, error: 'No hay plantillas.' };
+    var data = ws.getRange(2, 1, lr - 1, 1).getValues();
+    var rowIdx = -1;
+    for (var i = 0; i < data.length; i++) {
+      if ((data[i][0] || '').toString().trim() === tipo) { rowIdx = i + 2; break; }
+    }
+    if (rowIdx < 0) return { success: false, error: 'Plantilla no encontrada.' };
+    ws.deleteRow(rowIdx);
+    try { CacheService.getScriptCache().remove('templates_v1'); } catch (e) {}
+    return { success: true, tipo: tipo };
+  } finally {
+    lock.releaseLock();
+  }
 }
 // O(1) en lugar del while-day-by-day. Para historial extenso (años),
 // el loop original disparaba miles de iteraciones por entry × cientos

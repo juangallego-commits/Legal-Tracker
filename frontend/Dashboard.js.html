@@ -205,7 +205,7 @@ function chartTheme() {
 }
 
 Chart.defaults.color = getTok('--muted');
-Chart.defaults.font.family = "'Nunito Sans',sans-serif";
+Chart.defaults.font.family = "'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif";
 Chart.defaults.font.size = 12;
 
 // ════════════════════════════════════════════════════════════════
@@ -1798,7 +1798,7 @@ function pd(s) {
 function toast(msg, type) {
   var e = $('toast');
   type = type || 'info';
-  var icons = { success: '✓', error: '✕', info: 'ℹ' };
+  var icons = { success: '✓', error: '✕', info: 'ℹ', warn: '⚠' };
   var icon = icons[type] || icons.info;
   e.innerHTML = '<span class="toast-icon">' + icon + '</span>'
               + '<span class="toast-msg"></span>';
@@ -2971,6 +2971,21 @@ function paEtaText(etaDays, deadline) {
   return '+' + etaDays + ' d';
 }
 
+// Empty state homogéneo: icono + frase principal + hint opcional. Usar en
+// vistas pa-* donde antes había <div class="pa-card">texto</div> sin
+// affordance visual. iconName es uno de los keys de paIcon ('inbox', 'check',
+// 'folder', 'users', 'search', etc.) o un string ('☼', '✓') que se imprime tal cual.
+function paEmpty(iconName, msg, hint) {
+  var iconHtml = (typeof paIcon === 'function' && iconName && /^[a-z]/i.test(iconName))
+    ? paIcon(iconName, 18)
+    : ('<span style="font-size:14px">' + esc(iconName || '◇') + '</span>');
+  return '<div class="pa-empty">'
+       +    '<div class="pa-empty-icon">' + iconHtml + '</div>'
+       +    '<div><div class="pa-empty-msg">' + esc(msg || '') + '</div>'
+       +    (hint ? '<div class="pa-empty-hint">' + esc(hint) + '</div>' : '') + '</div>'
+       + '</div>';
+}
+
 var ED_NAV_BY_ROLE = {
   specialist: [
     { section: 'Mi día', items: [
@@ -3288,7 +3303,7 @@ function renderEdSidebar(role, activeViewId) {
         });
       }
       html += '<button class="pa-sb-item' + (isActive ? ' is-active' : '') + (alert ? ' has-alert' : '')
-           +  '" type="button" data-viewid="' + esc(it.id) + '"'
+           +  '" type="button" data-viewid="' + esc(it.id) + '" data-label="' + esc(it.label) + '"'
            +  (isActive ? ' aria-current="page"' : '')
            +  ' onclick="goEd(\'' + esc(it.id) + '\')">'
            +    paIcon(it.icon || 'dot', 14, 'ico')
@@ -3346,6 +3361,7 @@ function renderEdHead(viewId) {
   var name = _effectiveUserName() || 'Usuario';
   var initial = (name.trim().charAt(0) || '?').toUpperCase();
   return ''
+    + '<button class="ed-burger" type="button" aria-label="Menú" onclick="edToggleSidebar()">&#9776;</button>'
     + '<div class="pa-hd-crumbs">' + _edCrumbs(viewId) + '</div>'
     + '<div class="pa-hd-search">'
     +   '<div class="pa-search" role="button" tabindex="0" onclick="edSearchOpen()">'
@@ -3545,7 +3561,13 @@ function _edSearchRender() {
   var host = $('edSearchResults'); if (!host) return;
   var q = (EDS.query || '').trim();
   if (!q) {
-    host.innerHTML = '<div class="ed-search-empty">Escribí para buscar…</div>';
+    host.innerHTML = ''
+      + '<div class="ed-search-empty">'
+      +   '<div style="font-size:13px;color:var(--fg-2)">Escribí para buscar tareas, proyectos o documentos…</div>'
+      +   '<div style="font-size:11px;color:var(--fg-3);margin-top:6px">'
+      +     '<kbd>↓</kbd> <kbd>↑</kbd> navegar · <kbd>Enter</kbd> abrir · <kbd>Esc</kbd> cerrar'
+      +   '</div>'
+      + '</div>';
     return;
   }
   var results = _edSearchFilter(q);
@@ -3559,7 +3581,11 @@ function _edSearchRender() {
   var docShow  = docAll.slice(0, 5);
 
   if (!taskShow.length && !projShow.length && !docShow.length) {
-    host.innerHTML = '<div class="ed-search-empty">Sin resultados para "' + esc(q) + '"</div>';
+    host.innerHTML = ''
+      + '<div class="ed-search-empty">'
+      +   '<div style="font-size:13px;color:var(--fg-2)">Sin resultados para "<b>' + esc(q) + '</b>"</div>'
+      +   '<div style="font-size:11px;color:var(--fg-3);margin-top:6px">Probá con menos términos, otra grafía, o un código de tarea (ej. <b>T-001</b>).</div>'
+      + '</div>';
     return;
   }
 
@@ -3634,6 +3660,11 @@ function edSearchPickTask(taskId) {
 function edSearchPickProject(projectId) {
   edSearchClose();
   if (typeof goEd === 'function') goEd('proyectos');
+  // Después de navegar al index, abrir el detalle del proyecto seleccionado.
+  // setTimeout pequeño para que el render del index termine antes del open.
+  if (projectId && typeof edPiOpen === 'function') {
+    setTimeout(function(){ edPiOpen(projectId); }, 50);
+  }
 }
 // Document pick: abre el link en pestaña nueva. Si era de una task,
 // además navega al panel para que el contexto quede visible.
@@ -3685,6 +3716,7 @@ function edHelpOpen() {
   var sections = [
     { title: 'Navegación', items: [
       { keys: ['⌘', 'K'], desc: 'Abrir búsqueda global' },
+      { keys: ['/'], desc: 'Foco en el buscador del tracker' },
       { keys: ['?'], desc: 'Mostrar esta ayuda' },
       { keys: ['Esc'], desc: 'Cerrar cualquier modal o panel abierto' }
     ]},
@@ -3696,7 +3728,8 @@ function edHelpOpen() {
     ]},
     { title: 'Panel de detalle', items: [
       { keys: ['Clic'], desc: 'sobre el valor de una celda para editarla inline' },
-      { keys: ['Doble clic'], desc: 'sobre el título para renombrar la tarea' }
+      { keys: ['Doble clic'], desc: 'sobre el título para renombrar la tarea' },
+      { keys: ['⌘', 'Enter'], desc: 'Enviar comentario desde el textarea' }
     ]},
     { title: 'Crear', items: [
       { keys: ['N'], desc: 'Asistente de nueva tarea' }
@@ -3772,7 +3805,7 @@ document.addEventListener('keydown', function(e) {
   if (_anyModalOpen()) return;
 
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    var rows = document.querySelectorAll('#vEdTracker .tk-row[data-task-id]');
+    var rows = document.querySelectorAll('#vEdTracker .pa-tbl-r[data-task-id]');
     if (!rows.length) return;
     e.preventDefault();
     var ids = Array.prototype.map.call(rows, function(r){ return r.dataset.taskId; });
@@ -3789,7 +3822,7 @@ document.addEventListener('keydown', function(e) {
     if (D && typeof rEdTracker === 'function') rEdTracker(D);
     // Scroll en el siguiente tick (rEdTracker reemplazó el DOM).
     setTimeout(function() {
-      var newRow = document.querySelector('#vEdTracker .tk-row[data-task-id="' + ids[nextIdx] + '"]');
+      var newRow = document.querySelector('#vEdTracker .pa-tbl-r[data-task-id="' + ids[nextIdx] + '"]');
       if (newRow && newRow.scrollIntoView) newRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, 0);
     return;
@@ -4010,7 +4043,7 @@ function rEdHomeSpecialist(D) {
        +    '<button class="link" onclick="goEd(\'mistareas\')">Ver todas (' + tasks.length + ') →</button>'
        + '</div>';
   if (top.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;color:var(--fg-3)">No tenés tareas activas en tu agenda.</div>';
+    html += paEmpty('inbox', 'No tenés tareas activas en tu agenda.', 'Aprovechá para trabajo de proyecto o cerrar pendientes viejos.');
   } else {
     html += '<div class="pa-tbl">';
     for (var i = 0; i < top.length; i++) {
@@ -4094,7 +4127,7 @@ function rEdHomeSpecialist(D) {
        +      '<span class="meta">' + projs.length + ' activos</span>'
        +    '</div>';
   if (projs.length === 0) {
-    html += '<div style="font-size:13px;color:var(--fg-3);padding:8px 0">No formás parte de ningún proyecto activo.</div>';
+    html += '<div style="padding:8px 0">' + paEmpty('folder', 'No formás parte de ningún proyecto activo.', 'Cuando alguien te asigne tareas dentro de un proyecto, aparecerán acá.') + '</div>';
   } else {
     var palette = ['#5b8def', '#8a7ff0', '#d0a86b', '#3fa888', '#e07a7a'];
     projs.slice(0, 5).forEach(function(p, i) {
@@ -4141,6 +4174,12 @@ function rEdHomeManager(D) {
   teamMine.forEach(function(m){ totalLoad += (m.load || 0); totalCap += (m.capacity || 0); });
   var loadPct = totalCap ? Math.round((totalLoad / totalCap) * 100) : 0;
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
+  // SLA del país del manager (últimos 30 días). Calculado en backend (data.countries[].slaPct).
+  var myCountry = ((D && D.countries) || []).find(function(c){ return c.code === userCode; });
+  var slaCountry = myCountry ? myCountry.slaPct : null;
+  var slaThisW = myCountry ? myCountry.slaPctThisWeek : null;
+  var slaPrevW = myCountry ? myCountry.slaPctLastWeek : null;
+  var slaDeltaW = (typeof slaThisW === 'number' && typeof slaPrevW === 'number') ? (slaThisW - slaPrevW) : null;
   var att = active.slice().sort(function(a, b) {
     var aBlk = a.status === 'Bloqueado' ? -1 : 0;
     var bBlk = b.status === 'Bloqueado' ? -1 : 0;
@@ -4185,10 +4224,14 @@ function rEdHomeManager(D) {
        +      '<div class="val">' + totalLoad + '</div>'
        +      '<div class="delta">capacidad ' + totalCap + ' · ' + loadPct + '%</div>'
        +    '</div>'
-       +    '<div class="pa-kpi is-good">'
+       +    '<div class="pa-kpi ' + (slaCountry == null ? '' : (slaCountry >= 90 ? 'is-good' : (slaCountry < 85 ? 'is-warn' : ''))) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> SLA del mes</div>'
-       +      '<div class="val">—</div>'
-       +      '<div class="delta">próximamente</div>'
+       +      '<div class="val">' + (slaCountry != null ? slaCountry + '%' : '—') + '</div>'
+       +      '<div class="delta' + (slaDeltaW != null && slaDeltaW < 0 ? ' down' : (slaDeltaW != null && slaDeltaW > 0 ? ' up' : '')) + '">'
+       +        (slaDeltaW != null && Math.abs(slaDeltaW) >= 1
+             ? (slaDeltaW > 0 ? '▲' : '▼') + ' ' + Math.abs(Math.round(slaDeltaW)) + 'pt vs semana anterior'
+             : (slaCountry == null ? 'sin cierres recientes' : 'últimos 30 días'))
+       +      '</div>'
        +    '</div>'
        + '</div>';
 
@@ -4199,7 +4242,7 @@ function rEdHomeManager(D) {
        +    '<button class="link" onclick="goEd(\'tracker\')">Ver todas →</button>'
        + '</div>';
   if (att.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;color:var(--fg-3)">Tu equipo está al día. Nada urgente.</div>';
+    html += paEmpty('check', 'Tu equipo está al día.', 'Nada vencido, bloqueado, ni de prioridad alta sin avance.');
   } else {
     html += '<div class="pa-tbl">';
     att.forEach(function(t) {
@@ -4226,17 +4269,19 @@ function rEdHomeManager(D) {
        +    '<button class="link" onclick="goEd(\'miequipo\')">Ir a Mi equipo →</button>'
        + '</div>';
   if (teamMine.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;color:var(--fg-3)">No hay miembros del equipo visibles.</div>';
+    html += paEmpty('users', 'No hay miembros del equipo visibles.', 'Pedile a tu líder que agregue specialists en la hoja Equipos.');
   } else {
     html += '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px">'
-         +      '<div>Specialist</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div>SLA</div><div></div>'
+         +      '<div>Specialist</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div>SLA mes</div><div></div>'
          +    '</div>';
     teamMine.forEach(function(m) {
       var pct = (m.capacity > 0) ? Math.round((m.load || 0) / m.capacity * 100) : 0;
       var over = pct > 100;
       var loadColor = over ? 'var(--critical)' : pct > 85 ? 'var(--warn)' : 'var(--accent)';
       var loadFg = over ? 'var(--critical-fg)' : 'var(--fg-2)';
+      var slaM = m.slaPct;
+      var slaColorM = slaM == null ? 'var(--fg-3)' : (slaM >= 90 ? 'var(--good-fg)' : (slaM < 85 ? 'var(--warn-fg)' : 'var(--fg-2)'));
       html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px;height:46px">'
            +    '<div style="display:flex;align-items:center;gap:8px">' + paAvatar(m.name || '?', 22)
            +      '<div><div style="font-size:13px;font-weight:500">' + esc(m.name || '') + '</div>'
@@ -4248,7 +4293,7 @@ function rEdHomeManager(D) {
            +    '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.overdue || 0) ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + (m.overdue || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.blocked || 0) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + (m.blocked || 0) + '</div>'
-           +    '<div class="mono" style="font-size:12px;color:var(--fg-3)">—</div>'
+           +    '<div class="mono" style="font-size:12px;color:' + slaColorM + '">' + (slaM != null ? slaM + '%' : '—') + '</div>'
            +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px">Reasignar →</button></div>'
            + '</div>';
     });
@@ -4380,7 +4425,7 @@ function rEdHomeHQ(D) {
        +    '<button class="link" onclick="goEd(\'paises\')">Ir a Por país →</button>'
        + '</div>';
   if (countries.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;color:var(--fg-3)">No hay datos de países disponibles.</div>';
+    html += paEmpty('globe', 'No hay datos de países disponibles.', 'Verificá que la hoja Equipos tenga al menos un país configurado.');
   } else {
     html += '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px">'
@@ -4418,6 +4463,27 @@ function rEdHomeHQ(D) {
            + '</div>';
     });
     html += '</div>';
+  }
+
+  // Equipo Global: si hay datos de hqTeam (líder + members del equipo HQ
+  // del sheet Equipos), los listamos como una card con avatares. Es admin
+  // del piloto — útil para que el head vea con quién contar para escalamiento.
+  var hq = D && D.hqTeam;
+  if (hq && (hq.leader || (hq.specialists != null && hq.specialists > 0))) {
+    html += '<div class="pa-section-h">'
+         +    '<h3>Equipo Global</h3>'
+         +    '<span class="meta">Admin del piloto — escalamientos y soporte</span>'
+         + '</div>'
+         + '<div class="pa-card" style="padding:14px 18px;display:flex;flex-wrap:wrap;gap:18px;align-items:center">'
+         +   (hq.leader ? '<div style="display:flex;align-items:center;gap:10px">'
+                          + paAvatar(hq.leader, 28)
+                          + '<div><div style="font-size:13px;font-weight:500">' + esc(hq.leader) + '</div>'
+                          + '<div style="font-size:11px;color:var(--fg-3)">Líder Global</div></div>'
+                       + '</div>' : '')
+         +   '<div style="margin-left:auto;font-size:12px;color:var(--fg-3)">'
+         +     (hq.specialists || 0) + ' miembros activos · ' + (hq.code || 'HQ')
+         +   '</div>'
+         + '</div>';
   }
 
   // Activity feed
@@ -4655,38 +4721,29 @@ function _edNextUrgent() {
 }
 
 // ─── BULK ACTIONS DEL TRACKER ───────────────────────────────────
-// EDT.selectedIds = Array<string> de task ids seleccionadas vía
-// checkbox. La barra de acciones aparece cuando hay >0 seleccionadas
-// y permite: Avanzar (status → siguiente), Bloquear (→Bloqueado),
-// Reasignar (manager/head, prompt simple para v1).
-function edTkToggleSelect(input) {
-  var id = String(input.dataset.taskId);
-  EDT.selectedIds = EDT.selectedIds || [];
-  var idx = EDT.selectedIds.indexOf(id);
-  if (input.checked && idx < 0) EDT.selectedIds.push(id);
-  else if (!input.checked && idx >= 0) EDT.selectedIds.splice(idx, 1);
-  // Update solo la barra (no re-render completo para no perder hover/scroll)
-  _edTkUpdateBulkBar();
-}
+// EDT.selectedIds = Array<string> de task ids seleccionadas vía checkbox.
+// La barra de acciones (.pa-bulkbar) se renderiza inline desde rEdTracker
+// cuando hay >0 seleccionadas; permite Avanzar / Bloquear / Reasignar.
+// El toggle por fila lo maneja edTkToggleSelectId (definida cerca del render).
 function edTkSelectAll(checked) {
-  var rows = document.querySelectorAll('#vEdTracker .tk-row[data-task-id]');
+  var rows = document.querySelectorAll('#vEdTracker .pa-tbl-r[data-task-id]');
   var ids = Array.prototype.map.call(rows, function(r){ return String(r.dataset.taskId); });
   EDT.selectedIds = checked ? ids : [];
-  // Sync visual de los checkboxes sin re-render
-  document.querySelectorAll('#vEdTracker .tk-row-check[data-task-id]').forEach(function(cb) { cb.checked = checked; });
-  _edTkUpdateBulkBar();
+  // Re-render completo: los checkboxes son spans (.pa-check), no inputs;
+  // el render reflee el estado is-checked desde EDT.selectedIds.
+  if (D && typeof rEdTracker === 'function') rEdTracker(D);
 }
 function edTkBulkClear() {
   EDT.selectedIds = [];
-  document.querySelectorAll('#vEdTracker .tk-row-check').forEach(function(cb) { cb.checked = false; });
-  _edTkUpdateBulkBar();
+  if (D && typeof rEdTracker === 'function') rEdTracker(D);
 }
-function _edTkUpdateBulkBar() {
-  var bar = $('tkBulkBar'); if (!bar) return;
-  var n = (EDT.selectedIds || []).length;
-  bar.classList.toggle('show', n > 0);
-  var counter = bar.querySelector('.tk-bulk-count');
-  if (counter) counter.textContent = n + ' seleccionadas';
+// Master checkbox del header de la tabla: toggle all / none según estado actual.
+// Cuando hay alguno seleccionado pero no todos, click selecciona todos.
+function edTkMasterToggle() {
+  var rows = document.querySelectorAll('#vEdTracker .pa-tbl-r[data-task-id]');
+  var total = rows.length;
+  var selected = (EDT.selectedIds || []).length;
+  edTkSelectAll(selected < total);
 }
 function edTkBulkAction(action) {
   var ids = (EDT.selectedIds || []).slice();
@@ -5525,33 +5582,142 @@ function edPanelLoadComments(taskId) {
     })
     .getTaskComments(taskId);
 }
+function _meCommentEmail() {
+  return (USER && USER.email) || (D && D._user && D._user.email) || '';
+}
+// Render de un solo comment item — usado por load (todos) y submit (append optimistic).
+// `c` = { id, author_name, author_email, ts, body, edited_ts, deleted_ts }
+function _commentItemHtml(c, opts) {
+  opts = opts || {};
+  var when = opts.fresh ? 'hace un momento' : _commentRelativeTime(c.ts);
+  var initials = (c.author_name || '?').split(/\s+/).slice(0, 2).map(function(w){ return (w[0] || '').toUpperCase(); }).join('') || '?';
+  var mine = c.author_email && (c.author_email === _meCommentEmail());
+  var deleted = !!c.deleted_ts;
+  var edited = !!c.edited_ts && !deleted;
+  var bodyHtml = deleted
+    ? '<i style="color:var(--fg-3)">(comentario eliminado)</i>'
+    : esc(c.body || '').replace(/\n/g, '<br>');
+  var actions = '';
+  if (mine && !deleted) {
+    actions = '<div class="tk-comment-actions">'
+            +   '<button class="pa-btn pa-btn-ghost" style="height:22px;font-size:11px;padding:0 8px" onclick="edPanelEditComment(\'' + esc(c.id) + '\')">Editar</button>'
+            +   '<button class="pa-btn pa-btn-ghost" style="height:22px;font-size:11px;padding:0 8px;color:var(--critical-fg)" onclick="edPanelDeleteComment(\'' + esc(c.id) + '\')">Eliminar</button>'
+            + '</div>';
+  }
+  return '<div class="tk-comment-item' + (mine ? ' mine' : '') + (deleted ? ' is-deleted' : '') + (opts.fresh ? ' new' : '') + '" data-comment-id="' + esc(c.id) + '" data-comment-body="' + esc(c.body || '') + '">'
+       +    '<div class="tk-comment-av" title="' + esc(c.author_name || c.author_email || '') + '">' + esc(initials) + '</div>'
+       +    '<div class="tk-comment-body">'
+       +      '<div class="tk-comment-head">'
+       +        '<span class="tk-comment-author">' + esc(c.author_name || c.author_email || 'Anónimo') + '</span>'
+       +        '<span class="tk-comment-when">' + esc(when) + (edited ? ' · editado' : '') + '</span>'
+       +        actions
+       +      '</div>'
+       +      '<div class="tk-comment-text">' + bodyHtml + '</div>'
+       +    '</div>'
+       + '</div>';
+}
+
 function _edPanelRenderComments(comments, taskId) {
   var host = $('tkComments'); if (!host) return;
-  // Actualizar el count en la tab "Comentarios · N"
+  // Count en la tab — excluye eliminados para que el badge refleje el thread activo.
+  var visible = comments.filter(function(c){ return !c.deleted_ts; });
   var countSpan = $('tkCommentsCount');
-  if (countSpan) countSpan.textContent = '· ' + comments.length;
+  if (countSpan) countSpan.textContent = '· ' + visible.length;
   if (!comments.length) {
     host.innerHTML = '<div class="tk-comments-empty">Aún no hay comentarios. Iniciá la conversación.</div>';
     return;
   }
-  var meEmail = (USER && USER.email) || (D && D._user && D._user.email) || '';
-  var html = '';
-  comments.forEach(function(c) {
-    var when = _commentRelativeTime(c.ts);
-    var initials = (c.author_name || '?').split(/\s+/).slice(0, 2).map(function(w){ return (w[0] || '').toUpperCase(); }).join('') || '?';
-    var mine = c.author_email && (c.author_email === meEmail);
-    html += '<div class="tk-comment-item' + (mine ? ' mine' : '') + '">'
-         +    '<div class="tk-comment-av" title="' + esc(c.author_name || c.author_email || '') + '">' + esc(initials) + '</div>'
-         +    '<div class="tk-comment-body">'
-         +      '<div class="tk-comment-head">'
-         +        '<span class="tk-comment-author">' + esc(c.author_name || c.author_email || 'Unknown') + '</span>'
-         +        '<span class="tk-comment-when">' + esc(when) + '</span>'
-         +      '</div>'
-         +      '<div class="tk-comment-text">' + esc(c.body || '').replace(/\n/g, '<br>') + '</div>'
-         +    '</div>'
-         + '</div>';
-  });
-  host.innerHTML = html;
+  host.innerHTML = comments.map(function(c){ return _commentItemHtml(c); }).join('');
+}
+
+// Edit inline: reemplaza el .tk-comment-text del item por un textarea + botones
+// Guardar/Cancelar. El body original lo guardamos en data-comment-body para
+// poder volver si se cancela.
+function edPanelEditComment(commentId) {
+  var item = document.querySelector('.tk-comment-item[data-comment-id="' + commentId + '"]');
+  if (!item) return;
+  var bodyOrig = item.getAttribute('data-comment-body') || '';
+  var textEl = item.querySelector('.tk-comment-text');
+  var actionsEl = item.querySelector('.tk-comment-actions');
+  if (!textEl) return;
+  if (actionsEl) actionsEl.style.display = 'none';
+  textEl.innerHTML = ''
+    + '<textarea class="tk-comment-edit-ta" style="width:100%;min-height:60px;padding:8px;border-radius:6px;border:1px solid var(--line-2);background:var(--bg-1);color:var(--fg-1);font:inherit;font-size:13px;resize:vertical">' + esc(bodyOrig) + '</textarea>'
+    + '<div style="display:flex;gap:6px;margin-top:6px">'
+    +   '<button class="pa-btn pa-btn-primary" style="height:26px;font-size:11px;padding:0 10px" onclick="edPanelSubmitEditComment(\'' + esc(commentId) + '\')">Guardar</button>'
+    +   '<button class="pa-btn" style="height:26px;font-size:11px;padding:0 10px" onclick="edPanelCancelEditComment(\'' + esc(commentId) + '\')">Cancelar</button>'
+    + '</div>';
+  var ta = textEl.querySelector('textarea');
+  if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+function edPanelCancelEditComment(commentId) {
+  var item = document.querySelector('.tk-comment-item[data-comment-id="' + commentId + '"]');
+  if (!item) return;
+  var bodyOrig = item.getAttribute('data-comment-body') || '';
+  var textEl = item.querySelector('.tk-comment-text');
+  var actionsEl = item.querySelector('.tk-comment-actions');
+  if (textEl) textEl.innerHTML = esc(bodyOrig).replace(/\n/g, '<br>');
+  if (actionsEl) actionsEl.style.display = '';
+}
+function edPanelSubmitEditComment(commentId) {
+  var item = document.querySelector('.tk-comment-item[data-comment-id="' + commentId + '"]');
+  if (!item) return;
+  var ta = item.querySelector('.tk-comment-edit-ta');
+  if (!ta) return;
+  var newBody = (ta.value || '').trim();
+  if (!newBody) { toast('El comentario no puede quedar vacío.', 'error'); return; }
+  ta.disabled = true;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success && res.comment) {
+        var c = res.comment;
+        item.setAttribute('data-comment-body', c.body || '');
+        var textEl = item.querySelector('.tk-comment-text');
+        if (textEl) textEl.innerHTML = esc(c.body || '').replace(/\n/g, '<br>');
+        var whenEl = item.querySelector('.tk-comment-when');
+        if (whenEl) whenEl.textContent = whenEl.textContent.replace(/ · editado$/, '') + ' · editado';
+        var actionsEl = item.querySelector('.tk-comment-actions');
+        if (actionsEl) actionsEl.style.display = '';
+        toast('Comentario actualizado', 'success');
+      } else {
+        ta.disabled = false;
+        toast((res && res.error) || 'No se pudo editar.', 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      ta.disabled = false;
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .editTaskComment(commentId, newBody);
+}
+function edPanelDeleteComment(commentId) {
+  if (!confirm('¿Eliminar este comentario? El hilo conserva la marca de eliminado.')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        var item = document.querySelector('.tk-comment-item[data-comment-id="' + commentId + '"]');
+        if (item) {
+          item.classList.add('is-deleted');
+          var textEl = item.querySelector('.tk-comment-text');
+          if (textEl) textEl.innerHTML = '<i style="color:var(--fg-3)">(comentario eliminado)</i>';
+          var actionsEl = item.querySelector('.tk-comment-actions');
+          if (actionsEl) actionsEl.remove();
+        }
+        // Refresh count
+        var countSpan = $('tkCommentsCount');
+        if (countSpan) {
+          var n = document.querySelectorAll('#tkComments .tk-comment-item:not(.is-deleted)').length;
+          countSpan.textContent = '· ' + n;
+        }
+        toast('Comentario eliminado', 'success');
+      } else {
+        toast((res && res.error) || 'No se pudo eliminar.', 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .deleteTaskComment(commentId);
 }
 function _commentRelativeTime(iso) {
   if (!iso) return '';
@@ -5569,27 +5735,21 @@ function edPanelSubmitComment(taskId) {
     .withSuccessHandler(function(res) {
       if (btn) { btn.disabled = false; btn.textContent = 'Enviar'; }
       if (res && res.success && res.comment) {
-        // Append optimistically al thread
         var host = $('tkComments');
         if (host) {
-          // Si era el primer comment, reemplazamos el empty state
           if (host.querySelector('.tk-comments-empty')) host.innerHTML = '';
           var c = res.comment;
-          var when = _commentRelativeTime(c.ts);
-          var initials = (c.author_name || '?').split(/\s+/).slice(0, 2).map(function(w){ return (w[0] || '').toUpperCase(); }).join('') || '?';
-          var div = document.createElement('div');
-          div.className = 'tk-comment-item mine new';
-          div.innerHTML = ''
-            + '<div class="tk-comment-av">' + esc(initials) + '</div>'
-            + '<div class="tk-comment-body">'
-            +   '<div class="tk-comment-head">'
-            +     '<span class="tk-comment-author">' + esc(c.author_name || 'Vos') + '</span>'
-            +     '<span class="tk-comment-when">hace un momento</span>'
-            +   '</div>'
-            +   '<div class="tk-comment-text">' + esc(c.body || '').replace(/\n/g, '<br>') + '</div>'
-            + '</div>';
-          host.appendChild(div);
+          // Reusar el helper para que el item recién creado tenga los mismos
+          // botones Editar/Eliminar que cargan al refresh — sin esto el botón
+          // aparece solo después de un reload.
+          host.insertAdjacentHTML('beforeend', _commentItemHtml(c, { fresh: true }));
           host.scrollTop = host.scrollHeight;
+          // Update count del tab
+          var countSpan = $('tkCommentsCount');
+          if (countSpan) {
+            var n = host.querySelectorAll('.tk-comment-item:not(.is-deleted)').length;
+            countSpan.textContent = '· ' + n;
+          }
         }
         ta.value = '';
         toast('Comentario enviado', 'success');
@@ -5779,7 +5939,6 @@ function rEdTracker(D) {
          +    '<button class="dd-item" onclick="edExportPDFOpen()">' + paIcon('doc', 13, 'ico') + ' PDF mensual</button>'
          + '</div>';
   }
-  html += '<button class="pa-btn pa-btn-outline" onclick="alert(\'Más filtros próximamente\')">' + paIcon('filter', 12) + ' Más filtros</button>';
   html += '</div></div>';
 
   // Filter chips
@@ -5804,6 +5963,23 @@ function rEdTracker(D) {
        +        paIcon('search', 12)
        +        '<input type="text" placeholder="Buscar en tracker…" value="' + esc(EDT.search) + '" oninput="edSetSearch(this.value)">'
        +      '</div>';
+  // Country select (head only): drill-down rápido país-por-país sin volver al countries-first.
+  if (role === 'head') {
+    var allCountries = (D && D.countries) || [];
+    var countryOpts = allCountries
+      .slice()
+      .sort(function(a, b){ return (b.open || 0) - (a.open || 0); })
+      .map(function(c) {
+        var selA = (EDT.country === c.code) ? ' selected' : '';
+        var label = c.code + ' · ' + (c.name || c.code) + (c.open ? ' (' + c.open + ')' : '');
+        return '<option value="' + esc(c.code) + '"' + selA + '>' + esc(label) + '</option>';
+      }).join('');
+    if (countryOpts) {
+      html += '<select class="pa-select" style="width:auto;height:26px;font-size:12px;padding:0 28px 0 10px" onchange="edSetCountryFilter(this.value || \'__ALL__\')">'
+           +    '<option value="">Todos los países</option>' + countryOpts
+           + '</select>';
+    }
+  }
   // Project select
   var pIdsWithTasks = {};
   roleTasks.forEach(function(t){ if (t.proyectoId) pIdsWithTasks[t.proyectoId] = true; });
@@ -5856,9 +6032,16 @@ function rEdTracker(D) {
   }
 
   // TABLE
+  var totalRows = rows.length;
+  var selN = (EDT.selectedIds || []).length;
+  var masterCls = 'pa-check';
+  if (totalRows > 0 && selN === totalRows) masterCls += ' is-checked';
+  else if (selN > 0) masterCls += ' is-indeterminate';
+  var masterTitle = (selN === totalRows && totalRows > 0) ? 'Deseleccionar todo' : 'Seleccionar todo';
   html += '<div class="pa-tbl">'
        +    '<div class="pa-tbl-h">'
-       +      '<div></div><div></div>'
+       +      '<div onclick="edTkMasterToggle()" title="' + masterTitle + '" style="cursor:pointer;display:grid;place-items:center"><span class="' + masterCls + '"></span></div>'
+       +      '<div title="Confidencialidad" aria-label="Confidencialidad"></div>'
        +      '<div>ID ' + paIcon('sort', 10) + '</div>'
        +      '<div>Tarea</div>'
        +      '<div>' + (role === 'specialist' ? 'Proyecto' : 'Responsable') + '</div>'
@@ -5879,10 +6062,19 @@ function rEdTracker(D) {
       emptyMsg = 'No hay tareas en este filtro.';
       emptyHint = 'Cambiá a "Todas" para ver todo.';
     }
+    // CTA: si está vacío porque no hay tareas (no por filtros), invitar
+    // a crear la primera. Si está vacío por filtros/search, ofrecer limpiar.
+    var ctaBtn = '';
+    if (cAll === 0) {
+      ctaBtn = '<button class="pa-btn pa-btn-primary" onclick="edCrearOpen()" style="margin-top:6px">' + paIcon('plus', 12) + ' Crear tu primera tarea</button>';
+    } else if (EDT.search || EDT.filter !== 'all' || EDT.projectFilter || EDT.respFilter || EDT.confFilter) {
+      ctaBtn = '<button class="pa-btn pa-btn-outline" onclick="edClearSecondaryFilters();edSetFilter(\'all\');edSetSearch(\'\')" style="margin-top:6px">Limpiar filtros</button>';
+    }
     html += '<div style="padding:48px 20px;text-align:center">'
          +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon(emptyIc, 20) + '</div>'
          +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">' + esc(emptyMsg) + '</div>'
          +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0 14px">' + esc(emptyHint) + '</div>'
+         +    ctaBtn
          + '</div>';
   } else {
     rows.forEach(function(t) {
@@ -5918,7 +6110,12 @@ function rEdTracker(D) {
     html += _renderTkPanel(sel);
   }
 
+  // Preservar el scrollTop para que las acciones que re-renderean (bulk
+  // select, filter chips, search) no devuelvan al usuario al top de la
+  // tabla. Restauramos en el siguiente tick — innerHTML lo resetea.
+  var prevScroll = v.scrollTop;
   v.innerHTML = html;
+  if (prevScroll) v.scrollTop = prevScroll;
   // Post-render: auto-resize del textarea de notas si el panel está
   // abierto. Sin esto, las notas largas aparecen con scroll interno
   // pequeño hasta que el usuario tipea algo.
@@ -6019,8 +6216,8 @@ function _renderTkPanel(sel) {
     { l: 'SLA objetivo', v: sel.slaTarget || '—', icon: 'flag' },
     { l: 'Riesgo', v: sel.riesgo || '—', icon: 'alert', editable: true, key: 'riesgo' },
     { l: 'Proyecto', v: pn, icon: 'folder', editable: true, key: 'proyectoId' },
-    { l: 'Contraparte', v: sel.contraparte || '—', icon: 'globe', editable: true, key: 'contraparte' },
-    { l: 'Tipo de trabajo', v: sel.tipoTrabajo || '—', icon: 'doc' }
+    { l: 'Contraparte', v: sel.contraparte || '—', icon: 'globe', editable: true, key: 'contraparte' }
+    // Tipo de trabajo vive en la pillrow superior (línea ~6079), no duplicar acá.
   ];
   fields.forEach(function(f) {
     html += '<div class="tk-field">'
@@ -6054,7 +6251,7 @@ function _renderTkPanel(sel) {
   // Comments count se desconoce hasta que async load termine — leave dynamic
   html += '<aside class="tk-panel-rail">'
        +    '<div class="tk-panel-tabs" data-task-id="' + esc(sel.id) + '">'
-       +      '<button class="tk-panel-tab is-active" data-pane="comments" onclick="edTkPanelSwitchTab(this)">Comentarios <span class="ct" id="tkCommentsCount">·</span></button>'
+       +      '<button class="tk-panel-tab is-active" data-pane="comments" onclick="edTkPanelSwitchTab(this)">Comentarios <span class="ct" id="tkCommentsCount">· 0</span></button>'
        +      '<button class="tk-panel-tab" data-pane="docs" onclick="edTkPanelSwitchTab(this)">Documentos <span class="ct">· ' + docsCount + '</span></button>'
        +    '</div>'
        +    '<div class="tk-panel-rail-body" data-task-id="' + esc(sel.id) + '">'
@@ -6190,7 +6387,9 @@ function _agBuckets(tasks) {
 }
 
 function _agBucketNarr(key, tasks) {
-  // Contextual bucket narrative based on real counts and blocks.
+  // Contextual bucket narrative based on real counts, blocks, y nombre de la
+  // más urgente cuando aporta. Devuelve HTML (b/span); el caller decide si lo
+  // strippea (header sin formato) o lo deja (cuerpo).
   if (tasks.length === 0) {
     if (key === 'overdue') return 'Sin tareas vencidas. <b>Estás en forma.</b>';
     if (key === 'today') return 'Nada vence hoy. <b>Día limpio.</b>';
@@ -6199,12 +6398,18 @@ function _agBucketNarr(key, tasks) {
   }
   var blockedCount = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var altaCount = tasks.filter(function(t){ return t.priority === 'Alta'; }).length;
+  // tasks viene ordenado por etaDays asc (más urgente primero) — usable para "la más crítica".
+  var top = tasks[0];
+  var topName = top && top.nombre ? esc(String(top.nombre).substring(0, 50)) : '';
   if (key === 'overdue') {
     var blockedFrag = blockedCount ? ('<span class="warn">' + blockedCount + ' esperando a tercero.</span> ') : '';
-    return blockedFrag + '<b>Sugerido:</b> hacer follow-up o escalamiento suave.';
+    var topFrag = topName ? (' La más crítica: <b>«' + topName + '»</b>.') : '';
+    return blockedFrag + '<b>Sugerido:</b> follow-up o escalamiento suave.' + topFrag;
   }
   if (key === 'today') {
-    return altaCount ? ('<b>' + altaCount + ' de prioridad alta</b>. Cerrar antes de fin de día.') : 'Cerrar hoy para evitar incumplimientos.';
+    var altaFrag = altaCount ? ('<b>' + altaCount + ' de prioridad alta</b>. ') : '';
+    var topToday = topName ? (' Empezá por <b>«' + topName + '»</b>.') : '';
+    return altaFrag + 'Cerrar antes de fin de día.' + topToday;
   }
   if (key === 'week') {
     return altaCount
@@ -6271,10 +6476,18 @@ function rEdAgrupadas(D) {
     html += '<div class="pa-section-h">'
          +    '<h3><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + bk.dotColor + ';margin-right:8px;vertical-align:middle"></span>' + esc(bk.title) + '</h3>'
          +    '<span class="meta">' + (bk.tasks.length ? bk.tasks.length + (bk.tasks.length === 1 ? ' tarea' : ' tareas') : '—') + '</span>'
-         +    '<span class="meta" style="color:var(--fg-3);margin-left:auto">' + _agBucketNarr(bk.key, bk.tasks).replace(/<[^>]+>/g, '') + '</span>'
+         +    '<span class="meta" style="color:var(--fg-3);margin-left:auto;max-width:60%;text-align:right">' + _agBucketNarr(bk.key, bk.tasks) + '</span>'
          + '</div>';
     if (bk.tasks.length === 0) {
-      html += '<div class="pa-card" style="text-align:center;color:var(--fg-3);padding:18px">No hay tareas en esta franja.</div>';
+      var emptyMsg, emptyIcon;
+      if (bk.key === 'overdue')      { emptyMsg = 'Sin vencidas. Bien jugado.'; emptyIcon = '✓'; }
+      else if (bk.key === 'today')   { emptyMsg = 'Nada vence hoy.';             emptyIcon = '☼'; }
+      else if (bk.key === 'week')    { emptyMsg = 'Sin tareas en cola esta semana.'; emptyIcon = '◐'; }
+      else                            { emptyMsg = 'Sin tareas con margen cómodo.';    emptyIcon = '◇'; }
+      html += '<div class="pa-card" style="display:flex;align-items:center;gap:12px;padding:14px 18px;color:var(--fg-3)">'
+           +    '<span style="width:32px;height:32px;border-radius:8px;background:var(--bg-2);display:grid;place-items:center;font-size:14px;color:var(--fg-2)">' + emptyIcon + '</span>'
+           +    '<span style="font-size:13px">' + esc(emptyMsg) + '</span>'
+           + '</div>';
     } else {
       html += '<div class="pa-tbl">';
       bk.tasks.forEach(function(t) {
@@ -6474,7 +6687,7 @@ function _uaRender(task, variant) {
        +   '<aside class="ua-panel" role="dialog" aria-modal="true" aria-label="Actualizar tarea">'
        +     '<div class="ua-head">'
        +       '<button type="button" class="ua-x" onclick="edUClose()" aria-label="Cerrar">×</button>'
-       +       '<div class="ua-eye">— Update status</div>'
+       +       '<div class="ua-eye">— Actualizar estado</div>'
        +       '<div class="ua-id">' + esc(task.id + ' · ' + pn) + '</div>'
        +       '<div class="ua-title">' + esc(task.nombre || '') + '</div>'
        +     '</div>'
@@ -6617,14 +6830,17 @@ var EDC = {
 var _CR_TIPOS  = ['Contractual', 'Regulatorio', 'Contencioso', 'Privacy', 'Operativo'];
 var _CR_PRIOS  = ['Alta', 'Media', 'Baja'];
 var _CR_RIESGOS = ['Legal alto', 'Reputacional', 'Operativo'];
-var _CR_PAIS_FALLBACK = ['CO', 'MX', 'BR', 'AR', 'CL', 'PE'];
+// Fallback solo si D.equipos llega vacío (no debería pasar). Sincronizado
+// con todos los países activos del sheet Equipos al 2026-05.
+var _CR_PAIS_FALLBACK = ['CO', 'MX', 'BR', 'AR', 'CL', 'PE', 'CR', 'UY', 'EC'];
 
 function _crCountries() {
   if (D && D.equipos && D.equipos.length) {
     var seen = {}, out = [];
     D.equipos.forEach(function(eq){
       var c = eq && eq.code;
-      if (c && !seen[c]) { seen[c] = 1; out.push(c); }
+      // HQ es admin/global, no operativo — no aparece como opción de país de tarea.
+      if (c && c !== 'HQ' && !seen[c]) { seen[c] = 1; out.push(c); }
     });
     if (out.length) return out;
   }
@@ -6712,15 +6928,23 @@ function _crProjectName(id) {
   return '#' + id;
 }
 
+function _crErr(field) {
+  return (EDC.errors && EDC.errors[field]) ? '<div class="cr-err">' + esc(EDC.errors[field]) + '</div>' : '';
+}
+function _crFieldCls(field) {
+  return 'cr-field' + ((EDC.errors && EDC.errors[field]) ? ' has-err' : '');
+}
+
 function _crRenderStep1() {
   var v = EDC.values;
   return ''
-    + '<div class="cr-field">'
+    + '<div class="' + _crFieldCls('titulo') + '">'
     +   '<div class="cr-label">Título de la tarea <span class="req">*</span></div>'
     +   '<input class="cr-input title" id="crTitulo" maxlength="120" '
     +     'placeholder="ej: Revisar contrato con proveedor — Bogotá" '
     +     'value="' + esc(v.titulo) + '" '
     +     'oninput="edCrearSetField(\'titulo\', this.value)">'
+    +   _crErr('titulo')
     + '</div>'
     + '<div class="cr-field">'
     +   '<div class="cr-label">Descripción / contexto</div>'
@@ -6729,13 +6953,15 @@ function _crRenderStep1() {
     +     'oninput="edCrearSetField(\'descripcion\', this.value)">' + esc(v.descripcion) + '</textarea>'
     + '</div>'
     + '<div class="cr-grid2">'
-    +   '<div class="cr-field">'
+    +   '<div class="' + _crFieldCls('tipo') + '">'
     +     '<div class="cr-label">Tipo <span class="req">*</span></div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('tipo', _CR_TIPOS, v.tipo) + '</div>'
+    +     _crErr('tipo')
     +   '</div>'
-    +   '<div class="cr-field">'
+    +   '<div class="' + _crFieldCls('pais') + '">'
     +     '<div class="cr-label">País <span class="req">*</span></div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
+    +     _crErr('pais')
     +   '</div>'
     + '</div>';
 }
@@ -6758,14 +6984,16 @@ function _crRenderStep2() {
     +   '</div>'
     + '</div>'
     + '<div class="cr-grid2">'
-    +   '<div class="cr-field">'
+    +   '<div class="' + _crFieldCls('resp') + '">'
     +     '<div class="cr-label">Responsable <span class="req">*</span></div>'
     +     _crSelectHtml('crResp', resp, v.resp, 'Seleccionar…').replace('<select id="crResp"', '<select id="crResp" onchange="edCrearSetField(\'resp\', this.value)"')
+    +     _crErr('resp')
     +   '</div>'
-    +   '<div class="cr-field">'
+    +   '<div class="' + _crFieldCls('deadline') + '">'
     +     '<div class="cr-label">Plazo <span class="req">*</span></div>'
     +     '<input type="date" class="cr-input" id="crDeadline" value="' + esc(v.deadline) + '" '
     +       'onchange="edCrearSetField(\'deadline\', this.value)">'
+    +     _crErr('deadline')
     +   '</div>'
     + '</div>'
     + '<div class="cr-field">'
@@ -6840,14 +7068,19 @@ function _crRender(step) {
   else bodyHtml = _crRenderStep3();
 
   var footBtns = '';
+  // Cancelar siempre presente como botón ghost (los pasos 2/3 antes solo
+  // tenían X en la esquina; el brief pide Cancelar persistente).
+  var cancelBtn = '<button type="button" class="ed-btn ghost" onclick="edCrearClose()">Cancelar</button>';
   if (s === 1) {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearClose()">Cancelar</button>'
+    footBtns = cancelBtn
              + '<button type="button" class="ed-btn accent" onclick="edCrearGoStep(2)">Continuar →</button>';
   } else if (s === 2) {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearGoStep(1)">← Atrás</button>'
+    footBtns = cancelBtn
+             + '<button type="button" class="ed-btn" onclick="edCrearGoStep(1)">← Atrás</button>'
              + '<button type="button" class="ed-btn accent" onclick="edCrearGoStep(3)">Revisar y publicar →</button>';
   } else {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearGoStep(2)">← Editar</button>'
+    footBtns = cancelBtn
+             + '<button type="button" class="ed-btn" onclick="edCrearGoStep(2)">← Editar</button>'
              + '<button type="button" class="ed-btn accent" id="crSubmit" onclick="edCrearSubmit()">Publicar tarea</button>';
   }
 
@@ -6888,6 +7121,7 @@ function edCrearOpen() {
   var currentName = (typeof _effectiveUserName === 'function') ? _effectiveUserName() : '';
   var currentCode = (typeof _effectiveUserCode === 'function') ? _effectiveUserCode() : '';
   EDC.step = 1;
+  EDC.errors = {};
   EDC.values = {
     titulo: '',
     descripcion: '',
@@ -6931,6 +7165,10 @@ function edCrearClose() {
 function edCrearSetField(key, value) {
   if (!EDC.values || !(key in EDC.values)) return;
   EDC.values[key] = value;
+  // Limpiar el error del campo cuando el usuario lo edita (feedback inmediato).
+  if (EDC.errors && EDC.errors[key]) {
+    delete EDC.errors[key];
+  }
   // Persistir borrador en localStorage para no perder el progreso si el modal se cierra accidentalmente.
   try { localStorage.setItem('lt-edc-draft', JSON.stringify(EDC.values)); } catch(e){}
   // Para campos texto/select que están dentro del DOM actual, no re-renderizamos
@@ -6941,16 +7179,25 @@ function edCrearSetField(key, value) {
 }
 
 function edCrearGoStep(n) {
-  // Validación del paso actual antes de avanzar
+  // Validación del paso actual antes de avanzar.
+  // Setea EDC.errors[field] para que el render del paso muestre el mensaje
+  // inline debajo de cada campo invalid, y emite un toast resumen.
   var v = EDC.values;
+  EDC.errors = {};
   if (n > EDC.step) {
     if (EDC.step === 1) {
-      if (!v.titulo || !v.titulo.trim()) { toast('Falta el título', 'error'); return; }
-      if (!v.tipo) { toast('Elegí un tipo', 'error'); return; }
-      if (!v.pais) { toast('Elegí un país', 'error'); return; }
+      if (!v.titulo || !v.titulo.trim()) EDC.errors.titulo = 'Escribí un título descriptivo.';
+      if (!v.tipo) EDC.errors.tipo = 'Elegí un tipo de trabajo.';
+      if (!v.pais) EDC.errors.pais = 'Elegí un país.';
     } else if (EDC.step === 2) {
-      if (!v.resp) { toast('Elegí un responsable', 'error'); return; }
-      if (!v.deadline) { toast('Falta el plazo', 'error'); return; }
+      if (!v.resp) EDC.errors.resp = 'Elegí quién es responsable.';
+      if (!v.deadline) EDC.errors.deadline = 'Definí el plazo.';
+    }
+    var errKeys = Object.keys(EDC.errors);
+    if (errKeys.length) {
+      toast('Revisá ' + errKeys.length + (errKeys.length === 1 ? ' campo' : ' campos') + ' marcados.', 'error');
+      _crMount();
+      return;
     }
   }
   EDC.step = n;
@@ -7563,12 +7810,8 @@ function rEdMisTareas(D) {
        + '</div>';
 
   if (mine.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;padding:48px 20px">'
-         +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon('inbox', 20) + '</div>'
-         +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">Día limpio. No tenés tareas activas.</div>'
-         +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0 14px">Aprovechá para avanzar trabajo de proyecto.</div>'
-         +    '<button class="pa-btn pa-btn-outline" onclick="goEd(\'agrupadas\')">Ver por urgencia →</button>'
-         + '</div>';
+    html += paEmpty('inbox', 'Día limpio. No tenés tareas activas.', 'Aprovechá para avanzar trabajo de proyecto.');
+    html += '<div style="margin-top:8px;text-align:center"><button class="pa-btn pa-btn-outline" onclick="goEd(\'agrupadas\')">Ver por urgencia →</button></div>';
   } else {
     var rows = (typeof _edSortByUrgency === 'function') ? _edSortByUrgency(mine) : mine.slice();
     html += '<div class="pa-tbl">';
@@ -7756,11 +7999,7 @@ function rEdHistorial(D) {
        + '</div>';
 
   if (total === 0) {
-    html += '<div class="pa-card" style="text-align:center;padding:48px 20px">'
-         +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon('refresh', 20) + '</div>'
-         +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">Aún no hay tareas cerradas.</div>'
-         +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0">Cuando cierres tu primera, va a aparecer acá.</div>'
-         + '</div>';
+    html += paEmpty('refresh', 'Aún no hay tareas cerradas.', 'Cuando cierres tu primera, va a aparecer acá.');
   } else {
     var rows = hist.slice().sort(function(a, b){
       var fa = pd(a.cerrado), fb = pd(b.cerrado);
@@ -7937,7 +8176,9 @@ function rEdMiequipo(D) {
     var loadFg = over ? 'var(--critical-fg)' : 'var(--fg-2)';
     var ov = m.overdue || 0;
     var bl = m.blocked || 0;
-    return '<div class="pa-tbl-r" style="grid-template-columns: 1fr 220px 80px 90px 100px;height:48px" data-act="miq-open-person" data-arg="' + esc(m.name || '') + '">'
+    var sla = m.slaPct;
+    var slaColor = sla == null ? 'var(--fg-3)' : (sla >= 90 ? 'var(--good-fg)' : (sla < 85 ? 'var(--warn-fg)' : 'var(--fg-2)'));
+    return '<div class="pa-tbl-r" style="grid-template-columns: 1fr 220px 80px 90px 80px 100px;height:48px" data-act="miq-open-person" data-arg="' + esc(m.name || '') + '">'
          +   '<div style="display:flex;align-items:center;gap:10px">' + paAvatar(m.name || '?', 22)
          +     '<div><div style="font-size:13px;font-weight:500">' + esc(m.name || '') + '</div>'
          +     '<div style="font-size:11px;color:var(--fg-3)">' + esc(m.role || 'Specialist') + (m.country ? ' · ' + esc(m.country) : '') + '</div></div>'
@@ -7948,15 +8189,16 @@ function rEdMiequipo(D) {
          +   '</div>'
          +   '<div class="mono" style="font-size:12px;color:' + (ov ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + ov + '</div>'
          +   '<div class="mono" style="font-size:12px;color:' + (bl ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + bl + '</div>'
+         +   '<div class="mono" style="font-size:12px;color:' + slaColor + '">' + (sla != null ? sla + '%' : '—') + '</div>'
          +   '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="event.stopPropagation();_miqOpenPerson(\'' + esc(m.name || '') + '\')">Detalle →</button></div>'
          + '</div>';
   }
 
   if (role === 'manager') {
-    html += '<div class="pa-section-h"><h3>Tu equipo</h3><span class="meta">Carga, vencidas y bloqueadas</span></div>'
+    html += '<div class="pa-section-h"><h3>Tu equipo</h3><span class="meta">Carga, vencidas, bloqueadas y SLA mes</span></div>'
          +  '<div class="pa-tbl">'
-         +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 220px 80px 90px 100px">'
-         +      '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div></div>'
+         +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 220px 80px 90px 80px 100px">'
+         +      '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div>SLA mes</div><div></div>'
          +    '</div>';
     var sorted = _miqSorted(visible);
     sorted.forEach(function(m) { html += _miqRow(m); });
@@ -7979,8 +8221,8 @@ function rEdMiequipo(D) {
            +    '<span class="meta">' + (gCap ? gPct + '% carga · ' : '') + (gOver ? gOver + ' vencidas' : 'sin vencidas') + '</span>'
            + '</div>'
            + '<div class="pa-tbl">'
-           +   '<div class="pa-tbl-h" style="grid-template-columns: 1fr 220px 80px 90px 100px">'
-           +     '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div></div>'
+           +   '<div class="pa-tbl-h" style="grid-template-columns: 1fr 220px 80px 90px 80px 100px">'
+           +     '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div>SLA mes</div><div></div>'
            +   '</div>';
       arr.forEach(function(m) { html += _miqRow(m); });
       html += '</div>';
@@ -8679,7 +8921,7 @@ function rEdResumen(D) {
        +    '<span class="meta">click para filtrar tracker</span>'
        + '</div>';
   if (countries.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;color:var(--fg-3);padding:24px">No hay datos de países disponibles.</div>';
+    html += paEmpty('globe', 'No hay datos de países disponibles.', 'Verificá que la hoja Equipos tenga al menos un país configurado.');
   } else {
     html += '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px">'
@@ -9095,7 +9337,221 @@ function _paApprovalPill(approved) {
     : '<span class="pa-pill pa-pill-warn">' + paIcon('alert', 10) + ' En revisión</span>';
 }
 
+// Render real de la vista Biblioteca: lee la hoja Templates vía getTemplates().
+// La data tiene forma { tipoTrabajo: [item1, item2, ...] }. Solo manager y
+// head pueden crear/editar/eliminar; specialist es read-only. Cuando se
+// cambia una plantilla, invalidamos _TEMPLATES_CACHE para forzar refresh
+// en el wizard de Crear (sino el dropdown sigue mostrando la versión vieja
+// hasta que recargue la página).
 function rEdPlantillas(D) {
+  var v = $('vEdPlantillas'); if (!v) return;
+  var role = _effectiveRole();
+  var canEdit = (role === 'manager' || role === 'head');
+
+  // Si la cache local no está cargada todavía, fetch — el render se llama
+  // de nuevo cuando responde.
+  if (_TEMPLATES_CACHE == null) {
+    v.innerHTML = '<div class="pa-page"><div style="padding:32px;text-align:center;color:var(--fg-3)">Cargando plantillas…</div></div>';
+    _loadTemplates(function() { rEdPlantillas(D); });
+    return;
+  }
+
+  // _TEMPLATES_CACHE = { tipoTrabajo: [items] } — convertir a array para iterar ordenado.
+  var dict = _TEMPLATES_CACHE || {};
+  var tipos = Object.keys(dict).sort();
+  var templates = tipos.map(function(t){ return { tipo: t, items: dict[t] || [] }; });
+
+  var html = '<div class="pa-page">';
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">Biblioteca</span>'
+       +    '<span class="pa-page-sub">' + templates.length + (templates.length === 1 ? ' plantilla' : ' plantillas') + ' · una por tipo de trabajo</span>'
+       +    '<div class="pa-page-meta">'
+       +      (canEdit ? '<button class="pa-btn pa-btn-primary" onclick="edPltOpenEditor(null)">' + paIcon('plus', 12) + ' Nueva plantilla</button>' : '')
+       +    '</div>'
+       + '</div>';
+
+  if (!canEdit) {
+    html += '<div class="pa-narrative">Las plantillas pre-cargan el checklist de notas al crear una tarea. Solo managers y Global pueden editarlas.</div>';
+  } else {
+    html += '<div class="pa-narrative">Las plantillas se aplican automáticamente al elegir el <b>Tipo de trabajo</b> en el wizard de Crear. Si el campo Notas está vacío, se prellena con los ítems del checklist.</div>';
+  }
+
+  if (templates.length === 0) {
+    html += paEmpty('doc', 'Tu biblioteca está vacía.', canEdit
+      ? 'Creá tu primera plantilla con "Nueva plantilla". Cada tipo de trabajo (Contractual, Privacy, etc.) puede tener una.'
+      : 'Pedile a tu manager que cree plantillas para tus tipos de trabajo más frecuentes.');
+    html += '</div>';
+    v.innerHTML = html;
+    return;
+  }
+
+  html += '<div class="pa-tbl" style="margin-top:14px">'
+       +    '<div class="pa-tbl-h" style="grid-template-columns: 200px 1fr 90px 200px">'
+       +      '<div>Tipo de trabajo</div><div>Checklist</div><div>Ítems</div><div></div>'
+       +    '</div>';
+  templates.forEach(function(t) {
+    var preview = t.items.slice(0, 3).join(' · ');
+    if (t.items.length > 3) preview += ' · …';
+    var actions = canEdit
+      ? '<div style="display:flex;gap:6px;justify-content:flex-end">'
+        +   '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="event.stopPropagation();edPltOpenEditor(\'' + esc(t.tipo) + '\')">Editar</button>'
+        +   '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px;color:var(--critical-fg)" onclick="event.stopPropagation();edPltDelete(\'' + esc(t.tipo) + '\')">Eliminar</button>'
+        + '</div>'
+      : '';
+    html += '<div class="pa-tbl-r" style="grid-template-columns: 200px 1fr 90px 200px;height:auto;min-height:48px;padding:10px 12px">'
+         +    '<div><span class="pa-pill pa-pill-tipo">' + esc(t.tipo) + '</span></div>'
+         +    '<div style="font-size:12px;color:var(--fg-2);line-height:1.45">' + esc(preview) + '</div>'
+         +    '<div class="mono" style="font-size:12px;color:var(--fg-3)">' + t.items.length + '</div>'
+         +    actions
+         + '</div>';
+  });
+  html += '</div></div>';
+  v.innerHTML = html;
+  return;
+}
+
+// Editor de plantilla: modal con dropdown de tipoTrabajo + textarea de items
+// (uno por línea). Si `tipo` se pasa, edita la existente; si null, crea nueva.
+var EDPLT_EDIT = { tipo: null, items: [], saving: false };
+function edPltOpenEditor(tipo) {
+  var role = _effectiveRole();
+  if (role !== 'manager' && role !== 'head') {
+    toast('Solo managers o Global pueden editar plantillas.', 'error');
+    return;
+  }
+  var dict = _TEMPLATES_CACHE || {};
+  EDPLT_EDIT.tipo = tipo || null;
+  EDPLT_EDIT.items = tipo && dict[tipo] ? dict[tipo].slice() : [];
+  EDPLT_EDIT.saving = false;
+  _edPltMountEditor();
+}
+function edPltCloseEditor() {
+  var host = $('edPltHost'); if (host) host.innerHTML = '';
+  EDPLT_EDIT.saving = false;
+}
+function _edPltMountEditor() {
+  var host = $('edPltHost');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'edPltHost';
+    document.body.appendChild(host);
+  }
+  var existingTipos = Object.keys(_TEMPLATES_CACHE || {});
+  var isNew = !EDPLT_EDIT.tipo;
+  // En modo "nueva" solo dejamos elegir tipos que NO tengan plantilla ya
+  // (una plantilla por tipo). En edición, el tipo está fijo (no se cambia).
+  var availableTipos = isNew
+    ? _CR_TIPOS.filter(function(t){ return existingTipos.indexOf(t) < 0; })
+    : [EDPLT_EDIT.tipo];
+  var noTiposLeft = isNew && availableTipos.length === 0;
+  var itemsText = (EDPLT_EDIT.items || []).join('\n');
+
+  var html = '<div class="cr-overlay" onclick="if(event.target===this)edPltCloseEditor()">'
+           +   '<div class="cr-backdrop" onclick="edPltCloseEditor()"></div>'
+           +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Editor de plantilla">'
+           +     '<div class="cr-head">'
+           +       '<div>'
+           +         '<div class="cr-eye">— ' + (isNew ? 'Nueva' : 'Editar') + ' plantilla</div>'
+           +         '<div class="cr-title">' + (isNew ? 'Crear plantilla' : ('Editar plantilla · ' + esc(EDPLT_EDIT.tipo))) + '</div>'
+           +       '</div>'
+           +       '<button type="button" class="cr-x" onclick="edPltCloseEditor()" aria-label="Cerrar">×</button>'
+           +     '</div>'
+           +     '<div class="cr-body">';
+
+  if (noTiposLeft) {
+    html += '<div class="pa-narrative">Ya tenés una plantilla para cada tipo de trabajo. Editá las existentes desde la lista, o eliminá alguna para crear otra con ese tipo.</div>';
+  } else {
+    html += '<div class="cr-field">'
+         +    '<div class="cr-label">Tipo de trabajo <span class="req">*</span></div>'
+         +    (isNew
+         ?      '<select id="edPltTipoSelect" class="cr-input" onchange="EDPLT_EDIT.tipo=this.value">'
+         +        '<option value="">Seleccionar…</option>'
+         +        availableTipos.map(function(t){
+                    return '<option value="' + esc(t) + '"' + (EDPLT_EDIT.tipo === t ? ' selected' : '') + '>' + esc(t) + '</option>';
+                  }).join('')
+         +      '</select>'
+         :      '<input class="cr-input" value="' + esc(EDPLT_EDIT.tipo) + '" disabled>')
+         + '</div>'
+         + '<div class="cr-field">'
+         +   '<div class="cr-label">Checklist · un ítem por línea <span class="req">*</span></div>'
+         +   '<textarea id="edPltItemsTa" class="cr-input cr-textarea" style="min-height:200px;font-family:var(--font-mono);font-size:12px" placeholder="Revisar contraparte\nValidar firma autorizada\nAdjuntar minuta\n…">' + esc(itemsText) + '</textarea>'
+         +   '<div style="font-size:11px;color:var(--fg-3);margin-top:6px">Máx 50 ítems, 200 caracteres por ítem. Líneas vacías se ignoran.</div>'
+         + '</div>';
+  }
+
+  html += '</div>'
+       +    '<div class="cr-foot">'
+       +      '<div class="cr-foot-info">' + (isNew ? 'La plantilla se aplica al elegir este tipo en el wizard de Crear.' : 'Los cambios afectan tareas nuevas — las ya creadas no se modifican.') + '</div>'
+       +      '<button type="button" class="ed-btn ghost" onclick="edPltCloseEditor()">Cancelar</button>'
+       +      (noTiposLeft ? '' : '<button type="button" class="ed-btn accent" id="edPltSaveBtn" onclick="edPltSave()">Guardar</button>')
+       +    '</div>'
+       +  '</div>'
+       + '</div>';
+  host.innerHTML = html;
+  setTimeout(function() {
+    var ta = $('edPltItemsTa');
+    if (ta) ta.focus();
+  }, 60);
+}
+function edPltSave() {
+  if (EDPLT_EDIT.saving) return;
+  var tipo = EDPLT_EDIT.tipo;
+  if (!tipo) {
+    var sel = $('edPltTipoSelect');
+    tipo = sel && sel.value;
+    if (!tipo) { toast('Elegí un tipo de trabajo.', 'error'); return; }
+    EDPLT_EDIT.tipo = tipo;
+  }
+  var ta = $('edPltItemsTa');
+  if (!ta) return;
+  var items = (ta.value || '').split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
+  if (!items.length) { toast('Agregá al menos un ítem.', 'error'); return; }
+  EDPLT_EDIT.saving = true;
+  var btn = $('edPltSaveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      EDPLT_EDIT.saving = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+      if (res && res.success) {
+        _TEMPLATES_CACHE = _TEMPLATES_CACHE || {};
+        _TEMPLATES_CACHE[res.tipo] = res.checklist || [];
+        toast('Plantilla guardada', 'success');
+        edPltCloseEditor();
+        rEdPlantillas(D);
+      } else {
+        toast((res && res.error) || 'No se pudo guardar.', 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      EDPLT_EDIT.saving = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .saveTemplate(tipo, items);
+}
+function edPltDelete(tipo) {
+  if (!confirm('¿Eliminar la plantilla de "' + tipo + '"? Las tareas ya creadas no se modifican.')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        if (_TEMPLATES_CACHE) delete _TEMPLATES_CACHE[tipo];
+        toast('Plantilla eliminada', 'success');
+        rEdPlantillas(D);
+      } else {
+        toast((res && res.error) || 'No se pudo eliminar.', 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .deleteTemplate(tipo);
+}
+
+// Mantengo la implementación mock antigua oculta para no romper referencias.
+// El array TEMPLATES = [] mock + funciones edPltSelect/edPltSetFilter/
+// edPltCreateFromTemplate quedan no-usadas. Se pueden borrar en próxima pasada.
+function _rEdPlantillasLegacyMock(D) {
   var v = $('vEdPlantillas'); if (!v) return;
   var role = _effectiveRole();
   var userName = _effectiveUserName();
@@ -9148,8 +9604,8 @@ function rEdPlantillas(D) {
        +    '<span class="pa-page-title">Biblioteca</span>'
        +    '<span class="pa-page-sub">' + TEMPLATES.length + ' plantillas · ' + (TEMPLATES.length - counts.draft) + ' aprobadas · ' + counts.draft + ' en revisión</span>'
        +    '<div class="pa-page-meta">'
-       +      '<button class="pa-btn pa-btn-outline">' + paIcon('download', 12) + ' Exportar</button>'
-       +      (canEdit ? '<button class="pa-btn pa-btn-primary">' + paIcon('plus', 12) + ' Nueva plantilla</button>' : '')
+       +      '<button class="pa-btn pa-btn-outline" disabled title="Próximamente">' + paIcon('download', 12) + ' Exportar</button>'
+       +      (canEdit ? '<button class="pa-btn pa-btn-primary" disabled title="Próximamente">' + paIcon('plus', 12) + ' Nueva plantilla</button>' : '')
        +    '</div>'
        + '</div>';
 
@@ -9194,7 +9650,7 @@ function rEdPlantillas(D) {
        +    '<div class="pa-chip-divider"></div>'
        +    fchip('mias', 'Las mías', counts.mias)
        +    fchip('draft', 'En revisión', counts.draft, 'warn')
-       +    '<div style="margin-left:auto"><div class="pa-search" style="width:200px"><input type="text" placeholder="Buscar plantilla…"></div></div>'
+       +    '<div style="margin-left:auto"><div class="pa-search" style="width:200px"><input type="text" placeholder="Buscar plantilla…" disabled title="Próximamente"></div></div>'
        + '</div>';
 
   // Table
@@ -9277,8 +9733,8 @@ function rEdPlantillas(D) {
          +    '</button>'
          +    (canEdit
          ?    '<div style="display:flex;gap:6px">'
-         +      '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center">' + paIcon('doc', 12) + ' Duplicar</button>'
-         +      '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center">' + paIcon('save', 12) + ' Editar</button>'
+         +      '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center" disabled title="Próximamente">' + paIcon('doc', 12) + ' Duplicar</button>'
+         +      '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center" disabled title="Próximamente">' + paIcon('save', 12) + ' Editar</button>'
          +    '</div>'
          :    '')
          + '</div>';
