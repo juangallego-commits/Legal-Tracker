@@ -1412,6 +1412,15 @@ table tr:hover td { background: var(--bg-2); }
   .pa-page { padding: 16px; }
   .pa-kpis { grid-template-columns: 1fr; }
   .pa-hd-search { display: none; }
+  /* Tablas densas con grid-template-columns fijo desbordan en mobile.
+     Permitir scroll horizontal en cada .pa-tbl en lugar de romper layout. */
+  .pa-tbl { overflow-x: auto; }
+  .pa-tbl-h, .pa-tbl-r { min-width: 600px; }
+  /* Header "+ Nueva tarea" ocupa mucho en mobile — esconder el label deja solo
+     el icono "+" para no empujar el avatar fuera del viewport. */
+  .pa-hd-actions .pa-btn-primary { font-size: 0; padding: 0 10px; }
+  .pa-hd-actions .pa-btn-primary svg { font-size: initial; }
+  .pa-hd-actions .pa-btn-primary { width: 32px; }
   /* En mobile el panel ocupa todo el viewport y stackea main sobre rail
      (en vez de side-by-side). El rail con comentarios/documentos queda
      debajo del main, scrolleable. Antes display:none — el user móvil
