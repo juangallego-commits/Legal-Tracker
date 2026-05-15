@@ -10,8 +10,11 @@
   --bg-1: #ffffff;
   --bg-2: #f1f1f3;
   --bg-3: #e7e7ea;
-  --bg-sidebar: #0e0e10;
-  --bg-sidebar-2: #1a1a1d;
+  --bg-sidebar: #ffffff;
+  --bg-sidebar-2: #f7f7f8;
+  --sidebar-hover: rgba(15,15,17,0.04);
+  --sidebar-hover-strong: rgba(15,15,17,0.06);
+  --sidebar-border: rgba(15,15,17,0.06);
 
   /* Borders */
   --line-1: rgba(15,15,17,0.08);
@@ -23,9 +26,10 @@
   --fg-2: #45464d;
   --fg-3: #707179;
   --fg-4: #9a9ba2;
-  --fg-on-dark-1: #f4f4f5;
-  --fg-on-dark-2: #a1a1a8;
-  --fg-on-dark-3: #6a6a72;
+  /* "on-dark" en light mode = sidebar claro → texto oscuro adapta */
+  --fg-on-dark-1: #0e0e10;
+  --fg-on-dark-2: #45464d;
+  --fg-on-dark-3: #707179;
 
   /* Accent — Rappi orange */
   --accent: #ED4519;
@@ -78,6 +82,9 @@
   --bg-3: #26262c;
   --bg-sidebar: #0a0a0c;
   --bg-sidebar-2: #141418;
+  --sidebar-hover: rgba(255,255,255,0.04);
+  --sidebar-hover-strong: rgba(255,255,255,0.06);
+  --sidebar-border: rgba(255,255,255,0.06);
 
   --line-1: rgba(255,255,255,0.06);
   --line-2: rgba(255,255,255,0.10);
@@ -87,6 +94,11 @@
   --fg-2: #c0c0c6;
   --fg-3: #8a8a92;
   --fg-4: #5e5e66;
+
+  /* En dark mode el sidebar SÍ es oscuro → texto claro */
+  --fg-on-dark-1: #f4f4f5;
+  --fg-on-dark-2: #a1a1a8;
+  --fg-on-dark-3: #6a6a72;
 
   --accent: #FF6A45;
   --accent-hover: #FF8060;
@@ -187,7 +199,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
   background: var(--bg-sidebar);
   color: var(--fg-on-dark-1);
   display: flex; flex-direction: column;
-  border-right: 1px solid rgba(255,255,255,0.04);
+  border-right: 1px solid var(--sidebar-border);
   min-height: 0; overflow: hidden;
 }
 
@@ -219,7 +231,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
 .pa-sb-version {
   font-size: 10px; color: var(--fg-on-dark-3); margin-left: 2px;
   padding: 1px 5px; border-radius: 3px;
-  background: rgba(255,255,255,0.05); font-family: var(--font-mono);
+  background: var(--sidebar-hover); font-family: var(--font-mono);
 }
 
 /* Workspace strip · muestra rol efectivo (Specialist/Manager/Global) +
@@ -229,10 +241,10 @@ input, select, textarea { font-family: inherit; color: inherit; }
   margin: 4px 8px 12px; padding: 6px 8px;
   border-radius: 6px;
   display: flex; align-items: center; gap: 8px;
-  background: rgba(255,255,255,0.02);
+  background: var(--sidebar-hover);
 }
 .pa-sb-workspace.is-clickable { cursor: pointer; }
-.pa-sb-workspace.is-clickable:hover { background: rgba(255,255,255,0.06); }
+.pa-sb-workspace.is-clickable:hover { background: var(--sidebar-hover-strong); }
 .pa-sb-ws-stack { flex: 1; min-width: 0; line-height: 1.2; }
 .pa-sb-ws-sub { font-size: 10px; color: var(--fg-on-dark-3); margin-top: 1px; }
 .pa-sb-ws-demo {
@@ -266,8 +278,8 @@ input, select, textarea { font-family: inherit; color: inherit; }
   border: none; background: transparent;
   width: 100%; text-align: left;
 }
-.pa-sb-item:hover { background: rgba(255,255,255,0.04); color: var(--fg-on-dark-1); }
-.pa-sb-item.is-active { background: rgba(255,255,255,0.06); color: var(--fg-on-dark-1); }
+.pa-sb-item:hover { background: var(--sidebar-hover); color: var(--fg-on-dark-1); }
+.pa-sb-item.is-active { background: var(--sidebar-hover-strong); color: var(--fg-on-dark-1); }
 .pa-sb-item .ico { width: 16px; height: 16px; flex: 0 0 16px; opacity: .7; }
 .pa-sb-item.is-active .ico { opacity: 1; color: var(--accent); }
 .pa-sb-item .ct {
@@ -279,11 +291,11 @@ input, select, textarea { font-family: inherit; color: inherit; }
 
 .pa-sb-footer {
   padding: 8px;
-  border-top: 1px solid rgba(255,255,255,0.06);
+  border-top: 1px solid var(--sidebar-border);
   display: flex; align-items: center; gap: 6px;
 }
 .pa-sb-user { display: flex; align-items: center; gap: 8px; flex: 1; padding: 4px; border-radius: 5px; cursor: pointer; min-width: 0; }
-.pa-sb-user:hover { background: rgba(255,255,255,0.04); }
+.pa-sb-user:hover { background: var(--sidebar-hover); }
 .pa-sb-av {
   width: 22px; height: 22px; border-radius: 50%;
   background: #d0a86b; color: #2a1c0a;
@@ -300,7 +312,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
   border: none; background: transparent;
   flex-shrink: 0;
 }
-.pa-sb-iconbtn:hover { background: rgba(255,255,255,0.06); color: var(--fg-on-dark-1); }
+.pa-sb-iconbtn:hover { background: var(--sidebar-hover-strong); color: var(--fg-on-dark-1); }
 
 /* ─── Header internals ─── */
 .pa-hd-crumbs {
@@ -677,7 +689,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
   cursor: pointer; padding: 4px 8px; border-radius: 5px;
   background: none; border: none; color: inherit;
 }
-.pa-banner .act:hover { background: rgba(208,72,72,0.10); }
+.pa-banner .act:hover { background: var(--critical-soft); }
 .pa-banner.is-warn { background: var(--warn-soft); color: var(--warn-fg); border-color: color-mix(in oklab, var(--warn) 28%, transparent); }
 .pa-banner.is-info { background: var(--info-soft); color: var(--info-fg); border-color: color-mix(in oklab, var(--info) 28%, transparent); }
 
@@ -1525,7 +1537,7 @@ table tr:hover td { background: var(--bg-2); }
 .esp-urg-cta {
   font-size: 12px; font-weight: 500; cursor: pointer;
   padding: 4px 10px; border-radius: 5px;
-  background: rgba(208,72,72,0.15); border: 0; color: inherit;
+  background: var(--critical-soft); border: 0; color: inherit;
 }
 
 .esp-proj-row {
