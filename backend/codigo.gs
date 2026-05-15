@@ -768,13 +768,21 @@ function _buildViewForRole(raw, role, user, feriadosByCountry) {
     visibleEquipos = equipos.filter(function(e){ return e.code === user.code; });
   }
 
+  // HQ team es admin/global, no operativo. Lo separamos del array `countries`
+  // (usado por las vistas "Por país", dropdown del tracker, totales LATAM, etc.)
+  // y lo expones aparte como `hqTeam` por si alguna vista lo necesita.
+  var allCountriesArr = Object.values(countryMap);
+  var operativeCountries = allCountriesArr.filter(function(c){ return (c.code || '').toUpperCase() !== 'HQ'; });
+  var hqTeam = allCountriesArr.find(function(c){ return (c.code || '').toUpperCase() === 'HQ'; }) || null;
+
   return {
     tasks: tasks,
     historial: historial,
     kpi: kpi,
     sla: sla,
     team: team,
-    countries: Object.values(countryMap),
+    countries: operativeCountries,
+    hqTeam: hqTeam,
     equipos: visibleEquipos,
     projects: projects,
     projectList: projectList,

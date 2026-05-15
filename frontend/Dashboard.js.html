@@ -1798,7 +1798,7 @@ function pd(s) {
 function toast(msg, type) {
   var e = $('toast');
   type = type || 'info';
-  var icons = { success: '✓', error: '✕', info: 'ℹ' };
+  var icons = { success: '✓', error: '✕', info: 'ℹ', warn: '⚠' };
   var icon = icons[type] || icons.info;
   e.innerHTML = '<span class="toast-icon">' + icon + '</span>'
               + '<span class="toast-msg"></span>';
@@ -2971,6 +2971,21 @@ function paEtaText(etaDays, deadline) {
   return '+' + etaDays + ' d';
 }
 
+// Empty state homogéneo: icono + frase principal + hint opcional. Usar en
+// vistas pa-* donde antes había <div class="pa-card">texto</div> sin
+// affordance visual. iconName es uno de los keys de paIcon ('inbox', 'check',
+// 'folder', 'users', 'search', etc.) o un string ('☼', '✓') que se imprime tal cual.
+function paEmpty(iconName, msg, hint) {
+  var iconHtml = (typeof paIcon === 'function' && iconName && /^[a-z]/i.test(iconName))
+    ? paIcon(iconName, 18)
+    : ('<span style="font-size:14px">' + esc(iconName || '◇') + '</span>');
+  return '<div class="pa-empty">'
+       +    '<div class="pa-empty-icon">' + iconHtml + '</div>'
+       +    '<div><div class="pa-empty-msg">' + esc(msg || '') + '</div>'
+       +    (hint ? '<div class="pa-empty-hint">' + esc(hint) + '</div>' : '') + '</div>'
+       + '</div>';
+}
+
 var ED_NAV_BY_ROLE = {
   specialist: [
     { section: 'Mi día', items: [
@@ -3635,6 +3650,11 @@ function edSearchPickTask(taskId) {
 function edSearchPickProject(projectId) {
   edSearchClose();
   if (typeof goEd === 'function') goEd('proyectos');
+  // Después de navegar al index, abrir el detalle del proyecto seleccionado.
+  // setTimeout pequeño para que el render del index termine antes del open.
+  if (projectId && typeof edPiOpen === 'function') {
+    setTimeout(function(){ edPiOpen(projectId); }, 50);
+  }
 }
 // Document pick: abre el link en pestaña nueva. Si era de una task,
 // además navega al panel para que el contexto quede visible.
@@ -4013,7 +4033,7 @@ function rEdHomeSpecialist(D) {
        +    '<button class="link" onclick="goEd(\'mistareas\')">Ver todas (' + tasks.length + ') →</button>'
        + '</div>';
   if (top.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;color:var(--fg-3)">No tenés tareas activas en tu agenda.</div>';
+    html += paEmpty('inbox', 'No tenés tareas activas en tu agenda.', 'Aprovechá para trabajo de proyecto o cerrar pendientes viejos.');
   } else {
     html += '<div class="pa-tbl">';
     for (var i = 0; i < top.length; i++) {
@@ -4097,7 +4117,7 @@ function rEdHomeSpecialist(D) {
        +      '<span class="meta">' + projs.length + ' activos</span>'
        +    '</div>';
   if (projs.length === 0) {
-    html += '<div style="font-size:13px;color:var(--fg-3);padding:8px 0">No formás parte de ningún proyecto activo.</div>';
+    html += '<div style="padding:8px 0">' + paEmpty('folder', 'No formás parte de ningún proyecto activo.', 'Cuando alguien te asigne tareas dentro de un proyecto, aparecerán acá.') + '</div>';
   } else {
     var palette = ['#5b8def', '#8a7ff0', '#d0a86b', '#3fa888', '#e07a7a'];
     projs.slice(0, 5).forEach(function(p, i) {
@@ -4212,7 +4232,7 @@ function rEdHomeManager(D) {
        +    '<button class="link" onclick="goEd(\'tracker\')">Ver todas →</button>'
        + '</div>';
   if (att.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;color:var(--fg-3)">Tu equipo está al día. Nada urgente.</div>';
+    html += paEmpty('check', 'Tu equipo está al día.', 'Nada vencido, bloqueado, ni de prioridad alta sin avance.');
   } else {
     html += '<div class="pa-tbl">';
     att.forEach(function(t) {
@@ -4239,7 +4259,7 @@ function rEdHomeManager(D) {
        +    '<button class="link" onclick="goEd(\'miequipo\')">Ir a Mi equipo →</button>'
        + '</div>';
   if (teamMine.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;color:var(--fg-3)">No hay miembros del equipo visibles.</div>';
+    html += paEmpty('users', 'No hay miembros del equipo visibles.', 'Pedile a tu líder que agregue specialists en la hoja Equipos.');
   } else {
     html += '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px">'
@@ -4395,7 +4415,7 @@ function rEdHomeHQ(D) {
        +    '<button class="link" onclick="goEd(\'paises\')">Ir a Por país →</button>'
        + '</div>';
   if (countries.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;color:var(--fg-3)">No hay datos de países disponibles.</div>';
+    html += paEmpty('globe', 'No hay datos de países disponibles.', 'Verificá que la hoja Equipos tenga al menos un país configurado.');
   } else {
     html += '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px">'
@@ -4670,19 +4690,10 @@ function _edNextUrgent() {
 }
 
 // ─── BULK ACTIONS DEL TRACKER ───────────────────────────────────
-// EDT.selectedIds = Array<string> de task ids seleccionadas vía
-// checkbox. La barra de acciones aparece cuando hay >0 seleccionadas
-// y permite: Avanzar (status → siguiente), Bloquear (→Bloqueado),
-// Reasignar (manager/head, prompt simple para v1).
-function edTkToggleSelect(input) {
-  var id = String(input.dataset.taskId);
-  EDT.selectedIds = EDT.selectedIds || [];
-  var idx = EDT.selectedIds.indexOf(id);
-  if (input.checked && idx < 0) EDT.selectedIds.push(id);
-  else if (!input.checked && idx >= 0) EDT.selectedIds.splice(idx, 1);
-  // Update solo la barra (no re-render completo para no perder hover/scroll)
-  _edTkUpdateBulkBar();
-}
+// EDT.selectedIds = Array<string> de task ids seleccionadas vía checkbox.
+// La barra de acciones (.pa-bulkbar) se renderiza inline desde rEdTracker
+// cuando hay >0 seleccionadas; permite Avanzar / Bloquear / Reasignar.
+// El toggle por fila lo maneja edTkToggleSelectId (definida cerca del render).
 function edTkSelectAll(checked) {
   var rows = document.querySelectorAll('#vEdTracker .pa-tbl-r[data-task-id]');
   var ids = Array.prototype.map.call(rows, function(r){ return String(r.dataset.taskId); });
@@ -4702,13 +4713,6 @@ function edTkMasterToggle() {
   var total = rows.length;
   var selected = (EDT.selectedIds || []).length;
   edTkSelectAll(selected < total);
-}
-function _edTkUpdateBulkBar() {
-  var bar = $('tkBulkBar'); if (!bar) return;
-  var n = (EDT.selectedIds || []).length;
-  bar.classList.toggle('show', n > 0);
-  var counter = bar.querySelector('.tk-bulk-count');
-  if (counter) counter.textContent = n + ' seleccionadas';
 }
 function edTkBulkAction(action) {
   var ids = (EDT.selectedIds || []).slice();
@@ -5963,7 +5967,12 @@ function rEdTracker(D) {
     html += _renderTkPanel(sel);
   }
 
+  // Preservar el scrollTop para que las acciones que re-renderean (bulk
+  // select, filter chips, search) no devuelvan al usuario al top de la
+  // tabla. Restauramos en el siguiente tick — innerHTML lo resetea.
+  var prevScroll = v.scrollTop;
   v.innerHTML = html;
+  if (prevScroll) v.scrollTop = prevScroll;
   // Post-render: auto-resize del textarea de notas si el panel está
   // abierto. Sin esto, las notas largas aparecen con scroll interno
   // pequeño hasta que el usuario tipea algo.
@@ -6235,7 +6244,9 @@ function _agBuckets(tasks) {
 }
 
 function _agBucketNarr(key, tasks) {
-  // Contextual bucket narrative based on real counts and blocks.
+  // Contextual bucket narrative based on real counts, blocks, y nombre de la
+  // más urgente cuando aporta. Devuelve HTML (b/span); el caller decide si lo
+  // strippea (header sin formato) o lo deja (cuerpo).
   if (tasks.length === 0) {
     if (key === 'overdue') return 'Sin tareas vencidas. <b>Estás en forma.</b>';
     if (key === 'today') return 'Nada vence hoy. <b>Día limpio.</b>';
@@ -6244,12 +6255,18 @@ function _agBucketNarr(key, tasks) {
   }
   var blockedCount = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var altaCount = tasks.filter(function(t){ return t.priority === 'Alta'; }).length;
+  // tasks viene ordenado por etaDays asc (más urgente primero) — usable para "la más crítica".
+  var top = tasks[0];
+  var topName = top && top.nombre ? esc(String(top.nombre).substring(0, 50)) : '';
   if (key === 'overdue') {
     var blockedFrag = blockedCount ? ('<span class="warn">' + blockedCount + ' esperando a tercero.</span> ') : '';
-    return blockedFrag + '<b>Sugerido:</b> hacer follow-up o escalamiento suave.';
+    var topFrag = topName ? (' La más crítica: <b>«' + topName + '»</b>.') : '';
+    return blockedFrag + '<b>Sugerido:</b> follow-up o escalamiento suave.' + topFrag;
   }
   if (key === 'today') {
-    return altaCount ? ('<b>' + altaCount + ' de prioridad alta</b>. Cerrar antes de fin de día.') : 'Cerrar hoy para evitar incumplimientos.';
+    var altaFrag = altaCount ? ('<b>' + altaCount + ' de prioridad alta</b>. ') : '';
+    var topToday = topName ? (' Empezá por <b>«' + topName + '»</b>.') : '';
+    return altaFrag + 'Cerrar antes de fin de día.' + topToday;
   }
   if (key === 'week') {
     return altaCount
@@ -6316,10 +6333,18 @@ function rEdAgrupadas(D) {
     html += '<div class="pa-section-h">'
          +    '<h3><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + bk.dotColor + ';margin-right:8px;vertical-align:middle"></span>' + esc(bk.title) + '</h3>'
          +    '<span class="meta">' + (bk.tasks.length ? bk.tasks.length + (bk.tasks.length === 1 ? ' tarea' : ' tareas') : '—') + '</span>'
-         +    '<span class="meta" style="color:var(--fg-3);margin-left:auto">' + _agBucketNarr(bk.key, bk.tasks).replace(/<[^>]+>/g, '') + '</span>'
+         +    '<span class="meta" style="color:var(--fg-3);margin-left:auto;max-width:60%;text-align:right">' + _agBucketNarr(bk.key, bk.tasks) + '</span>'
          + '</div>';
     if (bk.tasks.length === 0) {
-      html += '<div class="pa-card" style="text-align:center;color:var(--fg-3);padding:18px">No hay tareas en esta franja.</div>';
+      var emptyMsg, emptyIcon;
+      if (bk.key === 'overdue')      { emptyMsg = 'Sin vencidas. Bien jugado.'; emptyIcon = '✓'; }
+      else if (bk.key === 'today')   { emptyMsg = 'Nada vence hoy.';             emptyIcon = '☼'; }
+      else if (bk.key === 'week')    { emptyMsg = 'Sin tareas en cola esta semana.'; emptyIcon = '◐'; }
+      else                            { emptyMsg = 'Sin tareas con margen cómodo.';    emptyIcon = '◇'; }
+      html += '<div class="pa-card" style="display:flex;align-items:center;gap:12px;padding:14px 18px;color:var(--fg-3)">'
+           +    '<span style="width:32px;height:32px;border-radius:8px;background:var(--bg-2);display:grid;place-items:center;font-size:14px;color:var(--fg-2)">' + emptyIcon + '</span>'
+           +    '<span style="font-size:13px">' + esc(emptyMsg) + '</span>'
+           + '</div>';
     } else {
       html += '<div class="pa-tbl">';
       bk.tasks.forEach(function(t) {
@@ -6662,14 +6687,17 @@ var EDC = {
 var _CR_TIPOS  = ['Contractual', 'Regulatorio', 'Contencioso', 'Privacy', 'Operativo'];
 var _CR_PRIOS  = ['Alta', 'Media', 'Baja'];
 var _CR_RIESGOS = ['Legal alto', 'Reputacional', 'Operativo'];
-var _CR_PAIS_FALLBACK = ['CO', 'MX', 'BR', 'AR', 'CL', 'PE'];
+// Fallback solo si D.equipos llega vacío (no debería pasar). Sincronizado
+// con todos los países activos del sheet Equipos al 2026-05.
+var _CR_PAIS_FALLBACK = ['CO', 'MX', 'BR', 'AR', 'CL', 'PE', 'CR', 'UY', 'EC'];
 
 function _crCountries() {
   if (D && D.equipos && D.equipos.length) {
     var seen = {}, out = [];
     D.equipos.forEach(function(eq){
       var c = eq && eq.code;
-      if (c && !seen[c]) { seen[c] = 1; out.push(c); }
+      // HQ es admin/global, no operativo — no aparece como opción de país de tarea.
+      if (c && c !== 'HQ' && !seen[c]) { seen[c] = 1; out.push(c); }
     });
     if (out.length) return out;
   }
@@ -6757,15 +6785,23 @@ function _crProjectName(id) {
   return '#' + id;
 }
 
+function _crErr(field) {
+  return (EDC.errors && EDC.errors[field]) ? '<div class="cr-err">' + esc(EDC.errors[field]) + '</div>' : '';
+}
+function _crFieldCls(field) {
+  return 'cr-field' + ((EDC.errors && EDC.errors[field]) ? ' has-err' : '');
+}
+
 function _crRenderStep1() {
   var v = EDC.values;
   return ''
-    + '<div class="cr-field">'
+    + '<div class="' + _crFieldCls('titulo') + '">'
     +   '<div class="cr-label">Título de la tarea <span class="req">*</span></div>'
     +   '<input class="cr-input title" id="crTitulo" maxlength="120" '
     +     'placeholder="ej: Revisar contrato con proveedor — Bogotá" '
     +     'value="' + esc(v.titulo) + '" '
     +     'oninput="edCrearSetField(\'titulo\', this.value)">'
+    +   _crErr('titulo')
     + '</div>'
     + '<div class="cr-field">'
     +   '<div class="cr-label">Descripción / contexto</div>'
@@ -6774,13 +6810,15 @@ function _crRenderStep1() {
     +     'oninput="edCrearSetField(\'descripcion\', this.value)">' + esc(v.descripcion) + '</textarea>'
     + '</div>'
     + '<div class="cr-grid2">'
-    +   '<div class="cr-field">'
+    +   '<div class="' + _crFieldCls('tipo') + '">'
     +     '<div class="cr-label">Tipo <span class="req">*</span></div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('tipo', _CR_TIPOS, v.tipo) + '</div>'
+    +     _crErr('tipo')
     +   '</div>'
-    +   '<div class="cr-field">'
+    +   '<div class="' + _crFieldCls('pais') + '">'
     +     '<div class="cr-label">País <span class="req">*</span></div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
+    +     _crErr('pais')
     +   '</div>'
     + '</div>';
 }
@@ -6803,14 +6841,16 @@ function _crRenderStep2() {
     +   '</div>'
     + '</div>'
     + '<div class="cr-grid2">'
-    +   '<div class="cr-field">'
+    +   '<div class="' + _crFieldCls('resp') + '">'
     +     '<div class="cr-label">Responsable <span class="req">*</span></div>'
     +     _crSelectHtml('crResp', resp, v.resp, 'Seleccionar…').replace('<select id="crResp"', '<select id="crResp" onchange="edCrearSetField(\'resp\', this.value)"')
+    +     _crErr('resp')
     +   '</div>'
-    +   '<div class="cr-field">'
+    +   '<div class="' + _crFieldCls('deadline') + '">'
     +     '<div class="cr-label">Plazo <span class="req">*</span></div>'
     +     '<input type="date" class="cr-input" id="crDeadline" value="' + esc(v.deadline) + '" '
     +       'onchange="edCrearSetField(\'deadline\', this.value)">'
+    +     _crErr('deadline')
     +   '</div>'
     + '</div>'
     + '<div class="cr-field">'
@@ -6885,14 +6925,19 @@ function _crRender(step) {
   else bodyHtml = _crRenderStep3();
 
   var footBtns = '';
+  // Cancelar siempre presente como botón ghost (los pasos 2/3 antes solo
+  // tenían X en la esquina; el brief pide Cancelar persistente).
+  var cancelBtn = '<button type="button" class="ed-btn ghost" onclick="edCrearClose()">Cancelar</button>';
   if (s === 1) {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearClose()">Cancelar</button>'
+    footBtns = cancelBtn
              + '<button type="button" class="ed-btn accent" onclick="edCrearGoStep(2)">Continuar →</button>';
   } else if (s === 2) {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearGoStep(1)">← Atrás</button>'
+    footBtns = cancelBtn
+             + '<button type="button" class="ed-btn" onclick="edCrearGoStep(1)">← Atrás</button>'
              + '<button type="button" class="ed-btn accent" onclick="edCrearGoStep(3)">Revisar y publicar →</button>';
   } else {
-    footBtns = '<button type="button" class="ed-btn" onclick="edCrearGoStep(2)">← Editar</button>'
+    footBtns = cancelBtn
+             + '<button type="button" class="ed-btn" onclick="edCrearGoStep(2)">← Editar</button>'
              + '<button type="button" class="ed-btn accent" id="crSubmit" onclick="edCrearSubmit()">Publicar tarea</button>';
   }
 
@@ -6933,6 +6978,7 @@ function edCrearOpen() {
   var currentName = (typeof _effectiveUserName === 'function') ? _effectiveUserName() : '';
   var currentCode = (typeof _effectiveUserCode === 'function') ? _effectiveUserCode() : '';
   EDC.step = 1;
+  EDC.errors = {};
   EDC.values = {
     titulo: '',
     descripcion: '',
@@ -6976,6 +7022,10 @@ function edCrearClose() {
 function edCrearSetField(key, value) {
   if (!EDC.values || !(key in EDC.values)) return;
   EDC.values[key] = value;
+  // Limpiar el error del campo cuando el usuario lo edita (feedback inmediato).
+  if (EDC.errors && EDC.errors[key]) {
+    delete EDC.errors[key];
+  }
   // Persistir borrador en localStorage para no perder el progreso si el modal se cierra accidentalmente.
   try { localStorage.setItem('lt-edc-draft', JSON.stringify(EDC.values)); } catch(e){}
   // Para campos texto/select que están dentro del DOM actual, no re-renderizamos
@@ -6986,16 +7036,25 @@ function edCrearSetField(key, value) {
 }
 
 function edCrearGoStep(n) {
-  // Validación del paso actual antes de avanzar
+  // Validación del paso actual antes de avanzar.
+  // Setea EDC.errors[field] para que el render del paso muestre el mensaje
+  // inline debajo de cada campo invalid, y emite un toast resumen.
   var v = EDC.values;
+  EDC.errors = {};
   if (n > EDC.step) {
     if (EDC.step === 1) {
-      if (!v.titulo || !v.titulo.trim()) { toast('Falta el título', 'error'); return; }
-      if (!v.tipo) { toast('Elegí un tipo', 'error'); return; }
-      if (!v.pais) { toast('Elegí un país', 'error'); return; }
+      if (!v.titulo || !v.titulo.trim()) EDC.errors.titulo = 'Escribí un título descriptivo.';
+      if (!v.tipo) EDC.errors.tipo = 'Elegí un tipo de trabajo.';
+      if (!v.pais) EDC.errors.pais = 'Elegí un país.';
     } else if (EDC.step === 2) {
-      if (!v.resp) { toast('Elegí un responsable', 'error'); return; }
-      if (!v.deadline) { toast('Falta el plazo', 'error'); return; }
+      if (!v.resp) EDC.errors.resp = 'Elegí quién es responsable.';
+      if (!v.deadline) EDC.errors.deadline = 'Definí el plazo.';
+    }
+    var errKeys = Object.keys(EDC.errors);
+    if (errKeys.length) {
+      toast('Revisá ' + errKeys.length + (errKeys.length === 1 ? ' campo' : ' campos') + ' marcados.', 'error');
+      _crMount();
+      return;
     }
   }
   EDC.step = n;
@@ -8727,7 +8786,7 @@ function rEdResumen(D) {
        +    '<span class="meta">click para filtrar tracker</span>'
        + '</div>';
   if (countries.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;color:var(--fg-3);padding:24px">No hay datos de países disponibles.</div>';
+    html += paEmpty('globe', 'No hay datos de países disponibles.', 'Verificá que la hoja Equipos tenga al menos un país configurado.');
   } else {
     html += '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px">'

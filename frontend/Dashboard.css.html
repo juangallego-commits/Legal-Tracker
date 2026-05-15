@@ -994,6 +994,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
 .pa-toast-critical, .toast-error { border-left-color: var(--critical); }
 .pa-toast-info, .toast-info { border-left-color: var(--info); }
 .toast-success { border-left-color: var(--good); }
+.pa-toast-warn, .toast-warn { border-left-color: var(--warn); }
 
 /* ═══════════════════════════════════════════════════════════════
    BULK ACTIONS BAR
@@ -1012,6 +1013,25 @@ input, select, textarea { font-family: inherit; color: inherit; }
   z-index: 30;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
+
+/* Empty state homogéneo: icono + mensaje + hint opcional. Usado por paEmpty(). */
+.pa-empty {
+  display: flex; align-items: center; gap: 12px;
+  padding: 18px 20px;
+  background: var(--bg-1);
+  border: 1px dashed var(--line-2);
+  border-radius: 10px;
+  color: var(--fg-2);
+}
+.pa-empty-icon {
+  width: 36px; height: 36px; flex: 0 0 36px;
+  border-radius: 8px;
+  background: var(--bg-2);
+  display: grid; place-items: center;
+  color: var(--fg-2);
+}
+.pa-empty-msg { font-size: 13px; font-weight: 500; color: var(--fg-1); }
+.pa-empty-hint { font-size: 12px; color: var(--fg-3); margin-top: 2px; }
 
 /* ═══════════════════════════════════════════════════════════════
    TASK PANEL (slide-in detail)
@@ -1886,6 +1906,16 @@ table tr:hover td { background: var(--bg-2); }
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+/* Validación inline del wizard de crear: borde rojo + mensaje debajo. */
+.cr-field.has-err .cr-input,
+.cr-field.has-err .cr-textarea,
+.cr-field.has-err .cr-select,
+.cr-field.has-err select {
+  border-color: var(--critical);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--critical) 18%, transparent);
+}
+.cr-field.has-err .cr-pills-row { outline: 1px solid var(--critical); outline-offset: 4px; border-radius: 6px; }
+.cr-err { font-size: 11px; color: var(--critical-fg); margin-top: 2px; line-height: 1.4; }
 
 /* ua-flow: step indicator (1 → 2 → 3) */
 .ua-flow, .cr-flow, .crp-flow {
