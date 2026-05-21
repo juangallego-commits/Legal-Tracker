@@ -2654,10 +2654,16 @@ document.addEventListener('click', function(e) {
 // ════════════════════════════════════════════════════════════════
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
-    // Editoriales primero (más nuevos / más prominentes visualmente)
+    // Tour primero (cubre el viewport con z-index 95 + el tour promete
+    // explícitamente que Esc cierra en el step 1).
+    if ($('edTourOv')) { if (typeof edFinishTour === 'function') edFinishTour(); return; }
+    // User menu del avatar — dropdown chico, también cerrable con Esc.
+    if ($('edUserMenu')) { if (typeof edUserMenuClose === 'function') edUserMenuClose(); return; }
+    // Editoriales (más nuevos / más prominentes visualmente)
     if ($('uaHost') && $('uaHost').innerHTML) { if (typeof edUClose === 'function') edUClose(); return; }
     if ($('crHost') && $('crHost').innerHTML) { if (typeof edCrearClose === 'function') edCrearClose(); return; }
     if ($('crpHost') && $('crpHost').innerHTML) { if (typeof edCrearProyectoClose === 'function') edCrearProyectoClose(); return; }
+    if ($('edPltHost') && $('edPltHost').innerHTML) { if (typeof edPltCloseEditor === 'function') edPltCloseEditor(); return; }
     if ($('ddM') && $('ddM').style.display === 'block') { closeDD(); return; }
     if ($('createOv') && $('createOv').classList.contains('show')) { closeCreate(); return; }
     if ($('editOv') && $('editOv').classList.contains('show')) { closeEdit(); return; }
@@ -3145,7 +3151,17 @@ function edToggleDemoDropdown(ev) {
   var existing = document.getElementById('edDemoDD');
   if (existing) { existing.remove(); return; }
   var anchor = document.querySelector('.pa-sb-workspace');
-  if (!anchor) return;
+  if (!anchor || anchor.offsetParent === null) {
+    // Sidebar oculto (mobile) — anchor no visible. Abrir el sidebar primero
+    // y dar tiempo al render antes de reintentar.
+    if (typeof edToggleSidebar === 'function') {
+      edToggleSidebar(true);
+      setTimeout(function(){ edToggleDemoDropdown(null); }, 250);
+    } else if (typeof toast === 'function') {
+      toast('Abrí el sidebar (☰) primero para cambiar de vista.', 'info');
+    }
+    return;
+  }
   var current = _effectiveRole();
   var r = anchor.getBoundingClientRect();
   var dd = document.createElement('div');

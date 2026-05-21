@@ -1199,6 +1199,21 @@ function _addTaskImpl(taskObj) {
   if (taskObj.status && !VALID_STATUS[taskObj.status]) taskObj.status = 'Pendiente';
   if (taskObj.confidencialidad && !VALID_CONF[taskObj.confidencialidad]) taskObj.confidencialidad = 'estandar';
 
+  // Defensa en profundidad: el frontend tiene min=today en el input date, pero
+  // un cliente bugueado o curl directo podría mandar fecha pasada. Rechazamos
+  // server-side. Acepta hoy mismo (mismo día = deadline EOD).
+  if (taskObj.deadline) {
+    var dlRaw = String(taskObj.deadline).trim();
+    var m = dlRaw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      var dlDate = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+      var todayBog = new Date(Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy/MM/dd'));
+      if (dlDate < todayBog) {
+        return { success: false, error: 'El plazo no puede estar en el pasado.' };
+      }
+    }
+  }
+
   var ss = ctx.ss, ws = ss.getSheetByName(SHEET_ACTIVO);
   // Lock para que nextTaskId + appendRow sean atómicos frente a creaciones concurrentes.
   var lock = LockService.getScriptLock();
