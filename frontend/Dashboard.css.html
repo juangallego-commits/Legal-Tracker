@@ -1410,6 +1410,44 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 .pa-bulkbar b { color: var(--accent); }
 
 /* Empty state homogéneo: icono + mensaje + hint opcional. Usado por paEmpty(). */
+/* "Tu próxima tarea" — card destacada en el Home Specialist (lo más
+   importante hoy, en lugar de la lista top-4 que se parecía a Por urgencia). */
+.pa-next-task {
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color .12s, transform .12s, box-shadow .12s;
+}
+.pa-next-task:hover {
+  border-color: color-mix(in oklab, var(--accent) 35%, var(--line-2));
+  box-shadow: 0 1px 0 var(--line-1), 0 6px 24px rgba(15,15,17,0.05);
+}
+.pa-next-task-head {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 10px;
+}
+.pa-next-task-title {
+  font-size: 18px; font-weight: 600;
+  letter-spacing: -0.015em; line-height: 1.35;
+  color: var(--fg-1);
+  margin-bottom: 12px;
+}
+.pa-next-task-meta {
+  display: flex; align-items: center; gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-1);
+}
+.pa-next-task-headline {
+  font-size: 13px; color: var(--fg-2);
+  display: inline-flex; align-items: center; gap: 6px;
+  font-weight: 500;
+}
+.pa-next-task-eta { font-size: 12px; color: var(--fg-3); }
+.pa-next-task-eta.overdue { color: var(--critical-fg); font-weight: 600; }
+
 /* Empty state premium: icono grande con accent + frase principal + hint.
    Centrado vertical (en lugar de row horizontal) — comunica "te estamos
    guiando" en lugar de "la pantalla esta vacia". */
