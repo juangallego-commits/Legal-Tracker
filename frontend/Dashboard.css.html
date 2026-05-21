@@ -719,16 +719,19 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   margin: 0 auto;
 }
 .pa-page-h {
-  display: flex; align-items: baseline; gap: 12px;
-  margin-bottom: 6px;
+  display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--line-1);
 }
 .pa-page-title {
-  font-size: 20px; font-weight: 600;
-  letter-spacing: -0.015em;
+  font-size: 24px; font-weight: 650;
+  letter-spacing: -0.022em;
   color: var(--fg-1);
+  line-height: 1.2;
 }
 .pa-page-sub { font-size: 13px; color: var(--fg-3); }
-.pa-page-meta { margin-left: auto; font-size: 12px; color: var(--fg-3); display: flex; align-items: center; gap: 6px; }
+.pa-page-meta { margin-left: auto; font-size: 12px; color: var(--fg-3); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 .pa-section-h {
   display: flex; align-items: baseline; gap: 10px;
@@ -776,27 +779,43 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 .pa-kpi .lab { font-size: 12px; color: var(--fg-3); display: flex; align-items: center; gap: 6px; }
 .pa-kpi .lab .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .pa-kpi .val {
-  font-size: 28px; font-weight: 600;
-  letter-spacing: -0.02em; line-height: 1.1;
-  margin-top: 6px;
+  font-size: 32px; font-weight: 650;
+  letter-spacing: -0.025em; line-height: 1.05;
+  margin-top: 8px;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--fg-1);
 }
 .pa-kpi .delta {
   font-size: 11px; color: var(--fg-3);
-  margin-top: 2px;
-  display: flex; align-items: center; gap: 4px;
+  margin-top: 6px;
+  display: inline-flex; align-items: center; gap: 4px;
 }
-.pa-kpi .delta.up { color: var(--good-fg); }
-.pa-kpi .delta.down { color: var(--critical-fg); }
+/* Delta arrows with background pill: more glance-able than raw colored text */
+.pa-kpi .delta.up,
+.pa-kpi .delta.down {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.pa-kpi .delta.up   { background: var(--good-soft); color: var(--good-fg); }
+.pa-kpi .delta.down { background: var(--critical-soft); color: var(--critical-fg); }
 .pa-kpi.is-critical .val { color: var(--critical-fg); }
 .pa-kpi.is-warn .val { color: var(--warn-fg); }
 .pa-kpi.is-good .val { color: var(--good-fg); }
-/* Border accent for active states — refuerza la jerarquía visual del KPI */
-.pa-kpi.is-critical { border-color: color-mix(in oklab, var(--critical) 35%, var(--line-1)); }
-.pa-kpi.is-warn     { border-color: color-mix(in oklab, var(--warn) 35%, var(--line-1)); }
-.pa-kpi.is-good     { border-color: color-mix(in oklab, var(--good) 35%, var(--line-1)); }
+/* Border accent for active states + inset color bar (vibe Linear/Sentry) */
+.pa-kpi.is-critical {
+  border-color: color-mix(in oklab, var(--critical) 35%, var(--line-1));
+  box-shadow: inset 3px 0 0 var(--critical);
+}
+.pa-kpi.is-warn {
+  border-color: color-mix(in oklab, var(--warn) 35%, var(--line-1));
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.pa-kpi.is-good {
+  border-color: color-mix(in oklab, var(--good) 35%, var(--line-1));
+  box-shadow: inset 3px 0 0 var(--good);
+}
 /* KPIs sin onclick no son interactivos — cursor:default explícito */
 .pa-kpi:not([onclick]) { cursor: default; }
 
@@ -812,11 +831,20 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 }
 .pa-pill .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 
-.pa-pill-alta    { background: var(--critical-soft); color: var(--critical-fg); }
+.pa-pill-alta {
+  background: var(--critical-soft); color: var(--critical-fg);
+  border: 1px solid color-mix(in oklab, var(--critical) 22%, transparent);
+}
 .pa-pill-alta .dot { background: var(--critical); }
-.pa-pill-media   { background: var(--warn-soft); color: var(--warn-fg); }
+.pa-pill-media {
+  background: var(--warn-soft); color: var(--warn-fg);
+  border: 1px solid color-mix(in oklab, var(--warn) 22%, transparent);
+}
 .pa-pill-media .dot { background: var(--warn); }
-.pa-pill-baja    { background: var(--good-soft); color: var(--good-fg); }
+.pa-pill-baja {
+  background: var(--good-soft); color: var(--good-fg);
+  border: 1px solid color-mix(in oklab, var(--good) 22%, transparent);
+}
 .pa-pill-baja .dot { background: var(--good); }
 
 .pa-pill-state-pendiente   { background: var(--bg-3); color: var(--fg-2); }
@@ -833,6 +861,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 .pa-pill-state-cancelado .dot { background: var(--fg-4); }
 
 .pa-pill-tipo { background: var(--bg-2); color: var(--fg-2); }
+/* Pills de tipo con color por familia para que el ojo agrupe rápido por
+   especialidad. La familia se aplica con un suffix data-attr o class hint. */
+.pa-pill-tipo.tipo-Contractual { background: var(--accent-soft); color: var(--accent); }
+.pa-pill-tipo.tipo-Privacy { background: var(--info-soft); color: var(--info-fg); }
+.pa-pill-tipo.tipo-Regulatorio { background: color-mix(in oklab, #7c5cd9 14%, transparent); color: color-mix(in oklab, #7c5cd9 80%, var(--fg-1)); }
+.pa-pill-tipo.tipo-Contencioso { background: var(--critical-soft); color: var(--critical-fg); }
+.pa-pill-tipo.tipo-Operativo { background: var(--dim-soft); color: var(--dim-fg); }
 .pa-pill-country { background: var(--bg-2); color: var(--fg-2); font-family: var(--font-mono); font-size: 10px; padding: 0 6px; }
 
 .pa-pill-good { background: var(--good-soft); color: var(--good-fg); }
@@ -870,7 +905,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   color: var(--fg-3);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  background: var(--bg-0);
+  background: var(--bg-2);
 }
 .pa-tbl-h > * { display: flex; align-items: center; gap: 4px; }
 .pa-tbl-r {
@@ -969,13 +1004,27 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   transition: background .12s, color .12s, border-color .12s;
 }
 .pa-chip:hover { background: var(--bg-2); color: var(--fg-1); }
-.pa-chip.is-active { background: var(--fg-1); color: var(--bg-1); border-color: var(--fg-1); }
+.pa-chip.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: color-mix(in oklab, var(--accent) 40%, transparent);
+}
+.pa-chip.is-active.is-critical {
+  background: var(--critical-soft);
+  color: var(--critical-fg);
+  border-color: color-mix(in oklab, var(--critical) 40%, transparent);
+}
+.pa-chip.is-active.is-warn {
+  background: var(--warn-soft);
+  color: var(--warn-fg);
+  border-color: color-mix(in oklab, var(--warn) 40%, transparent);
+}
 .pa-chip .ct {
   font-family: var(--font-mono); font-size: 10px;
   padding: 0 5px; border-radius: 8px;
   background: var(--bg-2); color: var(--fg-3);
 }
-.pa-chip.is-active .ct { background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.85); }
+.pa-chip.is-active .ct { background: color-mix(in oklab, currentColor 20%, transparent); color: currentColor; }
 .pa-chip.is-critical .ct { background: var(--critical-soft); color: var(--critical-fg); }
 .pa-chip.is-warn .ct { background: var(--warn-soft); color: var(--warn-fg); }
 
@@ -1319,36 +1368,43 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 .pa-bulkbar {
   display: flex; align-items: center; gap: 10px;
   margin-bottom: 8px;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: 8px;
-  background: var(--accent-soft-strong);
-  border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in oklab, var(--accent) 18%, transparent);
   color: var(--fg-1);
   font-size: 13px;
   position: sticky;
   top: 0;
   z-index: 30;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
+.pa-bulkbar b { color: var(--accent); }
 
 /* Empty state homogéneo: icono + mensaje + hint opcional. Usado por paEmpty(). */
+/* Empty state premium: icono grande con accent + frase principal + hint.
+   Centrado vertical (en lugar de row horizontal) — comunica "te estamos
+   guiando" en lugar de "la pantalla esta vacia". */
 .pa-empty {
-  display: flex; align-items: center; gap: 12px;
-  padding: 18px 20px;
-  background: var(--bg-2);
+  display: flex; flex-direction: column; align-items: center;
+  gap: 10px;
+  padding: 32px 24px;
+  background: var(--bg-1);
   border: 1px solid var(--line-1);
-  border-radius: 10px;
+  border-radius: 12px;
   color: var(--fg-2);
+  text-align: center;
 }
 .pa-empty-icon {
-  width: 36px; height: 36px; flex: 0 0 36px;
-  border-radius: 8px;
-  background: var(--bg-2);
+  width: 48px; height: 48px;
+  border-radius: 12px;
+  background: var(--accent-soft);
   display: grid; place-items: center;
-  color: var(--fg-2);
+  color: var(--accent);
+  margin-bottom: 4px;
 }
-.pa-empty-msg { font-size: 13px; font-weight: 500; color: var(--fg-1); }
-.pa-empty-hint { font-size: 12px; color: var(--fg-3); margin-top: 2px; }
+.pa-empty-msg { font-size: 14px; font-weight: 600; color: var(--fg-1); line-height: 1.4; }
+.pa-empty-hint { font-size: 12px; color: var(--fg-3); margin-top: 0; max-width: 380px; line-height: 1.55; }
 
 /* ═══════════════════════════════════════════════════════════════
    TASK PANEL · modal overlay centrado (consistente con wizard Crear)
@@ -1382,7 +1438,18 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   overflow: hidden;
   animation: pa-panel-in .22s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.tk-panel-main { overflow: auto; padding: 22px 28px 96px; min-width: 0; }
+.tk-panel-main { overflow: auto; padding: 0 28px 96px; min-width: 0; }
+/* Sticky header del panel: eyebrow + conf band + título + pills se quedan
+   visibles al scrollear. Sin esto, al leer notes/historial perdías contexto
+   de en qué tarea estás. */
+.tk-panel-sticky {
+  position: sticky; top: 0;
+  background: var(--bg-0);
+  padding: 22px 0 14px;
+  margin: 0 -2px;
+  border-bottom: 1px solid var(--line-1);
+  z-index: 2;
+}
 .tk-panel-rail {
   border-left: 1px solid var(--line-1);
   background: var(--bg-1);

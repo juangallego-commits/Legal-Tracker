@@ -1272,6 +1272,10 @@ function openEdit(id) {
   var respField = canReassign
     ? '<div class="form-group"><label>Responsable</label><select id="eResp">' + rOpts + '</select></div>'
     : '<div class="form-group"><label>Responsable</label><select id="eResp" disabled title="Solo manager/Global pueden reasignar">' + rOpts + '</select></div>';
+  var canChangeCountry = (editRole === 'head');
+  var paisField = canChangeCountry
+    ? '<div class="form-group"><label>País</label><select id="ePais">' + pOpts + '</select></div>'
+    : '<div class="form-group"><label>País</label><select id="ePais" disabled title="Tu rol no permite cambiar el país">' + pOpts + '</select></div>';
 
   $('editB').innerHTML =
     '<div class="form-group" style="margin-bottom:14px"><label>Nombre</label><input type="text" id="eNom" value="' + esc(t.nombre) + '"></div>' +
@@ -1282,7 +1286,7 @@ function openEdit(id) {
     '</div>' +
     '<div class="form-3col" style="margin-bottom:14px">' +
       '<div class="form-group"><label>Proyecto</label><select id="eProj">' + projOpts + '</select></div>' +
-      '<div class="form-group"><label>País</label><select id="ePais">' + pOpts + '</select></div>' +
+      paisField +
       '<div class="form-group"><label>Plazo</label><input type="' + (t.deadlineISO ? 'date' : 'text') + '" id="eDl" value="' + esc(t.deadlineISO || t.deadline || '') + '"></div>' +
     '</div>' +
     '<div class="form-grid">' +
@@ -6633,6 +6637,7 @@ function _renderTkPanel(sel) {
   html += '<aside class="tk-panel" id="tkPanel">';
   // Main column
   html += '<div class="tk-panel-main">'
+       +    '<div class="tk-panel-sticky">'
        +    '<div class="tk-eyebrow">'
        +      '<span class="mono">#' + esc(sel.id) + '</span>'
        +      '<span>·</span>'
@@ -6652,10 +6657,11 @@ function _renderTkPanel(sel) {
        +    '<div class="tk-pillrow">'
        +      paPriorityPill(sel.priority)
        +      paStatusPill(sel.status)
-       +      (sel.tipoTrabajo ? '<span class="pa-pill pa-pill-tipo">' + esc(sel.tipoTrabajo) + '</span>' : '')
+       +      (sel.tipoTrabajo ? '<span class="pa-pill pa-pill-tipo tipo-' + esc(sel.tipoTrabajo) + '">' + esc(sel.tipoTrabajo) + '</span>' : '')
        +      (sel.riesgo ? '<span class="pa-pill pa-pill-tipo">Riesgo · ' + esc(sel.riesgo) + '</span>' : '')
        +      (sel.deadline ? '<span class="pa-pill pa-pill-tipo">' + paIcon('calendar', 10) + ' ' + esc(sel.deadline) + (sel.eta ? ' · ' + esc(sel.eta) : '') + '</span>' : '')
        +    '</div>'
+       +    '</div>' // close tk-panel-sticky
        +    '<div class="tk-status-block">'
        +      '<div class="lbl">Estado actual</div>'
        +      '<div class="body">' + stateBody + '</div>'
@@ -7450,6 +7456,25 @@ function _crFieldCls(field) {
 
 function _crRenderStep1() {
   var v = EDC.values;
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  // Solo head puede crear tareas en cualquier país; specialist/manager están
+  // ligados al suyo (backend lo valida igual con _authorizeTaskWrite). Si el
+  // sistema ya sabe el país del user, no se lo preguntamos — mostramos un
+  // info pill no editable.
+  var canPickCountry = (role === 'head');
+  var paisField = canPickCountry
+    ? '<div class="' + _crFieldCls('pais') + '">'
+      + '<div class="cr-label">País <span class="req">*</span></div>'
+      + '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
+      + _crErr('pais')
+      + '</div>'
+    : '<div class="cr-field">'
+      + '<div class="cr-label">País</div>'
+      + '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;background:var(--bg-2);border:1px solid var(--line-1);font-size:13px">'
+      +   paIcon('globe', 12, '', 'color:var(--fg-3)')
+      +   '<span><b>' + esc(v.pais || '') + '</b> <span style="color:var(--fg-3);font-weight:400">· según tu equipo</span></span>'
+      + '</div>'
+      + '</div>';
   return ''
     + '<div class="' + _crFieldCls('titulo') + '">'
     +   '<div class="cr-label">Título de la tarea <span class="req">*</span></div>'
@@ -7471,11 +7496,7 @@ function _crRenderStep1() {
     +     '<div class="cr-pills-row">' + _crPillsHtml('tipo', _CR_TIPOS, v.tipo) + '</div>'
     +     _crErr('tipo')
     +   '</div>'
-    +   '<div class="' + _crFieldCls('pais') + '">'
-    +     '<div class="cr-label">País <span class="req">*</span></div>'
-    +     '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
-    +     _crErr('pais')
-    +   '</div>'
+    +   paisField
     + '</div>';
 }
 
@@ -7665,11 +7686,15 @@ function edCrearOpen() {
   _TEMPLATES_CACHE = null;
   EDC.step = 1;
   EDC.errors = {};
+  // Para head: el pre-fill de país queda vacío (HQ no es un país operativo).
+  // Para specialist/manager: su país real. Backend valida igual.
+  var openRole = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var prefillPais = (openRole === 'head') ? '' : (currentCode || '');
   EDC.values = {
     titulo: '',
     descripcion: '',
     tipo: '',
-    pais: currentCode || '',
+    pais: prefillPais,
     prioridad: 'Media',
     riesgo: '',
     resp: currentName || '',
@@ -9648,6 +9673,20 @@ function _crpLideres(paisCode) {
 
 function _crpRenderStep1() {
   var v = EDCP.values;
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var canPickCountry = (role === 'head');
+  var paisField = canPickCountry
+    ? '<div class="cr-field">'
+      + '<div class="cr-label">País <span class="req">*</span></div>'
+      + '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
+      + '</div>'
+    : '<div class="cr-field">'
+      + '<div class="cr-label">País</div>'
+      + '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;background:var(--bg-2);border:1px solid var(--line-1);font-size:13px">'
+      +   paIcon('globe', 12, '', 'color:var(--fg-3)')
+      +   '<span><b>' + esc(v.pais || '') + '</b> <span style="color:var(--fg-3);font-weight:400">· según tu equipo</span></span>'
+      + '</div>'
+      + '</div>';
   return ''
     + '<div class="cr-field">'
     +   '<div class="cr-label">Nombre del proyecto <span class="req">*</span></div>'
@@ -9663,10 +9702,7 @@ function _crpRenderStep1() {
     +     'oninput="edCrearProyectoSetField(\'descripcion\', this.value)">' + esc(v.descripcion) + '</textarea>'
     + '</div>'
     + '<div class="cr-grid2">'
-    +   '<div class="cr-field">'
-    +     '<div class="cr-label">País <span class="req">*</span></div>'
-    +     '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
-    +   '</div>'
+    +   paisField
     +   '<div class="cr-field">'
     +     '<div class="cr-label">Prioridad <span class="req">*</span></div>'
     +     '<div class="cr-pills-row">' + _crPillsHtml('priority', _CR_PRIOS, v.priority, _crPrioMod) + '</div>'
@@ -9676,8 +9712,18 @@ function _crpRenderStep1() {
 
 function _crpRenderStep2() {
   var v = EDCP.values;
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var canPickLider = (role === 'head');
   var lideres = _crpLideres(v.pais).map(function(n){ return { value: n, label: n }; });
   var hasPais = !!v.pais;
+  // Auto-asignar líder = leader del país si está vacío. Para specialist/
+  // manager es siempre obvio (el manager de su país); para head queda
+  // editable por si quiere asignar a otro.
+  if (hasPais && !v.lider) {
+    var equipos = (D && D.equipos) || [];
+    var eq = equipos.find(function(e){ return e && e.code === v.pais; });
+    if (eq && eq.leader) v.lider = eq.leader;
+  }
   // Lista de miembros del país: si no hay país seleccionado, vacío.
   // El user selecciona participantes con checkboxes (multi-select); el state
   // se persiste en v.participantes como CSV.
@@ -9705,10 +9751,15 @@ function _crpRenderStep2() {
     + '</div>'
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
-    +     '<div class="cr-label">Líder <span class="req">*</span></div>'
-    +     (hasPais
-        ? _crSelectHtml('crpLider', lideres, v.lider, 'Seleccionar…').replace('<select id="crpLider"', '<select id="crpLider" onchange="edCrearProyectoSetField(\'lider\', this.value)"')
-        : '<select class="cr-input" disabled><option>Elegí un país en el paso 1</option></select>')
+    +     '<div class="cr-label">Líder' + (canPickLider ? ' <span class="req">*</span>' : '') + '</div>'
+    +     (canPickLider
+        ? (hasPais
+            ? _crSelectHtml('crpLider', lideres, v.lider, 'Seleccionar…').replace('<select id="crpLider"', '<select id="crpLider" onchange="edCrearProyectoSetField(\'lider\', this.value)"')
+            : '<select class="cr-input" disabled><option>Elegí un país en el paso 1</option></select>')
+        : '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;background:var(--bg-2);border:1px solid var(--line-1);font-size:13px">'
+          + paIcon('users', 12, '', 'color:var(--fg-3)')
+          + '<span><b>' + esc(v.lider || '—') + '</b> <span style="color:var(--fg-3);font-weight:400">· líder de ' + esc(v.pais || '') + '</span></span>'
+          + '</div>')
     +   '</div>'
     +   '<div class="cr-field">'
     +     '<div class="cr-label">Plazo <span class="req">*</span></div>'
@@ -9834,16 +9885,23 @@ function _crpMount() {
 }
 
 function edCrearProyectoOpen() {
+  // Pre-fill país y líder con los del user. Para specialist/manager, el país
+  // es fijo (no eligible). Para head queda vacío para que elija. El líder se
+  // deriva del país elegido en step 2.
+  var openRole = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var userCode = (typeof _effectiveUserCode === 'function') ? _effectiveUserCode() : '';
+  var prefillPais = (openRole === 'head') ? '' : (userCode || '');
   EDCP.step = 1;
   EDCP.values = {
     nombre: '',
     descripcion: '',
-    pais: '',
+    pais: prefillPais,
     priority: 'Media',
     tipoTrabajo: '',
     riesgo: '',
     lider: '',
-    deadline: ''
+    deadline: '',
+    participantes: ''
   };
   // Restaurar borrador si tiene contenido útil
   try {
