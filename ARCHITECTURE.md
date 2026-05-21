@@ -1,14 +1,14 @@
 # Legal Tracker — Architecture Brief
 
-> Documento resumen para cargar como contexto único en Claude.ai cuando el repo completo excede el límite. Última actualización: v3.6 (Collaboration & Polish).
+> Documento resumen para cargar como contexto único en Claude.ai cuando el repo completo excede el límite. Última actualización: v3.7+ (Audit log, notifications, bulk close wizard, design pass).
 
 ---
 
 ## 1. What it is
 
-Web app interna del equipo Global Legal de Rappi+ para hacer seguimiento de tareas y proyectos legales por país, líder, prioridad y estado. **Pre-piloto / validación interna · Colombia** (equipo core usando la app desde 4/5/2026; rollout amplio aún no decidido). Versión actual: `v3.6 (Collaboration & Polish)`.
+Web app interna del equipo Global Legal de Rappi+ para hacer seguimiento de tareas y proyectos legales por país, líder, prioridad y estado. **En piloto** con ~5 países activos (CO, MX, BR, AR, CL) + global head. ~150 tareas activas en steady state.
 
-UI completamente en inglés (la data en sheets sigue en español por compatibilidad; capa de display layer traduce).
+UI con toggle ES/PT-BR (~314 strings en diccionario). Theme dark/light. La data en sheets sigue en español por compatibilidad; capa de display layer traduce labels visibles (ej. `Bloqueado` → `On hold`).
 
 ---
 
@@ -16,148 +16,167 @@ UI completamente en inglés (la data en sheets sigue en español por compatibili
 
 | Capa | Tecnología |
 |------|-----------|
-| Backend | Google Apps Script (`.gs`) |
-| Frontend | HTML + CSS + JS vanilla servido por `HtmlService` (no framework) |
-| BD | Google Sheets (6 hojas) |
+| Backend | Google Apps Script (`.gs`) — sin frameworks |
+| Frontend | HTML + CSS + JS vanilla servido por `HtmlService` — sin React/Vue/bundler |
+| BD | Google Sheets (10 hojas — ver §5) |
 | Auth | Google SSO + allowlist en hoja `Equipos` |
-| Integraciones | Slack (modales, slash commands), Google Drive (adjuntos con taxonomía auto) |
+| Integraciones | Slack (modales, slash commands), Google Drive (adjuntos con taxonomía auto), Gmail (daily digest) |
 | Deploy | `clasp` vía GitHub Actions en push a `main` (zero-touch) |
 | Charts | Chart.js 4.4.1 (CDN) para analytics; SVG inline para sparklines |
 | Timezone | `America/Bogota` (hardcoded en `appsscript.json`) |
+| i18n | ES (default) + PT-BR vía diccionario `T_PT` en cliente |
 
 **OAuth scopes**: `spreadsheets`, `drive`, `script.external_request` (Slack), `userinfo.email`, `script.container.ui`.
 
 ---
 
-## 3. Estructura de carpetas
+## 3. Estructura del repo
 
 ```
 /
-├── backend/            # Apps Script (.gs)
-│   ├── codigo.gs           # 1836 LOC — engine principal (auth, CRUD, cache, stats, comments, docs)
-│   ├── SlackModal.gs       # 928 LOC  — integración Slack
-│   └── tests.gs            # 221 LOC  — smoke tests
-├── frontend/           # Templates HtmlService
-│   ├── Dashboard.html      # 385 LOC  — shell + vistas legacy (fallback)
-│   ├── Dashboard.css.html  # 4930 LOC — estilos editorial (tokens, dark mode, responsive)
-│   ├── Dashboard.js.html   # 8182 LOC — render imperativo, eventos, modales, todas las features
-│   └── StandaloneDemo.html # 179 LOC  — demo standalone público (?page=demo)
-├── plan/               # Docs vivas
+├── backend/                  # Apps Script (.gs)
+│   ├── codigo.gs             # 3365 LOC — engine principal: auth, CRUD, snapshot, cache, digest, telemetry, activity log
+│   ├── admin.gs              #  286 LOC — setupSheets + wipeTestData (gated por HEAD + script property)
+│   ├── SlackModal.gs         #  928 LOC — integración Slack (modal create/edit, slash commands)
+│   └── tests.gs              #  234 LOC — smoke tests (corre desde el editor)
+├── frontend/                 # Templates HtmlService
+│   ├── Dashboard.html        #  392 LOC — shell HTML
+│   ├── Dashboard.css.html    # 3013 LOC — tokens (dark/light), pills, KPIs, modales, utility classes
+│   └── Dashboard.js.html     # 11377 LOC — render imperativo, tracker, 3 homes (specialist/manager/HQ), modales, i18n, activity log, notificaciones, bulk ops
+├── plan/                     # Templates vivos
+│   └── CLAUDE_DESIGN_PROMPT.md
+├── archive/                  # Historial del rediseño (no vigente, ver archive/README.md)
 │   ├── PRD.md
 │   ├── IMPLEMENTATION-PLAN.md
-│   ├── PILOT-RUNBOOK.md
-│   └── analysis/
-│       ├── CURRENT-STATE-AUDIT.md
-│       └── PROPOSAL-MAPPING.md
-├── ARCHITECTURE.md     # Este archivo
-├── DEMO_BRIEF.md       # Tour de features + demo script + Q&A
+│   └── CURRENT-STATE-AUDIT.md
+├── ARCHITECTURE.md           # Este archivo
+├── DEMO_BRIEF.md             # Brief de demo a stakeholders + Q&A
+├── REVIEW_BRIEF.md           # Prompt para revisores externos con Claude chat
+├── README.md
 ├── .github/workflows/deploy-appsscript.yml
 ├── appsscript.json
 ├── .clasp.json.example
-├── .gitignore
-└── README.md
+├── .claspignore              # whitelist solo backend/ + frontend/ + appsscript.json
+└── .gitignore
 ```
 
-LOC total: ~15K. Repo limpio (sin `pendientes/uploads`, sin `.xlsx`).
+LOC total: ~19.6K.
 
 ---
 
 ## 4. Backend — funciones clave (`backend/codigo.gs`)
 
+Entry points expuestos al frontend vía `google.script.run`:
+
 ```
-doGet(e)                     // Web app entry; auth + render Dashboard; ?page=demo expone standalone
-getTrackerData()             // Endpoint lectura único; snapshot JSON; cache 30s
-getEditorialData()           // Extiende getTrackerData con campos derivados:
-                             //   tasks/historial: eta, etaDays, accionable, blockedReason, slaTarget
-                             //   team: load, capacity, overdue, blocked, streak, avgAlta/Media/Baja
-                             //   countries: open, overdue, slaPct, trend (12 semanas)
-addTask() / updateTaskField() / updateTaskFields() / blockTaskById() / closeTaskById()
+doGet(e)                                  // Web app entry; auth + render Dashboard
+getTrackerData()                          // Snapshot JSON; cache 30s (90KB guard)
+getEditorialData()                        // Extiende con campos derivados (eta, slaTarget, load, capacity, etc.)
+addTask() / updateTaskField() / updateTaskFields()
+blockTaskById() / closeTaskById()
 addProject() / updateProjectFields()
 uploadDocument() / attachDocumentLink() / removeDocument()
-                             // Drive folder con taxonomía: TipoTrabajo / País / Proyecto
-getTaskComments(taskId)      // NUEVO v3.6 — hilo de comentarios
-addTaskComment(taskId, body) // NUEVO v3.6 — persistente en sheet Comments
-resolveVisitor() / determineRole()  // Auth contra hoja Equipos
-readEquipos() / readConfig()
-invalidateCache()
-_safeMutation()              // Wrapper que invalida cache post-write
-countBizDays(start, end)     // O(1) — algoritmo optimizado
+getTaskComments(taskId) / addTaskComment() / editTaskComment() / deleteTaskComment()
+getTaskActivity(taskId)                   // Audit trail por tarea
+getMyRecentActivity(sinceIso)             // Notificaciones in-app (cambios de otros en mis tareas)
+```
+
+Helpers internos clave:
+
+```
+resolveVisitor() / determineRole()        // Auth contra hoja Equipos
+filterTasksForRole()                      // Filtro por rol + confidencialidad (server-side)
+_safeMutation(fn)                         // DocumentLock + cache invalidation; wrapper de TODAS las mutations
+_canUserSeeTask(ctx, taskId)              // Visibility check para reads sensitivos
+_authorizeTaskWrite(ctx, currentTask)     // Permission check para writes
+_sanitizeCell(v) / _sanitizeRow(arr)      // Anti formula-injection (prefija con ' si empieza con =+-@)
+_logActivity(ctx, taskId, action, ...)    // Best-effort write a sheet Activity
+_telemetry(name, fn, ctx)                 // Stackdriver logging
+_cachedRawData()                          // 30s cache con guard de 90KB (>90 skip cache + log warning)
+_readHistorialDataRows(ws)                // Helper canónico: lee data del Historial desde row 4
+countBizDays(start, end, country)         // O(1) con feriados por país
 ```
 
 **Shape de `getTrackerData()`**: `{ tasks, historial, projects, projectList, kpi, sla, teamGrid, countries, config, semana, today, _role, _user }`.
 
-**Cache**: TTL 30s vía `_safeMutation()`. Pre-bucketing de team/historial por `resp` y `pais` baja `getEditorialData()` de ~5s a <300ms en sheets con historial extenso.
+**Cache**: TTL 30s en `CacheService` (key `tracker_data_v1`). Cualquier escritura invalida vía `_safeMutation`. Guard de tamaño: si `JSON.stringify(raw).length > 90KB`, skip cache + log warning (CacheService put límite es 100KB).
+
+**Doble lock pattern**: `_safeMutation` toma `DocumentLock` (30s). Algunos `_*Impl` (addTask, addProject, updateTaskFields) toman `ScriptLock` interno para secciones read-then-write. Son locks distintos, no hay deadlock. La redundancia es intencional (~5ms cost, race condition prevention).
 
 ---
 
 ## 5. Modelo de datos (Google Sheets)
 
-| Hoja | Rol |
-|------|-----|
-| `Tracking Activo` | Tareas vivas (18 cols, columnas 17/18 opcionales: Documentos, Confidencialidad) |
-| `Historial` | Tareas cerradas/bloqueadas |
-| `Config` | Países, prioridades, tipos de tarea, SLAs, DriveFolder |
-| `Equipos` | Allowlist usuarios + rol (head/manager/specialist) + país |
-| `Proyectos` | Proyectos (agrupan tareas) |
-| `Comments` | **NUEVO v3.6** — hilo de comentarios (auto-creada en primer uso) |
+| Hoja | Uso | Notas |
+|------|-----|-------|
+| `Tracking Activo` | Tareas en curso | 19 cols, source of truth. Headers en rows 1-3, data desde row 4 |
+| `Historial` | Tareas cerradas | Append-only. Mismo layout que Tracking Activo (headers rows 1-3) |
+| `Equipos` | Roster + allowlist | code/country/leader/members/emails. Define quién accede |
+| `Proyectos` | Proyectos | 17 cols. Headers en row 1 |
+| `Comments` | Comentarios por tarea | Auto-creada en primer uso. Headers en row 1 |
+| `Activity` | Audit log de cambios | Auto-creada. Acciones: comment, status_change, close, block, reassign, create |
+| `Config` | Heads + parámetros globales | `Heads` (CSV de emails) define el rol HQ |
+| `Feriados` | Días no laborables por país | Manual; afecta `countBizDays` y SLA |
+| `Templates` | Checklists por tipoTrabajo | Opcional; pre-llena Notas al crear tarea |
+| (`Telemetry`) | Logs de mutations | Generada por `_telemetry()`; no user-facing |
 
 ---
 
 ## 6. Features por rol
 
 ### 👤 Specialist
-- **Home** con greeting + urgency banner (si overdue/dueToday > 0) + hero stats clickeables → drill a vistas
-- **Mis tareas** (vista personal de tareas activas)
-- **By urgency** (buckets: Overdue / Due today / This week / Later)
-- **My projects** (proyectos donde participa)
-- **Closed** (historial personal)
-- **My performance** (analytics personal: on-time rate, lifetime closed, streak, throughput 8 weeks, priority mix)
+- **Home** — greeting + banner de vencidas (si overdue > 0) + 4 KPIs (Vencidas/Vencen hoy/Esta semana/On hold) + **"Lo que más necesita atención"** (single card grande con la tarea más urgente) + "Tu mes hasta ahora" + proyectos en los que está
+- **Por urgencia** — buckets (vencidas / hoy / esta semana / próximas)
+- **Mis tareas** — vista personal de activas
+- **Proyectos** — proyectos donde participa
+- **Cerradas** — historial personal
+- **Mi desempeño** — analytics: on-time rate, racha, throughput 8 semanas, mix por prioridad
 
 ### 🟢 Manager
-- **Home** orientado a equipo (high-priority count, overdue/due today, team load %)
-- **Assigned to me** (tareas personales del manager)
-- **Team tracker** (tareas del país, filtro por status + project + owner + confidentiality)
-- **My team** (miembros con load bars + counts)
-- **Projects** (todos los del país)
-- **Analytics** (KPIs + distribution por priority + top owners + SLA donut + **aging buckets** + **SLA trend 8 weeks**)
-- **History** (cerradas del equipo)
+- **Home** — greeting con specialists count + narrative ("Tu equipo está cargando N tareas de prioridad alta") + 4 KPIs + tabla "Requieren tu atención" + tabla **"Quién necesita atención"** (top 3 por carga/vencidas/on hold)
+- **Asignadas a mí** — tareas personales del manager
+- **Tracker** — del país, filtros (status, project, owner, confidentiality)
+- **Mi equipo** — miembros con load bars + counts
+- **Proyectos** — todos del país
+- **Analytics** — KPIs + distribution por priority + top owners + SLA donut + aging buckets + SLA trend 8 semanas
+- **Historial** — cerradas del país
 
 ### 🌎 HQ (head)
-- **Global home** con countries summary band + countries-at-risk banner
-- **By country** (resumen LATAM con sparklines + projects at risk)
-- **Global tracker** con **countries-first landing**: grid de cards (Active/Overdue/SLA + sparkline 12w) → drill al detalle
-- **Projects** (todos LATAM)
-- **Teams** (todos los equipos agrupados por país)
-- **Analytics** (todo lo de manager + **Countries comparison matrix** + **Projects at risk top 5**)
-- **History** (cerradas globales)
-- **Demo switcher** (View as Specialist/Manager/HQ — custom dropdown)
+- **Home global** — "Operaciones legales globales" + narrative LATAM + 4 KPIs agregados + tabla "Por país" (con sparklines 12s) + **"Proyectos en riesgo"** + activity feed (últimas cerradas)
+- **Tracker global** — countries-first landing (grid de cards) → drill al detalle
+- **Proyectos** — todos LATAM
+- **Equipos** — agrupados por país
+- **Analytics** — todo lo de manager + Countries comparison + Projects at risk
+- **Historial** — cerradas globales
+- **Demo switcher** — "Ver como Specialist/Manager/HQ"
 
 ---
 
-## 7. Features cross-cutting (v3.5–v3.6)
+## 7. Features cross-cutting
 
-| Feature | Descripción | Discoverability |
-|---|---|---|
-| **Cmd+K search** | Filtra tasks + projects + **documents** por nombre/resp/notas/tipo/país, con highlight `<mark>`, navegación ↓/↑/Enter | Header button "⌘K Search…" |
-| **Help modal** | Lista todos los keyboard shortcuts (Cmd+K, ↓/↑, N, Enter, Esc, doble-click) | `?` global + botón "?" en header |
-| **Task panel full-screen** | Click en tarea ocupa la vista completa (no side-panel cramped). Back button + flash highlight al volver | Click row |
-| **Inline edit en panel** | Click en cell (Owner/Deadline/Risk/Project) abre editor; dbl-click en título; notes con auto-resize | Hover dashed underline |
-| **Documents** | Upload a Drive con auto-taxonomía + paste links externos. Chip por doc, click abre | Panel "— Documents" |
-| **Comments thread** | Hilo de comentarios por tarea con avatar+name+ts. Cmd+Enter envía. Auto-creates sheet | Panel "— Comments" |
-| **Bulk actions** | Checkbox per row → bar sticky: Advance/Block/Reassign/Cancel. Reassign con picker visual (no prompt) | Multi-select |
-| **Hover preview** | Tooltip tras 400ms con resp/deadline/action | Hover row |
-| **Keyboard nav tracker** | ↓/↑ filas, Enter avanzar, Esc cierra panel | Help modal |
-| **Hero stats clickeables** | Números del home navegan al detalle relevante (Overdue → tracker filtrado, etc.) | Affordance "→" on hover |
-| **Persistent filters** | Status / country / project / owner / confidentiality persisten en localStorage | Auto |
-| **Empty states contextuales** | "No tasks on your plate" vs "No matches for X" con icons + serif italic | Auto |
-| **Activity feed sidebar** | Últimas 5 actividades (closed/created) con relative time | Sidebar bottom |
-| **Responsive** | Sidebar colapsa <1024px (hover-expand), hamburguesa <768px, panel full-screen siempre | Auto |
-| **Daily digest email** | Trigger time-driven (8am Bogotá) que manda email a cada specialist con sus tareas overdue/hoy/48h y al manager un resumen agregado del equipo. Deep-links `?task=ID` abren el panel directo. Skip fines de semana. | Sin UI — se configura como trigger en el editor; `_sendDailyDigestPreview(email)` para QA |
-| **Días hábiles (biz days) con feriados** | `etaDays` y SLA cuentan lun-vie excluyendo feriados nacionales del país de la tarea. Hoja `Feriados` (pais\|fecha\|nombre) cacheada 1h. Fallback: si país no tiene feriados cargados, solo se excluyen sáb/dom. Comentario al final de `codigo.gs` precarga CO/MX/CR 2026 para copy-paste. | Auto en `etaDays`, SLA, streak, avgs |
-| **Task templates por TipoTrabajo** | Al crear una tarea con `TipoTrabajo` que tiene plantilla en hoja `Templates`, el campo Notas se pre-llena con checklist (`- item`). Sólo si Notas está vacío (no pisa lo que el user escribió). Hoja opcional; sin ella la app funciona igual. Cache 1h. | Auto en form crear |
-| **Conflict of interest flag** | Tasks tienen campo `contraparte`. Proyectos tienen `contrapartesConflicto` (CSV). Al crear/editar tarea ligada a proyecto, banner amarillo si contraparte de la tarea hace substring-match con cualquiera del proyecto. Audit manual, no AI. | Form crear/editar + panel detalle |
-| **Cache safety refactor** | `_safeMutation` ahora maneja LockService + invalidateCache automático en `finally`. 10 `invalidateCache()` manuales en `_*Impl` removidos (eran redundantes y frágiles). Single source of truth para concurrencia y cache. | N/A — interno |
-| **Export reports** | (a) XLSX de cualquier vista filtrada del tracker (manager + HQ) respeta rol y confidencialidad. (b) PDF mensual por país con KPIs (opened/closed/overdue, on-time %, top performers, top projects). Files se crean en folder `Legal Tracker · Exports` en Drive del owner y se shared con el caller. | Tracker view → botón `Export ⤓` (manager/head only) |
+| Feature | Descripción |
+|---|---|
+| **Cmd+K search** | Filtra tasks + projects + documents, con highlight + navegación ↓/↑/Enter |
+| **Atajos de teclado** | `/` busca, `N` nueva, `?` help, `Esc` cierra, `↑↓` navega, `A` avanza seleccionada |
+| **Help modal** | Lista atajos + flujos básicos |
+| **Task panel full-screen** | Click en tarea → vista completa (no side-panel) + back button + flash highlight |
+| **Inline edit en panel** | Click en cell (Owner/Deadline/Risk/Project) abre editor; dbl-click en título |
+| **Documents** | Upload a Drive con auto-taxonomía + paste links externos |
+| **Comments thread** | Hilo por tarea con avatar+name+ts. Cmd+Enter envía. Edit/delete propios |
+| **Activity log + notifs in-app** | Sheet `Activity` registra cambios. Menú de usuario muestra "Actividad reciente · N" badge con cambios hechos por otros en tus tareas |
+| **Bulk actions** | Checkbox per row → bar sticky: Avanzar/On hold/Reasignar/Cancelar. Reassign con picker visual |
+| **Bulk close wizard** | Si seleccionás tareas y "Avanzar" llevaría algunas a Listo, abre modal "Cerrar N tareas como Listo" con resumen único aplicado a todas |
+| **Auto-promote** | Editar/comentar una tarea Pendiente la pasa automáticamente a En curso |
+| **Tour interactivo** | Primer login: 7 pasos por rol. Localstorage flag. `Esc` salta |
+| **Daily digest email** | Trigger 8am hora del país. Email a cada specialist con vencidas/hoy/48h + resumen al manager. Skip fines de semana. Deep-links `?task=ID` |
+| **Días hábiles con feriados** | `etaDays` y SLA excluyen sáb/dom + feriados nacionales. Hoja `Feriados` cacheada 1h |
+| **Task templates** | Hoja `Templates` (tipoTrabajo|checklist JSON). Pre-llena Notas al crear si está vacío |
+| **Conflict of interest** | Banner amarillo si la contraparte de una tarea matchea con `contrapartesConflicto` del proyecto |
+| **Export reports** | XLSX de vista filtrada + PDF mensual por país. Files en folder `Legal Tracker · Exports` en Drive |
+| **i18n ES/PT-BR** | Toggle en menú de usuario, persistido en localStorage |
+| **Dark/light theme** | Toggle en menú. Pills con `border-left` para distinguir estados sin depender de color (daltonismo) |
+| **Responsive** | Sidebar colapsa <1024px, hamburguesa <768px. Modales `<900px` ocupan viewport. Tablas con `pa-tbl-wrap` (overflow-x) |
+| **Skeleton classes** | `.pa-skeleton-row` + `pa-shimmer` animation listas para usar en próximas pasadas |
 
 ---
 
@@ -165,27 +184,27 @@ countBizDays(start, end)     // O(1) — algoritmo optimizado
 
 | Rol | Capacidad |
 |-----|-----------|
-| `head` (HQ) | Ve todos los países; reasigna a cualquiera; KPIs globales; cambia confidencialidad |
-| `manager` | Ve su país; reasigna dentro de su equipo; cambia confidencialidad de sus tareas |
-| `specialist` | Ve sus tareas asignadas; puede self-update; NO reasigna |
+| `head` (HQ) | Vista LATAM; reasigna cross-country; cambia confidencialidad; corre admin scripts (setupSheets/wipeTestData) |
+| `manager` | Su país; reasigna dentro del equipo; cambia confidencialidad |
+| `specialist` | Sus tareas; self-update; NO reasigna |
 
-Resolución en `resolveVisitor()` → `determineRole()` consultando hoja `Equipos`.
+Resolución en `resolveVisitor()` → `determineRole()` consultando hoja `Equipos` + `Config!Heads`.
 
-**Backend valida en cada write**: specialist no puede reasignar `resp`, manager no puede mover de país, solo manager/head cambian `confidencialidad`. Errores → toast.
+**Backend valida en cada write** (`_authorizeTaskWrite`): specialist no puede reasignar `resp`, manager no puede mover de país, solo manager/head cambian `confidencialidad`.
 
-**Confidentiality levels**:
-- `estandar` — visible al equipo del rol
-- `restringido` — solo resp / líder / head / manager del país
-- `confidencial` — solo resp / líder / head
+**Confidentiality levels** (display layer reducido a 2 niveles, backend acepta los 3 legacy):
+- `estandar` (UI: "Normal") — visible al equipo del rol
+- `restringido` (UI: "Confidencial", upgrade-to display) — solo resp / líder / head / manager del país
+- `confidencial` (UI: "Confidencial") — solo resp / líder / head
 
-Backend `filterTasksForRole()` aplica este filtro antes de devolver tasks. UI muestra cf-dot indicator + chip en search results. Click en cf-dot filtra el tracker por nivel.
+`filterTasksForRole()` aplica este filtro antes de devolver tasks.
 
 ---
 
 ## 9. Integración Slack (`backend/SlackModal.gs`)
 
-- Verificación de firma HMAC
-- Deduplicación de eventos por hash (fix `0f5ce7a`)
+- **Verificación HMAC**: implementada pero **desactivada** (`_SLACK_SIG_ENFORCED = false`) por limitación de Apps Script (webapp simple no expone headers HTTP). Workaround documentado: migrar a Cloud Function proxy que valide y forwardee con bearer token.
+- **Deduplicación** de eventos por hash
 - Slash commands + shortcuts → modal de creación/edición
 - Notifica a canal cuando se crea/cierra/bloquea tarea
 
@@ -194,6 +213,7 @@ Backend `filterTasksForRole()` aplica este filtro antes de devolver tasks. UI mu
 ## 10. CI/CD (`.github/workflows/deploy-appsscript.yml`)
 
 Trigger: push a `main` o dispatch manual.
+
 Pasos: checkout → Node 20 → `npm i -g @google/clasp` → escribe `~/.clasprc.json` desde secret `CLASPRC_JSON` y `.clasp.json` con `SCRIPT_ID` → `clasp push -f`.
 
 **Secrets requeridos en GitHub**: `CLASPRC_JSON`, `SCRIPT_ID`.
@@ -202,90 +222,57 @@ Pasos: checkout → Node 20 → `npm i -g @google/clasp` → escribe `~/.clasprc
 
 ---
 
-## 11. Deuda técnica
+## 11. Seguridad y guards
+
+- **`setupSheets()` y `wipeTestData()`** viven en `backend/admin.gs` (no codigo.gs). Ambas requieren `_requireAdminEmail()` (email en `Config!Heads`). `wipeTestData` además requiere Script Property `WIPE_CONFIRM=YES` (token de uso único).
+- **Server-side authorization** en cada write vía `_authorizeTaskWrite`. No confía en el cliente.
+- **Confidentiality filter** server-side en `filterTasksForRole` (no solo UI).
+- **Formula injection** protegido con `_sanitizeCell` (prefija `'` si valor empieza con `=+-@\t\r`).
+- **XSS** escapado en frontend con `esc()` consistente. Event delegation con `data-act` (no `onclick=` inline).
+- **Cache guard** de 90KB en `_cachedRawData` (log warning + skip si excede).
+- **Error logger del cliente** sanitiza URLs y emails antes de persistir en localStorage (PII redaction). MAX 5 entries.
+
+---
+
+## 12. Deuda técnica conocida
 
 | # | Ítem | Estado |
 |---|------|--------|
-| 1 | `.xlsx` en raíz | ✅ Resuelto |
-| 2 | `pendientes/uploads/`, `pendientes/export/` | ✅ Resuelto (gitignored) |
-| 3 | Cache invalidation manual | ✅ Resuelto vía `_safeMutation()` en entry points críticos |
-| 4 | `countBizDays` O(n) | ✅ Resuelto — algoritmo O(1) |
-| 5 | Pre-bucketing en `_getEditorialDataImpl` | ✅ Resuelto — O(team × histo) → O(team + histo) |
-| 6 | Toda UI en español | ✅ Resuelto — UI en inglés, sheet sigue en español vía display layer |
-| 7 | Status display labels español | ✅ Resuelto — `_statusLabel()` y `_priorityLabel()` |
-| 8 | Vistas legacy sin documentar | ✅ Documentado en HTML — fallback activo, NO borrar |
-| 9 | Sin a11y focus-visible | ✅ Resuelto — reglas globales |
-| 10 | `Dashboard.js.html` = 8182 LOC | 🟡 Aceptable sin bundler; secciones documentadas con MARKER comments |
-| 11 | Legacy fallback views (vTracker etc.) en español | 🟡 Documentado; eliminación requiere migrar todos los `rEd*` faltantes |
-| 12 | Telemetry sheet en español | ⏸ No user-facing |
-| 13 | No notifications automáticos | ⏸ Requeriría triggers + Slack/email setup |
-| 14 | No edit/delete comments | ⏸ Simple add-only en v3.6; backlog |
-| 15 | Touch UX en breakpoint 1024px | 🟡 Hover-expand puede ser confuso en tablets |
+| 1 | `Dashboard.js.html` = 11.4K LOC monolítico | 🟡 Aceptable sin bundler; pendiente modularización vía `include()` |
+| 2 | `_SLACK_SIG_ENFORCED = false` | 🟡 Limitación de plataforma. Workaround: Cloud Function proxy (no priorizado) |
+| 3 | `_readTaskById` linear scan | 🟡 OK a 150 tareas; necesita índice a 500+ |
+| 4 | `T_PT` inline en JS sin validación | 🟡 314 entries; gaps detectados manualmente |
+| 5 | Tests con emails productivos | 🟢 Override vía Script Properties (`TEST_EMAIL_*`); fallback al hardcode |
+| 6 | Touch UX en tablets (1024px) | 🟡 Hover-expand puede confundir |
+| 7 | Telemetry sheet en español | ⏸ No user-facing |
+| 8 | `Historial` crece sin pruning | ⏸ Sin plan de archivado todavía |
+| 9 | `Activity` (audit log) crece sin pruning | ⏸ Idem |
 
 ---
 
-## 12. Estado de git
+## 13. Backlog priorizado
 
-- Rama actual: `claude/audit-and-roadmap-fdNpp`
-- Working tree: limpio
-- Acumulado en branch pendiente de merge: ~7 commits con features grandes (PR #30)
-
-Hitos recientes ordenados (más reciente primero):
-
-```
-v3.6 — Collaboration & Polish (current)
-   8b2b7ff  feat: documents en Cmd+K + confidentiality filter
-   84cc5f4  feat: comments thread (backend + UI)
-   6387b17  i18n: status + priority labels en EN
-   d2562f9  feat: hero stats clickeables
-   67c8673  feat: inline bulk reassign + project filter + clickable owner
-   ffc9c04  polish: continuity scroll
-   614c9a9  polish: persistent EDT state + contextual empty states
-
-v3.5 — Visual Surgery & Editorial Polish (deployed)
-   8064a3e  fix: demo switcher custom dropdown
-   6d933f2  feat: full-screen task panel + HQ countries-first
-   e207227  feat: tracker clarity (dynamic H1/lede/eyebrow)
-   bc93109  polish: sticky table header + search ↓/↑/Enter + help button
-   e6707b5  feat: manager analytics insights + help modal
-   d6666af  polish: focus-visible a11y + last EN strings
-   42d8544  i18n: project wizard + doc helpers
-   f763481  i18n: Mi equipo, Resumen, Wizard create, Update modal
-   8d63321  i18n: Manager, HQ home, Agrupadas, Mis tareas, Historial
-   91d7159  fix: tasks not creating + countBizDays O(1)
-
-v3.4 — Editorial Final (deployed)
-   ab56427  feat(analytics): role-specific insights · specialist scorecard
-   2e8597d  feat: proyecto detalle + activity feed
-   ...
-```
-
----
-
-## 13. Lo que falta (backlog priorizado)
-
-1. **Notifications automáticos** — ✅ **Email diario implementado** (`sendDailyDigest` trigger 8am Bogotá). Falta: Slack DM al asignar/desasignar, recordatorios sub-diarios cuando una tarea vence en X horas, @mentions en comments.
-2. **Calendar view** del workload por semana. Medium.
-3. **@mentions en comments** (notify a otros users por Slack/email). Small-medium.
-4. **Edit/delete comments** propios (audit trail mantenido). Small.
-5. **Templates de tareas** (recurring work como "Revisión contractual mensual"). Medium-large.
-6. **Export CSV/PDF** de la vista actual del tracker. Small.
-7. **Eliminación final de legacy fallback** (vTracker/vResumen/etc.) — requiere completar todas las `rEd*` faltantes y migrar onclicks inline. Large, risky.
-8. **Mobile touch UX** específico (no hover-expand en tablets). Small-medium.
-9. **Onboarding tour** para usuarios nuevos. Small.
-10. **Search history** en Cmd+K (últimas 5 búsquedas). Small.
+1. **Modularizar `Dashboard.js.html`** vía `include()` en HtmlService (split en `EdHome.js.html`, `EdTracker.js.html`, etc.). Esfuerzo: 1 día. Bloquea claridad del próximo trabajo.
+2. **Extraer `T_PT` a archivo separado** + script de validación que detecte strings sin traducir. 1 día.
+3. **Skeleton loading states** en tablas usando las clases ya creadas (`pa-skeleton-row`). 1.5h.
+4. **Bulk export** con filtros aplicados (CSV/PDF de la vista actual). Small.
+5. **Mobile touch UX** real (no solo responsive del wrapper). Medium.
+6. **@mentions en comments** → notify por Slack/email. Small-medium.
+7. **Search history** en Cmd+K (últimas 5). Small.
+8. **`_readTaskById` con índice** (cachear id→row en snapshot). Medium, prematuro a 150 tareas.
 
 ---
 
 ## 14. Cómo pedirle a Claude que ayude
 
-Cuando subas este archivo a Claude.ai, incluye también:
-- `README.md`
-- `DEMO_BRIEF.md` (tour de features + script de demo)
-- `plan/PRD.md`
-- `plan/IMPLEMENTATION-PLAN.md`
+Ver `REVIEW_BRIEF.md` para el prompt completo de revisión externa.
+
+Para tareas puntuales, leé en orden:
+- `README.md` — overview
+- Este archivo (`ARCHITECTURE.md`) — capas + modelo de datos
+- `DEMO_BRIEF.md` — features tour + script de demo
 
 Peticiones atómicas funcionan mejor. Ejemplos:
-- *"Diseñá el flujo de notifications: qué trigger, qué endpoint, qué mensaje en Slack. No me des código todavía — quiero el plan."*
-- *"Para el demo de 15 min con el VP Legal, decime el orden ideal de pantallas + qué decir en cada una."*
-- *"Si me preguntan 'cómo escalan a 10K tareas', ¿qué respondo? ¿Qué arquitectura tendría que cambiar?"*
+- *"En `backend/codigo.gs:1357`, el path de `getTaskComments` cuando la tarea está en historial — ¿puede leak data? Diagnóstico, no código."*
+- *"Diseñá el flujo de un endpoint `?api=tasks&country=CO` con auth. Plan, no implementación."*
+- *"¿Cómo migrarías `T_PT` a un sheet para que el equipo PT-BR edite sin tocar código?"*

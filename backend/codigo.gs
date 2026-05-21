@@ -65,15 +65,6 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Endpoint público /exec?page=demo: sirve el HTML standalone del demo editorial.
-  // Sin auth (es para presentación interna). Si en el futuro queremos cerrarlo,
-  // basta con resolver el visitante antes de retornar.
-  if (page === 'demo') {
-    return HtmlService.createHtmlOutputFromFile('frontend/StandaloneDemo')
-      .setTitle('Legal Tracker — Editorial Deep')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  }
-
   // 1) Autenticación: resolver el usuario visitante contra la allowlist
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var equipos = readEquipos(ss);
@@ -535,13 +526,27 @@ function _buildNarrative(data) {
 
 // Cache solo la parte cara: lecturas del sheet. Los cálculos de stats se
 // recalculan por rol (barato) porque filtramos por usuario.
+// CacheService.put() tiene un límite duro de 100KB por key. Si lo superamos,
+// el put() tira o falla silenciosamente y cada request lee del sheet directo
+// → perf degrada sin aviso. Acá medimos el payload antes de cachear; si
+// pasa 90KB loggeamos warning y skipeamos el cache (read directo). Cuando
+// el piloto crezca y veamos este warning en logs, partir CACHE_KEY en
+// (tracker_meta_v1 + tracker_tasks_v1) o reducir lo que serializamos.
+var _CACHE_MAX_BYTES = 90 * 1024; // 90KB, margen de 10KB sobre el límite
 function _cachedRawData() {
   try {
     var cached = CacheService.getScriptCache().get(CACHE_KEY);
     if (cached) return JSON.parse(cached);
   } catch(e) {}
   var raw = _buildRawData();
-  try { CacheService.getScriptCache().put(CACHE_KEY, JSON.stringify(raw), CACHE_TTL_SEC); } catch(e) {}
+  try {
+    var payload = JSON.stringify(raw);
+    if (payload.length > _CACHE_MAX_BYTES) {
+      Logger.log('⚠ _cachedRawData: payload ' + payload.length + 'B excede ' + _CACHE_MAX_BYTES + 'B — skip cache (perf degradará). Considerar partir CACHE_KEY.');
+    } else {
+      CacheService.getScriptCache().put(CACHE_KEY, payload, CACHE_TTL_SEC);
+    }
+  } catch(e) {}
   return raw;
 }
 
@@ -854,9 +859,19 @@ function _sanitizeRow(arr) {
 //      sola vez, así los _*Impl no necesitan invocarlo manualmente (evita
 //      doble-invalidación y olvidos). Si añadís un nuevo entry-point que
 //      muta, wrappealo acá; no metas invalidateCache() en el _*Impl.
-// NOTA: los _*Impl pueden seguir usando LockService.getScriptLock() para
-// secciones críticas read-modify-write internas (es un lock distinto del
-// document lock, así que no hay deadlock; sólo redundancia barata).
+//
+// ── DOBLE LOCK (Document + Script) ─────────────────────────────
+// Algunos _*Impl (addTask, addProject, updateTaskFields, etc) toman
+// también un LockService.getScriptLock() interno. Es intencional:
+//   - DocumentLock: serializa a nivel del Sheet (un solo writer del doc
+//     a la vez, cross-entry-point).
+//   - ScriptLock interno: protege secciones read-then-write donde
+//     necesitamos lock más granular (ej: leer nextTaskId, calcular,
+//     escribir — sin que otro proceso del MISMO script meta su nextTaskId
+//     en el medio). Son locks DISTINTOS (no hay deadlock).
+// Si te parece redundante: probablemente lo es para mutations atómicas
+// de un solo setValue. NO lo quites de las que hacen read-then-write
+// sin auditar primero. La redundancia es barata (~5ms), el race es caro.
 function _safeMutation(fn) {
   var lock = LockService.getDocumentLock();
   try {
@@ -1142,6 +1157,19 @@ function _updateProjectFieldsImpl(projId, fields) {
 // ════════════════════════════════════════════════════════════════
 // TASKS
 // ════════════════════════════════════════════════════════════════
+// Helper canónico para leer rows de data de Tracking Activo o Historial.
+// Ambas hojas tienen headers en rows 1-3, así que data empieza en row 4.
+// Antes algunos lugares (getTaskComments) leían desde row 2 → incluían
+// headers como data. El bug estaba enmascarado porque String(headerText)
+// nunca matchea contra String(taskId numérico), pero era frágil.
+// Devuelve [] si no hay data, nunca null.
+function _readHistorialDataRows(ws) {
+  if (!ws) return [];
+  var lastRow = ws.getLastRow();
+  if (lastRow < 4) return [];
+  return ws.getRange(4, 1, lastRow - 3, ws.getLastColumn()).getValues();
+}
+
 function readTasks(ws) {
   if (!ws) return [];
   var lastRow = ws.getLastRow(); if (lastRow < 4) return [];
@@ -1322,28 +1350,22 @@ function _canUserSeeTask(ctx, taskId) {
   var task = _readTaskById(ctx.ss, taskId);
   if (!task) {
     var hist = ctx.ss.getSheetByName(SHEET_HISTORIAL);
-    if (hist) {
-      var lr2 = hist.getLastRow();
-      // Historial tiene headers en row 1-3 (igual que Activo). dataStart=4.
-      if (lr2 >= 4) {
-        var lc2 = hist.getLastColumn();
-        var d2 = hist.getRange(4, 1, lr2 - 3, lc2).getValues();
-        for (var j = 0; j < d2.length; j++) {
-          if (String(d2[j][0]) === String(taskId)) {
-            // Leer conf (col 18 / idx 17) y lider (col 14 / idx 13) reales.
-            // Antes hardcodeaba conf='estandar' → leak de tasks cerradas
-            // confidenciales en getTaskComments.
-            var confRaw = lc2 >= 18 ? (d2[j][17] || 'estandar') : 'estandar';
-            task = {
-              id: d2[j][0],
-              resp: d2[j][2],
-              lider: lc2 >= 14 ? (d2[j][13] || '') : '',
-              pais: d2[j][12],
-              confidencialidad: String(confRaw).trim().toLowerCase() || 'estandar'
-            };
-            break;
-          }
-        }
+    var d2 = _readHistorialDataRows(hist);
+    var lc2 = hist ? hist.getLastColumn() : 0;
+    for (var j = 0; j < d2.length; j++) {
+      if (String(d2[j][0]) === String(taskId)) {
+        // Leer conf (col 18 / idx 17) y lider (col 14 / idx 13) reales.
+        // Antes hardcodeaba conf='estandar' → leak de tasks cerradas
+        // confidenciales en getTaskComments.
+        var confRaw = lc2 >= 18 ? (d2[j][17] || 'estandar') : 'estandar';
+        task = {
+          id: d2[j][0],
+          resp: d2[j][2],
+          lider: lc2 >= 14 ? (d2[j][13] || '') : '',
+          pais: d2[j][12],
+          confidencialidad: String(confRaw).trim().toLowerCase() || 'estandar'
+        };
+        break;
       }
     }
   }
@@ -1364,16 +1386,11 @@ function getTaskComments(taskId) {
     if (!task) {
       // Puede estar en historial (cerrada). Buscar ahí.
       var hist = ctx.ss.getSheetByName(SHEET_HISTORIAL);
-      if (hist) {
-        var lr2 = hist.getLastRow();
-        if (lr2 >= 2) {
-          var d2 = hist.getRange(2, 1, lr2 - 1, hist.getLastColumn()).getValues();
-          for (var j = 0; j < d2.length; j++) {
-            if (String(d2[j][0]) === String(taskId)) {
-              task = { id: d2[j][0], resp: d2[j][2], pais: d2[j][12], confidencialidad: 'estandar' };
-              break;
-            }
-          }
+      var d2 = _readHistorialDataRows(hist);
+      for (var j = 0; j < d2.length; j++) {
+        if (String(d2[j][0]) === String(taskId)) {
+          task = { id: d2[j][0], resp: d2[j][2], pais: d2[j][12], confidencialidad: 'estandar' };
+          break;
         }
       }
     }
@@ -3346,226 +3363,3 @@ function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
   };
 }
 
-// ════════════════════════════════════════════════════════════════
-// SETUP · ONE-SHOT SHEET INITIALIZATION
-// ════════════════════════════════════════════════════════════════
-// Función que crea/migra todas las hojas y columnas necesarias para
-// activar las features de v3.7+ (digest, biz days, templates, conflict).
-// Idempotente: corrida múltiple no rompe ni duplica datos.
-//
-// Cómo correr: en el editor de Apps Script, dropdown de funciones →
-// `setupSheets` → Run. Mira `Logger` (View → Executions) para el reporte.
-//
-// Qué hace:
-//   1. Crea hoja `Feriados` (cols pais|fecha|nombre) + 37 filas CO/MX/CR 2026
-//   2. Crea hoja `Templates` (cols tipoTrabajo|checklist) + 3 samples (NDA, Contractual, Petición)
-//   3. Agrega col 19 = 'Contraparte' en `Tracking Activo` (header en row 3)
-//   4. Agrega col 17 = 'ContrapartesConflicto' en `Proyectos` (header en row 1)
-//   5. Limpia caches (feriados_v1, templates_v1, tracker_data_v1)
-//
-// No sobreescribe datos existentes — si una hoja ya tiene rows o una
-// columna ya tiene header distinto, lo loggea como WARNING y skipea.
-
-function setupSheets() {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
-  var report = [];
-  var log = function(msg) { report.push(msg); Logger.log(msg); };
-
-  // ── 1. Feriados ─────────────────────────────────────────────────
-  var fer = ss.getSheetByName(SHEET_FERIADOS);
-  if (!fer) {
-    fer = ss.insertSheet(SHEET_FERIADOS);
-    fer.getRange(1, 1, 1, 3).setValues([['pais', 'fecha', 'nombre']]);
-    fer.getRange(1, 1, 1, 3).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
-    fer.setFrozenRows(1);
-    fer.setColumnWidth(1, 60);
-    fer.setColumnWidth(2, 110);
-    fer.setColumnWidth(3, 280);
-    log('✓ Hoja Feriados creada (con headers)');
-  } else {
-    log('· Hoja Feriados ya existía');
-  }
-  if (fer.getLastRow() <= 1) {
-    var feriados = [
-      // CO 2026 (18 feriados, Ley Emiliani aplicada)
-      ['CO', '2026-01-01', 'Año Nuevo'],
-      ['CO', '2026-01-12', 'Reyes Magos'],
-      ['CO', '2026-03-23', 'Día de San José'],
-      ['CO', '2026-04-02', 'Jueves Santo'],
-      ['CO', '2026-04-03', 'Viernes Santo'],
-      ['CO', '2026-05-01', 'Día del Trabajo'],
-      ['CO', '2026-05-18', 'Ascensión del Señor'],
-      ['CO', '2026-06-08', 'Corpus Christi'],
-      ['CO', '2026-06-15', 'Sagrado Corazón'],
-      ['CO', '2026-06-29', 'San Pedro y San Pablo'],
-      ['CO', '2026-07-20', 'Día de la Independencia'],
-      ['CO', '2026-08-07', 'Batalla de Boyacá'],
-      ['CO', '2026-08-17', 'Asunción de la Virgen'],
-      ['CO', '2026-10-12', 'Día de la Raza'],
-      ['CO', '2026-11-02', 'Día de Todos los Santos'],
-      ['CO', '2026-11-16', 'Independencia de Cartagena'],
-      ['CO', '2026-12-08', 'Día de la Inmaculada Concepción'],
-      ['CO', '2026-12-25', 'Navidad'],
-      // MX 2026 (8 oficiales + Viernes Santo)
-      ['MX', '2026-01-01', 'Año Nuevo'],
-      ['MX', '2026-02-02', 'Día de la Constitución'],
-      ['MX', '2026-03-16', 'Natalicio de Benito Juárez'],
-      ['MX', '2026-04-03', 'Viernes Santo'],
-      ['MX', '2026-05-01', 'Día del Trabajo'],
-      ['MX', '2026-09-16', 'Día de la Independencia'],
-      ['MX', '2026-11-02', 'Día de Muertos'],
-      ['MX', '2026-11-16', 'Día de la Revolución'],
-      ['MX', '2026-12-25', 'Navidad'],
-      // CR 2026 (11 nacionales)
-      ['CR', '2026-01-01', 'Año Nuevo'],
-      ['CR', '2026-04-02', 'Jueves Santo'],
-      ['CR', '2026-04-03', 'Viernes Santo'],
-      ['CR', '2026-04-11', 'Juan Santamaría'],
-      ['CR', '2026-05-01', 'Día del Trabajo'],
-      ['CR', '2026-07-25', 'Anexión de Guanacaste'],
-      ['CR', '2026-08-02', 'Virgen de los Ángeles'],
-      ['CR', '2026-08-15', 'Día de la Madre'],
-      ['CR', '2026-09-15', 'Día de la Independencia'],
-      ['CR', '2026-12-01', 'Abolición del Ejército'],
-      ['CR', '2026-12-25', 'Navidad']
-    ];
-    fer.getRange(2, 1, feriados.length, 3).setValues(feriados);
-    log('✓ Insertadas ' + feriados.length + ' filas de feriados (CO+MX+CR 2026)');
-  } else {
-    log('· Feriados ya tenía ' + (fer.getLastRow() - 1) + ' filas, no se sobreescribe');
-  }
-
-  // ── 2. Templates ────────────────────────────────────────────────
-  var tpl = ss.getSheetByName(SHEET_TEMPLATES);
-  if (!tpl) {
-    tpl = ss.insertSheet(SHEET_TEMPLATES);
-    tpl.getRange(1, 1, 1, 2).setValues([['tipoTrabajo', 'checklist']]);
-    tpl.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
-    tpl.setFrozenRows(1);
-    tpl.setColumnWidth(1, 200);
-    tpl.setColumnWidth(2, 600);
-    log('✓ Hoja Templates creada (con headers)');
-  } else {
-    log('· Hoja Templates ya existía');
-  }
-  if (tpl.getLastRow() <= 1) {
-    var templates = [
-      ['Revisión NDA', JSON.stringify(['Verificar partes', 'Jurisdicción aplicable', 'Cláusulas IP', 'Término', 'Confidencialidad recíproca'])],
-      ['Revisión contractual', JSON.stringify(['Partes y representación', 'Objeto del contrato', 'Plazo y vigencia', 'Precio y forma de pago', 'Resolución / terminación', 'Confidencialidad', 'Ley aplicable y jurisdicción'])],
-      ['Derecho de petición', JSON.stringify(['Identificación del peticionario', 'Hechos relevantes', 'Pretensión clara', 'Fundamento jurídico', 'Soportes y anexos', 'Plazo legal de respuesta (15 días hábiles)'])]
-    ];
-    tpl.getRange(2, 1, templates.length, 2).setValues(templates);
-    log('✓ Insertadas ' + templates.length + ' templates (NDA, Contractual, Petición)');
-  } else {
-    log('· Templates ya tenía ' + (tpl.getLastRow() - 1) + ' filas, no se sobreescribe');
-  }
-
-  // ── 3. Tracking Activo: col 19 = Contraparte (header en row 3) ──
-  var tk = ss.getSheetByName(SHEET_ACTIVO);
-  if (tk) {
-    var lastColTk = tk.getLastColumn();
-    var existingHdr = lastColTk >= TASK_CONTRAPARTE_COL ? tk.getRange(3, TASK_CONTRAPARTE_COL).getValue() : '';
-    if (!existingHdr) {
-      tk.getRange(3, TASK_CONTRAPARTE_COL).setValue('Contraparte');
-      tk.getRange(3, TASK_CONTRAPARTE_COL).setFontWeight('bold');
-      log('✓ Tracking Activo: agregada columna ' + TASK_CONTRAPARTE_COL + ' = Contraparte (row 3)');
-    } else if (existingHdr === 'Contraparte') {
-      log('· Tracking Activo ya tenía columna Contraparte');
-    } else {
-      log('⚠ Tracking Activo col ' + TASK_CONTRAPARTE_COL + ' tiene "' + existingHdr + '" — revisión manual');
-    }
-  } else {
-    log('⚠ Hoja Tracking Activo no encontrada');
-  }
-
-  // ── 4. Proyectos: col 17 = ContrapartesConflicto (header en row 1)
-  var pj = ss.getSheetByName(SHEET_PROYECTOS);
-  if (pj) {
-    var lastColPj = pj.getLastColumn();
-    var existingHdrP = lastColPj >= PROJ_CONTRAPARTES_COL ? pj.getRange(1, PROJ_CONTRAPARTES_COL).getValue() : '';
-    if (!existingHdrP) {
-      pj.getRange(1, PROJ_CONTRAPARTES_COL).setValue('ContrapartesConflicto');
-      pj.getRange(1, PROJ_CONTRAPARTES_COL).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
-      log('✓ Proyectos: agregada columna ' + PROJ_CONTRAPARTES_COL + ' = ContrapartesConflicto (row 1)');
-    } else if (existingHdrP === 'ContrapartesConflicto') {
-      log('· Proyectos ya tenía columna ContrapartesConflicto');
-    } else {
-      log('⚠ Proyectos col ' + PROJ_CONTRAPARTES_COL + ' tiene "' + existingHdrP + '" — revisión manual');
-    }
-  } else {
-    log('⚠ Hoja Proyectos no encontrada');
-  }
-
-  // ── 5. Flush caches ─────────────────────────────────────────────
-  try {
-    var cache = CacheService.getScriptCache();
-    cache.remove('feriados_v1');
-    cache.remove('templates_v1');
-    cache.remove(CACHE_KEY);
-    log('✓ Caches limpiadas (feriados_v1, templates_v1, ' + CACHE_KEY + ')');
-  } catch(e) {
-    log('⚠ Cache flush falló: ' + e.message);
-  }
-
-  log('—— setupSheets terminó ——');
-  return report;
-}
-
-// ════════════════════════════════════════════════════════════════
-// WIPE TEST DATA
-// ════════════════════════════════════════════════════════════════
-// Borra TODAS las filas de data de: Tracking Activo, Historial,
-// Proyectos y Comments. Preserva headers + formato + Equipos + Config
-// + Feriados + Templates.
-//
-// Para correr: en el editor de Apps Script, seleccionar wipeTestData
-// en el dropdown de funciones y darle Run. El log devuelve cuántas
-// filas se borraron por hoja.
-//
-// IMPORTANTE: es destructivo y no hay deshacer. Si necesitás guardar
-// algo, primero hacé una copia del sheet (Archivo → Hacer una copia).
-
-function wipeTestData() {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
-  var report = [];
-  var log = function(msg) { report.push(msg); Logger.log(msg); };
-
-  // Hojas a limpiar con la row donde empieza la data (header arriba).
-  var targets = [
-    { name: SHEET_ACTIVO,    dataStart: 4 }, // headers en rows 1-3
-    { name: SHEET_HISTORIAL, dataStart: 4 }, // mismo formato que Tracking Activo
-    { name: SHEET_PROYECTOS, dataStart: 2 }, // header en row 1
-    { name: SHEET_COMMENTS,  dataStart: 2 }  // header en row 1 (auto-creada)
-  ];
-
-  targets.forEach(function(t) {
-    var ws = ss.getSheetByName(t.name);
-    if (!ws) {
-      log('· Hoja "' + t.name + '" no existe — skip');
-      return;
-    }
-    var lastRow = ws.getLastRow();
-    if (lastRow < t.dataStart) {
-      log('· Hoja "' + t.name + '" ya está vacía (lastRow=' + lastRow + ')');
-      return;
-    }
-    var numRows = lastRow - t.dataStart + 1;
-    ws.deleteRows(t.dataStart, numRows);
-    log('✓ "' + t.name + '": ' + numRows + ' filas borradas (preservados headers)');
-  });
-
-  // Invalidar caches para que el siguiente lector vea el sheet vacío.
-  try {
-    var cache = CacheService.getScriptCache();
-    cache.remove(CACHE_KEY);
-    cache.remove('feriados_v1');
-    cache.remove('templates_v1');
-    log('✓ Caches invalidadas');
-  } catch (e) {
-    log('⚠ Cache flush falló: ' + e.message);
-  }
-
-  log('—— wipeTestData terminó ——');
-  log('Preservados: Equipos, Config, Feriados, Templates');
-  return report;
-}
