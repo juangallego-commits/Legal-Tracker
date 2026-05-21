@@ -1692,7 +1692,7 @@ function _edActivityFeed() {
   if (!items.length) return '';
   var icons = { closed: '✓', created: '+' };
   var html = '<div class="ed-feed">'
-           + '<div class="ed-feed-head">Actividad reciente</div>';
+           + '<div class="ed-feed-head">' + esc(t('Actividad reciente')) + '</div>';
   items.forEach(function(it) {
     var truncated = it.name.length > 20 ? (it.name.slice(0, 20) + '…') : it.name;
     html += '<div class="ed-feed-row" title="' + esc(it.name) + '">'
@@ -3344,7 +3344,230 @@ var T_PT = {
   'Aprovechá para trabajo de proyecto o cerrar pendientes viejos.': 'Aproveite para trabalho de projeto ou fechar pendências antigas.',
   'No tenés tareas activas en tu agenda.': 'Você não tem tarefas ativas em sua agenda.',
   'Ver mis cerradas': 'Ver minhas fechadas',
-  'Ver proyectos': 'Ver projetos'
+  'Ver proyectos': 'Ver projetos',
+  // ── Bulk close wizard (#15)
+  'como': 'como',
+  'en': 'em',
+  'a': 'a',
+  'de': 'de',
+  '¿Poner': 'Pôr',
+  'Quedarán pausadas hasta que las desbloquees.': 'Ficam pausadas até você desbloquear.',
+  'Avanzadas': 'Avançadas',
+  'fallaron': 'falharam',
+  'Error: no se pudo aplicar ninguna': 'Erro: não foi possível aplicar nenhuma',
+  'Vas a cerrar': 'Você vai fechar',
+  'Resumen de cierre': 'Resumo de fechamento',
+  'El resumen se guarda como nota de cierre en cada una.': 'O resumo é salvo como nota de fechamento em cada uma.',
+  'Se aplica a las': 'Aplica-se às',
+  'Resumen rápido de cómo se cerraron (lo verán en el historial).': 'Resumo rápido de como foram fechadas (aparecerá no histórico).',
+  'tarea': 'tarefa',
+  'tareas': 'tarefas',
+  'Cerrar tarea': 'Fechar tarefa',
+  'Cerrar tareas': 'Fechar tarefas',
+  'Falta el resumen para cerrar.': 'Falta o resumo para fechar.',
+  'Contanos un poco más (mín. 5 caracteres).': 'Conte um pouco mais (mín. 5 caracteres).',
+  'Cerrando…': 'Fechando…',
+  'Cerrando': 'Fechando',
+  'Cerradas:': 'Fechadas:',
+  'Error: no se pudo cerrar ninguna': 'Erro: não foi possível fechar nenhuma',
+  'Ninguna de las seleccionadas puede avanzar.': 'Nenhuma das selecionadas pode avançar.',
+  'Aplicando a': 'Aplicando a',
+  'Error en el paso 1: no se pudo avanzar ninguna': 'Erro no passo 1: não foi possível avançar nenhuma',
+  'Continuar': 'Continuar',
+  'Al cerrar': 'Ao fechar',
+  'las tareas se mueven al historial · libera': 'as tarefas vão ao histórico · libera',
+  'slot de carga.': 'slot de carga.',
+  'slots de carga.': 'slots de carga.',
+  '¿Avanzar': 'Avançar',
+  'al siguiente estado?': 'para o próximo status?',
+  'De las': 'Das',
+  'seleccionadas:': 'selecionadas:',
+  'avanzan al siguiente estado y': 'avançam para o próximo status e',
+  'se cerrarían. Vamos en dos pasos — primero avanzamos, luego pedimos un resumen para cerrar.': 'seriam fechadas. Vamos em dois passos — primeiro avançamos, depois pedimos um resumo para fechar.',
+  'tarea más': 'tarefa a mais',
+  'tareas más': 'tarefas a mais',
+  // ── Bulk reasign modal
+  'Vas a reasignar': 'Você vai reatribuir',
+  'Nuevo responsable': 'Novo responsável',
+  'Roster LATAM': 'Roster LATAM',
+  'personas': 'pessoas',
+  'Sugerido': 'Sugerido',
+  'Sobre capacidad': 'Sobre capacidade',
+  'vencidas': 'vencidas',
+  'sin vencidas': 'sem vencidas',
+  'Elegí un responsable para continuar.': 'Escolha um responsável para continuar.',
+  'Reasignará a': 'Vai reatribuir a',
+  'La asignación previa queda en el historial. Avisale al nuevo responsable por Slack/email manualmente.': 'A atribuição anterior fica no histórico. Avise o novo responsável por Slack/email manualmente.',
+  'Reasignar tarea': 'Reatribuir tarefa',
+  'Reasignación masiva': 'Reatribuição em massa',
+  'No tenés permiso para reasignar.': 'Você não tem permissão para reatribuir.',
+  'No hay miembros del equipo a quien reasignar.': 'Não há membros da equipe para reatribuir.',
+  'Primero elegí un responsable.': 'Primeiro escolha um responsável.',
+  'Primero pegá un enlace': 'Primeiro cole um link',
+  'No hay responsables disponibles para reasignar.': 'Não há responsáveis disponíveis para reatribuir.',
+  // ── Activity notifications (#11+#12)
+  'Novedades en tus tareas': 'Novidades em suas tarefas',
+  'Actividad reciente · ': 'Atividade recente · ',
+  'Sin novedades en tus tareas': 'Sem novidades em suas tarefas',
+  'Cuando alguien comente, cambie estado o adjunte algo en una de tus tareas, va a aparecer acá.': 'Quando alguém comentar, mudar status ou anexar algo em uma de suas tarefas, vai aparecer aqui.',
+  'Marcar todas como vistas': 'Marcar todas como vistas',
+  'comentó en': 'comentou em',
+  'puso en on hold': 'pôs em on hold',
+  'cerró': 'fechou',
+  'avanzó': 'avançou',
+  'creó': 'criou',
+  'editó': 'editou',
+  'cambió estado': 'mudou status',
+  'hace': 'há',
+  'min': 'min',
+  'h': 'h',
+  'd': 'd',
+  // ── Specialist home
+  'tarea vencida': 'tarefa vencida',
+  'tareas vencidas': 'tarefas vencidas',
+  'la más antigua es': 'a mais antiga é',
+  'Ver vencidas →': 'Ver vencidas →',
+  'Tu mes hasta ahora': 'Seu mês até agora',
+  'Racha en tiempo': 'Sequência em dia',
+  'tareas': 'tarefas',
+  'Cerradas este mes': 'Fechadas este mês',
+  'Cierre promedio por prioridad': 'Tempo médio de fechamento por prioridade',
+  'Alta': 'Alta',
+  'Media': 'Média',
+  'Baja': 'Baixa',
+  'Proyectos en los que estás': 'Projetos em que você está',
+  'activos': 'ativos',
+  'No formás parte de ningún proyecto activo.': 'Você não faz parte de nenhum projeto ativo.',
+  'Cuando alguien te asigne tareas dentro de un proyecto, aparecerán acá.': 'Quando alguém te atribuir tarefas dentro de um projeto, aparecerão aqui.',
+  'Líder': 'Líder',
+  'Tu día': 'Seu dia',
+  'Resolver primero': 'Resolver primeiro',
+  'Al día': 'Em dia',
+  'Cerrar hoy': 'Fechar hoje',
+  'Día limpio': 'Dia limpo',
+  'Esta semana': 'Esta semana',
+  'en cola': 'na fila',
+  'Necesitan empuje': 'Precisam de empurrão',
+  'Lo que más necesita atención': 'O que mais precisa de atenção',
+  'Ver todo por urgencia →': 'Ver tudo por urgência →',
+  'En on hold · necesita desbloqueo': 'Em on hold · precisa de desbloqueio',
+  'Vencida hace': 'Vencida há',
+  'd · primera prioridad': 'd · primeira prioridade',
+  'Vence hoy · cerrá antes de fin de día': 'Vence hoje · feche antes do fim do dia',
+  'Vence mañana': 'Vence amanhã',
+  'En': 'Em',
+  'd · tu próxima': 'd · sua próxima',
+  'Trabajar en esta tarea →': 'Trabalhar nesta tarefa →',
+  // ── Manager home
+  'Tu equipo está cargando': 'Sua equipe está carregando',
+  'tareas de prioridad alta': 'tarefas de prioridade alta',
+  'y': 'e',
+  'requieren atención': 'requerem atenção',
+  'todo en orden': 'tudo em ordem',
+  'cerrar hoy': 'fechar hoje',
+  'día limpio': 'dia limpo',
+  'capacidad': 'capacidade',
+  'vs semana anterior': 'vs semana anterior',
+  'sin cierres recientes': 'sem fechamentos recentes',
+  'últimos 30 días': 'últimos 30 dias',
+  'Requieren tu atención': 'Requerem sua atenção',
+  'Vencidas, bloqueadas y de prioridad alta sin avance': 'Vencidas, bloqueadas e de prioridade alta sem avanço',
+  'Ver todas →': 'Ver todas →',
+  'Tu equipo está al día.': 'Sua equipe está em dia.',
+  'Nada vencido, bloqueado, ni de prioridad alta sin avance.': 'Nada vencido, bloqueado, nem de prioridade alta sem avanço.',
+  'No hay miembros del equipo visibles.': 'Não há membros da equipe visíveis.',
+  'Pedile a tu líder que agregue specialists en la hoja Equipos.': 'Peça ao seu líder para adicionar specialists na planilha Equipos.',
+  'Equipo bajo control.': 'Equipe sob controle.',
+  'Sin sobrecargas, vencidas ni tareas en on hold.': 'Sem sobrecargas, vencidas ou tarefas em on hold.',
+  'Ver tareas →': 'Ver tarefas →',
+  'Tu país': 'Seu país',
+  'specialists': 'specialists',
+  'Tu equipo está cargando': 'Sua equipe está carregando',
+  'tareas de prioridad alta': 'tarefas de prioridade alta',
+  'hay': 'há',
+  'requieren atención': 'requerem atenção',
+  'todo en orden': 'tudo em ordem',
+  'capacidad': 'capacidade',
+  'sin cierres recientes': 'sem fechamentos recentes',
+  'últimos 30 días': 'últimos 30 dias',
+  'Vencidas, bloqueadas y de prioridad alta sin avance': 'Vencidas, bloqueadas e de prioridade alta sem avanço',
+  'Tu equipo está al día.': 'Sua equipe está em dia.',
+  'Nada vencido, bloqueado, ni de prioridad alta sin avance.': 'Nada vencido, bloqueado, nem de prioridade alta sem avanço.',
+  'Quién necesita atención': 'Quem precisa de atenção',
+  'Top 3 por carga, vencidas u on hold': 'Top 3 por carga, vencidas ou on hold',
+  'Equipo bajo control.': 'Equipe sob controle.',
+  'Sin sobrecargas, vencidas ni tareas en on hold.': 'Sem sobrecargas, vencidas nem tarefas em on hold.',
+  'Carga': 'Carga',
+  'SLA mes': 'SLA mês',
+  // ── HQ home
+  'países': 'países',
+  'Operaciones': 'Operações',
+  'legales globales': 'legais globais',
+  'Bajó': 'Caiu',
+  'Subió': 'Subiu',
+  'vs la semana anterior': 'vs a semana anterior',
+  'cayó': 'caiu',
+  'esta semana': 'esta semana',
+  'LATAM está corriendo': 'LATAM está rodando',
+  'tareas activas': 'tarefas ativas',
+  'con SLA agregado del': 'com SLA agregado de',
+  'concentradas en': 'concentradas em',
+  'distribuidas': 'distribuídas',
+  'sin vencidas': 'sem vencidas',
+  'día limpio': 'dia limpo',
+  'Vencidas LATAM': 'Vencidas LATAM',
+  'Activas LATAM': 'Ativas LATAM',
+  'SLA agregado': 'SLA agregado',
+  'cierres vs semana anterior': 'fechamentos vs semana anterior',
+  'Por país': 'Por país',
+  'Tendencia 12 semanas — cierres por semana': 'Tendência 12 semanas — fechamentos por semana',
+  'Ir a Por país →': 'Ir para Por país →',
+  'No hay datos de países disponibles.': 'Não há dados de países disponíveis.',
+  'Verificá que la hoja Equipos tenga al menos un país configurado.': 'Verifique se a planilha Equipos tem ao menos um país configurado.',
+  'País': 'País',
+  'Manager · equipo': 'Manager · equipe',
+  'Activas': 'Ativas',
+  'SLA mes': 'SLA mês',
+  'Tendencia 12s': 'Tendência 12s',
+  'Pendiente onboarding': 'Onboarding pendente',
+  'Proyectos en riesgo': 'Projetos em risco',
+  'ordenados por % de vencidas': 'ordenados por % de vencidas',
+  'Ver todos los proyectos →': 'Ver todos os projetos →',
+  'Proyecto': 'Projeto',
+  'activas': 'ativas',
+  'venc.': 'venc.',
+  'Operaciones legales globales': 'Operações legais globais',
+  'Bajó': 'Caiu',
+  'Subió': 'Subiu',
+  'pt vs la semana anterior': 'pt vs a semana anterior',
+  'cayó': 'caiu',
+  'pt esta semana': 'pt esta semana',
+  'LATAM está corriendo': 'LATAM está rodando',
+  'tareas activas con': 'tarefas ativas com',
+  'SLA agregado del': 'SLA agregado de',
+  'distribuidas': 'distribuídas',
+  'día limpio': 'dia limpo',
+  'Tendencia 12 semanas — cierres por semana': 'Tendência 12 semanas — fechamentos por semana',
+  'No hay datos de países disponibles.': 'Não há dados de países disponíveis.',
+  'Verificá que la hoja Equipos tenga al menos un team.': 'Verifique se a planilha Equipos tem pelo menos uma equipe.',
+  'Manager · equipo': 'Manager · equipe',
+  'Tendencia 12s': 'Tendência 12s',
+  'Pendiente onboarding': 'Onboarding pendente',
+  'ordenados por % de vencidas': 'ordenados por % de vencidas',
+  'activas': 'ativas',
+  'venc.': 'venc.',
+  'Proyectos en riesgo': 'Projetos em risco',
+  // ── File upload validation
+  'No seleccionaste ningún archivo': 'Você não selecionou nenhum arquivo',
+  'Falta el id de la tarea (recargá la página)': 'Falta o id da tarefa (recarregue a página)',
+  'Archivo demasiado grande (máx 45 MB en Apps Script)': 'Arquivo muito grande (máx 45 MB no Apps Script)',
+  'Leyendo': 'Lendo',
+  'Subiendo': 'Enviando',
+  'a Drive…': 'ao Drive…',
+  'Escribí un comentario…': 'Escreva um comentário…',
+  'El enlace debe empezar con http:// o https://': 'O link deve começar com http:// ou https://',
+  'Tarea no encontrada': 'Tarefa não encontrada',
+  'Sin datos cargados': 'Sem dados carregados'
 };
 function t(es) {
   if (LANG !== 'pt') return es;
@@ -4683,8 +4906,8 @@ function rEdHomeSpecialist(D) {
   // Greeting con eyebrow contextual + nombre destacado en accent
   var todayLabel = todayLine ? todayLine.split(' ').slice(0, 2).join(' ') : '';
   html += '<div class="pa-greet">'
-       +    '<div class="pa-greet-eye">' + esc(todayLabel ? '— Tu ' + todayLabel : 'Hoy') + '</div>'
-       +    '<h1>Hola, <span class="pa-greet-name">' + esc(firstName) + '</span></h1>'
+       +    '<div class="pa-greet-eye">' + esc(todayLabel ? t('— Tu ' + todayLabel) : t('Hoy')) + '</div>'
+       +    '<h1>' + esc(t('Hola')) + ', <span class="pa-greet-name">' + esc(firstName) + '</span></h1>'
        +    (todayLine ? '<span class="pa-greet-meta">' + esc(todayLine) + '</span>' : '')
        + '</div>';
 
@@ -4694,36 +4917,37 @@ function rEdHomeSpecialist(D) {
     var oldest = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; })
       .sort(function(a,b){ return (a.etaDays||0) - (b.etaDays||0); })[0];
     if (oldest) oldestId = oldest.id || '';
+    var ovrLbl = overdue + ' ' + (overdue === 1 ? t('tarea vencida') : t('tareas vencidas'));
     html += '<div class="pa-banner">'
          +    paIcon('alert', 16, 'ico')
-         +    '<div class="msg"><b>' + overdue + ' tarea' + (overdue === 1 ? '' : 's') + ' vencida' + (overdue === 1 ? '' : 's') + '</b>'
-         +      (oldestId ? ' · la más antigua es <b>#' + esc(oldestId) + '</b>' : '')
+         +    '<div class="msg"><b>' + esc(ovrLbl) + '</b>'
+         +      (oldestId ? ' · ' + esc(t('la más antigua es')) + ' <b>#' + esc(oldestId) + '</b>' : '')
          +    '</div>'
-         +    '<button class="act" onclick="goEd(\'agrupadas\')">Ver vencidas →</button>'
+         +    '<button class="act" onclick="goEd(\'agrupadas\')">' + esc(t('Ver vencidas →')) + '</button>'
          + '</div>';
   }
 
   // KPIs
   html += '<div class="pa-kpis">'
        +    '<div class="pa-kpi ' + (overdue ? 'is-critical' : '') + '" onclick="goEd(\'agrupadas\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> ' + esc(t('Vencidas')) + '</div>'
        +      '<div class="val">' + overdue + '</div>'
-       +      '<div class="delta">' + (overdue ? 'Resolver primero' : 'Al día') + '</div>'
+       +      '<div class="delta">' + esc(overdue ? t('Resolver primero') : t('Al día')) + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (dueToday ? 'is-warn' : '') + '" onclick="goEd(\'agrupadas\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> Vencen hoy</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> ' + esc(t('Vencen hoy')) + '</div>'
        +      '<div class="val">' + dueToday + '</div>'
-       +      '<div class="delta">' + (dueToday ? 'Cerrar hoy' : 'Día limpio') + '</div>'
+       +      '<div class="delta">' + esc(dueToday ? t('Cerrar hoy') : t('Día limpio')) + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi" onclick="goEd(\'mistareas\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Esta semana</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> ' + esc(t('Esta semana')) + '</div>'
        +      '<div class="val">' + thisWeek + '</div>'
-       +      '<div class="delta">en cola</div>'
+       +      '<div class="delta">' + esc(t('en cola')) + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (blocked ? 'is-critical' : '') + '" onclick="goEd(\'mistareas\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--fg-3)"></span> On hold</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--fg-3)"></span> ' + esc(t('On hold')) + '</div>'
        +      '<div class="val">' + blocked + '</div>'
-       +      '<div class="delta">' + (blocked ? 'Necesitan empuje' : '—') + '</div>'
+       +      '<div class="delta">' + esc(blocked ? t('Necesitan empuje') : '—') + '</div>'
        +    '</div>'
        + '</div>';
 
@@ -4811,27 +5035,27 @@ function rEdHomeSpecialist(D) {
   // Month card
   html += '<div class="pa-card">'
        +    '<div class="pa-card-h">'
-       +      '<h3>Tu mes hasta ahora</h3>'
+       +      '<h3>' + esc(t('Tu mes hasta ahora')) + '</h3>'
        +      '<span class="meta">' + esc((D && D.today) ? _todayHumanStr(D.today) : '') + '</span>'
        +    '</div>'
        +    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">'
        +      '<div>'
-       +        '<div style="font-size:11px;color:var(--fg-3)">Racha en tiempo</div>'
-       +        '<div class="mono" style="font-size:26px;font-weight:600;letter-spacing:-0.02em">' + (streak ? '🔥 ' + streak : '—') + ' <span style="font-size:12px;color:var(--fg-3);font-weight:400">tareas</span></div>'
+       +        '<div style="font-size:11px;color:var(--fg-3)">' + esc(t('Racha en tiempo')) + '</div>'
+       +        '<div class="mono" style="font-size:26px;font-weight:600;letter-spacing:-0.02em">' + (streak ? '🔥 ' + streak : '—') + ' <span style="font-size:12px;color:var(--fg-3);font-weight:400">' + esc(t('tareas')) + '</span></div>'
        +      '</div>'
        +      '<div>'
-       +        '<div style="font-size:11px;color:var(--fg-3)">Cerradas este mes</div>'
+       +        '<div style="font-size:11px;color:var(--fg-3)">' + esc(t('Cerradas este mes')) + '</div>'
        +        '<div class="mono" style="font-size:26px;font-weight:600;letter-spacing:-0.02em">' + closedThisMonth + '</div>'
        +      '</div>'
        +    '</div>';
   // Cierre promedio por prioridad
   if ((me.avgAlta && me.avgAlta !== '—') || (me.avgMedia && me.avgMedia !== '—') || (me.avgBaja && me.avgBaja !== '—')) {
     html += '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line-1)">'
-         +    '<div style="font-size:11px;color:var(--fg-3);margin-bottom:10px">Cierre promedio por prioridad</div>';
+         +    '<div style="font-size:11px;color:var(--fg-3);margin-bottom:10px">' + esc(t('Cierre promedio por prioridad')) + '</div>';
     var rows = [
-      { l: 'Alta', v: me.avgAlta || '—', color: 'var(--critical)' },
-      { l: 'Media', v: me.avgMedia || '—', color: 'var(--warn)' },
-      { l: 'Baja', v: me.avgBaja || '—', color: 'var(--good)' }
+      { l: t('Alta'), v: me.avgAlta || '—', color: 'var(--critical)' },
+      { l: t('Media'), v: me.avgMedia || '—', color: 'var(--warn)' },
+      { l: t('Baja'), v: me.avgBaja || '—', color: 'var(--good)' }
     ];
     rows.forEach(function(r) {
       html += '<div style="display:grid;grid-template-columns:60px 1fr 60px;align-items:center;gap:10px;margin-bottom:6px;">'
@@ -4847,11 +5071,11 @@ function rEdHomeSpecialist(D) {
   // Projects card
   html += '<div class="pa-card">'
        +    '<div class="pa-card-h">'
-       +      '<h3>Proyectos en los que estás</h3>'
-       +      '<span class="meta">' + projs.length + ' activos</span>'
+       +      '<h3>' + esc(t('Proyectos en los que estás')) + '</h3>'
+       +      '<span class="meta">' + projs.length + ' ' + esc(t('activos')) + '</span>'
        +    '</div>';
   if (projs.length === 0) {
-    html += '<div style="padding:8px 0">' + paEmpty('folder', 'No formás parte de ningún proyecto activo.', 'Cuando alguien te asigne tareas dentro de un proyecto, aparecerán acá.') + '</div>';
+    html += '<div style="padding:8px 0">' + paEmpty('folder', t('No formás parte de ningún proyecto activo.'), t('Cuando alguien te asigne tareas dentro de un proyecto, aparecerán acá.')) + '</div>';
   } else {
     var palette = ['#5b8def', '#8a7ff0', '#d0a86b', '#3fa888', '#e07a7a'];
     projs.slice(0, 5).forEach(function(p, i) {
@@ -4865,7 +5089,7 @@ function rEdHomeSpecialist(D) {
            +    '<div style="min-width:0">'
            +      '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:13px;font-weight:500">' + esc(p.nombre || '') + '</span>'
            +        (p.pais ? ' <span class="pa-pill pa-pill-country">' + esc(p.pais) + '</span>' : '') + '</div>'
-           +      '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">Líder: ' + esc(p.lider || '—') + ' · ' + openP + ' ' + esc(LANG === 'pt' ? 'ativas de ' : 'activas de ') + totalP + '</div>'
+           +      '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">' + esc(t('Líder')) + ': ' + esc(p.lider || '—') + ' · ' + openP + ' ' + esc(LANG === 'pt' ? 'ativas de ' : 'activas de ') + totalP + '</div>'
            +    '</div>'
            +    '<div style="display:flex;align-items:center;gap:8px">'
            +      '<div style="width:70px;height:4px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + pct + '%;background:' + color + '"></span></div>'
@@ -4928,16 +5152,16 @@ function rEdHomeManager(D) {
   // Greeting con eyebrow + nombre destacado
   var mgrTodayLabel = todayLine ? todayLine.split(' ').slice(0, 2).join(' ') : '';
   html += '<div class="pa-greet">'
-       +    '<div class="pa-greet-eye">' + esc(mgrTodayLabel ? '— Tu ' + mgrTodayLabel : 'Hoy') + ' · ' + esc((userCode || '—') + ' · ' + teamMine.length + ' specialists') + '</div>'
-       +    '<h1>Hola, <span class="pa-greet-name">' + esc(firstName) + '</span></h1>'
+       +    '<div class="pa-greet-eye">' + esc(mgrTodayLabel ? t('— Tu ' + mgrTodayLabel) : t('Hoy')) + ' · ' + esc((userCode || '—') + ' · ' + teamMine.length + ' ' + t('specialists')) + '</div>'
+       +    '<h1>' + esc(t('Hola')) + ', <span class="pa-greet-name">' + esc(firstName) + '</span></h1>'
        +    (todayLine ? '<span class="pa-greet-meta">' + esc(todayLine) + '</span>' : '')
        + '</div>';
 
   // Narrative
   if (active.length > 0) {
     html += '<div class="pa-narrative">'
-         +    'Tu equipo está cargando <b>' + altaActive + ' tareas de prioridad alta</b>'
-         +    (overdue ? ', y hay <b style="color:var(--critical-fg)">' + overdue + ' vencidas</b>' : '')
+         +    esc(t('Tu equipo está cargando')) + ' <b>' + altaActive + ' ' + esc(t('tareas de prioridad alta')) + '</b>'
+         +    (overdue ? ', ' + esc(t('y')) + ' ' + esc(t('hay')) + ' <b style="color:var(--critical-fg)">' + overdue + ' ' + esc(t('vencidas')) + '</b>' : '')
          +    '.'
          + '</div>';
   }
@@ -4945,39 +5169,39 @@ function rEdHomeManager(D) {
   // KPIs
   html += '<div class="pa-kpis">'
        +    '<div class="pa-kpi ' + (overdue ? 'is-critical' : '') + '" onclick="goEd(\'tracker\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> ' + esc(t('Vencidas')) + '</div>'
        +      '<div class="val">' + overdue + '</div>'
-       +      '<div class="delta">' + (overdue ? 'requieren atención' : 'todo en orden') + '</div>'
+       +      '<div class="delta">' + esc(overdue ? t('requieren atención') : t('todo en orden')) + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (dueToday ? 'is-warn' : '') + '" onclick="goEd(\'tracker\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> Vencen hoy</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> ' + esc(t('Vencen hoy')) + '</div>'
        +      '<div class="val">' + dueToday + '</div>'
-       +      '<div class="delta">' + (dueToday ? 'cerrar hoy' : 'día limpio') + '</div>'
+       +      '<div class="delta">' + esc(dueToday ? t('cerrar hoy') : t('día limpio')) + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi" onclick="goEd(\'miequipo\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Carga total</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> ' + esc(t('Carga total')) + '</div>'
        +      '<div class="val">' + totalLoad + '</div>'
-       +      '<div class="delta">capacidad ' + totalCap + ' · ' + loadPct + '%</div>'
+       +      '<div class="delta">' + esc(t('capacidad')) + ' ' + totalCap + ' · ' + loadPct + '%</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (slaCountry == null ? '' : (slaCountry >= 90 ? 'is-good' : (slaCountry < 85 ? 'is-warn' : ''))) + '" onclick="goEd(\'analytics\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> SLA del mes</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> ' + esc(t('SLA del mes')) + '</div>'
        +      '<div class="val">' + (slaCountry != null ? slaCountry + '%' : '—') + '</div>'
        +      '<div class="delta' + (slaDeltaW != null && slaDeltaW < 0 ? ' down' : (slaDeltaW != null && slaDeltaW > 0 ? ' up' : '')) + '">'
        +        (slaDeltaW != null && Math.abs(slaDeltaW) >= 1
-             ? (slaDeltaW > 0 ? '▲' : '▼') + ' ' + Math.abs(Math.round(slaDeltaW)) + 'pt vs semana anterior'
-             : (slaCountry == null ? 'sin cierres recientes' : 'últimos 30 días'))
+             ? (slaDeltaW > 0 ? '▲' : '▼') + ' ' + Math.abs(Math.round(slaDeltaW)) + 'pt ' + esc(t('vs semana anterior'))
+             : (slaCountry == null ? esc(t('sin cierres recientes')) : esc(t('últimos 30 días'))))
        +      '</div>'
        +    '</div>'
        + '</div>';
 
   // Attention
   html += '<div class="pa-section-h">'
-       +    '<h3>Requieren tu atención</h3>'
-       +    '<span class="meta">Vencidas, bloqueadas y de prioridad alta sin avance</span>'
-       +    '<button class="link" onclick="goEd(\'tracker\')">Ver todas →</button>'
+       +    '<h3>' + esc(t('Requieren tu atención')) + '</h3>'
+       +    '<span class="meta">' + esc(t('Vencidas, bloqueadas y de prioridad alta sin avance')) + '</span>'
+       +    '<button class="link" onclick="goEd(\'tracker\')">' + esc(t('Ver todas →')) + '</button>'
        + '</div>';
   if (att.length === 0) {
-    html += paEmpty('check', 'Tu equipo está al día.', 'Nada vencido, bloqueado, ni de prioridad alta sin avance.');
+    html += paEmpty('check', t('Tu equipo está al día.'), t('Nada vencido, bloqueado, ni de prioridad alta sin avance.'));
   } else {
     html += '<div class="pa-tbl">';
     att.forEach(function(t) {
@@ -5016,14 +5240,13 @@ function rEdHomeManager(D) {
        +    '<button class="link" onclick="goEd(\'miequipo\')">' + esc(LANG === 'pt' ? 'Ver equipe completa →' : 'Ver equipo completo →') + '</button>'
        + '</div>';
   if (teamMine.length === 0) {
-    html += paEmpty('users', 'No hay miembros del equipo visibles.', 'Pedile a tu líder que agregue specialists en la hoja Equipos.');
+    html += paEmpty('users', t('No hay miembros del equipo visibles.'), t('Pedile a tu líder que agregue specialists en la hoja Equipos.'));
   } else if (teamAtRisk.length === 0) {
-    html += paEmpty('check', LANG === 'pt' ? 'Equipe no controle.' : 'Equipo bajo control.',
-                    LANG === 'pt' ? 'Sem sobrecargas, vencidas ou tarefas em on hold.' : 'Sin sobrecargas, vencidas ni tareas en on hold.');
+    html += paEmpty('check', t('Equipo bajo control.'), t('Sin sobrecargas, vencidas ni tareas en on hold.'));
   } else {
     html += '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px">'
-         +      '<div>Specialist</div><div>Carga</div><div>Vencidas</div><div>On hold</div><div>SLA mes</div><div></div>'
+         +      '<div>' + esc(t('Specialist')) + '</div><div>' + esc(t('Carga')) + '</div><div>' + esc(t('Vencidas')) + '</div><div>' + esc(t('On hold')) + '</div><div>' + esc(t('SLA mes')) + '</div><div></div>'
          +    '</div>';
     teamAtRisk.forEach(function(x) {
       var m = x.m;
@@ -5045,7 +5268,7 @@ function rEdHomeManager(D) {
            +    '<div class="mono" style="font-size:12px;color:' + ((m.overdue || 0) ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + (m.overdue || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.blocked || 0) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + (m.blocked || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + slaColorM + '">' + (slaM != null ? slaM + '%' : '—') + '</div>'
-           +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="edSetRespFilter(\'' + esc(m.name || '') + '\');goEd(\'tracker\')">' + esc(LANG === 'pt' ? 'Ver tarefas →' : 'Ver tareas →') + '</button></div>'
+           +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="edSetRespFilter(\'' + esc(m.name || '') + '\');goEd(\'tracker\')">' + esc(t('Ver tareas →')) + '</button></div>'
            + '</div>';
     });
     html += '</div>';
@@ -5096,20 +5319,20 @@ function rEdHomeHQ(D) {
 
   // Greeting global con eyebrow contextual
   html += '<div class="pa-greet">'
-       +    '<div class="pa-greet-eye">— ' + esc(todayLine || 'Hoy') + ' · ' + countries.length + ' países · ' + (totalSpec || (D && D.team || []).length) + ' specialists · ' + totalMgr + ' managers</div>'
-       +    '<h1>Operaciones <span class="pa-greet-name">legales globales</span></h1>'
+       +    '<div class="pa-greet-eye">— ' + esc(todayLine || t('Hoy')) + ' · ' + countries.length + ' ' + esc(t('países')) + ' · ' + (totalSpec || (D && D.team || []).length) + ' specialists · ' + totalMgr + ' managers</div>'
+       +    '<h1>' + esc(t('Operaciones')) + ' <span class="pa-greet-name">' + esc(t('legales globales')) + '</span></h1>'
        + '</div>';
 
   if (totalOpen > 0) {
     var slaInsight = '';
     if (typeof slaDelta === 'number' && Math.abs(slaDelta) >= 1) {
-      slaInsight = '. ' + (slaDelta < 0 ? 'Bajó' : 'Subió') + ' ' + Math.abs(Math.round(slaDelta)) + 'pt vs la semana anterior';
+      slaInsight = '. ' + (slaDelta < 0 ? t('Bajó') : t('Subió')) + ' ' + Math.abs(Math.round(slaDelta)) + 'pt ' + t('vs la semana anterior');
     } else if (biggestDrop) {
-      slaInsight = '. ' + esc(biggestDrop.c.code) + ' cayó ' + Math.abs(Math.round(biggestDrop.delta)) + 'pt esta semana';
+      slaInsight = '. ' + esc(biggestDrop.c.code) + ' ' + t('cayó') + ' ' + Math.abs(Math.round(biggestDrop.delta)) + 'pt ' + t('esta semana');
     }
     html += '<div class="pa-narrative">'
-         +    'LATAM está corriendo <b>' + totalOpen + ' tareas activas</b>'
-         +    (slaAvg != null ? ' con SLA agregado del <b style="color:var(--' + (slaAvg >= 90 ? 'good' : 'warn') + '-fg)">' + slaAvg + '%</b>' : '')
+         +    t('LATAM está corriendo') + ' <b>' + totalOpen + ' ' + t('tareas activas') + '</b>'
+         +    (slaAvg != null ? ' ' + t('con SLA agregado del') + ' <b style="color:var(--' + (slaAvg >= 90 ? 'good' : 'warn') + '-fg)">' + slaAvg + '%</b>' : '')
          +    slaInsight
          +    '.'
          + '</div>';
@@ -5137,32 +5360,32 @@ function rEdHomeHQ(D) {
   }
   var concentratedHint = '';
   if (totalOverdue > 0 && maxOverdueC && (maxOverdueC.overdue || 0) > 0) {
-    concentratedHint = 'concentradas en ' + esc(maxOverdueC.code) + ' (' + maxOverdueC.overdue + ')';
+    concentratedHint = t('concentradas en') + ' ' + esc(maxOverdueC.code) + ' (' + maxOverdueC.overdue + ')';
   }
   html += '<div class="pa-kpis">'
        +    '<div class="pa-kpi ' + (totalOverdue ? 'is-critical' : '') + '" onclick="goEd(\'tracker\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas LATAM</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> ' + esc(t('Vencidas LATAM')) + '</div>'
        +      '<div class="val">' + totalOverdue + '</div>'
-       +      '<div class="delta">' + (concentratedHint || (totalOverdue ? 'distribuidas' : 'sin vencidas')) + '</div>'
+       +      '<div class="delta">' + (concentratedHint || esc(totalOverdue ? t('distribuidas') : t('sin vencidas'))) + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (dueToday ? 'is-warn' : '') + '" onclick="goEd(\'tracker\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> Vencen hoy</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> ' + esc(t('Vencen hoy')) + '</div>'
        +      '<div class="val">' + dueToday + '</div>'
-       +      '<div class="delta">' + (dueTodayHint || 'día limpio') + '</div>'
+       +      '<div class="delta">' + (dueTodayHint || esc(t('día limpio'))) + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi" onclick="goEd(\'tracker\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Activas LATAM</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> ' + esc(t('Activas LATAM')) + '</div>'
        +      '<div class="val">' + totalOpen + '</div>'
        +      '<div class="delta">' + countries.map(function(c){ return c.code + ' ' + (c.open || 0); }).join(' · ') + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (slaAvg != null && slaAvg >= 90 ? 'is-good' : (slaAvg != null && slaAvg < 85 ? 'is-warn' : '')) + '">'
-       +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> SLA agregado</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> ' + esc(t('SLA agregado')) + '</div>'
        +      '<div class="val">' + (slaAvg != null ? slaAvg + '%' : '—') + '</div>'
        +      '<div class="delta' + (slaDelta != null && slaDelta < 0 ? ' down' : (slaDelta != null && slaDelta > 0 ? ' up' : '')) + '">'
        +        (slaDelta != null && Math.abs(slaDelta) >= 1
-           ? (slaDelta > 0 ? '▲' : '▼') + ' ' + Math.abs(Math.round(slaDelta)) + 'pt vs semana anterior'
+           ? (slaDelta > 0 ? '▲' : '▼') + ' ' + Math.abs(Math.round(slaDelta)) + 'pt ' + esc(t('vs semana anterior'))
            : (closedDelta !== 0 && closedPrev > 0
-                ? (closedDelta > 0 ? '▲' : '▼') + ' ' + Math.abs(closedDelta) + ' cierres vs semana anterior'
+                ? (closedDelta > 0 ? '▲' : '▼') + ' ' + Math.abs(closedDelta) + ' ' + esc(t('cierres vs semana anterior'))
                 : 'LATAM'))
        +      '</div>'
        +    '</div>'
@@ -5170,16 +5393,16 @@ function rEdHomeHQ(D) {
 
   // Per country
   html += '<div class="pa-section-h">'
-       +    '<h3>Por país</h3>'
-       +    '<span class="meta">Tendencia 12 semanas — cierres por semana</span>'
-       +    '<button class="link" onclick="goEd(\'paises\')">Ir a Por país →</button>'
+       +    '<h3>' + esc(t('Por país')) + '</h3>'
+       +    '<span class="meta">' + esc(t('Tendencia 12 semanas — cierres por semana')) + '</span>'
+       +    '<button class="link" onclick="goEd(\'paises\')">' + esc(t('Ir a Por país →')) + '</button>'
        + '</div>';
   if (countries.length === 0) {
-    html += paEmpty('globe', 'No hay datos de países disponibles.', 'Verificá que la hoja Equipos tenga al menos un país configurado.');
+    html += paEmpty('globe', t('No hay datos de países disponibles.'), t('Verificá que la hoja Equipos tenga al menos un país configurado.'));
   } else {
     html += '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px">'
-         +      '<div>País</div><div>Manager · equipo</div><div>Activas</div><div>Vencidas</div><div>SLA mes</div><div>Tendencia 12s</div>'
+         +      '<div>' + esc(t('País')) + '</div><div>' + esc(t('Manager · equipo')) + '</div><div>' + esc(t('Activas')) + '</div><div>' + esc(t('Vencidas')) + '</div><div>' + esc(t('SLA mes')) + '</div><div>' + esc(t('Tendencia 12s')) + '</div>'
          +    '</div>';
     // Pre-sort: países con datos primero (más activos arriba), inactivos al final.
     var sortedC = countries.slice().sort(function(a, b) {
@@ -5200,10 +5423,10 @@ function rEdHomeHQ(D) {
       html += '<div class="pa-tbl-r" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px;height:52px' + rowOpacity + '" onclick="edSetCountryFilter(\'' + esc(c.code) + '\');goEd(\'tracker\')">'
            +    '<div style="display:flex;align-items:center;gap:10px">'
            +      '<span style="width:28px;height:20px;border-radius:4px;background:var(--bg-2);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:' + (hasData ? 'var(--fg-1)' : 'var(--fg-3)') + ';font-weight:600">' + esc(c.code || '') + '</span>'
-           +      '<span style="font-size:13px;font-weight:' + (hasData ? '500' : '400') + ';color:' + (hasData ? 'var(--fg-1)' : 'var(--fg-3)') + '">' + esc(c.code === 'HQ' ? 'Global' : (c.name || '')) + '</span>'
+           +      '<span style="font-size:13px;font-weight:' + (hasData ? '500' : '400') + ';color:' + (hasData ? 'var(--fg-1)' : 'var(--fg-3)') + '">' + esc(c.code === 'HQ' ? t('Global') : (c.name || '')) + '</span>'
            +    '</div>'
            +    '<div>'
-           +      '<div style="font-size:13px;color:' + (c.leader ? 'var(--fg-1)' : 'var(--fg-3)') + '">' + esc(c.leader || 'Pendiente onboarding') + '</div>'
+           +      '<div style="font-size:13px;color:' + (c.leader ? 'var(--fg-1)' : 'var(--fg-3)') + '">' + esc(c.leader || t('Pendiente onboarding')) + '</div>'
            +      '<div style="font-size:11px;color:var(--fg-3)">' + (c.specialists || 0) + ' specialists</div>'
            +    '</div>'
            +    '<div class="mono" style="font-size:13px">' + (c.open || 0) + '</div>'
@@ -5233,9 +5456,9 @@ function rEdHomeHQ(D) {
     .slice(0, 6);
   if (riskyHq.length) {
     html += '<div class="pa-section-h">'
-         +    '<h3>' + esc(LANG === 'pt' ? 'Projetos em risco' : 'Proyectos en riesgo') + '</h3>'
-         +    '<span class="meta">' + esc(LANG === 'pt' ? 'ordenados por % de vencidas' : 'ordenados por % de vencidas') + '</span>'
-         +    '<button class="link" onclick="goEd(\'proyectos\')">' + esc(LANG === 'pt' ? 'Ver todos os projetos →' : 'Ver todos los proyectos →') + '</button>'
+         +    '<h3>' + esc(t('Proyectos en riesgo')) + '</h3>'
+         +    '<span class="meta">' + esc(t('ordenados por % de vencidas')) + '</span>'
+         +    '<button class="link" onclick="goEd(\'proyectos\')">' + esc(t('Ver todos los proyectos →')) + '</button>'
          + '</div>';
     html += '<div class="pa-tbl">';
     riskyHq.forEach(function(x) {
@@ -5244,11 +5467,11 @@ function rEdHomeHQ(D) {
       var rTone = x.pct >= 0.5 ? 'pa-pill-alta' : (x.pct >= 0.25 ? 'pa-pill-media' : 'pa-pill-baja');
       html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr 130px 80px 110px" onclick="edSetCountryFilter(\'' + esc(rPais) + '\');goEd(\'tracker\')">'
            +    '<div class="title">'
-           +      '<span class="t">' + esc(x.p.nombre || ('Proyecto #' + x.p.id)) + '</span>'
-           +      '<span class="meta">' + esc(rPais) + (x.p.lider ? ' · ' + esc(x.p.lider.split(' ').slice(0,2).join(' ')) : '') + ' · ' + x.total + ' ' + esc(LANG === 'pt' ? 'ativas' : 'activas') + '</span>'
+           +      '<span class="t">' + esc(x.p.nombre || (t('Proyecto') + ' #' + x.p.id)) + '</span>'
+           +      '<span class="meta">' + esc(rPais) + (x.p.lider ? ' · ' + esc(x.p.lider.split(' ').slice(0,2).join(' ')) : '') + ' · ' + x.total + ' ' + esc(t('activas')) + '</span>'
            +    '</div>'
            +    '<span class="pa-pill pa-pill-country">' + esc(paCountryLabel(rPais)) + '</span>'
-           +    '<span class="mono" style="font-size:12px;color:var(--critical-fg)">' + x.overdue + ' ' + (LANG === 'pt' ? 'venc.' : 'venc.') + '</span>'
+           +    '<span class="mono" style="font-size:12px;color:var(--critical-fg)">' + x.overdue + ' ' + esc(t('venc.')) + '</span>'
            +    '<span class="pa-pill ' + rTone + '"><span class="dot"></span>' + esc(rPctTxt) + '</span>'
            + '</div>';
     });
@@ -5259,16 +5482,16 @@ function rEdHomeHQ(D) {
   var historial = ((D && D.historial) || []).slice(0, 6);
   if (historial.length > 0) {
     html += '<div class="pa-section-h">'
-         +    '<h3>Actividad reciente</h3>'
-         +    '<span class="meta">Últimas tareas cerradas en LATAM</span>'
-         +    '<button class="link" onclick="goEd(\'historial\')">Ver historial →</button>'
+         +    '<h3>' + esc(t('Actividad reciente')) + '</h3>'
+         +    '<span class="meta">' + esc(t('Últimas tareas cerradas en LATAM')) + '</span>'
+         +    '<button class="link" onclick="goEd(\'historial\')">' + esc(t('Ver historial →')) + '</button>'
          + '</div>';
     html += '<div class="pa-card" style="padding:6px 0">';
     historial.forEach(function(h, i) {
       html += '<div style="display:grid;grid-template-columns:36px 1fr auto;padding:10px 14px;align-items:center;border-top:' + (i ? '1px solid var(--line-1)' : '0') + '">'
            +    '<div style="width:24px;height:24px;border-radius:6px;background:var(--good-soft);color:var(--good-fg);display:grid;place-items:center">' + paIcon('check', 13) + '</div>'
            +    '<div style="font-size:13px;color:var(--fg-2)">'
-           +      '<b style="color:var(--fg-1);font-weight:500">' + esc(h.resp || '—') + '</b> cerró '
+           +      '<b style="color:var(--fg-1);font-weight:500">' + esc(h.resp || '—') + '</b> ' + esc(t('cerró')) + ' '
            +      '<span style="color:var(--fg-1)">#' + esc(h.id || '') + ' ' + esc((h.nombre || '').substring(0, 60)) + '</span>'
            +    '</div>'
            +    '<div style="font-size:11px;color:var(--fg-3)">' + esc(h.cerrado || '') + '</div>'
@@ -5526,7 +5749,8 @@ function edTkBulkAction(action) {
     return;
   }
   if (action === 'bloquear') {
-    confirm_('¿Poner ' + label + ' en <b>on hold</b>? Quedarán pausadas hasta que las desbloquees.', function() {
+    var labelI18n = n + ' ' + (n === 1 ? t('tarea') : t('tareas'));
+    confirm_(t('¿Poner') + ' ' + labelI18n + ' ' + t('en') + ' <b>on hold</b>? ' + t('Quedarán pausadas hasta que las desbloquees.'), function() {
       _edTkBulkRun(ids, 'status', 'Bloqueado', t('En on hold'));
     });
     return;
@@ -5550,25 +5774,26 @@ function edTkBulkAction(action) {
       if (next === 'Listo') toClose.push(id);
       else toRun.push({ id: id, value: next });
     });
-    if (!toRun.length && !toClose.length) { toast('Ninguna de las seleccionadas puede avanzar.', 'info'); return; }
+    if (!toRun.length && !toClose.length) { toast(t('Ninguna de las seleccionadas puede avanzar.'), 'info'); return; }
     // Solo cerrables → bulk-close wizard directo.
     if (!toRun.length && toClose.length) {
       edBulkCloseOpen(toClose);
       return;
     }
+    var runLbl = toRun.length + ' ' + (toRun.length === 1 ? t('tarea') : t('tareas'));
     // Solo avanzables (sin cierres) → flujo original.
     if (toRun.length && !toClose.length) {
-      confirm_('¿Avanzar ' + toRun.length + (toRun.length === 1 ? ' tarea' : ' tareas') + ' al siguiente estado?', function() {
-        _edTkBulkRunMixed(toRun, 'status', 'Avanzadas');
+      confirm_(t('¿Avanzar') + ' ' + runLbl + ' ' + t('al siguiente estado?'), function() {
+        _edTkBulkRunMixed(toRun, 'status', t('Avanzadas'));
       });
       return;
     }
     // Mix: avanzar primero, después abrir el wizard de cierre.
-    confirm_('De las ' + ids.length + ' seleccionadas: <b>' + toRun.length + '</b> avanzan al siguiente estado y <b>' + toClose.length + '</b> se cerrarían. Vamos en dos pasos — primero avanzamos, luego pedimos un resumen para cerrar.', function() {
-      _edTkBulkRunMixedThen(toRun, 'status', 'Avanzadas', function() {
+    confirm_(t('De las') + ' ' + ids.length + ' ' + t('seleccionadas:') + ' <b>' + toRun.length + '</b> ' + t('avanzan al siguiente estado y') + ' <b>' + toClose.length + '</b> ' + t('se cerrarían. Vamos en dos pasos — primero avanzamos, luego pedimos un resumen para cerrar.'), function() {
+      _edTkBulkRunMixedThen(toRun, 'status', t('Avanzadas'), function() {
         edBulkCloseOpen(toClose);
       });
-    }, { confirmLabel: 'Continuar' });
+    }, { confirmLabel: t('Continuar') });
     return;
   }
 }
@@ -5604,37 +5829,38 @@ function _edBulkCloseRender() {
          + '</div>';
   }).join('');
   if (n > sample.length) {
-    sampleHtml += '<div style="font-size:11px;color:var(--fg-3);padding:4px 0">+ ' + (n - sample.length) + (n - sample.length === 1 ? ' tarea más' : ' tareas más') + '</div>';
+    sampleHtml += '<div style="font-size:11px;color:var(--fg-3);padding:4px 0">+ ' + (n - sample.length) + ' ' + (n - sample.length === 1 ? t('tarea más') : t('tareas más')) + '</div>';
   }
+  var nLbl = n + ' ' + (n === 1 ? t('tarea') : t('tareas'));
   host.innerHTML = ''
     + '<div class="cr-overlay" onclick="if(event.target===this)edBulkCloseClose()">'
     +   '<div class="cr-backdrop" onclick="edBulkCloseClose()"></div>'
-    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Cerrar tareas" style="max-width:580px">'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="' + esc(t('Cerrar tareas')) + '" style="max-width:580px">'
     +     '<div class="cr-head">'
     +       '<div style="width:32px;height:32px;border-radius:8px;background:var(--good-soft, var(--accent-soft));color:var(--good-fg, var(--accent));display:grid;place-items:center;flex-shrink:0">'
     +         '<span style="font-weight:600;font-size:14px">✓</span>'
     +       '</div>'
     +       '<div style="flex:1">'
-    +         '<div class="cr-title">Cerrar ' + n + (n === 1 ? ' tarea' : ' tareas') + ' como <span style="color:var(--good-fg)">Listo</span></div>'
-    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">El resumen se guarda como nota de cierre <b>en cada una</b>.</div>'
+    +         '<div class="cr-title">' + esc(t('Cerrar')) + ' ' + esc(nLbl) + ' ' + esc(t('como')) + ' <span style="color:var(--good-fg)">' + esc(t('Listo')) + '</span></div>'
+    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">' + esc(t('El resumen se guarda como nota de cierre en cada una.')) + '</div>'
     +       '</div>'
-    +       '<button type="button" class="cr-x" onclick="edBulkCloseClose()" aria-label="Cerrar">×</button>'
+    +       '<button type="button" class="cr-x" onclick="edBulkCloseClose()" aria-label="' + esc(t('Cerrar')) + '">×</button>'
     +     '</div>'
     +     '<div class="cr-body">'
     +       '<div style="padding:10px 12px;background:var(--bg-2);border-radius:6px;margin-bottom:14px">'
-    +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">Vas a cerrar</div>'
+    +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">' + esc(t('Vas a cerrar')) + '</div>'
     +         sampleHtml
     +       '</div>'
     +       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">'
-    +         '<label for="bulkCloseResumen" style="font-size:12px;color:var(--fg-2);font-weight:500">Resumen de cierre <span class="req">*</span></label>'
-    +         '<span style="font-size:11px;color:var(--fg-3)">Se aplica a las ' + n + '</span>'
+    +         '<label for="bulkCloseResumen" style="font-size:12px;color:var(--fg-2);font-weight:500">' + esc(t('Resumen de cierre')) + ' <span class="req">*</span></label>'
+    +         '<span style="font-size:11px;color:var(--fg-3)">' + esc(t('Se aplica a las')) + ' ' + n + '</span>'
     +       '</div>'
-    +       '<textarea id="bulkCloseResumen" class="cr-input" rows="4" style="resize:vertical;min-height:90px" placeholder="Resumen rápido de cómo se cerraron (lo verán en el historial)."></textarea>'
+    +       '<textarea id="bulkCloseResumen" class="cr-input" rows="4" style="resize:vertical;min-height:90px" placeholder="' + esc(t('Resumen rápido de cómo se cerraron (lo verán en el historial).')) + '"></textarea>'
     +     '</div>'
     +     '<div class="cr-foot">'
-    +       '<div class="cr-foot-info"><b>Al cerrar:</b> las tareas se mueven al historial · libera ' + n + (n === 1 ? ' slot' : ' slots') + ' de carga.</div>'
-    +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edBulkCloseClose()">Cancelar</button>'
-    +       '<button type="button" class="pa-btn pa-btn-primary" onclick="edBulkCloseConfirm()">' + paIcon('check', 12) + ' Cerrar ' + n + (n === 1 ? ' tarea' : ' tareas') + '</button>'
+    +       '<div class="cr-foot-info"><b>' + esc(t('Al cerrar')) + ':</b> ' + esc(t('las tareas se mueven al historial · libera')) + ' ' + n + ' ' + (n === 1 ? esc(t('slot de carga.')) : esc(t('slots de carga.'))) + '</div>'
+    +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edBulkCloseClose()">' + esc(t('Cancelar')) + '</button>'
+    +       '<button type="button" class="pa-btn pa-btn-primary" onclick="edBulkCloseConfirm()">' + paIcon('check', 12) + ' ' + esc(t('Cerrar')) + ' ' + esc(nLbl) + '</button>'
     +     '</div>'
     +   '</div>'
     + '</div>';
@@ -5651,12 +5877,12 @@ function edBulkCloseConfirm() {
   var ta = $('bulkCloseResumen');
   var resumen = ta ? String(ta.value || '').trim() : '';
   if (!resumen) {
-    toast('Falta el resumen para cerrar.', 'error');
+    toast(t('Falta el resumen para cerrar.'), 'error');
     if (ta) ta.focus();
     return;
   }
   if (resumen.length < 5) {
-    toast('Contanos un poco más (mín. 5 caracteres).', 'error');
+    toast(t('Contanos un poco más (mín. 5 caracteres).'), 'error');
     if (ta) ta.focus();
     return;
   }
@@ -5664,13 +5890,14 @@ function edBulkCloseConfirm() {
   if (!ids.length) { edBulkCloseClose(); return; }
   _EDT_BULK_CLOSE.running = true;
   var btn = document.querySelector('.cr-foot .pa-btn-primary');
-  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = 'Cerrando…'; }
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = t('Cerrando…'); }
   _edTkBulkClose(ids, resumen);
 }
 
 function _edTkBulkClose(ids, resumen) {
   var ok = 0, fail = 0, pending = ids.length;
-  toast('Cerrando ' + pending + (pending === 1 ? ' tarea' : ' tareas') + '…', 'info');
+  var nLbl = pending + ' ' + (pending === 1 ? t('tarea') : t('tareas'));
+  toast(t('Cerrando') + ' ' + nLbl + '…', 'info');
   var fields = { status: 'Listo', notas: 'CIERRE: ' + resumen };
   ids.forEach(function(id) {
     google.script.run
@@ -5684,9 +5911,9 @@ function _edBulkCloseDone(ok, fail) {
   _EDT_BULK_CLOSE.running = false;
   var host = $('crHost'); if (host) host.innerHTML = '';
   _EDT_BULK_CLOSE.ids = [];
-  if (fail === 0) toast('✅ Cerradas: ' + ok, 'success');
-  else if (ok === 0) toast('Error: no se pudo cerrar ninguna', 'error');
-  else toast('⚠ Cerradas: ' + ok + ' OK, ' + fail + ' fallaron', 'info');
+  if (fail === 0) toast('✅ ' + t('Cerradas:') + ' ' + ok, 'success');
+  else if (ok === 0) toast(t('Error: no se pudo cerrar ninguna'), 'error');
+  else toast('⚠ ' + t('Cerradas:') + ' ' + ok + ' OK, ' + fail + ' ' + t('fallaron'), 'info');
   EDT.selectedIds = [];
   if (typeof reload === 'function') reload();
 }
@@ -5697,7 +5924,8 @@ function _edBulkCloseDone(ok, fail) {
 function _edTkBulkRunMixedThen(items, field, label, onDone) {
   if (!items.length) { if (typeof onDone === 'function') onDone(); return; }
   var ok = 0, fail = 0, pending = items.length;
-  toast('Aplicando a ' + pending + (pending === 1 ? ' tarea' : ' tareas') + '…', 'info');
+  var nLbl = pending + ' ' + (pending === 1 ? t('tarea') : t('tareas'));
+  toast(t('Aplicando a') + ' ' + nLbl + '…', 'info');
   items.forEach(function(it) {
     google.script.run
       .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edBulkMixedThenDone(label, ok, fail, onDone); })
@@ -5707,8 +5935,8 @@ function _edTkBulkRunMixedThen(items, field, label, onDone) {
 }
 function _edBulkMixedThenDone(label, ok, fail, onDone) {
   if (fail === 0) toast('✅ ' + label + ': ' + ok, 'success');
-  else if (ok === 0) toast('Error en el paso 1: no se pudo avanzar ninguna', 'error');
-  else toast('⚠ ' + label + ': ' + ok + ' OK, ' + fail + ' fallaron', 'info');
+  else if (ok === 0) toast(t('Error en el paso 1: no se pudo avanzar ninguna'), 'error');
+  else toast('⚠ ' + label + ': ' + ok + ' OK, ' + fail + ' ' + t('fallaron'), 'info');
   if (typeof onDone === 'function') onDone();
 }
 // Modal de bulk-reassign: picker visual en vez de window.prompt.
@@ -5724,7 +5952,7 @@ function _edTkBulkReasignPickPerson(name) {
 function edTkBulkReasignOpen(ids) {
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
   if (role !== 'manager' && role !== 'head') {
-    toast('No tenés permiso para reasignar.', 'error');
+    toast(t('No tenés permiso para reasignar.'), 'error');
     return;
   }
   var team = (D && D.team) || [];
@@ -5733,7 +5961,7 @@ function edTkBulkReasignOpen(ids) {
   if (role === 'manager') candidates = team.filter(function(m){ return m && m.country === userCode; });
   else candidates = team.slice();
   if (!candidates.length) {
-    toast('No hay miembros del equipo a quien reasignar.', 'error');
+    toast(t('No hay miembros del equipo a quien reasignar.'), 'error');
     return;
   }
   // Sort by overdue + load
@@ -5775,8 +6003,8 @@ function edTkBulkReasignOpen(ids) {
       + '<div style="min-width:0">'
       +   '<div style="display:flex;align-items:center;gap:8px">'
       +     '<span style="font-size:13px;font-weight:500;color:var(--fg-1)">' + esc(m.name) + '</span>'
-      +     (isSug && !_EDT_BULK_REASSIGN_SELECTED ? '<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;background:var(--accent);color:var(--accent-fg);text-transform:uppercase;letter-spacing:0.04em">Sugerido</span>' : '')
-      +     (over ? '<span class="pa-pill pa-pill-state-bloqueado" style="height:16px;font-size:10px"><span class="dot"></span> Sobre capacidad</span>' : '')
+      +     (isSug && !_EDT_BULK_REASSIGN_SELECTED ? '<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;background:var(--accent);color:var(--accent-fg);text-transform:uppercase;letter-spacing:0.04em">' + esc(t('Sugerido')) + '</span>' : '')
+      +     (over ? '<span class="pa-pill pa-pill-state-bloqueado" style="height:16px;font-size:10px"><span class="dot"></span> ' + esc(t('Sobre capacidad')) + '</span>' : '')
       +   '</div>'
       +   '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">' + esc(m.role || 'Specialist') + (m.country ? ' · ' + esc(m.country) : '') + '</div>'
       + '</div>'
@@ -5786,7 +6014,7 @@ function edTkBulkReasignOpen(ids) {
       +     '<span class="mono" style="font-size:10px;color:' + (over ? 'var(--critical-fg)' : 'var(--fg-2)') + ';min-width:38px;text-align:right">' + (m.load || 0) + '/' + (m.capacity || 0) + '</span>'
       +   '</div>'
       +   '<div class="mono" style="font-size:10px;color:' + ((m.overdue || 0) > 0 ? 'var(--critical-fg)' : 'var(--good-fg)') + '">'
-      +     ((m.overdue || 0) > 0 ? m.overdue + ' vencidas' : 'sin vencidas')
+      +     ((m.overdue || 0) > 0 ? m.overdue + ' ' + esc(t('vencidas')) : esc(t('sin vencidas')))
       +   '</div>'
       + '</div>'
       + '</div>';
@@ -5794,48 +6022,50 @@ function edTkBulkReasignOpen(ids) {
 
   var memberList = candidates.map(memberCard).join('');
 
-  var sampleHtml = sampleTasks.map(function(t) {
+  var sampleHtml = sampleTasks.map(function(tk) {
     return '<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:2px 0">'
-         +   '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(t.id) + '</span>'
-         +   '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(t.nombre || '') + '</span>'
-         +   '<span style="font-size:11px;color:var(--fg-3);display:flex;align-items:center;gap:4px">de ' + paAvatar(t.resp || '?', 14) + ' ' + esc((t.resp || '').split(' ')[0]) + '</span>'
+         +   '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(tk.id) + '</span>'
+         +   '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(tk.nombre || '') + '</span>'
+         +   '<span style="font-size:11px;color:var(--fg-3);display:flex;align-items:center;gap:4px">' + esc(t('de')) + ' ' + paAvatar(tk.resp || '?', 14) + ' ' + esc((tk.resp || '').split(' ')[0]) + '</span>'
          + '</div>';
   }).join('');
   if (ids.length > sampleTasks.length) {
-    sampleHtml += '<div style="font-size:11px;color:var(--fg-3);padding:4px 0">+ ' + (ids.length - sampleTasks.length) + (ids.length - sampleTasks.length === 1 ? ' tarea más' : ' tareas más') + '</div>';
+    sampleHtml += '<div style="font-size:11px;color:var(--fg-3);padding:4px 0">+ ' + (ids.length - sampleTasks.length) + ' ' + (ids.length - sampleTasks.length === 1 ? t('tarea más') : t('tareas más')) + '</div>';
   }
+  var nLbl = n + ' ' + (n === 1 ? t('tarea') : t('tareas'));
+  var scopeLbl = (role === 'manager' ? t('Equipo') + ' ' + esc(userCode || '—') : t('Roster LATAM')) + ' · ' + candidates.length + ' ' + t('personas');
 
   host.innerHTML = ''
     + '<div class="cr-overlay" onclick="if(event.target===this)edTkBulkReasignClose()">'
     +   '<div class="cr-backdrop" onclick="edTkBulkReasignClose()"></div>'
-    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Reasignación masiva" style="max-width:580px">'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="' + esc(t('Reasignación masiva')) + '" style="max-width:580px">'
     +     '<div class="cr-head">'
     +       '<div style="width:32px;height:32px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;flex-shrink:0">'
     +         paIcon('users', 16)
     +       '</div>'
     +       '<div style="flex:1">'
-    +         '<div class="cr-title">Reasignar ' + n + (n === 1 ? ' tarea' : ' tareas') + '</div>'
-    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">La asignación previa queda en el historial. Avisale al nuevo responsable por Slack/email manualmente.</div>'
+    +         '<div class="cr-title">' + esc(t('Reasignar')) + ' ' + esc(nLbl) + '</div>'
+    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">' + esc(t('La asignación previa queda en el historial. Avisale al nuevo responsable por Slack/email manualmente.')) + '</div>'
     +       '</div>'
-    +       '<button type="button" class="cr-x" onclick="edTkBulkReasignClose()" aria-label="Cerrar">×</button>'
+    +       '<button type="button" class="cr-x" onclick="edTkBulkReasignClose()" aria-label="' + esc(t('Cerrar')) + '">×</button>'
     +     '</div>'
     +     '<div class="cr-body">'
     +       (sampleHtml ? '<div style="padding:10px 12px;background:var(--bg-2);border-radius:6px;margin-bottom:14px">'
-    +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">Vas a reasignar</div>'
+    +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">' + esc(t('Vas a reasignar')) + '</div>'
     +         sampleHtml
     +       '</div>' : '')
     +       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">'
-    +         '<label style="font-size:12px;color:var(--fg-2);font-weight:500">Nuevo responsable <span class="req">*</span></label>'
-    +         '<span style="font-size:11px;color:var(--fg-3)">' + (role === 'manager' ? 'Equipo ' + esc(userCode || '—') : 'Roster LATAM') + ' · ' + candidates.length + ' personas</span>'
+    +         '<label style="font-size:12px;color:var(--fg-2);font-weight:500">' + esc(t('Nuevo responsable')) + ' <span class="req">*</span></label>'
+    +         '<span style="font-size:11px;color:var(--fg-3)">' + scopeLbl + '</span>'
     +       '</div>'
     +       '<div style="max-height:260px;overflow-y:auto">' + memberList + '</div>'
     +     '</div>'
     +     '<div class="cr-foot">'
     +       '<div class="cr-foot-info">'
-    +         (selectedName ? paIcon('check', 11) + ' Reasignará a <b>' + esc(selectedName) + '</b>' : 'Elegí un responsable para continuar.')
+    +         (selectedName ? paIcon('check', 11) + ' ' + esc(t('Reasignará a')) + ' <b>' + esc(selectedName) + '</b>' : esc(t('Elegí un responsable para continuar.')))
     +       '</div>'
-    +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edTkBulkReasignClose()">Cancelar</button>'
-    +       '<button type="button" class="pa-btn pa-btn-primary" ' + (selectedName ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"') + ' onclick="edTkBulkReasignConfirm()">' + paIcon('check', 12) + ' Reasignar' + (selectedName ? ' a ' + esc(selectedName.split(' ')[0]) : '') + '</button>'
+    +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edTkBulkReasignClose()">' + esc(t('Cancelar')) + '</button>'
+    +       '<button type="button" class="pa-btn pa-btn-primary" ' + (selectedName ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"') + ' onclick="edTkBulkReasignConfirm()">' + paIcon('check', 12) + ' ' + esc(t('Reasignar')) + (selectedName ? ' ' + esc(t('a')) + ' ' + esc(selectedName.split(' ')[0]) : '') + '</button>'
     +     '</div>'
     +   '</div>'
     + '</div>';
@@ -5860,7 +6090,8 @@ function edTkBulkReasignConfirm() {
 
 function _edTkBulkRun(ids, field, value, label) {
   var ok = 0, fail = 0, pending = ids.length;
-  toast('Aplicando a ' + pending + (pending === 1 ? ' tarea' : ' tareas') + '…', 'info');
+  var nLbl = pending + ' ' + (pending === 1 ? t('tarea') : t('tareas'));
+  toast(t('Aplicando a') + ' ' + nLbl + '…', 'info');
   ids.forEach(function(id) {
     google.script.run
       .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edTkBulkDone(label, ok, fail); })
@@ -5870,7 +6101,8 @@ function _edTkBulkRun(ids, field, value, label) {
 }
 function _edTkBulkRunMixed(items, field, label) {
   var ok = 0, fail = 0, pending = items.length;
-  toast('Aplicando a ' + pending + (pending === 1 ? ' tarea' : ' tareas') + '…', 'info');
+  var nLbl = pending + ' ' + (pending === 1 ? t('tarea') : t('tareas'));
+  toast(t('Aplicando a') + ' ' + nLbl + '…', 'info');
   items.forEach(function(it) {
     google.script.run
       .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edTkBulkDone(label, ok, fail); })
@@ -5880,8 +6112,8 @@ function _edTkBulkRunMixed(items, field, label) {
 }
 function _edTkBulkDone(label, ok, fail) {
   if (fail === 0) toast('✅ ' + label + ': ' + ok, 'success');
-  else if (ok === 0) toast('Error: no se pudo aplicar ninguna', 'error');
-  else toast('⚠ ' + label + ': ' + ok + ' OK, ' + fail + ' fallaron', 'info');
+  else if (ok === 0) toast(t('Error: no se pudo aplicar ninguna'), 'error');
+  else toast('⚠ ' + label + ': ' + ok + ' OK, ' + fail + ' ' + t('fallaron'), 'info');
   EDT.selectedIds = [];
   if (typeof reload === 'function') reload();
 }
@@ -6031,8 +6263,8 @@ function _edReasignarRender() {
       + '<div style="min-width:0">'
       +   '<div style="display:flex;align-items:center;gap:8px">'
       +     '<span style="font-size:13px;font-weight:500;color:var(--fg-1)">' + esc(m.name) + '</span>'
-      +     (isSug ? '<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;background:var(--accent);color:var(--accent-fg);text-transform:uppercase;letter-spacing:0.04em">Sugerido</span>' : '')
-      +     (over ? '<span class="pa-pill pa-pill-state-bloqueado" style="height:16px;font-size:10px"><span class="dot"></span> Sobre capacidad</span>' : '')
+      +     (isSug ? '<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;background:var(--accent);color:var(--accent-fg);text-transform:uppercase;letter-spacing:0.04em">' + esc(t('Sugerido')) + '</span>' : '')
+      +     (over ? '<span class="pa-pill pa-pill-state-bloqueado" style="height:16px;font-size:10px"><span class="dot"></span> ' + esc(t('Sobre capacidad')) + '</span>' : '')
       +   '</div>'
       +   '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">' + esc(m.role || 'Specialist') + (m.country ? ' · ' + esc(m.country) : '') + '</div>'
       + '</div>'
@@ -6042,7 +6274,7 @@ function _edReasignarRender() {
       +     '<span class="mono" style="font-size:10px;color:' + (over ? 'var(--critical-fg)' : 'var(--fg-2)') + ';min-width:38px;text-align:right">' + (m.load || 0) + '/' + (m.capacity || 0) + '</span>'
       +   '</div>'
       +   '<div class="mono" style="font-size:10px;color:' + ((m.overdue || 0) > 0 ? 'var(--critical-fg)' : 'var(--good-fg)') + '">'
-      +     ((m.overdue || 0) > 0 ? m.overdue + ' vencidas' : 'sin vencidas')
+      +     ((m.overdue || 0) > 0 ? m.overdue + ' ' + esc(t('vencidas')) : esc(t('sin vencidas')))
       +   '</div>'
       + '</div>'
       + '</div>';
@@ -6050,47 +6282,47 @@ function _edReasignarRender() {
 
   var memberList = pickable.length
     ? pickable.map(memberCard).join('')
-    : '<div style="padding:18px;text-align:center;color:var(--fg-3);font-size:13px">No hay responsables disponibles para reasignar.</div>';
+    : '<div style="padding:18px;text-align:center;color:var(--fg-3);font-size:13px">' + esc(t('No hay responsables disponibles para reasignar.')) + '</div>';
 
   var scopeMsg = role === 'manager'
-    ? 'Equipo ' + esc(_effectiveUserCode() || '—') + ' · ' + pickable.length + ' specialists'
-    : 'Roster LATAM · ' + pickable.length + ' personas';
+    ? t('Equipo') + ' ' + esc(_effectiveUserCode() || '—') + ' · ' + pickable.length + ' specialists'
+    : t('Roster LATAM') + ' · ' + pickable.length + ' ' + t('personas');
 
   host.innerHTML = ''
     + '<div class="cr-overlay" onclick="if(event.target===this)edReasignarClose()">'
     +   '<div class="cr-backdrop" onclick="edReasignarClose()"></div>'
-    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Reasignar tarea" style="max-width:580px">'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="' + esc(t('Reasignar tarea')) + '" style="max-width:580px">'
     +     '<div class="cr-head">'
     +       '<div style="width:32px;height:32px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;flex-shrink:0">'
     +         paIcon('users', 16)
     +       '</div>'
     +       '<div style="flex:1">'
-    +         '<div class="cr-title">Reasignar tarea</div>'
-    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">La asignación previa queda en el historial. Avisale al nuevo responsable por Slack/email manualmente.</div>'
+    +         '<div class="cr-title">' + esc(t('Reasignar tarea')) + '</div>'
+    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">' + esc(t('La asignación previa queda en el historial. Avisale al nuevo responsable por Slack/email manualmente.')) + '</div>'
     +       '</div>'
-    +       '<button type="button" class="cr-x" onclick="edReasignarClose()" aria-label="Cerrar">×</button>'
+    +       '<button type="button" class="cr-x" onclick="edReasignarClose()" aria-label="' + esc(t('Cerrar')) + '">×</button>'
     +     '</div>'
     +     '<div class="cr-body">'
     +       '<div style="padding:10px 12px;background:var(--bg-2);border-radius:6px;margin-bottom:14px">'
-    +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">Vas a reasignar</div>'
+    +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">' + esc(t('Vas a reasignar')) + '</div>'
     +         '<div style="display:flex;align-items:center;gap:8px;font-size:13px">'
     +           '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(task.id) + '</span>'
     +           '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-1)">' + esc(task.nombre || '') + '</span>'
-    +           '<span style="font-size:11px;color:var(--fg-3);display:flex;align-items:center;gap:4px">de ' + paAvatar(currentResp || '?', 14) + ' ' + esc(currentResp || '—') + '</span>'
+    +           '<span style="font-size:11px;color:var(--fg-3);display:flex;align-items:center;gap:4px">' + esc(t('de')) + ' ' + paAvatar(currentResp || '?', 14) + ' ' + esc(currentResp || '—') + '</span>'
     +         '</div>'
     +       '</div>'
     +       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">'
-    +         '<label style="font-size:12px;color:var(--fg-2);font-weight:500">Nuevo responsable <span class="req">*</span></label>'
+    +         '<label style="font-size:12px;color:var(--fg-2);font-weight:500">' + esc(t('Nuevo responsable')) + ' <span class="req">*</span></label>'
     +         '<span style="font-size:11px;color:var(--fg-3)">' + scopeMsg + '</span>'
     +       '</div>'
     +       '<div style="max-height:280px;overflow-y:auto">' + memberList + '</div>'
     +     '</div>'
     +     '<div class="cr-foot">'
     +       '<div class="cr-foot-info">'
-    +         (selectedName ? paIcon('check', 11) + ' Reasignará a <b>' + esc(selectedName) + '</b>.' : 'Elegí un responsable para continuar.')
+    +         (selectedName ? paIcon('check', 11) + ' ' + esc(t('Reasignará a')) + ' <b>' + esc(selectedName) + '</b>.' : esc(t('Elegí un responsable para continuar.')))
     +       '</div>'
-    +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edReasignarClose()">Cancelar</button>'
-    +       '<button type="button" class="pa-btn pa-btn-primary" ' + (selectedName ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"') + ' onclick="edReasignarConfirm()">' + paIcon('check', 12) + ' Reasignar' + (selectedName ? ' a ' + esc(selectedName.split(' ')[0]) : '') + '</button>'
+    +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edReasignarClose()">' + esc(t('Cancelar')) + '</button>'
+    +       '<button type="button" class="pa-btn pa-btn-primary" ' + (selectedName ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"') + ' onclick="edReasignarConfirm()">' + paIcon('check', 12) + ' ' + esc(t('Reasignar')) + (selectedName ? ' ' + esc(t('a')) + ' ' + esc(selectedName.split(' ')[0]) : '') + '</button>'
     +     '</div>'
     +   '</div>'
     + '</div>';
@@ -6101,7 +6333,7 @@ function _edReasignarRender() {
 function edReasignarOpen(taskId) {
   var role = _effectiveRole();
   if (role !== 'manager' && role !== 'head') {
-    if (typeof toast === 'function') toast('No tenés permisos para reasignar.', 'error');
+    if (typeof toast === 'function') toast(t('No tenés permiso para reasignar.'), 'error');
     return;
   }
   EDR.taskId = taskId;
@@ -6780,7 +7012,7 @@ function edNotifOpen() {
   ov.innerHTML = '<div class="cr-modal" style="max-width:520px;max-height:80vh;display:flex;flex-direction:column">'
               +    '<div class="cr-head"><div><div class="cr-eye">— ' + esc(LANG === 'pt' ? 'Atividade' : 'Actividad') + '</div>'
               +    '<div class="cr-title">' + esc(LANG === 'pt' ? 'Novidades em suas tarefas' : 'Novedades en tus tareas') + '</div></div>'
-              +    '<button class="cr-x" onclick="edNotifClose()" aria-label="Cerrar">×</button></div>'
+              +    '<button class="cr-x" onclick="edNotifClose()" aria-label="' + esc(t('Cerrar')) + '">×</button></div>'
               +    '<div style="flex:1;overflow-y:auto;padding:8px 14px 14px">' + rows + '</div>'
               + '</div>';
   document.body.appendChild(ov);
