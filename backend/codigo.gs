@@ -1199,6 +1199,21 @@ function _addTaskImpl(taskObj) {
   if (taskObj.status && !VALID_STATUS[taskObj.status]) taskObj.status = 'Pendiente';
   if (taskObj.confidencialidad && !VALID_CONF[taskObj.confidencialidad]) taskObj.confidencialidad = 'estandar';
 
+  // Defensa en profundidad: el frontend tiene min=today en el input date, pero
+  // un cliente bugueado o curl directo podría mandar fecha pasada. Rechazamos
+  // server-side. Acepta hoy mismo (mismo día = deadline EOD).
+  if (taskObj.deadline) {
+    var dlRaw = String(taskObj.deadline).trim();
+    var m = dlRaw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      var dlDate = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+      var todayBog = new Date(Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy/MM/dd'));
+      if (dlDate < todayBog) {
+        return { success: false, error: 'El plazo no puede estar en el pasado.' };
+      }
+    }
+  }
+
   var ss = ctx.ss, ws = ss.getSheetByName(SHEET_ACTIVO);
   // Lock para que nextTaskId + appendRow sean atómicos frente a creaciones concurrentes.
   var lock = LockService.getScriptLock();
@@ -1296,12 +1311,53 @@ function _nextCommentId(ws) {
   return max + 1;
 }
 
+// Helper compartido: ¿el usuario actual puede ver esta tarea?
+// Busca en activo + historial (con sus campos reales de conf/lider).
+// Retorna true si el rol/permisos del user permiten ver; false sino.
+// Usado por get/add/edit/delete comments para evitar leak/spoof entre países
+// o niveles de confidencialidad.
+function _canUserSeeTask(ctx, taskId) {
+  var task = _readTaskById(ctx.ss, taskId);
+  if (!task) {
+    var hist = ctx.ss.getSheetByName(SHEET_HISTORIAL);
+    if (hist) {
+      var lr2 = hist.getLastRow();
+      // Historial tiene headers en row 1-3 (igual que Activo). dataStart=4.
+      if (lr2 >= 4) {
+        var lc2 = hist.getLastColumn();
+        var d2 = hist.getRange(4, 1, lr2 - 3, lc2).getValues();
+        for (var j = 0; j < d2.length; j++) {
+          if (String(d2[j][0]) === String(taskId)) {
+            // Leer conf (col 18 / idx 17) y lider (col 14 / idx 13) reales.
+            // Antes hardcodeaba conf='estandar' → leak de tasks cerradas
+            // confidenciales en getTaskComments.
+            var confRaw = lc2 >= 18 ? (d2[j][17] || 'estandar') : 'estandar';
+            task = {
+              id: d2[j][0],
+              resp: d2[j][2],
+              lider: lc2 >= 14 ? (d2[j][13] || '') : '',
+              pais: d2[j][12],
+              confidencialidad: String(confRaw).trim().toLowerCase() || 'estandar'
+            };
+            break;
+          }
+        }
+      }
+    }
+  }
+  if (!task) return false;
+  var visible = (typeof filterTasksForRole === 'function')
+    ? filterTasksForRole([task], ctx.role, ctx.user, ctx.equipos)
+    : [task];
+  return visible.length > 0;
+}
+
 function getTaskComments(taskId) {
   return _telemetry('getTaskComments', function() {
     var ctx = _getAuthContext();
-    // Validar que el usuario tenga visibilidad a esta tarea antes de leer comments.
-    // Si specialist/manager no puede ver la tarea (otro país, confidencialidad
-    // restringida, etc.), tampoco puede ver los comentarios.
+    // Validar visibilidad antes de leer comments. Si specialist/manager no
+    // puede ver la tarea (otro país, conf restringida), tampoco los comments.
+    if (!_canUserSeeTask(ctx, taskId)) return [];
     var task = _readTaskById(ctx.ss, taskId);
     if (!task) {
       // Puede estar en historial (cerrada). Buscar ahí.
@@ -1387,6 +1443,10 @@ function _editTaskCommentImpl(commentId, newBody) {
     var rowAuthor = (row[2] || '').toString().toLowerCase().trim();
     var currentEmail = (ctx.email || '').toLowerCase().trim();
     if (!currentEmail || rowAuthor !== currentEmail) return { success: false, error: 'Solo el autor puede editar.' };
+    // Doble check: el autor sigue teniendo visibilidad a la tarea. Si lo
+    // reasignaron a otro país o confidencialidad subió, ya no puede editar
+    // el comment desde la API.
+    if (!_canUserSeeTask(ctx, row[1])) return { success: false, error: 'Ya no tenés acceso a esta tarea.' };
     if (row[7]) return { success: false, error: 'No se puede editar un comentario eliminado.' };
     var editedTs = new Date();
     var sheetRow = targetIdx + 2;
@@ -1434,6 +1494,7 @@ function _deleteTaskCommentImpl(commentId) {
     var rowAuthor = (row[2] || '').toString().toLowerCase().trim();
     var currentEmail = (ctx.email || '').toLowerCase().trim();
     if (!currentEmail || rowAuthor !== currentEmail) return { success: false, error: 'Solo el autor puede eliminar.' };
+    if (!_canUserSeeTask(ctx, row[1])) return { success: false, error: 'Ya no tenés acceso a esta tarea.' };
     if (row[7]) return { success: true, alreadyDeleted: true };
     var deletedTs = new Date();
     var sheetRow = targetIdx + 2;
@@ -1454,6 +1515,13 @@ function _addTaskCommentImpl(taskId, body) {
   var trimmed = (body || '').toString().trim();
   if (!trimmed) return { success: false, error: 'Comment body required' };
   if (trimmed.length > 5000) return { success: false, error: 'Comment too long (max 5000 chars)' };
+  // CRÍTICO: validar visibilidad antes de escribir. Sin esto, cualquier
+  // allowlisted user podía postear en CUALQUIER taskId (incluso tasks de
+  // otro país o confidenciales que no podía ver) usando google.script.run
+  // directamente desde DevTools. _canUserSeeTask cubre activo + historial.
+  if (!_canUserSeeTask(ctx, taskId)) {
+    return { success: false, error: 'No tenés acceso a esta tarea.' };
+  }
   var authorEmail = ctx.email || '';
   var authorName  = (ctx.user && ctx.user.name) || '';
   var ws = _commentsSheet(ctx.ss);
