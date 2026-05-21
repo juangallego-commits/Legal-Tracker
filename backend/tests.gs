@@ -6,17 +6,30 @@
 // Auxiliares:                  runDriveFolderCheck() · runSlackTokenCheck()
 // ════════════════════════════════════════════════════════════════
 
-// Emails productivos hardcodeados para el smoke test del piloto CO.
-// Nota: enrique.gonzalez@rappi.com se usa como caso "HQ-not-in-Heads"
-// para documentar el comportamiento cuando un email NO está en
-// Config!Heads (debería degradar a specialist o quedar fuera del
-// allowlist según cómo esté configurado Equipos).
-var PILOT_TEST_EMAILS = [
-  { label: 'specialist', email: 'juan.gallego@rappi.com' },
-  { label: 'manager',    email: 'eduardo.fernandez@rappi.com' },
-  { label: 'head',       email: 'juan.gallego@rappi.com' },
-  { label: 'hq-no-head', email: 'enrique.gonzalez@rappi.com' }
-];
+// Emails para el smoke test del piloto. Por default toma valores del piloto
+// CO actual, pero permite override vía Script Properties para que el test
+// no rompa cuando alguien cambie de equipo o se vaya. Para sobreescribir:
+//   Apps Script editor → Project Settings → Script Properties → Add
+//   keys: TEST_EMAIL_SPECIALIST, TEST_EMAIL_MANAGER, TEST_EMAIL_HEAD,
+//         TEST_EMAIL_HQ_NO_HEAD
+// El caso 'hq-no-head' verifica que un email NO en Config!Heads degrade
+// correctamente (debería caer en specialist o fuera del allowlist según
+// la config de Equipos).
+function _getTestEmails() {
+  var props = PropertiesService.getScriptProperties();
+  function get(key, fallback) {
+    var v = props.getProperty(key);
+    return v ? v.trim() : fallback;
+  }
+  return [
+    { label: 'specialist', email: get('TEST_EMAIL_SPECIALIST', 'juan.gallego@rappi.com') },
+    { label: 'manager',    email: get('TEST_EMAIL_MANAGER',    'eduardo.fernandez@rappi.com') },
+    { label: 'head',       email: get('TEST_EMAIL_HEAD',       'juan.gallego@rappi.com') },
+    { label: 'hq-no-head', email: get('TEST_EMAIL_HQ_NO_HEAD', 'enrique.gonzalez@rappi.com') }
+  ];
+}
+// Backwards-compat: muchos tests referencian la const directamente.
+var PILOT_TEST_EMAILS = _getTestEmails();
 
 // ── ASSERT HELPER ───────────────────────────────────────────────
 // Loguea ✅ o ❌ con un mensaje. No tira excepción para que el smoke

@@ -7,7 +7,22 @@
 (function(){
   var HOST_ID = '__errhost__';
   var LOG_KEY = 'mydash-errors';
-  var MAX_LOG = 10;
+  var MAX_LOG = 5;
+
+  // PII redactor: stack traces y msg pueden incluir nombres de tarea,
+  // contrapartes o emails si un error se thrown con esos datos en el
+  // message. localStorage persiste cross-session y cualquier extensión
+  // del browser puede leerlo. Sanitizamos URLs (que pueden tener query
+  // strings con datos), emails, y task IDs largos antes de persistir.
+  // Mantenemos suficiente contexto para que mydashErrors() siga siendo
+  // útil para debug.
+  function _redact(s) {
+    if (s == null) return s;
+    return String(s)
+      .replace(/https?:\/\/\S+/g, '<url>')
+      .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '<email>')
+      .replace(/"[A-ZÁÉÍÓÚÑa-záéíóúñ ]{4,}"/g, '"<txt>"'); // strings largos entre comillas (likely titles)
+  }
 
   function ensureHost() {
     var h = document.getElementById(HOST_ID);
@@ -63,9 +78,11 @@
     var src = ev.filename ? (ev.filename.split('/').pop() + ':' + ev.lineno + ':' + ev.colno) : '';
     var msg = (ev.error && ev.error.message) || ev.message || 'Unknown error';
     var stack = (ev.error && ev.error.stack) || '';
-    var rec = { t: Date.now(), kind: 'error', msg: msg, src: src, stack: stack };
+    // Persist redactado (PII fuera). console.error sí muestra el original
+    // (queda solo en DevTools del dev que abrió la consola, no en localStorage).
+    var rec = { t: Date.now(), kind: 'error', msg: _redact(msg), src: src, stack: _redact(stack) };
     persist(rec);
-    console.error('[GlobalError]', rec);
+    console.error('[GlobalError]', { msg: msg, src: src, stack: stack });
     showError('JS Error', msg, src);
   });
 
@@ -73,9 +90,9 @@
     var reason = ev.reason;
     var msg = (reason && reason.message) || String(reason);
     var stack = (reason && reason.stack) || '';
-    var rec = { t: Date.now(), kind: 'rejection', msg: msg, stack: stack };
+    var rec = { t: Date.now(), kind: 'rejection', msg: _redact(msg), stack: _redact(stack) };
     persist(rec);
-    console.error('[UnhandledRejection]', rec);
+    console.error('[UnhandledRejection]', { msg: msg, stack: stack });
     showError('Promise', msg, '');
   });
 
