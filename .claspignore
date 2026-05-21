@@ -13,6 +13,7 @@
 # nunca terminan en el editor.
 pendientes/**
 plan/**
+archive/**
 .github/**
 .claude/**
 *.md

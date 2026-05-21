@@ -55,20 +55,15 @@ Si un email no está en `Equipos`, ve una pantalla de "acceso denegado".
 ├── frontend/
 │   ├── Dashboard.html           Shell HTML
 │   ├── Dashboard.css.html       ~3000 líneas — tokens (dark/light), componentes, pills, KPIs, modales
-│   ├── Dashboard.js.html        ~11400 líneas — tracker, 3 homes (specialist/manager/head), modales, i18n, dark/light, activity log, notificaciones, bulk ops
-│   └── StandaloneDemo.html      Demo offline con datos mockeados
+│   └── Dashboard.js.html        ~11400 líneas — tracker, 3 homes (specialist/manager/head), modales, i18n, dark/light, activity log, notificaciones, bulk ops
 ├── .github/workflows/
 │   └── deploy-appsscript.yml    CI: push a main → clasp push -f
 ├── plan/
-│   ├── PRD.md                   Product requirements
-│   ├── ARCHITECTURE.md          (raíz) — modelo de datos + decisiones técnicas
-│   ├── IMPLEMENTATION-PLAN.md   Plan de implementación
-│   ├── PILOT-RUNBOOK.md         Guía operativa del piloto
-│   ├── VIDEO_TUTORIAL.md        Script para video onboarding
-│   └── analysis/                Audits previos del estado del código
+│   └── CLAUDE_DESIGN_PROMPT.md  Template de prompts para sesiones de diseño con Claude
+├── archive/                     Docs históricos del rediseño (PRD, plan de sprint, audit pre-rediseño)
 ├── ARCHITECTURE.md              Capas, flujos, decisiones
-├── DEMO_BRIEF.md                Brief para presentación
-└── REVIEW_BRIEF.md              Prompt para revisión externa (ver siguiente sección)
+├── DEMO_BRIEF.md                Brief para presentación a stakeholders
+└── REVIEW_BRIEF.md              Prompt para revisión externa con Claude chat
 ```
 
 > En el editor de Apps Script los archivos aparecen con el path completo (ej. `frontend/Dashboard`) — así es como `clasp` publica subcarpetas. Es esperado.

@@ -14,12 +14,14 @@ proponer nada, leé los archivos en este orden:
 
 1. README.md — overview del proyecto y stack
 2. ARCHITECTURE.md — capas, modelo de datos, decisiones técnicas
-3. plan/PRD.md — qué resuelve y para quién
+3. DEMO_BRIEF.md — brief que usamos para presentar el producto a stakeholders
 4. backend/codigo.gs — backend completo (~3500 líneas)
 5. frontend/Dashboard.js.html — frontend completo (~11400 líneas)
 6. frontend/Dashboard.css.html — sistema de diseño (~3000 líneas)
 7. backend/SlackModal.gs — integración Slack
 8. backend/tests.gs — suite de tests
+
+(Opcional: en `archive/` hay docs del rediseño anterior — PRD, plan de sprint, audit. Solo leélos si querés entender por qué el código está como está.)
 
 CONTEXTO RÁPIDO:
 - Webapp interna para el equipo Global Legal de Rappi+ (~30 personas en LATAM).
