@@ -4027,6 +4027,10 @@ function edUserMenuToggle(ev) {
     + '<button class="ed-user-menu-item" onclick="setLang(\'' + (LANG === 'pt' ? 'es' : 'pt') + '\')">'
     +   paIcon('globe', 14) + ' ' + (LANG === 'pt' ? 'Idioma: Português' : 'Idioma: Español') + ' <span style="margin-left:auto;color:var(--fg-3);font-size:11px">' + (LANG === 'pt' ? 'cambiar a ES' : 'mudar para PT') + '</span>'
     + '</button>'
+    + '<button class="ed-user-menu-item" onclick="edNotifOpen()">'
+    +   paIcon('bell', 14) + ' ' + esc(LANG === 'pt' ? 'Atividade recente' : 'Actividad reciente')
+    +   (_NOTIF_RECENT && _NOTIF_RECENT.length ? ' <span style="margin-left:auto;background:var(--critical);color:#fff;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9px">' + _NOTIF_RECENT.length + '</span>' : '')
+    + '</button>'
     + (canSwitch
       ? '<button class="ed-user-menu-item" onclick="edUserMenuClose();edToggleDemoDropdown(event)">'
         + paIcon('users', 14) + ' ' + esc(t('Ver app como…'))
@@ -4075,6 +4079,8 @@ function mountEdShell() {
   var head = $('edHead'); if (head) head.innerHTML = renderEdHead('home');
   // Esconder el FAB legacy: el header editorial ya tiene "+ Nueva".
   var fab = $('fabCreate'); if (fab) fab.style.display = 'none';
+  // Lazy: cargar notificaciones (activity sobre tus tareas) y renderear badge.
+  if (typeof edNotifLoad === 'function') setTimeout(edNotifLoad, 400);
   // Auto-launch del tour la primera vez (localStorage flag). 800ms delay
   // para que el render de la vista termine y el user vea el shell antes.
   try {
@@ -6524,6 +6530,125 @@ function edPanelDeleteComment(commentId) {
       .deleteTaskComment(commentId);
   }, { danger: true, confirmLabel: 'Eliminar' });
 }
+// Carga el audit trail real desde el backend (sheet Activity) y reemplaza
+// el timeline sintético en el panel. Si no hay registros, deja el sintético.
+function edPanelLoadActivity(taskId) {
+  if (!taskId) return;
+  google.script.run
+    .withSuccessHandler(function(items) {
+      var host = $('tkActivity'); if (!host) return;
+      if (!items || !items.length) return; // dejar el sintético tal cual
+      var html = '';
+      items.slice(0, 12).forEach(function(it) {
+        var when = _commentRelativeTime(it.ts);
+        var iconName, dot, label;
+        switch (it.action) {
+          case 'create':         iconName = 'plus';    dot = 'info'; label = LANG === 'pt' ? 'criou a tarefa' : 'creó la tarea'; break;
+          case 'comment':        iconName = 'msg';     dot = 'info'; label = LANG === 'pt' ? 'comentou' : 'comentó'; break;
+          case 'close':          iconName = 'check';   dot = 'good'; label = LANG === 'pt' ? 'fechou' : 'cerró'; break;
+          case 'block':          iconName = 'block';   dot = 'warn'; label = LANG === 'pt' ? 'pôs em on hold' : 'puso en on hold'; break;
+          case 'reassign':       iconName = 'users';   dot = 'info'; label = (LANG === 'pt' ? 'reatribuiu a ' : 'reasignó a ') + esc(it.new_value || '—'); break;
+          case 'status_change':  iconName = 'arrowR';  dot = 'info'; label = (LANG === 'pt' ? 'mudou status para ' : 'cambió estado a ') + '<b>' + esc(_statusLabel(it.new_value) || it.new_value) + '</b>'; break;
+          default:               iconName = 'doc';     dot = 'info'; label = (LANG === 'pt' ? 'atualizou ' : 'actualizó ') + esc(it.field || 'campo');
+        }
+        var author = it.author_name ? '<b>' + esc(it.author_name) + '</b> ' : '';
+        html += '<div class="tk-hist-item">'
+             +    '<span class="tk-hist-icon tone-' + dot + '">' + paIcon(iconName, 10) + '</span>'
+             +    '<div style="font-size:13px;color:var(--fg-2)">' + author + label + '</div>'
+             +    '<div class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(when) + '</div>'
+             + '</div>';
+      });
+      host.innerHTML = html;
+    })
+    .withFailureHandler(function(){ /* dejar el sintético */ })
+    .getTaskActivity(taskId);
+}
+
+// ────────────────────────────────────────────────────────────────
+// NOTIFICACIONES IN-APP (badge en avatar + modal de actividad)
+// ────────────────────────────────────────────────────────────────
+// Estrategia: localStorage 'lt-activity-seen-ts' guarda el último ts
+// que el user vio. Al cargar la app, fetch activity desde ese ts. Si
+// hay >0, mostrar badge rojo con count en el avatar header. Click →
+// modal con la lista. Marcar como vistas al cerrar el modal.
+var ACTIVITY_SEEN_KEY = 'lt-activity-seen-ts';
+var _NOTIF_RECENT = [];
+function _activitySeenTs() {
+  try { return localStorage.getItem(ACTIVITY_SEEN_KEY) || ''; }
+  catch(e) { return ''; }
+}
+function _markActivitySeen() {
+  try { localStorage.setItem(ACTIVITY_SEEN_KEY, new Date().toISOString()); } catch(e){}
+}
+function edNotifLoad() {
+  google.script.run
+    .withSuccessHandler(function(items) {
+      _NOTIF_RECENT = items || [];
+      edNotifRenderBadge();
+    })
+    .withFailureHandler(function(){ /* silent */ })
+    .getMyRecentActivity(_activitySeenTs());
+}
+function edNotifRenderBadge() {
+  var btn = document.querySelector('.pa-hd-avatar'); if (!btn) return;
+  var dot = document.getElementById('paAvNotifDot');
+  if (dot) dot.remove();
+  if (!_NOTIF_RECENT.length) return;
+  var d = document.createElement('span');
+  d.id = 'paAvNotifDot';
+  d.className = 'pa-av-notif-dot';
+  d.textContent = _NOTIF_RECENT.length > 9 ? '9+' : String(_NOTIF_RECENT.length);
+  // ubicar relativo al avatar — abs positioning vía CSS
+  btn.style.position = 'relative';
+  btn.appendChild(d);
+}
+function edNotifOpen() {
+  edUserMenuClose();
+  var items = _NOTIF_RECENT || [];
+  var ov = document.createElement('div');
+  ov.className = 'cr-overlay';
+  ov.id = 'edNotifOv';
+  ov.onclick = function(e){ if (e.target === ov) edNotifClose(); };
+  var rows = '';
+  if (!items.length) {
+    rows = '<div style="padding:32px 20px;text-align:center;color:var(--fg-3);font-size:13px">'
+         + esc(LANG === 'pt' ? 'Sem notificações novas.' : 'Sin notificaciones nuevas.')
+         + '</div>';
+  } else {
+    items.forEach(function(it) {
+      var when = _commentRelativeTime(it.ts);
+      var actLabel;
+      switch (it.action) {
+        case 'comment':       actLabel = LANG === 'pt' ? 'comentou em' : 'comentó en'; break;
+        case 'close':         actLabel = LANG === 'pt' ? 'fechou' : 'cerró'; break;
+        case 'block':         actLabel = LANG === 'pt' ? 'pôs em on hold' : 'puso en on hold'; break;
+        case 'reassign':      actLabel = (LANG === 'pt' ? 'reatribuiu a você' : 'te asignó'); break;
+        case 'status_change': actLabel = (LANG === 'pt' ? 'mudou status de' : 'cambió estado de'); break;
+        default:              actLabel = (LANG === 'pt' ? 'atualizou' : 'actualizó');
+      }
+      rows += '<div class="ed-notif-row" onclick="edNotifClose();edGoTaskInTracker(\'' + esc(it.task_id) + '\')">'
+           +    '<div style="font-size:13px;color:var(--fg-1)">'
+           +      '<b>' + esc(it.author_name || '—') + '</b> ' + esc(actLabel) + ' <b>#' + esc(it.task_id) + '</b>'
+           +    '</div>'
+           +    '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">' + esc(when) + '</div>'
+           + '</div>';
+    });
+  }
+  ov.innerHTML = '<div class="cr-modal" style="max-width:520px;max-height:80vh;display:flex;flex-direction:column">'
+              +    '<div class="cr-head"><div><div class="cr-eye">— ' + esc(LANG === 'pt' ? 'Atividade' : 'Actividad') + '</div>'
+              +    '<div class="cr-title">' + esc(LANG === 'pt' ? 'Novidades em suas tarefas' : 'Novedades en tus tareas') + '</div></div>'
+              +    '<button class="cr-x" onclick="edNotifClose()" aria-label="Cerrar">×</button></div>'
+              +    '<div style="flex:1;overflow-y:auto;padding:8px 14px 14px">' + rows + '</div>'
+              + '</div>';
+  document.body.appendChild(ov);
+  _markActivitySeen();
+  // Limpiar count del badge tras 1s (UX: el user lo ve un momento más)
+  setTimeout(function(){ _NOTIF_RECENT = []; edNotifRenderBadge(); }, 1000);
+}
+function edNotifClose() {
+  var ov = document.getElementById('edNotifOv'); if (ov) ov.remove();
+}
+
 function _commentRelativeTime(iso) {
   if (!iso) return '';
   var ms = new Date(iso).getTime();
@@ -6978,6 +7103,12 @@ function rEdTracker(D) {
     var commentTaskId = commentsHost.closest('[data-task-id]');
     if (commentTaskId) edPanelLoadComments(commentTaskId.getAttribute('data-task-id'));
   }
+  // Lazy-load activity log (audit trail real). Reemplaza el timeline sintético.
+  var activityHost = v.querySelector('#tkActivity');
+  if (activityHost) {
+    var actTaskId = activityHost.getAttribute('data-task-id');
+    if (actTaskId) edPanelLoadActivity(actTaskId);
+  }
   // Hover preview: tooltip compacto tras 400ms de hover sobre una fila.
   v.querySelectorAll('.pa-tbl-r[data-task-id]').forEach(_edTkAttachPreview);
   if (EDT.lastViewedId) {
@@ -7096,13 +7227,12 @@ function _renderTkPanel(sel) {
             : '<textarea class="tk-notes" data-task-id="' + esc(sel.id) + '" placeholder="Sin notas…" oninput="edPanelAutosizeNotes(this)" onblur="edPanelSaveNotes(this)" style="width:100%;border:1px solid var(--line-1);background:var(--bg-1);color:var(--fg-1);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>')
        + '</div>';
 
-  // Historial
-  if (tlHtml) {
-    html += '<div class="tk-section">'
-         +    '<div class="tk-section-h">Historial</div>'
-         +    '<div class="tk-history">' + tlHtml + '</div>'
-         + '</div>';
-  }
+  // Historial — el sintético se muestra primero, luego lazy-load reemplaza
+  // con activity log real (audit trail desde sheet Activity).
+  html += '<div class="tk-section">'
+       +    '<div class="tk-section-h">' + esc(LANG === 'pt' ? 'Histórico' : 'Historial') + '</div>'
+       +    '<div class="tk-history" id="tkActivity" data-task-id="' + esc(sel.id) + '">' + tlHtml + '</div>'
+       + '</div>';
   html += '</div>'; // tk-panel-main
 
   // Right rail con tabs funcionales (Comentarios / Documentos)
