@@ -34,7 +34,7 @@
       var h = ensureHost();
       if (!h) return;
       var card = document.createElement('div');
-      card.style.cssText = 'background:#1a1a1d;border:1px solid #d04848;border-left:3px solid #d04848;border-radius:8px;padding:12px 14px;color:#f4f4f5;font-size:13px;line-height:1.45;box-shadow:0 12px 40px rgba(0,0,0,0.4);pointer-events:auto;cursor:pointer;animation:slideIn .2s ease-out;';
+      card.style.cssText = 'background:var(--toast-bg, var(--bg-1));border:1px solid var(--toast-border, var(--critical));border-left:3px solid var(--toast-border, var(--critical));border-radius:8px;padding:12px 14px;color:var(--toast-fg, var(--fg-1));font-size:13px;line-height:1.45;box-shadow:0 12px 40px rgba(0,0,0,0.4);pointer-events:auto;cursor:pointer;animation:slideIn .2s ease-out;';
       card.innerHTML = ''
         + '<div style="display:flex;align-items:start;gap:8px;">'
         +   '<span style="color:#e26a6a;font-weight:600;flex-shrink:0;">' + label + '</span>'
@@ -4945,7 +4945,7 @@ function rEdHomeSpecialist(D) {
        +      '<div class="delta">' + esc(t('en cola')) + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (blocked ? 'is-critical' : '') + '" onclick="goEd(\'mistareas\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--fg-3)"></span> ' + esc(t('On hold')) + '</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> ' + esc(t('On hold')) + '</div>'
        +      '<div class="val">' + blocked + '</div>'
        +      '<div class="delta">' + esc(blocked ? t('Necesitan empuje') : '—') + '</div>'
        +    '</div>'
@@ -4991,7 +4991,7 @@ function rEdHomeSpecialist(D) {
          +    '<div class="pa-next-task-head">'
          +      paConfDot(npConf)
          +      '<span class="mono" style="font-size:12px;color:var(--fg-3)">#' + esc(nextTask.id) + '</span>'
-         +      '<span style="font-size:11px;color:var(--fg-3)">' + esc(npMeta) + '</span>'
+         +      '<span class="pa-meta-sm">' + esc(npMeta) + '</span>'
          +      '<span style="margin-left:auto">' + paPriorityPill(nextTask.priority) + paStatusPill(nextTask.status) + '</span>'
          +    '</div>'
          +    '<div class="pa-next-task-title">' + esc(nextTask.nombre || '') + '</div>'
@@ -5040,11 +5040,11 @@ function rEdHomeSpecialist(D) {
        +    '</div>'
        +    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">'
        +      '<div>'
-       +        '<div style="font-size:11px;color:var(--fg-3)">' + esc(t('Racha en tiempo')) + '</div>'
+       +        '<div class="pa-meta-sm">' + esc(t('Racha en tiempo')) + '</div>'
        +        '<div class="mono" style="font-size:26px;font-weight:600;letter-spacing:-0.02em">' + (streak ? '🔥 ' + streak : '—') + ' <span style="font-size:12px;color:var(--fg-3);font-weight:400">' + esc(t('tareas')) + '</span></div>'
        +      '</div>'
        +      '<div>'
-       +        '<div style="font-size:11px;color:var(--fg-3)">' + esc(t('Cerradas este mes')) + '</div>'
+       +        '<div class="pa-meta-sm">' + esc(t('Cerradas este mes')) + '</div>'
        +        '<div class="mono" style="font-size:26px;font-weight:600;letter-spacing:-0.02em">' + closedThisMonth + '</div>'
        +      '</div>'
        +    '</div>';
@@ -5091,9 +5091,9 @@ function rEdHomeSpecialist(D) {
            +        (p.pais ? ' <span class="pa-pill pa-pill-country">' + esc(p.pais) + '</span>' : '') + '</div>'
            +      '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">' + esc(t('Líder')) + ': ' + esc(p.lider || '—') + ' · ' + openP + ' ' + esc(LANG === 'pt' ? 'ativas de ' : 'activas de ') + totalP + '</div>'
            +    '</div>'
-           +    '<div style="display:flex;align-items:center;gap:8px">'
+           +    '<div class="pa-flex-center">'
            +      '<div style="width:70px;height:4px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + pct + '%;background:' + color + '"></span></div>'
-           +      '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + pct + '%</span>'
+           +      '<span class="pa-mono-sm">' + pct + '%</span>'
            +    '</div>'
            + '</div>';
     });
@@ -5203,7 +5203,7 @@ function rEdHomeManager(D) {
   if (att.length === 0) {
     html += paEmpty('check', t('Tu equipo está al día.'), t('Nada vencido, bloqueado, ni de prioridad alta sin avance.'));
   } else {
-    html += '<div class="pa-tbl">';
+    html += '<div class="pa-tbl-wrap"><div class="pa-tbl">';
     att.forEach(function(t) {
       var pn = _projNameForTask(t);
       var conf = _confLevel(t);
@@ -5218,7 +5218,7 @@ function rEdHomeManager(D) {
            +    '<span class="eta mono' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(t.eta || paEtaText(t.etaDays)) + '</span>'
            + '</div>';
     });
-    html += '</div>';
+    html += '</div></div>';
   }
 
   // Team at a glance — solo los 3 que más necesitan atención (sobrecarga,
@@ -5244,7 +5244,7 @@ function rEdHomeManager(D) {
   } else if (teamAtRisk.length === 0) {
     html += paEmpty('check', t('Equipo bajo control.'), t('Sin sobrecargas, vencidas ni tareas en on hold.'));
   } else {
-    html += '<div class="pa-tbl">'
+    html += '<div class="pa-tbl-wrap"><div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px">'
          +      '<div>' + esc(t('Specialist')) + '</div><div>' + esc(t('Carga')) + '</div><div>' + esc(t('Vencidas')) + '</div><div>' + esc(t('On hold')) + '</div><div>' + esc(t('SLA mes')) + '</div><div></div>'
          +    '</div>';
@@ -5257,11 +5257,11 @@ function rEdHomeManager(D) {
       var slaM = m.slaPct;
       var slaColorM = slaM == null ? 'var(--fg-3)' : (slaM >= 90 ? 'var(--good-fg)' : (slaM < 85 ? 'var(--warn-fg)' : 'var(--fg-2)'));
       html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px;height:46px">'
-           +    '<div style="display:flex;align-items:center;gap:8px">' + paAvatar(m.name || '?', 22)
+           +    '<div class="pa-flex-center">' + paAvatar(m.name || '?', 22)
            +      '<div><div style="font-size:13px;font-weight:500">' + esc(m.name || '') + '</div>'
-           +      '<div style="font-size:11px;color:var(--fg-3)">' + esc(m.role || 'Specialist') + '</div></div>'
+           +      '<div class="pa-meta-sm">' + esc(m.role || 'Specialist') + '</div></div>'
            +    '</div>'
-           +    '<div style="display:flex;align-items:center;gap:8px">'
+           +    '<div class="pa-flex-center">'
            +      '<span style="flex:1;height:6px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + Math.min(pct, 100) + '%;background:' + loadColor + '"></span></span>'
            +      '<span class="mono" style="font-size:11px;color:' + loadFg + ';min-width:50px;text-align:right">' + (m.load || 0) + '/' + (m.capacity || 0) + '</span>'
            +    '</div>'
@@ -5271,7 +5271,7 @@ function rEdHomeManager(D) {
            +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="edSetRespFilter(\'' + esc(m.name || '') + '\');goEd(\'tracker\')">' + esc(t('Ver tareas →')) + '</button></div>'
            + '</div>';
     });
-    html += '</div>';
+    html += '</div></div>';
   }
 
   html += '</div>'; // pa-page
@@ -5400,7 +5400,7 @@ function rEdHomeHQ(D) {
   if (countries.length === 0) {
     html += paEmpty('globe', t('No hay datos de países disponibles.'), t('Verificá que la hoja Equipos tenga al menos un país configurado.'));
   } else {
-    html += '<div class="pa-tbl">'
+    html += '<div class="pa-tbl-wrap"><div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px">'
          +      '<div>' + esc(t('País')) + '</div><div>' + esc(t('Manager · equipo')) + '</div><div>' + esc(t('Activas')) + '</div><div>' + esc(t('Vencidas')) + '</div><div>' + esc(t('SLA mes')) + '</div><div>' + esc(t('Tendencia 12s')) + '</div>'
          +    '</div>';
@@ -5427,7 +5427,7 @@ function rEdHomeHQ(D) {
            +    '</div>'
            +    '<div>'
            +      '<div style="font-size:13px;color:' + (c.leader ? 'var(--fg-1)' : 'var(--fg-3)') + '">' + esc(c.leader || t('Pendiente onboarding')) + '</div>'
-           +      '<div style="font-size:11px;color:var(--fg-3)">' + (c.specialists || 0) + ' specialists</div>'
+           +      '<div class="pa-meta-sm">' + (c.specialists || 0) + ' specialists</div>'
            +    '</div>'
            +    '<div class="mono" style="font-size:13px">' + (c.open || 0) + '</div>'
            +    '<div class="mono" style="font-size:13px;color:' + ovColor + '">' + (c.overdue || 0) + '</div>'
@@ -5435,7 +5435,7 @@ function rEdHomeHQ(D) {
            +    '<div>' + (hasTrend ? paSparkline(trend, 110, 28, sparkTone) : '<span style="font-size:11px;color:var(--fg-4)">—</span>') + '</div>'
            + '</div>';
     });
-    html += '</div>';
+    html += '</div></div>';
   }
 
   // Sección "Equipo Global" antes vivía aparte. Ahora HQ es un equipo más
@@ -5460,7 +5460,7 @@ function rEdHomeHQ(D) {
          +    '<span class="meta">' + esc(t('ordenados por % de vencidas')) + '</span>'
          +    '<button class="link" onclick="goEd(\'proyectos\')">' + esc(t('Ver todos los proyectos →')) + '</button>'
          + '</div>';
-    html += '<div class="pa-tbl">';
+    html += '<div class="pa-tbl-wrap"><div class="pa-tbl">';
     riskyHq.forEach(function(x) {
       var rPais = x.p.pais || '—';
       var rPctTxt = x.total > 0 ? Math.round(x.pct * 100) + '%' : '—';
@@ -5475,7 +5475,7 @@ function rEdHomeHQ(D) {
            +    '<span class="pa-pill ' + rTone + '"><span class="dot"></span>' + esc(rPctTxt) + '</span>'
            + '</div>';
     });
-    html += '</div>';
+    html += '</div></div>';
   }
 
   // Activity feed
@@ -5494,7 +5494,7 @@ function rEdHomeHQ(D) {
            +      '<b style="color:var(--fg-1);font-weight:500">' + esc(h.resp || '—') + '</b> ' + esc(t('cerró')) + ' '
            +      '<span style="color:var(--fg-1)">#' + esc(h.id || '') + ' ' + esc((h.nombre || '').substring(0, 60)) + '</span>'
            +    '</div>'
-           +    '<div style="font-size:11px;color:var(--fg-3)">' + esc(h.cerrado || '') + '</div>'
+           +    '<div class="pa-meta-sm">' + esc(h.cerrado || '') + '</div>'
            + '</div>';
     });
     html += '</div>';
@@ -5823,7 +5823,7 @@ function _edBulkCloseRender() {
   }
   var sampleHtml = sample.map(function(tk) {
     return '<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:3px 0">'
-         +   '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(tk.id) + '</span>'
+         +   '<span class="pa-mono-sm">' + esc(tk.id) + '</span>'
          +   '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(tk.nombre || '') + '</span>'
          +   '<span style="font-size:11px;color:var(--fg-3);display:flex;align-items:center;gap:4px">' + paAvatar(tk.resp || '?', 14) + ' ' + esc((tk.resp || '').split(' ')[0]) + '</span>'
          + '</div>';
@@ -5853,7 +5853,7 @@ function _edBulkCloseRender() {
     +       '</div>'
     +       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">'
     +         '<label for="bulkCloseResumen" style="font-size:12px;color:var(--fg-2);font-weight:500">' + esc(t('Resumen de cierre')) + ' <span class="req">*</span></label>'
-    +         '<span style="font-size:11px;color:var(--fg-3)">' + esc(t('Se aplica a las')) + ' ' + n + '</span>'
+    +         '<span class="pa-meta-sm">' + esc(t('Se aplica a las')) + ' ' + n + '</span>'
     +       '</div>'
     +       '<textarea id="bulkCloseResumen" class="cr-input" rows="4" style="resize:vertical;min-height:90px" placeholder="' + esc(t('Resumen rápido de cómo se cerraron (lo verán en el historial).')) + '"></textarea>'
     +     '</div>'
@@ -6001,7 +6001,7 @@ function edTkBulkReasignOpen(ids) {
       + 'margin-bottom:6px">'
       + paAvatar(m.name, 28, m.country)
       + '<div style="min-width:0">'
-      +   '<div style="display:flex;align-items:center;gap:8px">'
+      +   '<div class="pa-flex-center">'
       +     '<span style="font-size:13px;font-weight:500;color:var(--fg-1)">' + esc(m.name) + '</span>'
       +     (isSug && !_EDT_BULK_REASSIGN_SELECTED ? '<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;background:var(--accent);color:var(--accent-fg);text-transform:uppercase;letter-spacing:0.04em">' + esc(t('Sugerido')) + '</span>' : '')
       +     (over ? '<span class="pa-pill pa-pill-state-bloqueado" style="height:16px;font-size:10px"><span class="dot"></span> ' + esc(t('Sobre capacidad')) + '</span>' : '')
@@ -6024,7 +6024,7 @@ function edTkBulkReasignOpen(ids) {
 
   var sampleHtml = sampleTasks.map(function(tk) {
     return '<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:2px 0">'
-         +   '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(tk.id) + '</span>'
+         +   '<span class="pa-mono-sm">' + esc(tk.id) + '</span>'
          +   '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(tk.nombre || '') + '</span>'
          +   '<span style="font-size:11px;color:var(--fg-3);display:flex;align-items:center;gap:4px">' + esc(t('de')) + ' ' + paAvatar(tk.resp || '?', 14) + ' ' + esc((tk.resp || '').split(' ')[0]) + '</span>'
          + '</div>';
@@ -6056,7 +6056,7 @@ function edTkBulkReasignOpen(ids) {
     +       '</div>' : '')
     +       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">'
     +         '<label style="font-size:12px;color:var(--fg-2);font-weight:500">' + esc(t('Nuevo responsable')) + ' <span class="req">*</span></label>'
-    +         '<span style="font-size:11px;color:var(--fg-3)">' + scopeLbl + '</span>'
+    +         '<span class="pa-meta-sm">' + scopeLbl + '</span>'
     +       '</div>'
     +       '<div style="max-height:260px;overflow-y:auto">' + memberList + '</div>'
     +     '</div>'
@@ -6261,7 +6261,7 @@ function _edReasignarRender() {
       + 'margin-bottom:6px">'
       + paAvatar(m.name, 28, m.country)
       + '<div style="min-width:0">'
-      +   '<div style="display:flex;align-items:center;gap:8px">'
+      +   '<div class="pa-flex-center">'
       +     '<span style="font-size:13px;font-weight:500;color:var(--fg-1)">' + esc(m.name) + '</span>'
       +     (isSug ? '<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:999px;background:var(--accent);color:var(--accent-fg);text-transform:uppercase;letter-spacing:0.04em">' + esc(t('Sugerido')) + '</span>' : '')
       +     (over ? '<span class="pa-pill pa-pill-state-bloqueado" style="height:16px;font-size:10px"><span class="dot"></span> ' + esc(t('Sobre capacidad')) + '</span>' : '')
@@ -6306,14 +6306,14 @@ function _edReasignarRender() {
     +       '<div style="padding:10px 12px;background:var(--bg-2);border-radius:6px;margin-bottom:14px">'
     +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">' + esc(t('Vas a reasignar')) + '</div>'
     +         '<div style="display:flex;align-items:center;gap:8px;font-size:13px">'
-    +           '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(task.id) + '</span>'
+    +           '<span class="pa-mono-sm">' + esc(task.id) + '</span>'
     +           '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg-1)">' + esc(task.nombre || '') + '</span>'
     +           '<span style="font-size:11px;color:var(--fg-3);display:flex;align-items:center;gap:4px">' + esc(t('de')) + ' ' + paAvatar(currentResp || '?', 14) + ' ' + esc(currentResp || '—') + '</span>'
     +         '</div>'
     +       '</div>'
     +       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">'
     +         '<label style="font-size:12px;color:var(--fg-2);font-weight:500">' + esc(t('Nuevo responsable')) + ' <span class="req">*</span></label>'
-    +         '<span style="font-size:11px;color:var(--fg-3)">' + scopeMsg + '</span>'
+    +         '<span class="pa-meta-sm">' + scopeMsg + '</span>'
     +       '</div>'
     +       '<div style="max-height:280px;overflow-y:auto">' + memberList + '</div>'
     +     '</div>'
@@ -6930,7 +6930,7 @@ function edPanelLoadActivity(taskId) {
         html += '<div class="tk-hist-item">'
              +    '<span class="tk-hist-icon tone-' + dot + '">' + paIcon(iconName, 10) + '</span>'
              +    '<div style="font-size:13px;color:var(--fg-2)">' + author + label + '</div>'
-             +    '<div class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(when) + '</div>'
+             +    '<div class="pa-mono-sm">' + esc(when) + '</div>'
              + '</div>';
       });
       host.innerHTML = html;
@@ -7530,7 +7530,7 @@ function _renderTkPanel(sel) {
     tlHtml += '<div class="tk-hist-item">'
            +    '<span class="tk-hist-icon tone-' + (it.dot || 'info') + '">' + paIcon(iconName, 10) + '</span>'
            +    '<div style="font-size:13px;color:var(--fg-2)">' + it.what + '</div>'
-           +    '<div class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(it.when) + '</div>'
+           +    '<div class="pa-mono-sm">' + esc(it.when) + '</div>'
            + '</div>';
   });
   var selCfLvl = _confLevel(sel);
@@ -7638,12 +7638,12 @@ function _renderTkPanel(sel) {
         ? '<a href="' + esc(safeUrl) + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">' + esc(d.name || 'Documento') + '</a>'
         : esc(d.name || 'Documento');
       var canRemove = sel.status !== 'Listo';
-      html += '<div class="tk-doc" style="display:flex;align-items:center;gap:8px">'
+      html += '<div class="tk-doc pa-flex-center">'
            +    paConfDot(d.conf || 'estandar')
            +    paIcon('doc', 14, '', 'color:var(--fg-3)')
            +    '<div style="flex:1;min-width:0">'
            +      '<div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:var(--fg-1)">' + nameHtml + '</div>'
-           +      '<div class="meta" style="font-size:11px;color:var(--fg-3)">' + esc(d.uploadedBy || 'Enlace externo') + '</div>'
+           +      '<div class="meta pa-meta-sm">' + esc(d.uploadedBy || 'Enlace externo') + '</div>'
            +    '</div>'
            +    (safeUrl
                 ? '<a href="' + esc(safeUrl) + '" target="_blank" rel="noopener" style="display:grid;place-items:center;width:22px;height:22px;border-radius:4px;color:var(--fg-3);text-decoration:none" title="Abrir">' + paIcon('arrowUR', 11) + '</a>'
@@ -9178,9 +9178,9 @@ function rEdProyectosIndex(D) {
            +    '</div>'
            +    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
            +      '<span style="flex:1;height:4px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + pct + '%;background:' + color + '"></span></span>'
-           +      '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + done + '/' + total + '</span>'
+           +      '<span class="pa-mono-sm">' + done + '/' + total + '</span>'
            +    '</div>'
-           +    '<div style="font-size:11px;color:var(--fg-3)">' + open + ' tareas activas' + (p.deadline ? ' · vence ' + esc(p.deadline) : '') + '</div>'
+           +    '<div class="pa-meta-sm">' + open + ' tareas activas' + (p.deadline ? ' · vence ' + esc(p.deadline) : '') + '</div>'
            + '</div>';
     });
     html += '</div>';
@@ -9265,18 +9265,18 @@ function rEdMisTareas(D) {
     html += '<div class="pa-section-h"><h3>Tu mes hasta ahora</h3><span class="meta">cierre promedio · racha on-time</span></div>'
          +  '<div class="pa-card">'
          +    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px">'
-         +      '<div><div style="font-size:11px;color:var(--fg-3)">🔥 Racha en tiempo</div>'
+         +      '<div><div class="pa-meta-sm">🔥 Racha en tiempo</div>'
          +        '<div class="mono" style="font-size:24px;font-weight:600;color:var(--good-fg);margin-top:4px">' + (streak || '—') + '</div>'
-         +        '<div style="font-size:11px;color:var(--fg-3)">tareas seguidas</div></div>'
-         +      '<div><div style="font-size:11px;color:var(--fg-3)">Prioridad alta</div>'
+         +        '<div class="pa-meta-sm">tareas seguidas</div></div>'
+         +      '<div><div class="pa-meta-sm">Prioridad alta</div>'
          +        '<div class="mono" style="font-size:24px;font-weight:600;margin-top:4px">' + esc(me.avgAlta || '—') + '</div>'
-         +        '<div style="font-size:11px;color:var(--fg-3)">cierre · SLA 2d</div></div>'
-         +      '<div><div style="font-size:11px;color:var(--fg-3)">Media</div>'
+         +        '<div class="pa-meta-sm">cierre · SLA 2d</div></div>'
+         +      '<div><div class="pa-meta-sm">Media</div>'
          +        '<div class="mono" style="font-size:24px;font-weight:600;margin-top:4px">' + esc(me.avgMedia || '—') + '</div>'
-         +        '<div style="font-size:11px;color:var(--fg-3)">cierre · SLA 5d</div></div>'
-         +      '<div><div style="font-size:11px;color:var(--fg-3)">Baja</div>'
+         +        '<div class="pa-meta-sm">cierre · SLA 5d</div></div>'
+         +      '<div><div class="pa-meta-sm">Baja</div>'
          +        '<div class="mono" style="font-size:24px;font-weight:600;margin-top:4px">' + esc(me.avgBaja || '—') + '</div>'
-         +        '<div style="font-size:11px;color:var(--fg-3)">cierre · SLA 7d</div></div>'
+         +        '<div class="pa-meta-sm">cierre · SLA 7d</div></div>'
          +    '</div>'
          +  '</div>';
   }
@@ -9510,7 +9510,7 @@ function rEdHistorial(D) {
            +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + '</span></div>'
            +    (showResp ? '<span class="resp">' + paAvatar(t.resp || '?', 18) + '<span style="font-size:12px">' + esc(t.resp || '—') + '</span></span>' : '')
            +    paPriorityPill(t.priority)
-           +    '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(t.cerrado || '—') + '</span>'
+           +    '<span class="pa-mono-sm">' + esc(t.cerrado || '—') + '</span>'
            +    '<span class="mono" style="font-size:11px;color:' + slaColor + '">' + esc(slaTxt) + '</span>'
            + '</div>';
     });
@@ -9665,9 +9665,9 @@ function rEdMiequipo(D) {
     return '<div class="pa-tbl-r" style="grid-template-columns: 1fr 220px 80px 90px 80px 100px;height:48px" data-act="miq-open-person" data-arg="' + esc(m.name || '') + '">'
          +   '<div style="display:flex;align-items:center;gap:10px">' + paAvatar(m.name || '?', 22)
          +     '<div><div style="font-size:13px;font-weight:500">' + esc(m.name || '') + '</div>'
-         +     '<div style="font-size:11px;color:var(--fg-3)">' + esc(m.role || 'Specialist') + (m.country ? ' · ' + esc(m.country) : '') + '</div></div>'
+         +     '<div class="pa-meta-sm">' + esc(m.role || 'Specialist') + (m.country ? ' · ' + esc(m.country) : '') + '</div></div>'
          +   '</div>'
-         +   '<div style="display:flex;align-items:center;gap:8px">'
+         +   '<div class="pa-flex-center">'
          +     '<span style="flex:1;height:6px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + Math.min(pct, 100) + '%;background:' + loadColor + '"></span></span>'
          +     '<span class="mono" style="font-size:11px;color:' + loadFg + ';min-width:50px;text-align:right">' + (m.load || 0) + '/' + (m.capacity || 0) + '</span>'
          +   '</div>'
@@ -10451,7 +10451,7 @@ function rEdResumen(D) {
            +      '<span style="width:28px;height:20px;border-radius:4px;background:var(--bg-2);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:var(--fg-1);font-weight:600">' + esc(c.code || '') + '</span>'
            +      '<span style="font-size:13px;font-weight:500">' + esc(c.name || '') + '</span>'
            +    '</div>'
-           +    '<div style="display:flex;align-items:center;gap:8px">' + paAvatar(c.leader || '?', 22)
+           +    '<div class="pa-flex-center">' + paAvatar(c.leader || '?', 22)
            +      '<span style="font-size:13px">' + esc(c.leader || '—') + '</span></div>'
            +    '<div class="mono" style="font-size:13px">' + (c.open || 0) + '</div>'
            +    '<div class="mono" style="font-size:13px;color:' + ovColor + '">' + (c.overdue || 0) + '</div>'
@@ -11218,7 +11218,7 @@ function _rEdPlantillasLegacyMock(D) {
          +      '<span class="pa-pill pa-pill-country">' + esc(t.country) + '</span>'
          +    '</div>'
          +    '<div style="font-size:13px;font-weight:600;line-height:1.35;margin-bottom:4px">' + esc(t.name) + '</div>'
-         +    '<div style="font-size:11px;color:var(--fg-3)">'
+         +    '<div class="pa-meta-sm">'
          +      '<span class="mono">' + t.usage30d + '</span> usos · ' + esc(t.last)
          +    '</div>'
          +    '<button class="pa-btn pa-btn-icon" style="position:absolute;top:8px;right:8px;width:22px;height:22px" onclick="event.stopPropagation();edPltCreateFromTemplate(\'' + esc(t.id) + '\')" title="Usar plantilla">'
@@ -11264,7 +11264,7 @@ function _rEdPlantillasLegacyMock(D) {
          +    '<span style="display:flex;align-items:center;gap:6px">' + paAvatar(t.maintainer, 18) + '<span style="font-size:12px">' + esc(t.maintainer.split(' ')[0]) + '</span></span>'
          +    '<span>' + _paApprovalPill(t.approved) + '</span>'
          +    '<span class="mono" style="font-size:12px;color:var(--fg-2)">' + t.usage30d + '</span>'
-         +    '<span style="font-size:11px;color:var(--fg-3)">' + esc(t.last) + '</span>'
+         +    '<span class="pa-meta-sm">' + esc(t.last) + '</span>'
          + '</div>';
   });
   html += '</div>';
@@ -11319,7 +11319,7 @@ function _rEdPlantillasLegacyMock(D) {
          +    '<div style="font-size:10px;color:var(--fg-3);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Maintainer</div>'
          +    '<div style="display:flex;align-items:center;gap:10px">' + paAvatar(sel.maintainer, 28)
          +      '<div><div style="font-size:13px;font-weight:500">' + esc(sel.maintainer) + '</div>'
-         +      '<div style="font-size:11px;color:var(--fg-3)">Aprobada · próxima revisión jul 2026</div></div>'
+         +      '<div class="pa-meta-sm">Aprobada · próxima revisión jul 2026</div></div>'
          +    '</div>'
          + '</div>';
     // Actions
