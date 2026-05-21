@@ -3125,7 +3125,8 @@ var T_PT = {
   'Activas': 'Ativas',
   'Vencidas': 'Vencidas',
   'Vencen hoy': 'Vencem hoje',
-  'Bloqueadas': 'Bloqueadas',
+  'On hold': 'On hold',
+  'Bloqueadas': 'On hold',
   'Prioridad alta': 'Prioridade alta',
   'Asignadas a mí': 'Atribuídas a mim',
   'Buscar en tracker…': 'Buscar no tracker…',
@@ -3150,7 +3151,9 @@ var T_PT = {
   'seleccionada': 'selecionada',
   'seleccionadas': 'selecionadas',
   'Avanzar': 'Avançar',
-  'Bloquear': 'Bloquear',
+  'Bloquear': 'Pôr em on hold',
+  'Poner on hold': 'Pôr em on hold',
+  'En on hold': 'Em on hold',
   'Reasignar': 'Reatribuir',
   'Cancelar': 'Cancelar',
   // Panel detalle
@@ -3521,7 +3524,7 @@ function _roleLabel(role) {
   return 'Specialist';
 }
 function _roleSubtitle(role, code) {
-  if (role === 'manager') return 'Country Lead' + (code ? ' · ' + code : '');
+  if (role === 'manager') return 'Manager' + (code ? ' · ' + code : '');
   if (role === 'head') return 'Global Legal Head';
   return 'Legal Ops';
 }
@@ -3534,11 +3537,15 @@ function _statusClass(s) {
 // Display layer de status/prioridad. El sheet guarda los valores en
 // español y la UI también muestra en español; mantenemos la función
 // como punto único por si cambia la nomenclatura.
+// _STATUS_LABELS: display layer entre el enum del sheet (sigue siendo
+// 'Bloqueado' por compat de data existente) y el label que ve el user.
+// El user reportó que "Bloqueado" suena a problema; "On hold" comunica
+// mejor "pausa estratégica esperando algo externo".
 var _STATUS_LABELS = {
   'Pendiente':   'Pendiente',
   'En curso':    'En curso',
   'En revisión': 'En revisión',
-  'Bloqueado':   'Bloqueado',
+  'Bloqueado':   'On hold',
   'Listo':       'Listo',
   'Cancelado':   'Cancelado'
 };
@@ -4703,47 +4710,69 @@ function rEdHomeSpecialist(D) {
        +      '<div class="delta">en cola</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (blocked ? 'is-critical' : '') + '" onclick="goEd(\'mistareas\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--fg-3)"></span> Bloqueadas</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--fg-3)"></span> On hold</div>'
        +      '<div class="val">' + blocked + '</div>'
        +      '<div class="delta">' + (blocked ? 'Necesitan empuje' : '—') + '</div>'
        +    '</div>'
        + '</div>';
 
-  // Agenda · top 4
-  html += '<div class="pa-section-h">'
-       +    '<h3>En tu agenda</h3>'
-       +    '<span class="meta">Top ' + top.length + ' por urgencia</span>'
-       +    '<button class="link" onclick="goEd(\'mistareas\')">Ver todas (' + tasks.length + ') →</button>'
-       + '</div>';
-  if (top.length === 0) {
-    html += paEmpty('inbox', 'No tenés tareas activas en tu agenda.', 'Aprovechá para trabajo de proyecto o cerrar pendientes viejos.');
+  // Tu próxima tarea — 1 sola card grande con la más crítica. Antes era una
+  // tabla de "Top 4" pero se parecía a Por urgencia (que ya tiene 4 buckets
+  // detallados). Diferenciar: Inicio = la UNA cosa más importante hoy,
+  // Por urgencia = TODAS las pendientes agrupadas por bucket.
+  var nextTask = top[0];
+  if (!nextTask) {
+    html += '<div class="pa-section-h">'
+         +    '<h3>' + esc(LANG === 'pt' ? 'Tudo no controle' : 'Todo bajo control') + '</h3>'
+         + '</div>';
+    html += paEmpty('check', LANG === 'pt' ? 'Sem tarefas ativas em sua agenda.' : 'No tenés tareas activas en tu agenda.',
+                    LANG === 'pt' ? 'Aproveite para trabalho de projeto ou ver suas fechadas.' : 'Aprovechá para trabajo de proyecto o ver tus cerradas.');
     html += '<div style="margin-top:8px;text-align:center;display:flex;gap:8px;justify-content:center">'
-         +    '<button class="pa-btn pa-btn-outline" onclick="goEd(\'historial\')">' + paIcon('refresh', 12) + ' Ver mis cerradas</button>'
-         +    '<button class="pa-btn pa-btn-outline" onclick="goEd(\'proyectos\')">' + paIcon('folder', 12) + ' Ver proyectos</button>'
+         +    '<button class="pa-btn pa-btn-outline" onclick="goEd(\'historial\')">' + paIcon('refresh', 12) + ' ' + esc(t('Ver mis cerradas')) + '</button>'
+         +    '<button class="pa-btn pa-btn-outline" onclick="goEd(\'proyectos\')">' + paIcon('folder', 12) + ' ' + esc(t('Ver proyectos')) + '</button>'
          + '</div>';
   } else {
-    html += '<div class="pa-tbl">'
-         +    '<div class="pa-tbl-h" style="grid-template-columns: 20px 64px 1fr 100px 110px 90px">'
-         +      '<div title="Confidencialidad"></div><div>ID</div><div>Tarea</div><div>Prioridad</div><div>Estado</div><div>ETA</div>'
-         +    '</div>';
-    for (var i = 0; i < top.length; i++) {
-      var t = top[i];
-      var pn = _projNameForTask(t);
-      var conf = _confLevel(t);
-      var meta = (t.tipoTrabajo || 'Tarea') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
-      html += '<div class="pa-tbl-r" style="grid-template-columns: 20px 64px 1fr 100px 110px 90px;" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
-           +    paConfDot(conf)
-           +    '<span class="id mono">' + esc(t.id) + '</span>'
-           +    '<div class="title">'
-           +      '<span class="t">' + esc(t.nombre || '') + '</span>'
-           +      '<span class="meta">' + esc(meta) + '</span>'
-           +    '</div>'
-           +    paPriorityPill(t.priority)
-           +    paStatusPill(t.status)
-           +    '<span class="eta mono' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(t.eta || paEtaText(t.etaDays)) + '</span>'
+    var npPn = _projNameForTask(nextTask);
+    var npConf = _confLevel(nextTask);
+    var npMeta = (nextTask.tipoTrabajo || 'Tarea') + ' · ' + (nextTask.pais || '—') + (npPn && npPn !== 'Sin proyecto' ? ' · ' + npPn : '');
+    var npEta = nextTask.eta || paEtaText(nextTask.etaDays);
+    var npHeadline;
+    if (nextTask.status === 'Bloqueado') {
+      npHeadline = LANG === 'pt' ? 'Em on hold · precisa de desbloqueio' : 'En on hold · necesita desbloqueo';
+    } else if (typeof nextTask.etaDays === 'number' && nextTask.etaDays < 0) {
+      npHeadline = (LANG === 'pt' ? 'Vencida há ' : 'Vencida hace ') + Math.abs(nextTask.etaDays) + 'd · ' + (LANG === 'pt' ? 'primeira prioridade' : 'primera prioridad');
+    } else if (nextTask.etaDays === 0) {
+      npHeadline = LANG === 'pt' ? 'Vence hoje · feche antes do final do dia' : 'Vence hoy · cerrá antes de fin de día';
+    } else if (nextTask.etaDays === 1) {
+      npHeadline = LANG === 'pt' ? 'Vence amanhã' : 'Vence mañana';
+    } else {
+      npHeadline = (LANG === 'pt' ? 'Em ' : 'En ') + nextTask.etaDays + 'd · ' + (LANG === 'pt' ? 'sua próxima' : 'tu próxima');
+    }
+    html += '<div class="pa-section-h">'
+         +    '<h3>' + esc(LANG === 'pt' ? 'O que precisa de mais atenção' : 'Lo que más necesita atención') + '</h3>'
+         +    '<button class="link" onclick="goEd(\'agrupadas\')">' + esc(LANG === 'pt' ? 'Ver tudo por urgência →' : 'Ver todo por urgencia →') + '</button>'
+         + '</div>';
+    html += '<div class="pa-next-task" onclick="edGoTaskInTracker(\'' + esc(nextTask.id) + '\')">'
+         +    '<div class="pa-next-task-head">'
+         +      paConfDot(npConf)
+         +      '<span class="mono" style="font-size:12px;color:var(--fg-3)">#' + esc(nextTask.id) + '</span>'
+         +      '<span style="font-size:11px;color:var(--fg-3)">' + esc(npMeta) + '</span>'
+         +      '<span style="margin-left:auto">' + paPriorityPill(nextTask.priority) + paStatusPill(nextTask.status) + '</span>'
+         +    '</div>'
+         +    '<div class="pa-next-task-title">' + esc(nextTask.nombre || '') + '</div>'
+         +    '<div class="pa-next-task-meta">'
+         +      '<span class="pa-next-task-headline">' + paIcon(nextTask.status === 'Bloqueado' ? 'block' : (nextTask.etaDays != null && nextTask.etaDays < 0 ? 'alert' : 'calendar'), 14) + ' ' + esc(npHeadline) + '</span>'
+         +      '<span style="margin-left:auto;display:flex;gap:8px;align-items:center">'
+         +        '<span class="pa-next-task-eta mono' + (nextTask.etaDays != null && nextTask.etaDays < 0 ? ' overdue' : '') + '">' + esc(npEta) + '</span>'
+         +        '<button class="pa-btn pa-btn-primary" onclick="event.stopPropagation();edGoTaskInTracker(\'' + esc(nextTask.id) + '\')">' + esc(LANG === 'pt' ? 'Trabalhar nesta tarefa →' : 'Trabajar en esta tarea →') + '</button>'
+         +      '</span>'
+         +    '</div>'
+         + '</div>';
+    if (tasks.length > 1) {
+      html += '<div style="margin-top:8px;text-align:right">'
+           +    '<button class="pa-btn pa-btn-ghost" style="font-size:12px" onclick="goEd(\'agrupadas\')">' + (tasks.length - 1) + ' ' + esc(LANG === 'pt' ? 'mais pendentes →' : 'pendientes más →') + '</button>'
            + '</div>';
     }
-    html += '</div>';
   }
 
   // Grid 2 cols: month + projects
@@ -4968,7 +4997,7 @@ function rEdHomeManager(D) {
   } else {
     html += '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px">'
-         +      '<div>Specialist</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div>SLA mes</div><div></div>'
+         +      '<div>Specialist</div><div>Carga</div><div>Vencidas</div><div>On hold</div><div>SLA mes</div><div></div>'
          +    '</div>';
     teamMine.forEach(function(m) {
       var pct = (m.capacity > 0) ? Math.round((m.load || 0) / m.capacity * 100) : 0;
@@ -5144,7 +5173,7 @@ function rEdHomeHQ(D) {
       html += '<div class="pa-tbl-r" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px;height:52px' + rowOpacity + '" onclick="edSetCountryFilter(\'' + esc(c.code) + '\');goEd(\'tracker\')">'
            +    '<div style="display:flex;align-items:center;gap:10px">'
            +      '<span style="width:28px;height:20px;border-radius:4px;background:var(--bg-2);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:' + (hasData ? 'var(--fg-1)' : 'var(--fg-3)') + ';font-weight:600">' + esc(c.code || '') + '</span>'
-           +      '<span style="font-size:13px;font-weight:' + (hasData ? '500' : '400') + ';color:' + (hasData ? 'var(--fg-1)' : 'var(--fg-3)') + '">' + esc(c.name || '') + '</span>'
+           +      '<span style="font-size:13px;font-weight:' + (hasData ? '500' : '400') + ';color:' + (hasData ? 'var(--fg-1)' : 'var(--fg-3)') + '">' + esc(c.code === 'HQ' ? 'Global' : (c.name || '')) + '</span>'
            +    '</div>'
            +    '<div>'
            +      '<div style="font-size:13px;color:' + (c.leader ? 'var(--fg-1)' : 'var(--fg-3)') + '">' + esc(c.leader || 'Pendiente onboarding') + '</div>'
@@ -5159,26 +5188,8 @@ function rEdHomeHQ(D) {
     html += '</div>';
   }
 
-  // Equipo Global: si hay datos de hqTeam (líder + members del equipo HQ
-  // del sheet Equipos), los listamos como una card con avatares. Es admin
-  // del piloto — útil para que el head vea con quién contar para escalamiento.
-  var hq = D && D.hqTeam;
-  if (hq && (hq.leader || (hq.specialists != null && hq.specialists > 0))) {
-    html += '<div class="pa-section-h">'
-         +    '<h3>Equipo Global</h3>'
-         +    '<span class="meta">Admin del piloto — escalamientos y soporte</span>'
-         + '</div>'
-         + '<div class="pa-card" style="padding:14px 18px;display:flex;flex-wrap:wrap;gap:18px;align-items:center">'
-         +   (hq.leader ? '<div style="display:flex;align-items:center;gap:10px">'
-                          + paAvatar(hq.leader, 28)
-                          + '<div><div style="font-size:13px;font-weight:500">' + esc(hq.leader) + '</div>'
-                          + '<div style="font-size:11px;color:var(--fg-3)">Líder Global</div></div>'
-                       + '</div>' : '')
-         +   '<div style="margin-left:auto;font-size:12px;color:var(--fg-3)">'
-         +     (hq.specialists || 0) + ' miembros activos · ' + (hq.code || 'HQ')
-         +   '</div>'
-         + '</div>';
-  }
+  // Sección "Equipo Global" antes vivía aparte. Ahora HQ es un equipo más
+  // en la tabla "Por país" arriba (con label "Global"). No duplicamos.
 
   // Activity feed
   var historial = ((D && D.historial) || []).slice(0, 6);
@@ -5451,8 +5462,8 @@ function edTkBulkAction(action) {
     return;
   }
   if (action === 'bloquear') {
-    confirm_('¿Bloquear ' + label + '? Quedarán marcadas como bloqueadas.', function() {
-      _edTkBulkRun(ids, 'status', 'Bloqueado', 'Bloqueada');
+    confirm_('¿Poner ' + label + ' en <b>on hold</b>? Quedarán pausadas hasta que las desbloquees.', function() {
+      _edTkBulkRun(ids, 'status', 'Bloqueado', t('En on hold'));
     });
     return;
   }
@@ -6696,7 +6707,7 @@ function rEdTracker(D) {
        +    chip('all',     t('Activas'),         cAll,     null,       EDT.filter === 'all')
        +    chip('overdue', t('Vencidas'),        cOverdue, 'critical', EDT.filter === 'overdue')
        +    chip('today',   t('Vencen hoy'),      cToday,   'warn',     EDT.filter === 'today')
-       +    chip('blocked', t('Bloqueadas'),      cBlocked, null,       EDT.filter === 'blocked')
+       +    chip('blocked', t('On hold'),         cBlocked, null,       EDT.filter === 'blocked')
        +    chip('alta',    t('Prioridad alta'),  cAlta,    null,       EDT.filter === 'alta')
        +    '<div class="pa-chip-divider"></div>'
        +    chip('mine',    t('Asignadas a mí'),  cMine,    null,       EDT.filter === 'mine')
@@ -6714,7 +6725,9 @@ function rEdTracker(D) {
       .sort(function(a, b){ return (b.open || 0) - (a.open || 0); })
       .map(function(c) {
         var selA = (EDT.country === c.code) ? ' selected' : '';
-        var label = c.code + ' · ' + (c.name || c.code) + (c.open ? ' (' + c.open + ')' : '');
+        // Mostrar "Global" cuando el code es HQ, no "HQ · Global"
+        var displayCode = paCountryLabel(c.code);
+        var label = (c.code === 'HQ' ? displayCode : (c.code + ' · ' + (c.name || c.code))) + (c.open ? ' (' + c.open + ')' : '');
         return '<option value="' + esc(c.code) + '"' + selA + '>' + esc(label) + '</option>';
       }).join('');
     if (countryOpts) {
@@ -6748,7 +6761,7 @@ function rEdTracker(D) {
   var totalScope = (EDT.filter === 'closed') ? roleHist.length : cAll;
   if (primaryNonDefault || EDT.search) {
     var filterLabels = {
-      overdue: 'Vencidas', today: 'Vencen hoy', blocked: 'Bloqueadas',
+      overdue: 'Vencidas', today: 'Vencen hoy', blocked: 'On hold',
       alta: 'Prioridad alta', mine: 'Asignadas a mí', closed: 'Cerradas'
     };
     var filtLbl = filterLabels[EDT.filter] || 'filtro';
@@ -6790,7 +6803,7 @@ function rEdTracker(D) {
          +    '<b style="font-weight:600">' + bulkCount + ' seleccionada' + (bulkCount > 1 ? 's' : '') + '</b>'
          +    '<span style="color:var(--fg-3);font-size:12px">·</span>'
          +    '<button class="pa-btn" onclick="edTkBulkAction(\'avanzar\')">' + paIcon('arrowR', 12) + ' Avanzar</button>'
-         +    '<button class="pa-btn" onclick="edTkBulkAction(\'bloquear\')">' + paIcon('block', 12) + ' Bloquear</button>'
+         +    '<button class="pa-btn" onclick="edTkBulkAction(\'bloquear\')">' + paIcon('block', 12) + ' ' + esc(t('Poner on hold')) + '</button>'
          +    (canReassign ? '<button class="pa-btn" onclick="edTkBulkAction(\'reasignar\')">' + paIcon('users', 12) + ' Reasignar</button>' : '')
          +    '<button class="pa-btn pa-btn-ghost" style="margin-left:auto;color:var(--fg-2)" onclick="edTkBulkClear()">Cancelar</button>'
          + '</div>';
@@ -6842,6 +6855,16 @@ function rEdTracker(D) {
     rows.forEach(function(t) {
       var pn = _projNameForTask(t);
       var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
+      // Si on hold con razón, agregar suffix con icon — manager con 8
+      // tareas on-hold puede triagear sin abrir cada panel.
+      var blockReasonSuffix = '';
+      if (t.status === 'Bloqueado' && t.blockedReason) {
+        var rsn = String(t.blockedReason).trim();
+        if (rsn) {
+          var shortRsn = rsn.length > 50 ? rsn.substring(0, 50) + '…' : rsn;
+          blockReasonSuffix = ' · <span style="color:var(--warn-fg)">' + paIcon('block', 9, '', 'opacity:.7;vertical-align:-1px') + ' ' + esc(shortRsn) + '</span>';
+        }
+      }
       var etaTxt = t.eta || paEtaText(t.etaDays);
       var isSel = sel && sel.id == t.id;
       var isChecked = (EDT.selectedIds || []).indexOf(String(t.id)) >= 0;
@@ -6850,7 +6873,7 @@ function rEdTracker(D) {
            +    '<span onclick="event.stopPropagation();edTkToggleSelectId(\'' + esc(t.id) + '\')"><span class="pa-check' + (isChecked ? ' is-checked' : '') + '"></span></span>'
            +    paConfDot(cfLvl)
            +    '<span class="id mono">' + esc(t.id) + '</span>'
-           +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + '</span></div>';
+           +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + blockReasonSuffix + '</span></div>';
       if (role === 'specialist') {
         html += '<span style="font-size:12px;color:var(--fg-2)">' + esc(pn) + '</span>';
       } else if (t.resp) {
@@ -7097,7 +7120,7 @@ function _renderTkPanel(sel) {
     html += '<div class="tk-panel-actions">'
          +    (sel.status === 'Bloqueado'
               ? '<button class="pa-btn pa-btn-outline" onclick="edUDesbloquear(\'' + esc(sel.id) + '\')">' + paIcon('block', 12) + ' ' + esc(t('Desbloquear')) + '</button>'
-              : '<button class="pa-btn pa-btn-outline" onclick="edUOpen(\'' + esc(sel.id) + '\',\'bloquear\')">' + paIcon('block', 12) + ' ' + esc(t('Bloquear')) + '</button>')
+              : '<button class="pa-btn pa-btn-outline" onclick="edUOpen(\'' + esc(sel.id) + '\',\'bloquear\')">' + paIcon('block', 12) + ' ' + esc(t('Poner on hold')) + '</button>')
          +    (canReassign ? '<button class="pa-btn pa-btn-outline" onclick="edReasignarOpen(\'' + esc(sel.id) + '\')">' + paIcon('users', 12) + ' ' + esc(t('Reasignar')) + '</button>' : '')
          +    '<button class="pa-btn pa-btn-outline" onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')">' + paIcon('more', 12) + ' ' + esc(t('Más')) + '</button>'
          +    '<div style="margin-left:auto;display:flex;gap:8px">'
@@ -7382,9 +7405,9 @@ function _uaRenderOptions(variant) {
          + '</button>';
   }
   return '<div class="ua-options">'
-       +    opt('avanzar',  'Avanzar',  '→ siguiente estado')
-       +    opt('cerrar',   'Cerrar',   'Marcar como hecha')
-       +    opt('bloquear', 'Bloquear', 'Esperando a algo')
+       +    opt('avanzar',  t('Avanzar'),       '→ ' + (LANG === 'pt' ? 'próximo status' : 'siguiente estado'))
+       +    opt('cerrar',   t('Cerrar'),        LANG === 'pt' ? 'Marcar como feita' : 'Marcar como hecha')
+       +    opt('bloquear', t('Poner on hold'), LANG === 'pt' ? 'Esperando algo externo' : 'Esperando algo externo')
        + '</div>';
 }
 
@@ -7663,16 +7686,26 @@ var _CR_RIESGOS = ['Legal alto', 'Reputacional', 'Operativo'];
 var _CR_PAIS_FALLBACK = ['CO', 'MX', 'BR', 'AR', 'CL', 'PE', 'CR', 'UY', 'EC'];
 
 function _crCountries() {
+  // Incluye HQ (Global) como un equipo más — feedback del user. Retorna
+  // array de {value, label} para que las pills muestren "Global" en lugar
+  // del code crudo "HQ", manteniendo el value como "HQ" para backend.
   if (D && D.equipos && D.equipos.length) {
     var seen = {}, out = [];
     D.equipos.forEach(function(eq){
       var c = eq && eq.code;
-      // HQ es admin/global, no operativo — no aparece como opción de país de tarea.
-      if (c && c !== 'HQ' && !seen[c]) { seen[c] = 1; out.push(c); }
+      if (c && !seen[c]) {
+        seen[c] = 1;
+        out.push({ value: c, label: paCountryLabel(c) });
+      }
     });
     if (out.length) return out;
   }
-  return _CR_PAIS_FALLBACK.slice();
+  return _CR_PAIS_FALLBACK.map(function(c){ return { value: c, label: paCountryLabel(c) }; });
+}
+// Display label de un country code: "HQ" → "Global", otros se muestran tal cual.
+function paCountryLabel(code) {
+  if (!code) return '';
+  return code === 'HQ' ? 'Global' : code;
 }
 
 function _crResponsables() {
@@ -8658,7 +8691,7 @@ function rEdMisTareas(D) {
        +      '<div class="delta">' + (dueToday ? 'cerrar hoy' : 'día limpio') + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (blocked ? 'is-critical' : '') + '" onclick="edSetFilter(\'blocked\');goEd(\'tracker\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--fg-3)"></span> Bloqueadas</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--fg-3)"></span> On hold</div>'
        +      '<div class="val">' + blocked + '</div>'
        +      '<div class="delta">' + (blocked ? 'necesitan empuje' : '—') + '</div>'
        +    '</div>'
@@ -9036,7 +9069,7 @@ function rEdMiequipo(D) {
        +      '<div class="delta">' + (totalOver ? 'reasignar' : 'todo en orden') + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (totalBlk ? 'is-warn' : '') + '">'
-       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> Bloqueadas</div>'
+       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> On hold</div>'
        +      '<div class="val">' + totalBlk + '</div>'
        +      '<div class="delta">' + (totalBlk ? 'desbloquear' : '—') + '</div>'
        +    '</div>'
@@ -9092,7 +9125,7 @@ function rEdMiequipo(D) {
     html += '<div class="pa-section-h"><h3>Tu equipo</h3><span class="meta">Carga, vencidas, bloqueadas y SLA mes</span></div>'
          +  '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 220px 80px 90px 80px 100px">'
-         +      '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div>SLA mes</div><div></div>'
+         +      '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>On hold</div><div>SLA mes</div><div></div>'
          +    '</div>';
     var sorted = _miqSorted(visible);
     sorted.forEach(function(m) { html += _miqRow(m); });
@@ -9116,7 +9149,7 @@ function rEdMiequipo(D) {
            + '</div>'
            + '<div class="pa-tbl">'
            +   '<div class="pa-tbl-h" style="grid-template-columns: 1fr 220px 80px 90px 80px 100px">'
-           +     '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>Bloqueadas</div><div>SLA mes</div><div></div>'
+           +     '<div>Persona</div><div>Carga</div><div>Vencidas</div><div>On hold</div><div>SLA mes</div><div></div>'
            +   '</div>';
       arr.forEach(function(m) { html += _miqRow(m); });
       html += '</div>';
