@@ -3405,7 +3405,6 @@ var ED_NAV_BY_ROLE = {
   head: [
     { section: 'LATAM', items: [
       { id: 'home',    label: 'Operaciones', icon: 'home',  view: 'home' },
-      { id: 'paises',  label: 'Por país',    icon: 'globe', view: 'resumen' },
       { id: 'tracker', label: 'Tracker',     icon: 'inbox', view: 'tracker' }
     ]},
     { section: 'Personas', items: [
@@ -4854,7 +4853,7 @@ function rEdHomeSpecialist(D) {
            +    '<div style="min-width:0">'
            +      '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:13px;font-weight:500">' + esc(p.nombre || '') + '</span>'
            +        (p.pais ? ' <span class="pa-pill pa-pill-country">' + esc(p.pais) + '</span>' : '') + '</div>'
-           +      '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">Líder: ' + esc(p.lider || '—') + ' · ' + openP + ' abiertas de ' + totalP + '</div>'
+           +      '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">Líder: ' + esc(p.lider || '—') + ' · ' + openP + ' ' + esc(LANG === 'pt' ? 'ativas de ' : 'activas de ') + totalP + '</div>'
            +    '</div>'
            +    '<div style="display:flex;align-items:center;gap:8px">'
            +      '<div style="width:70px;height:4px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + pct + '%;background:' + color + '"></span></div>'
@@ -4986,20 +4985,36 @@ function rEdHomeManager(D) {
     html += '</div>';
   }
 
-  // Team at a glance
+  // Team at a glance — solo los 3 que más necesitan atención (sobrecarga,
+  // vencidas o bloqueadas). El detalle completo del equipo está en
+  // "Mi equipo" — no duplicamos la tabla acá.
+  var teamAtRisk = teamMine.slice()
+    .map(function(m){
+      var pct = (m.capacity > 0) ? ((m.load || 0) / m.capacity) : 0;
+      // Score: overdue × 3 + blocked × 2 + sobrecapacidad
+      var score = ((m.overdue || 0) * 3) + ((m.blocked || 0) * 2) + Math.max(0, pct - 1) * 2;
+      return { m: m, score: score };
+    })
+    .filter(function(x){ return x.score > 0; })
+    .sort(function(a, b){ return b.score - a.score; })
+    .slice(0, 3);
   html += '<div class="pa-section-h">'
-       +    '<h3>Tu equipo en un vistazo</h3>'
-       +    '<span class="meta">Carga, vencidas y bloqueadas</span>'
-       +    '<button class="link" onclick="goEd(\'miequipo\')">Ir a Mi equipo →</button>'
+       +    '<h3>' + esc(LANG === 'pt' ? 'Quem precisa de atenção' : 'Quién necesita atención') + '</h3>'
+       +    '<span class="meta">' + esc(LANG === 'pt' ? 'Top 3 por carga, vencidas o on hold' : 'Top 3 por carga, vencidas u on hold') + '</span>'
+       +    '<button class="link" onclick="goEd(\'miequipo\')">' + esc(LANG === 'pt' ? 'Ver equipe completa →' : 'Ver equipo completo →') + '</button>'
        + '</div>';
   if (teamMine.length === 0) {
     html += paEmpty('users', 'No hay miembros del equipo visibles.', 'Pedile a tu líder que agregue specialists en la hoja Equipos.');
+  } else if (teamAtRisk.length === 0) {
+    html += paEmpty('check', LANG === 'pt' ? 'Equipe no controle.' : 'Equipo bajo control.',
+                    LANG === 'pt' ? 'Sem sobrecargas, vencidas ou tarefas em on hold.' : 'Sin sobrecargas, vencidas ni tareas en on hold.');
   } else {
     html += '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px">'
          +      '<div>Specialist</div><div>Carga</div><div>Vencidas</div><div>On hold</div><div>SLA mes</div><div></div>'
          +    '</div>';
-    teamMine.forEach(function(m) {
+    teamAtRisk.forEach(function(x) {
+      var m = x.m;
       var pct = (m.capacity > 0) ? Math.round((m.load || 0) / m.capacity * 100) : 0;
       var over = pct > 100;
       var loadColor = over ? 'var(--critical)' : pct > 85 ? 'var(--warn)' : 'var(--accent)';
@@ -5018,7 +5033,7 @@ function rEdHomeManager(D) {
            +    '<div class="mono" style="font-size:12px;color:' + ((m.overdue || 0) ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + (m.overdue || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.blocked || 0) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + (m.blocked || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + slaColorM + '">' + (slaM != null ? slaM + '%' : '—') + '</div>'
-           +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="edSetRespFilter(\'' + esc(m.name || '') + '\');goEd(\'tracker\')">Ver tareas →</button></div>'
+           +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="edSetRespFilter(\'' + esc(m.name || '') + '\');goEd(\'tracker\')">' + esc(LANG === 'pt' ? 'Ver tarefas →' : 'Ver tareas →') + '</button></div>'
            + '</div>';
     });
     html += '</div>';
@@ -5190,6 +5205,43 @@ function rEdHomeHQ(D) {
 
   // Sección "Equipo Global" antes vivía aparte. Ahora HQ es un equipo más
   // en la tabla "Por país" arriba (con label "Global"). No duplicamos.
+
+  // Proyectos en riesgo — movido acá desde la vista "Por país" (eliminada,
+  // era duplicada). Lista los proyectos con tareas vencidas, ordenados por %.
+  var riskyHq = (D && D.projects || [])
+    .filter(function(p){ return p.status !== 'Completado' && p.status !== 'Cancelado'; })
+    .map(function(p) {
+      var pTasks = ((D && D.tasks) || []).filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; });
+      var ovc = pTasks.filter(function(tk){ return (typeof taskOverdueBySLA === 'function') ? taskOverdueBySLA(tk) : false; }).length;
+      var totalP = pTasks.length;
+      return { p: p, overdue: ovc, total: totalP, pct: totalP > 0 ? (ovc / totalP) : 0 };
+    })
+    .filter(function(x){ return x.overdue > 0; })
+    .sort(function(a, b){ if (b.pct !== a.pct) return b.pct - a.pct; return b.overdue - a.overdue; })
+    .slice(0, 6);
+  if (riskyHq.length) {
+    html += '<div class="pa-section-h">'
+         +    '<h3>' + esc(LANG === 'pt' ? 'Projetos em risco' : 'Proyectos en riesgo') + '</h3>'
+         +    '<span class="meta">' + esc(LANG === 'pt' ? 'ordenados por % de vencidas' : 'ordenados por % de vencidas') + '</span>'
+         +    '<button class="link" onclick="goEd(\'proyectos\')">' + esc(LANG === 'pt' ? 'Ver todos os projetos →' : 'Ver todos los proyectos →') + '</button>'
+         + '</div>';
+    html += '<div class="pa-tbl">';
+    riskyHq.forEach(function(x) {
+      var rPais = x.p.pais || '—';
+      var rPctTxt = x.total > 0 ? Math.round(x.pct * 100) + '%' : '—';
+      var rTone = x.pct >= 0.5 ? 'pa-pill-alta' : (x.pct >= 0.25 ? 'pa-pill-media' : 'pa-pill-baja');
+      html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr 130px 80px 110px" onclick="edSetCountryFilter(\'' + esc(rPais) + '\');goEd(\'tracker\')">'
+           +    '<div class="title">'
+           +      '<span class="t">' + esc(x.p.nombre || ('Proyecto #' + x.p.id)) + '</span>'
+           +      '<span class="meta">' + esc(rPais) + (x.p.lider ? ' · ' + esc(x.p.lider.split(' ').slice(0,2).join(' ')) : '') + ' · ' + x.total + ' ' + esc(LANG === 'pt' ? 'ativas' : 'activas') + '</span>'
+           +    '</div>'
+           +    '<span class="pa-pill pa-pill-country">' + esc(paCountryLabel(rPais)) + '</span>'
+           +    '<span class="mono" style="font-size:12px;color:var(--critical-fg)">' + x.overdue + ' ' + (LANG === 'pt' ? 'venc.' : 'venc.') + '</span>'
+           +    '<span class="pa-pill ' + rTone + '"><span class="dot"></span>' + esc(rPctTxt) + '</span>'
+           + '</div>';
+    });
+    html += '</div>';
+  }
 
   // Activity feed
   var historial = ((D && D.historial) || []).slice(0, 6);
@@ -8673,29 +8725,8 @@ function rEdMisTareas(D) {
     html += '<div class="pa-narrative">' + lede + '</div>';
   }
 
-  // KPIs
-  html += '<div class="pa-kpis">'
-       +    '<div class="pa-kpi" onclick="goEd(\'agrupadas\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Total activas</div>'
-       +      '<div class="val">' + total + '</div>'
-       +      '<div class="delta">en tu agenda</div>'
-       +    '</div>'
-       +    '<div class="pa-kpi ' + (overdue ? 'is-critical' : '') + '" onclick="edSetFilter(\'overdue\');goEd(\'tracker\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas</div>'
-       +      '<div class="val">' + overdue + '</div>'
-       +      '<div class="delta">' + (overdue ? 'resolver primero' : 'al día') + '</div>'
-       +    '</div>'
-       +    '<div class="pa-kpi ' + (dueToday ? 'is-warn' : '') + '" onclick="edSetFilter(\'today\');goEd(\'tracker\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> Vencen hoy</div>'
-       +      '<div class="val">' + dueToday + '</div>'
-       +      '<div class="delta">' + (dueToday ? 'cerrar hoy' : 'día limpio') + '</div>'
-       +    '</div>'
-       +    '<div class="pa-kpi ' + (blocked ? 'is-critical' : '') + '" onclick="edSetFilter(\'blocked\');goEd(\'tracker\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--fg-3)"></span> On hold</div>'
-       +      '<div class="val">' + blocked + '</div>'
-       +      '<div class="delta">' + (blocked ? 'necesitan empuje' : '—') + '</div>'
-       +    '</div>'
-       + '</div>';
+  // KPIs eliminados — Inicio ya los muestra. "Mis tareas" se enfoca en la
+  // LISTA densa de tus tareas activas, no en duplicar las stats del Home.
 
   // PERFORMANCE
   var me = (D && D.team || []).find(function(m){ return m.name === name; }) || {};
