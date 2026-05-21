@@ -1525,6 +1525,15 @@ function _addTaskCommentImpl(taskId, body) {
   var authorEmail = ctx.email || '';
   var authorName  = (ctx.user && ctx.user.name) || '';
   var ws = _commentsSheet(ctx.ss);
+  // Auto-promote: si el comentario lo agrega el responsable de una tarea
+  // 'Pendiente', promovemos a 'En curso'. Señal clara de que ya empezó.
+  var taskForPromote = _readTaskById(ctx.ss, taskId);
+  if (taskForPromote && taskForPromote.status === 'Pendiente' && taskForPromote.resp === authorName) {
+    try {
+      var ws_a = ctx.ss.getSheetByName(SHEET_ACTIVO);
+      ws_a.getRange(taskForPromote.row, 7).setValue('En curso');
+    } catch (e) { Logger.log('auto-promote on comment skipped: ' + ((e && e.message) || e)); }
+  }
   var lock = LockService.getScriptLock();
   try { lock.waitLock(8000); } catch (e) { throw new Error('Server busy, retry in a moment.'); }
   try {
@@ -1595,11 +1604,26 @@ function _updateTaskFieldImpl(taskId, field, value) {
   }
   if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, current.row);
-    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
     return { success: true, moved: true, message: 'Tarea movida a Historial' };
   }
-  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
-  return { success: true };
+  // Auto-promote: si la tarea estaba "Pendiente" y el specialist responsable
+  // edita notas o asigna proyecto/contraparte/etc, promovemos a "En curso"
+  // automáticamente. Antes el specialist tenía que cambiar el status manual
+  // — many no lo hacían y las métricas de "En curso" arrancaban en 0.
+  // Sólo si: status no fue el field cambiado, status actual es 'Pendiente',
+  // el user es el resp de la tarea, y el field cambiado es "trabajo" no metadata.
+  var promotedToEnCurso = false;
+  if (field !== 'status' && current.status === 'Pendiente'
+      && ctx.user && ctx.user.name === current.resp
+      && (field === 'notas' || field === 'acc' || field === 'contraparte' || field === 'proyectoId' || field === 'proyecto')) {
+    try {
+      ws.getRange(current.row, 7).setValue('En curso');
+      promotedToEnCurso = true;
+    } catch(e) { Logger.log('auto-promote skipped: ' + ((e && e.message) || e)); }
+  }
+  return promotedToEnCurso
+    ? { success: true, promoted: 'En curso' }
+    : { success: true };
 }
 // Batch update: aplica varios campos en una sola llamada.
 // Si `status` es 'Listo', se aplica al final y dispara el move a Historial (los demás campos ya quedaron escritos).

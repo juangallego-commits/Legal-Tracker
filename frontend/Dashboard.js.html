@@ -3607,16 +3607,19 @@ function _edTodayQuote() {
 // para Fase 2). Default 'estandar' al crear/leer.
 var ED_CONF_LEVELS = {
   estandar: {
-    label: 'Estándar',
-    short: 'Estándar',
+    label: 'Normal',
+    short: 'Normal',
     desc: 'Visible para todo el equipo legal del país.',
     cls: 'estandar'
   },
+  // Legacy: tareas guardadas con 'restringido' se renderean como
+  // 'Confidencial' (sinónimo upgrade). El backend acepta los 3 valores
+  // por compat con data existente, pero el wizard solo expone 2.
   restringido: {
-    label: 'Restringido',
-    short: 'Restringido',
+    label: 'Confidencial',
+    short: 'Conf.',
     desc: 'Visible solo para responsable, lider y manager.',
-    cls: 'restringido'
+    cls: 'confidencial'
   },
   confidencial: {
     label: 'Confidencial',
@@ -3626,7 +3629,10 @@ var ED_CONF_LEVELS = {
   }
 };
 function _confLevel(t) {
-  return (t && t.confidencialidad && ED_CONF_LEVELS[t.confidencialidad]) ? t.confidencialidad : 'estandar';
+  if (!t || !t.confidencialidad) return 'estandar';
+  var c = String(t.confidencialidad).toLowerCase();
+  if (c === 'restringido') return 'confidencial'; // upgrade legacy → confidencial
+  return ED_CONF_LEVELS[c] ? c : 'estandar';
 }
 
 function _badgeFor(itemId, role) {
@@ -6263,8 +6269,16 @@ function edPanelSaveField(taskId, fieldKey, value) {
             }
           }
         }
+        // Auto-promote: si el backend cambió status de 'Pendiente' a 'En curso',
+        // reflejar en local + avisar al user con un toast informativo.
+        if (res.promoted === 'En curso' && D && D.tasks) {
+          var tp = D.tasks.find(function(x){ return x.id == taskId; });
+          if (tp) tp.status = 'En curso';
+          toast(LANG === 'pt' ? 'Tarefa passou a "En curso" automaticamente' : 'Tarea pasó a "En curso" automáticamente', 'info');
+        } else {
+          toast(LANG === 'pt' ? '✅ Salvo' : '✅ Guardado', 'success');
+        }
         if (typeof rEdTracker === 'function') rEdTracker(D);
-        toast('✅ Saved', 'success');
         _edScheduleReload();
       } else {
         toast('Error: ' + ((res && res.error) || 'could not save'), 'error');
@@ -7732,7 +7746,10 @@ var EDC = {
 
 var _CR_TIPOS  = ['Contractual', 'Regulatorio', 'Contencioso', 'Privacy', 'Operativo'];
 var _CR_PRIOS  = ['Alta', 'Media', 'Baja'];
-var _CR_RIESGOS = ['Legal alto', 'Reputacional', 'Operativo'];
+// Riesgo simplificado: "Legal alto" → "Legal" (lo de "alto" era redundante
+// con prioridad Alta), "Operativo" → "Negocio" (evita solape con tipoTrabajo
+// "Operativo"). Backend acepta valores legacy por compat.
+var _CR_RIESGOS = ['Legal', 'Reputacional', 'Negocio'];
 // Fallback solo si D.equipos llega vacío (no debería pasar). Sincronizado
 // con todos los países activos del sheet Equipos al 2026-05.
 var _CR_PAIS_FALLBACK = ['CO', 'MX', 'BR', 'AR', 'CL', 'PE', 'CR', 'UY', 'EC'];
@@ -7813,9 +7830,13 @@ function _crConfMod(val) {
   if (val === 'confidencial') return 'cf-confidencial';
   return '';
 }
+// Confidencialidad: reducido de 3 a 2 niveles ("Restringido" era
+// indistinguible de "Confidencial" para el specialist según feedback).
+// El backend acepta los 3 valores por compat con data existente, pero
+// el wizard solo expone Normal/Confidencial. Tareas con valor legacy
+// 'restringido' se renderean como 'Confidencial' (display layer).
 var _CR_CONF_OPTS = [
-  { value: 'estandar', label: 'Estándar' },
-  { value: 'restringido', label: 'Restringido' },
+  { value: 'estandar', label: 'Normal' },
   { value: 'confidencial', label: 'Confidencial' }
 ];
 
