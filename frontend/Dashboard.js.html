@@ -5534,10 +5534,11 @@ function edTkBulkAction(action) {
   if (action === 'avanzar') {
     // Cada tarea avanza según su status actual. Pendiente → En curso,
     // En curso → En revisión, En revisión → Listo. Los que ya están
-    // en Listo o Bloqueado se ignoran. Las que cerrarian (next='Listo')
-    // se separan: el cierre exige resumen — política unificada con el
-    // botón individual del panel. Si todas son cerrables, abrir el wizard
-    // de cerrar de la primera (no soporta bulk cerrar con resumen único).
+    // en Listo o Bloqueado se ignoran. Las que cerrarían (next='Listo')
+    // requieren resumen — abrimos un mini-wizard que aplica un único
+    // resumen a todas las cerrables. Si hay mix (avanzan + cierran),
+    // primero corremos las que avanzan y luego abrimos el wizard
+    // de cierre con las cerrables seleccionadas.
     var nextOf = { 'Pendiente': 'En curso', 'En curso': 'En revisión', 'En revisión': 'Listo' };
     var toRun = [];
     var toClose = [];
@@ -5550,23 +5551,165 @@ function edTkBulkAction(action) {
       else toRun.push({ id: id, value: next });
     });
     if (!toRun.length && !toClose.length) { toast('Ninguna de las seleccionadas puede avanzar.', 'info'); return; }
-    if (toClose.length) {
-      var msg = toClose.length === 1
-        ? 'Una tarea pasaría a <b>Listo</b>. Para cerrar pedimos un resumen breve — usá el botón individual del panel.'
-        : '<b>' + toClose.length + ' tareas</b> pasarían a <b>Listo</b>. Para cerrarlas pedimos resumen — hacelo de a una desde el panel.';
-      toast('Cerralas individualmente con resumen.', 'info');
-      // Si HAY tareas que solo avanzan (no cierran), seguir con esas.
-      if (!toRun.length) {
-        confirm_(msg, function(){ /* nothing — user closes manually */ }, { confirmLabel: 'Entendido' });
-        return;
-      }
+    // Solo cerrables → bulk-close wizard directo.
+    if (!toRun.length && toClose.length) {
+      edBulkCloseOpen(toClose);
+      return;
     }
-    confirm_('¿Avanzar ' + toRun.length + (toRun.length === 1 ? ' tarea' : ' tareas') + ' al siguiente estado?'
-           + (toClose.length ? ' (' + toClose.length + ' que cerrarían quedarán fuera — cerralas de a una)' : ''), function() {
-      _edTkBulkRunMixed(toRun, 'status', 'Avanzadas');
-    });
+    // Solo avanzables (sin cierres) → flujo original.
+    if (toRun.length && !toClose.length) {
+      confirm_('¿Avanzar ' + toRun.length + (toRun.length === 1 ? ' tarea' : ' tareas') + ' al siguiente estado?', function() {
+        _edTkBulkRunMixed(toRun, 'status', 'Avanzadas');
+      });
+      return;
+    }
+    // Mix: avanzar primero, después abrir el wizard de cierre.
+    confirm_('De las ' + ids.length + ' seleccionadas: <b>' + toRun.length + '</b> avanzan al siguiente estado y <b>' + toClose.length + '</b> se cerrarían. Vamos en dos pasos — primero avanzamos, luego pedimos un resumen para cerrar.', function() {
+      _edTkBulkRunMixedThen(toRun, 'status', 'Avanzadas', function() {
+        edBulkCloseOpen(toClose);
+      });
+    }, { confirmLabel: 'Continuar' });
     return;
   }
+}
+
+// ─── BULK CLOSE WIZARD ────────────────────────────────────────────
+// Mini-modal para cerrar varias tareas con un único resumen aplicado
+// a todas. Reusa el styling de cr-overlay/cr-modal. Política: el
+// resumen es obligatorio (igual que el cierre individual del panel).
+var _EDT_BULK_CLOSE = { ids: [], running: false };
+
+function edBulkCloseOpen(ids) {
+  if (!ids || !ids.length) return;
+  _EDT_BULK_CLOSE.ids = ids.slice();
+  _EDT_BULK_CLOSE.running = false;
+  _edBulkCloseRender();
+}
+
+function _edBulkCloseRender() {
+  var host = $('crHost'); if (!host) return;
+  var ids = _EDT_BULK_CLOSE.ids;
+  var n = ids.length;
+  // Sample de hasta 4 tareas para mostrar título y responsable.
+  var sample = [];
+  for (var i = 0; i < ids.length && i < 4; i++) {
+    var task = (D.tasks || []).find(function(x){ return String(x.id) === String(ids[i]); });
+    if (task) sample.push(task);
+  }
+  var sampleHtml = sample.map(function(tk) {
+    return '<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:3px 0">'
+         +   '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(tk.id) + '</span>'
+         +   '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(tk.nombre || '') + '</span>'
+         +   '<span style="font-size:11px;color:var(--fg-3);display:flex;align-items:center;gap:4px">' + paAvatar(tk.resp || '?', 14) + ' ' + esc((tk.resp || '').split(' ')[0]) + '</span>'
+         + '</div>';
+  }).join('');
+  if (n > sample.length) {
+    sampleHtml += '<div style="font-size:11px;color:var(--fg-3);padding:4px 0">+ ' + (n - sample.length) + (n - sample.length === 1 ? ' tarea más' : ' tareas más') + '</div>';
+  }
+  host.innerHTML = ''
+    + '<div class="cr-overlay" onclick="if(event.target===this)edBulkCloseClose()">'
+    +   '<div class="cr-backdrop" onclick="edBulkCloseClose()"></div>'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Cerrar tareas" style="max-width:580px">'
+    +     '<div class="cr-head">'
+    +       '<div style="width:32px;height:32px;border-radius:8px;background:var(--good-soft, var(--accent-soft));color:var(--good-fg, var(--accent));display:grid;place-items:center;flex-shrink:0">'
+    +         '<span style="font-weight:600;font-size:14px">✓</span>'
+    +       '</div>'
+    +       '<div style="flex:1">'
+    +         '<div class="cr-title">Cerrar ' + n + (n === 1 ? ' tarea' : ' tareas') + ' como <span style="color:var(--good-fg)">Listo</span></div>'
+    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">El resumen se guarda como nota de cierre <b>en cada una</b>.</div>'
+    +       '</div>'
+    +       '<button type="button" class="cr-x" onclick="edBulkCloseClose()" aria-label="Cerrar">×</button>'
+    +     '</div>'
+    +     '<div class="cr-body">'
+    +       '<div style="padding:10px 12px;background:var(--bg-2);border-radius:6px;margin-bottom:14px">'
+    +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">Vas a cerrar</div>'
+    +         sampleHtml
+    +       '</div>'
+    +       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">'
+    +         '<label for="bulkCloseResumen" style="font-size:12px;color:var(--fg-2);font-weight:500">Resumen de cierre <span class="req">*</span></label>'
+    +         '<span style="font-size:11px;color:var(--fg-3)">Se aplica a las ' + n + '</span>'
+    +       '</div>'
+    +       '<textarea id="bulkCloseResumen" class="cr-input" rows="4" style="resize:vertical;min-height:90px" placeholder="Resumen rápido de cómo se cerraron (lo verán en el historial)."></textarea>'
+    +     '</div>'
+    +     '<div class="cr-foot">'
+    +       '<div class="cr-foot-info"><b>Al cerrar:</b> las tareas se mueven al historial · libera ' + n + (n === 1 ? ' slot' : ' slots') + ' de carga.</div>'
+    +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edBulkCloseClose()">Cancelar</button>'
+    +       '<button type="button" class="pa-btn pa-btn-primary" onclick="edBulkCloseConfirm()">' + paIcon('check', 12) + ' Cerrar ' + n + (n === 1 ? ' tarea' : ' tareas') + '</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+  setTimeout(function(){ var ta = $('bulkCloseResumen'); if (ta) ta.focus(); }, 30);
+}
+
+function edBulkCloseClose() {
+  if (_EDT_BULK_CLOSE.running) return; // no cerrar mientras corre el bulk
+  var host = $('crHost'); if (host) host.innerHTML = '';
+  _EDT_BULK_CLOSE.ids = [];
+}
+
+function edBulkCloseConfirm() {
+  var ta = $('bulkCloseResumen');
+  var resumen = ta ? String(ta.value || '').trim() : '';
+  if (!resumen) {
+    toast('Falta el resumen para cerrar.', 'error');
+    if (ta) ta.focus();
+    return;
+  }
+  if (resumen.length < 5) {
+    toast('Contanos un poco más (mín. 5 caracteres).', 'error');
+    if (ta) ta.focus();
+    return;
+  }
+  var ids = (_EDT_BULK_CLOSE.ids || []).slice();
+  if (!ids.length) { edBulkCloseClose(); return; }
+  _EDT_BULK_CLOSE.running = true;
+  var btn = document.querySelector('.cr-foot .pa-btn-primary');
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = 'Cerrando…'; }
+  _edTkBulkClose(ids, resumen);
+}
+
+function _edTkBulkClose(ids, resumen) {
+  var ok = 0, fail = 0, pending = ids.length;
+  toast('Cerrando ' + pending + (pending === 1 ? ' tarea' : ' tareas') + '…', 'info');
+  var fields = { status: 'Listo', notas: 'CIERRE: ' + resumen };
+  ids.forEach(function(id) {
+    google.script.run
+      .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edBulkCloseDone(ok, fail); })
+      .withFailureHandler(function(){ fail++; if (--pending === 0) _edBulkCloseDone(ok, fail); })
+      .updateTaskFields(id, fields);
+  });
+}
+
+function _edBulkCloseDone(ok, fail) {
+  _EDT_BULK_CLOSE.running = false;
+  var host = $('crHost'); if (host) host.innerHTML = '';
+  _EDT_BULK_CLOSE.ids = [];
+  if (fail === 0) toast('✅ Cerradas: ' + ok, 'success');
+  else if (ok === 0) toast('Error: no se pudo cerrar ninguna', 'error');
+  else toast('⚠ Cerradas: ' + ok + ' OK, ' + fail + ' fallaron', 'info');
+  EDT.selectedIds = [];
+  if (typeof reload === 'function') reload();
+}
+
+// Variante de _edTkBulkRunMixed que ejecuta una callback al terminar
+// (en lugar del reload por defecto). Lo usa el flujo mix de avanzar:
+// terminar de avanzar y luego abrir el wizard de cierre.
+function _edTkBulkRunMixedThen(items, field, label, onDone) {
+  if (!items.length) { if (typeof onDone === 'function') onDone(); return; }
+  var ok = 0, fail = 0, pending = items.length;
+  toast('Aplicando a ' + pending + (pending === 1 ? ' tarea' : ' tareas') + '…', 'info');
+  items.forEach(function(it) {
+    google.script.run
+      .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edBulkMixedThenDone(label, ok, fail, onDone); })
+      .withFailureHandler(function(){ fail++; if (--pending === 0) _edBulkMixedThenDone(label, ok, fail, onDone); })
+      .updateTaskField(it.id, field, it.value);
+  });
+}
+function _edBulkMixedThenDone(label, ok, fail, onDone) {
+  if (fail === 0) toast('✅ ' + label + ': ' + ok, 'success');
+  else if (ok === 0) toast('Error en el paso 1: no se pudo avanzar ninguna', 'error');
+  else toast('⚠ ' + label + ': ' + ok + ' OK, ' + fail + ' fallaron', 'info');
+  if (typeof onDone === 'function') onDone();
 }
 // Modal de bulk-reassign: picker visual en vez de window.prompt.
 // Muestra los candidates según rol: head ve todos, manager solo su país.
@@ -5680,7 +5823,7 @@ function edTkBulkReasignOpen(ids) {
     +       (sampleHtml ? '<div style="padding:10px 12px;background:var(--bg-2);border-radius:6px;margin-bottom:14px">'
     +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">Vas a reasignar</div>'
     +         sampleHtml
-    +       + '</div>' : '')
+    +       '</div>' : '')
     +       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">'
     +         '<label style="font-size:12px;color:var(--fg-2);font-weight:500">Nuevo responsable <span class="req">*</span></label>'
     +         '<span style="font-size:11px;color:var(--fg-3)">' + (role === 'manager' ? 'Equipo ' + esc(userCode || '—') : 'Roster LATAM') + ' · ' + candidates.length + ' personas</span>'
