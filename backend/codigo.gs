@@ -10,6 +10,7 @@ const SHEET_CONFIG    = 'Config';
 const SHEET_EQUIPOS   = 'Equipos';
 const SHEET_PROYECTOS = 'Proyectos';
 const SHEET_COMMENTS  = 'Comments'; // Auto-created on first use; cols: id, task_id, author_email, author_name, ts, body
+const SHEET_ACTIVITY  = 'Activity'; // Auto-created; cols: id, ts, task_id, author_email, author_name, action, field, old_value, new_value
 const SHEET_FERIADOS  = 'Feriados'; // Manual; cols: pais (CO/MX/CR/...) | fecha (YYYY-MM-DD) | nombre
 const SHEET_TEMPLATES = 'Templates'; // Optional; cols: tipoTrabajo, checklist (JSON array of strings). See sample at EOF.
 
@@ -1265,6 +1266,7 @@ function _addTaskImpl(taskObj) {
     if (lc >= 18) rowVals.push(conf); // Confidencialidad
     if (lc >= TASK_CONTRAPARTE_COL) rowVals.push(contraparte); // Contraparte
     ws.appendRow(_sanitizeRow(rowVals));
+    _logActivity(ctx, newId, 'create', '', '', taskObj.nombre || '');
     return {success:true, id:newId};
   } finally {
     lock.releaseLock();
@@ -1510,6 +1512,124 @@ function addTaskComment(taskId, body) {
     return _safeMutation(function() { return _addTaskCommentImpl(taskId, body); });
   }, { taskId: taskId });
 }
+// ── ACTIVITY LOG ────────────────────────────────────────────────
+// Auditoría mínima de cambios sobre tareas. Lo usa el panel detalle
+// como "Historial real" en lugar del sintético derivado de campos.
+// Schema: id, ts, task_id, author_email, author_name, action, field,
+// old_value, new_value. Auto-creado en primer uso. Las escrituras son
+// best-effort (try/catch) — un fail en log NO debe abortar la mutation.
+function _activitySheet(ss) {
+  var ws = ss.getSheetByName(SHEET_ACTIVITY);
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_ACTIVITY);
+    ws.getRange(1, 1, 1, 9).setValues([[
+      'id', 'ts', 'task_id', 'author_email', 'author_name',
+      'action', 'field', 'old_value', 'new_value'
+    ]]);
+    ws.getRange(1, 1, 1, 9).setFontWeight('bold');
+    ws.setFrozenRows(1);
+  }
+  return ws;
+}
+function _logActivity(ctx, taskId, action, field, oldValue, newValue) {
+  if (!taskId) return;
+  try {
+    var ws = _activitySheet(ctx.ss);
+    var lr = ws.getLastRow();
+    var newId = lr < 2 ? 1 : lr; // monotónico best-effort, no es PK crítica
+    var row = [
+      newId,
+      new Date(),
+      taskId,
+      ctx.email || '',
+      (ctx.user && ctx.user.name) || '',
+      action || 'update',
+      field || '',
+      oldValue == null ? '' : String(oldValue).substring(0, 500),
+      newValue == null ? '' : String(newValue).substring(0, 500)
+    ];
+    ws.appendRow(_sanitizeRow(row));
+  } catch (e) {
+    Logger.log('_logActivity skipped: ' + ((e && e.message) || e));
+  }
+}
+// Endpoint expuesto al frontend: devuelve activity log de una tarea
+// (validando que el user pueda verla).
+function getTaskActivity(taskId) {
+  return _telemetry('getTaskActivity', function() {
+    var ctx = _getAuthContext();
+    if (!_canUserSeeTask(ctx, taskId)) return [];
+    var ws = _activitySheet(ctx.ss);
+    var lr = ws.getLastRow();
+    if (lr < 2) return [];
+    var data = ws.getRange(2, 1, lr - 1, 9).getValues();
+    var out = [];
+    var tid = String(taskId);
+    function _toIso(v){ if(!v) return ''; return v instanceof Date ? v.toISOString() : String(v); }
+    for (var i = 0; i < data.length; i++) {
+      var r = data[i];
+      if (String(r[2]) !== tid) continue;
+      out.push({
+        id: r[0], ts: _toIso(r[1]), task_id: r[2],
+        author_email: r[3] || '', author_name: r[4] || '',
+        action: r[5] || '', field: r[6] || '',
+        old_value: r[7] || '', new_value: r[8] || ''
+      });
+    }
+    out.sort(function(a, b){ return (b.ts || '').localeCompare(a.ts || ''); }); // más reciente primero
+    return out;
+  }, { taskId: taskId });
+}
+
+// Activity relevante PARA mí: eventos sobre mis tareas (resp === user.name)
+// hechos por OTROS (excluir lo mío para no notificar al user de sus props
+// acciones). Limit 30, ordenadas más recientes primero. Usado por el badge
+// de notificaciones del avatar header.
+function getMyRecentActivity(sinceIso) {
+  return _telemetry('getMyRecentActivity', function() {
+    var ctx = _getAuthContext();
+    var myName = (ctx.user && ctx.user.name) || '';
+    var myEmail = (ctx.email || '').toLowerCase();
+    if (!myName) return [];
+    var ws = _activitySheet(ctx.ss);
+    var lr = ws.getLastRow();
+    if (lr < 2) return [];
+    var data = ws.getRange(2, 1, lr - 1, 9).getValues();
+    // Construir set de mis tasks (resp = myName) buscando en activo + historial
+    var myTaskIds = {};
+    var aWs = ctx.ss.getSheetByName(SHEET_ACTIVO);
+    if (aWs && aWs.getLastRow() >= 4) {
+      var aData = aWs.getRange(4, 1, aWs.getLastRow() - 3, 3).getValues();
+      aData.forEach(function(r){ if (r[2] === myName && r[0]) myTaskIds[String(r[0])] = 1; });
+    }
+    var hWs = ctx.ss.getSheetByName(SHEET_HISTORIAL);
+    if (hWs && hWs.getLastRow() >= 4) {
+      var hData = hWs.getRange(4, 1, hWs.getLastRow() - 3, 3).getValues();
+      hData.forEach(function(r){ if (r[2] === myName && r[0]) myTaskIds[String(r[0])] = 1; });
+    }
+    var sinceMs = sinceIso ? new Date(sinceIso).getTime() : 0;
+    if (isNaN(sinceMs)) sinceMs = 0;
+    var out = [];
+    function _toIso(v){ if(!v) return ''; return v instanceof Date ? v.toISOString() : String(v); }
+    for (var i = data.length - 1; i >= 0 && out.length < 30; i--) {
+      var r = data[i];
+      var rowEmail = (r[3] || '').toString().toLowerCase();
+      if (rowEmail === myEmail) continue; // skip mis propias acciones
+      var taskId = String(r[2]);
+      if (!myTaskIds[taskId]) continue; // skip tasks que no son mías
+      var ts = r[1] instanceof Date ? r[1].getTime() : new Date(r[1]).getTime();
+      if (sinceMs && ts <= sinceMs) break; // ordenadas desc; cuando entras al ts viejo, frenar
+      out.push({
+        id: r[0], ts: _toIso(r[1]), task_id: r[2],
+        author_email: r[3] || '', author_name: r[4] || '',
+        action: r[5] || '', field: r[6] || '',
+        old_value: r[7] || '', new_value: r[8] || ''
+      });
+    }
+    return out;
+  }, { since: !!sinceIso });
+}
+
 function _addTaskCommentImpl(taskId, body) {
   var ctx = _getAuthContext();
   var trimmed = (body || '').toString().trim();
@@ -1525,6 +1645,15 @@ function _addTaskCommentImpl(taskId, body) {
   var authorEmail = ctx.email || '';
   var authorName  = (ctx.user && ctx.user.name) || '';
   var ws = _commentsSheet(ctx.ss);
+  // Auto-promote: si el comentario lo agrega el responsable de una tarea
+  // 'Pendiente', promovemos a 'En curso'. Señal clara de que ya empezó.
+  var taskForPromote = _readTaskById(ctx.ss, taskId);
+  if (taskForPromote && taskForPromote.status === 'Pendiente' && taskForPromote.resp === authorName) {
+    try {
+      var ws_a = ctx.ss.getSheetByName(SHEET_ACTIVO);
+      ws_a.getRange(taskForPromote.row, 7).setValue('En curso');
+    } catch (e) { Logger.log('auto-promote on comment skipped: ' + ((e && e.message) || e)); }
+  }
   var lock = LockService.getScriptLock();
   try { lock.waitLock(8000); } catch (e) { throw new Error('Server busy, retry in a moment.'); }
   try {
@@ -1532,6 +1661,7 @@ function _addTaskCommentImpl(taskId, body) {
     var ts = new Date();
     var row = [newId, taskId, authorEmail, authorName, ts, trimmed];
     ws.appendRow(_sanitizeRow(row));
+    _logActivity(ctx, taskId, 'comment', 'comment', '', trimmed.substring(0, 100));
     return {
       success: true,
       comment: {
@@ -1581,6 +1711,7 @@ function _updateTaskFieldImpl(taskId, field, value) {
   // Lock para serializar la escritura de la celda. moveToHistorial tiene su propio
   // lock interno, por eso lo invocamos FUERA del bloque (el lock de Apps Script no
   // es reentrante de forma garantizada, así evitamos cualquier deadlock).
+  var oldValue = current[field] || current[fieldMap[field]] || '';
   var lock = LockService.getScriptLock();
   try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
   var movedToHistorial = false;
@@ -1593,13 +1724,30 @@ function _updateTaskFieldImpl(taskId, field, value) {
   } finally {
     lock.releaseLock();
   }
+  // Activity log (best-effort, no aborta mutation)
+  _logActivity(ctx, taskId, field === 'status' ? 'status_change' : (field === 'resp' ? 'reassign' : 'update'), field, oldValue, value);
   if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, current.row);
-    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
     return { success: true, moved: true, message: 'Tarea movida a Historial' };
   }
-  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
-  return { success: true };
+  // Auto-promote: si la tarea estaba "Pendiente" y el specialist responsable
+  // edita notas o asigna proyecto/contraparte/etc, promovemos a "En curso"
+  // automáticamente. Antes el specialist tenía que cambiar el status manual
+  // — many no lo hacían y las métricas de "En curso" arrancaban en 0.
+  // Sólo si: status no fue el field cambiado, status actual es 'Pendiente',
+  // el user es el resp de la tarea, y el field cambiado es "trabajo" no metadata.
+  var promotedToEnCurso = false;
+  if (field !== 'status' && current.status === 'Pendiente'
+      && ctx.user && ctx.user.name === current.resp
+      && (field === 'notas' || field === 'acc' || field === 'contraparte' || field === 'proyectoId' || field === 'proyecto')) {
+    try {
+      ws.getRange(current.row, 7).setValue('En curso');
+      promotedToEnCurso = true;
+    } catch(e) { Logger.log('auto-promote skipped: ' + ((e && e.message) || e)); }
+  }
+  return promotedToEnCurso
+    ? { success: true, promoted: 'En curso' }
+    : { success: true };
 }
 // Batch update: aplica varios campos en una sola llamada.
 // Si `status` es 'Listo', se aplica al final y dispara el move a Historial (los demás campos ya quedaron escritos).
@@ -2416,6 +2564,7 @@ function _closeTaskByIdImpl(taskId, slackUser) {
   }
   moveToHistorial(ctx.ss, ws, current.row);
   invalidateCache();
+  _logActivity(ctx, taskId, 'close', 'status', current.status || '', 'Listo');
   return { success: true, id: taskId, nombre: tn, message: 'Tarea #' + taskId + ' "' + tn + '" cerrada y movida a Historial' };
 }
 
@@ -2441,6 +2590,7 @@ function _blockTaskByIdImpl(taskId, reason, slackUser) {
     var prevNotes = ws.getRange(current.row, 11).getValue() || '';
     var stamp = '⛔ ' + (reason || '') + ' (' + (slackUser || '') + ', ' + new Date().toLocaleDateString('es-CO') + ')';
     ws.getRange(current.row, 11).setValue(_sanitizeCell((prevNotes ? prevNotes + ' | ' : '') + stamp));
+    _logActivity(ctx, taskId, 'block', 'status', current.status || '', 'Bloqueado · ' + (reason || ''));
     return { success: true, id: taskId, nombre: tn, message: 'Tarea bloqueada: #' + taskId + ' "' + tn + '"' };
   } finally {
     lock.releaseLock();

@@ -397,6 +397,34 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 }
 .pa-hd-avatar:hover { transform: scale(1.05); transition: transform .12s; }
 
+/* Notification badge en el avatar header */
+.pa-av-notif-dot {
+  position: absolute;
+  top: -3px; right: -3px;
+  min-width: 16px; height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--critical);
+  color: #fff;
+  font-size: 10px; font-weight: 700;
+  font-family: var(--font-mono);
+  display: grid; place-items: center;
+  border: 2px solid var(--bg-0);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  pointer-events: none;
+}
+
+/* Notification row in the activity modal */
+.ed-notif-row {
+  padding: 12px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line-1);
+}
+.ed-notif-row:hover { background: var(--bg-2); }
+.ed-notif-row:last-child { border-bottom: 0; }
+
 /* User menu dropdown (sale del avatar header) */
 .ed-user-menu {
   position: fixed;

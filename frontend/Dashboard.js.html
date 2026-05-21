@@ -3405,7 +3405,6 @@ var ED_NAV_BY_ROLE = {
   head: [
     { section: 'LATAM', items: [
       { id: 'home',    label: 'Operaciones', icon: 'home',  view: 'home' },
-      { id: 'paises',  label: 'Por país',    icon: 'globe', view: 'resumen' },
       { id: 'tracker', label: 'Tracker',     icon: 'inbox', view: 'tracker' }
     ]},
     { section: 'Personas', items: [
@@ -3608,16 +3607,19 @@ function _edTodayQuote() {
 // para Fase 2). Default 'estandar' al crear/leer.
 var ED_CONF_LEVELS = {
   estandar: {
-    label: 'Estándar',
-    short: 'Estándar',
+    label: 'Normal',
+    short: 'Normal',
     desc: 'Visible para todo el equipo legal del país.',
     cls: 'estandar'
   },
+  // Legacy: tareas guardadas con 'restringido' se renderean como
+  // 'Confidencial' (sinónimo upgrade). El backend acepta los 3 valores
+  // por compat con data existente, pero el wizard solo expone 2.
   restringido: {
-    label: 'Restringido',
-    short: 'Restringido',
+    label: 'Confidencial',
+    short: 'Conf.',
     desc: 'Visible solo para responsable, lider y manager.',
-    cls: 'restringido'
+    cls: 'confidencial'
   },
   confidencial: {
     label: 'Confidencial',
@@ -3627,7 +3629,10 @@ var ED_CONF_LEVELS = {
   }
 };
 function _confLevel(t) {
-  return (t && t.confidencialidad && ED_CONF_LEVELS[t.confidencialidad]) ? t.confidencialidad : 'estandar';
+  if (!t || !t.confidencialidad) return 'estandar';
+  var c = String(t.confidencialidad).toLowerCase();
+  if (c === 'restringido') return 'confidencial'; // upgrade legacy → confidencial
+  return ED_CONF_LEVELS[c] ? c : 'estandar';
 }
 
 function _badgeFor(itemId, role) {
@@ -4022,6 +4027,10 @@ function edUserMenuToggle(ev) {
     + '<button class="ed-user-menu-item" onclick="setLang(\'' + (LANG === 'pt' ? 'es' : 'pt') + '\')">'
     +   paIcon('globe', 14) + ' ' + (LANG === 'pt' ? 'Idioma: Português' : 'Idioma: Español') + ' <span style="margin-left:auto;color:var(--fg-3);font-size:11px">' + (LANG === 'pt' ? 'cambiar a ES' : 'mudar para PT') + '</span>'
     + '</button>'
+    + '<button class="ed-user-menu-item" onclick="edNotifOpen()">'
+    +   paIcon('bell', 14) + ' ' + esc(LANG === 'pt' ? 'Atividade recente' : 'Actividad reciente')
+    +   (_NOTIF_RECENT && _NOTIF_RECENT.length ? ' <span style="margin-left:auto;background:var(--critical);color:#fff;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9px">' + _NOTIF_RECENT.length + '</span>' : '')
+    + '</button>'
     + (canSwitch
       ? '<button class="ed-user-menu-item" onclick="edUserMenuClose();edToggleDemoDropdown(event)">'
         + paIcon('users', 14) + ' ' + esc(t('Ver app como…'))
@@ -4070,6 +4079,8 @@ function mountEdShell() {
   var head = $('edHead'); if (head) head.innerHTML = renderEdHead('home');
   // Esconder el FAB legacy: el header editorial ya tiene "+ Nueva".
   var fab = $('fabCreate'); if (fab) fab.style.display = 'none';
+  // Lazy: cargar notificaciones (activity sobre tus tareas) y renderear badge.
+  if (typeof edNotifLoad === 'function') setTimeout(edNotifLoad, 400);
   // Auto-launch del tour la primera vez (localStorage flag). 800ms delay
   // para que el render de la vista termine y el user vea el shell antes.
   try {
@@ -4854,7 +4865,7 @@ function rEdHomeSpecialist(D) {
            +    '<div style="min-width:0">'
            +      '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:13px;font-weight:500">' + esc(p.nombre || '') + '</span>'
            +        (p.pais ? ' <span class="pa-pill pa-pill-country">' + esc(p.pais) + '</span>' : '') + '</div>'
-           +      '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">Líder: ' + esc(p.lider || '—') + ' · ' + openP + ' abiertas de ' + totalP + '</div>'
+           +      '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">Líder: ' + esc(p.lider || '—') + ' · ' + openP + ' ' + esc(LANG === 'pt' ? 'ativas de ' : 'activas de ') + totalP + '</div>'
            +    '</div>'
            +    '<div style="display:flex;align-items:center;gap:8px">'
            +      '<div style="width:70px;height:4px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + pct + '%;background:' + color + '"></span></div>'
@@ -4986,20 +4997,36 @@ function rEdHomeManager(D) {
     html += '</div>';
   }
 
-  // Team at a glance
+  // Team at a glance — solo los 3 que más necesitan atención (sobrecarga,
+  // vencidas o bloqueadas). El detalle completo del equipo está en
+  // "Mi equipo" — no duplicamos la tabla acá.
+  var teamAtRisk = teamMine.slice()
+    .map(function(m){
+      var pct = (m.capacity > 0) ? ((m.load || 0) / m.capacity) : 0;
+      // Score: overdue × 3 + blocked × 2 + sobrecapacidad
+      var score = ((m.overdue || 0) * 3) + ((m.blocked || 0) * 2) + Math.max(0, pct - 1) * 2;
+      return { m: m, score: score };
+    })
+    .filter(function(x){ return x.score > 0; })
+    .sort(function(a, b){ return b.score - a.score; })
+    .slice(0, 3);
   html += '<div class="pa-section-h">'
-       +    '<h3>Tu equipo en un vistazo</h3>'
-       +    '<span class="meta">Carga, vencidas y bloqueadas</span>'
-       +    '<button class="link" onclick="goEd(\'miequipo\')">Ir a Mi equipo →</button>'
+       +    '<h3>' + esc(LANG === 'pt' ? 'Quem precisa de atenção' : 'Quién necesita atención') + '</h3>'
+       +    '<span class="meta">' + esc(LANG === 'pt' ? 'Top 3 por carga, vencidas o on hold' : 'Top 3 por carga, vencidas u on hold') + '</span>'
+       +    '<button class="link" onclick="goEd(\'miequipo\')">' + esc(LANG === 'pt' ? 'Ver equipe completa →' : 'Ver equipo completo →') + '</button>'
        + '</div>';
   if (teamMine.length === 0) {
     html += paEmpty('users', 'No hay miembros del equipo visibles.', 'Pedile a tu líder que agregue specialists en la hoja Equipos.');
+  } else if (teamAtRisk.length === 0) {
+    html += paEmpty('check', LANG === 'pt' ? 'Equipe no controle.' : 'Equipo bajo control.',
+                    LANG === 'pt' ? 'Sem sobrecargas, vencidas ou tarefas em on hold.' : 'Sin sobrecargas, vencidas ni tareas en on hold.');
   } else {
     html += '<div class="pa-tbl">'
          +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px">'
          +      '<div>Specialist</div><div>Carga</div><div>Vencidas</div><div>On hold</div><div>SLA mes</div><div></div>'
          +    '</div>';
-    teamMine.forEach(function(m) {
+    teamAtRisk.forEach(function(x) {
+      var m = x.m;
       var pct = (m.capacity > 0) ? Math.round((m.load || 0) / m.capacity * 100) : 0;
       var over = pct > 100;
       var loadColor = over ? 'var(--critical)' : pct > 85 ? 'var(--warn)' : 'var(--accent)';
@@ -5018,7 +5045,7 @@ function rEdHomeManager(D) {
            +    '<div class="mono" style="font-size:12px;color:' + ((m.overdue || 0) ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + (m.overdue || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.blocked || 0) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + (m.blocked || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + slaColorM + '">' + (slaM != null ? slaM + '%' : '—') + '</div>'
-           +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="edSetRespFilter(\'' + esc(m.name || '') + '\');goEd(\'tracker\')">Ver tareas →</button></div>'
+           +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="edSetRespFilter(\'' + esc(m.name || '') + '\');goEd(\'tracker\')">' + esc(LANG === 'pt' ? 'Ver tarefas →' : 'Ver tareas →') + '</button></div>'
            + '</div>';
     });
     html += '</div>';
@@ -5190,6 +5217,43 @@ function rEdHomeHQ(D) {
 
   // Sección "Equipo Global" antes vivía aparte. Ahora HQ es un equipo más
   // en la tabla "Por país" arriba (con label "Global"). No duplicamos.
+
+  // Proyectos en riesgo — movido acá desde la vista "Por país" (eliminada,
+  // era duplicada). Lista los proyectos con tareas vencidas, ordenados por %.
+  var riskyHq = (D && D.projects || [])
+    .filter(function(p){ return p.status !== 'Completado' && p.status !== 'Cancelado'; })
+    .map(function(p) {
+      var pTasks = ((D && D.tasks) || []).filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; });
+      var ovc = pTasks.filter(function(tk){ return (typeof taskOverdueBySLA === 'function') ? taskOverdueBySLA(tk) : false; }).length;
+      var totalP = pTasks.length;
+      return { p: p, overdue: ovc, total: totalP, pct: totalP > 0 ? (ovc / totalP) : 0 };
+    })
+    .filter(function(x){ return x.overdue > 0; })
+    .sort(function(a, b){ if (b.pct !== a.pct) return b.pct - a.pct; return b.overdue - a.overdue; })
+    .slice(0, 6);
+  if (riskyHq.length) {
+    html += '<div class="pa-section-h">'
+         +    '<h3>' + esc(LANG === 'pt' ? 'Projetos em risco' : 'Proyectos en riesgo') + '</h3>'
+         +    '<span class="meta">' + esc(LANG === 'pt' ? 'ordenados por % de vencidas' : 'ordenados por % de vencidas') + '</span>'
+         +    '<button class="link" onclick="goEd(\'proyectos\')">' + esc(LANG === 'pt' ? 'Ver todos os projetos →' : 'Ver todos los proyectos →') + '</button>'
+         + '</div>';
+    html += '<div class="pa-tbl">';
+    riskyHq.forEach(function(x) {
+      var rPais = x.p.pais || '—';
+      var rPctTxt = x.total > 0 ? Math.round(x.pct * 100) + '%' : '—';
+      var rTone = x.pct >= 0.5 ? 'pa-pill-alta' : (x.pct >= 0.25 ? 'pa-pill-media' : 'pa-pill-baja');
+      html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr 130px 80px 110px" onclick="edSetCountryFilter(\'' + esc(rPais) + '\');goEd(\'tracker\')">'
+           +    '<div class="title">'
+           +      '<span class="t">' + esc(x.p.nombre || ('Proyecto #' + x.p.id)) + '</span>'
+           +      '<span class="meta">' + esc(rPais) + (x.p.lider ? ' · ' + esc(x.p.lider.split(' ').slice(0,2).join(' ')) : '') + ' · ' + x.total + ' ' + esc(LANG === 'pt' ? 'ativas' : 'activas') + '</span>'
+           +    '</div>'
+           +    '<span class="pa-pill pa-pill-country">' + esc(paCountryLabel(rPais)) + '</span>'
+           +    '<span class="mono" style="font-size:12px;color:var(--critical-fg)">' + x.overdue + ' ' + (LANG === 'pt' ? 'venc.' : 'venc.') + '</span>'
+           +    '<span class="pa-pill ' + rTone + '"><span class="dot"></span>' + esc(rPctTxt) + '</span>'
+           + '</div>';
+    });
+    html += '</div>';
+  }
 
   // Activity feed
   var historial = ((D && D.historial) || []).slice(0, 6);
@@ -5470,10 +5534,11 @@ function edTkBulkAction(action) {
   if (action === 'avanzar') {
     // Cada tarea avanza según su status actual. Pendiente → En curso,
     // En curso → En revisión, En revisión → Listo. Los que ya están
-    // en Listo o Bloqueado se ignoran. Las que cerrarian (next='Listo')
-    // se separan: el cierre exige resumen — política unificada con el
-    // botón individual del panel. Si todas son cerrables, abrir el wizard
-    // de cerrar de la primera (no soporta bulk cerrar con resumen único).
+    // en Listo o Bloqueado se ignoran. Las que cerrarían (next='Listo')
+    // requieren resumen — abrimos un mini-wizard que aplica un único
+    // resumen a todas las cerrables. Si hay mix (avanzan + cierran),
+    // primero corremos las que avanzan y luego abrimos el wizard
+    // de cierre con las cerrables seleccionadas.
     var nextOf = { 'Pendiente': 'En curso', 'En curso': 'En revisión', 'En revisión': 'Listo' };
     var toRun = [];
     var toClose = [];
@@ -5486,23 +5551,165 @@ function edTkBulkAction(action) {
       else toRun.push({ id: id, value: next });
     });
     if (!toRun.length && !toClose.length) { toast('Ninguna de las seleccionadas puede avanzar.', 'info'); return; }
-    if (toClose.length) {
-      var msg = toClose.length === 1
-        ? 'Una tarea pasaría a <b>Listo</b>. Para cerrar pedimos un resumen breve — usá el botón individual del panel.'
-        : '<b>' + toClose.length + ' tareas</b> pasarían a <b>Listo</b>. Para cerrarlas pedimos resumen — hacelo de a una desde el panel.';
-      toast('Cerralas individualmente con resumen.', 'info');
-      // Si HAY tareas que solo avanzan (no cierran), seguir con esas.
-      if (!toRun.length) {
-        confirm_(msg, function(){ /* nothing — user closes manually */ }, { confirmLabel: 'Entendido' });
-        return;
-      }
+    // Solo cerrables → bulk-close wizard directo.
+    if (!toRun.length && toClose.length) {
+      edBulkCloseOpen(toClose);
+      return;
     }
-    confirm_('¿Avanzar ' + toRun.length + (toRun.length === 1 ? ' tarea' : ' tareas') + ' al siguiente estado?'
-           + (toClose.length ? ' (' + toClose.length + ' que cerrarían quedarán fuera — cerralas de a una)' : ''), function() {
-      _edTkBulkRunMixed(toRun, 'status', 'Avanzadas');
-    });
+    // Solo avanzables (sin cierres) → flujo original.
+    if (toRun.length && !toClose.length) {
+      confirm_('¿Avanzar ' + toRun.length + (toRun.length === 1 ? ' tarea' : ' tareas') + ' al siguiente estado?', function() {
+        _edTkBulkRunMixed(toRun, 'status', 'Avanzadas');
+      });
+      return;
+    }
+    // Mix: avanzar primero, después abrir el wizard de cierre.
+    confirm_('De las ' + ids.length + ' seleccionadas: <b>' + toRun.length + '</b> avanzan al siguiente estado y <b>' + toClose.length + '</b> se cerrarían. Vamos en dos pasos — primero avanzamos, luego pedimos un resumen para cerrar.', function() {
+      _edTkBulkRunMixedThen(toRun, 'status', 'Avanzadas', function() {
+        edBulkCloseOpen(toClose);
+      });
+    }, { confirmLabel: 'Continuar' });
     return;
   }
+}
+
+// ─── BULK CLOSE WIZARD ────────────────────────────────────────────
+// Mini-modal para cerrar varias tareas con un único resumen aplicado
+// a todas. Reusa el styling de cr-overlay/cr-modal. Política: el
+// resumen es obligatorio (igual que el cierre individual del panel).
+var _EDT_BULK_CLOSE = { ids: [], running: false };
+
+function edBulkCloseOpen(ids) {
+  if (!ids || !ids.length) return;
+  _EDT_BULK_CLOSE.ids = ids.slice();
+  _EDT_BULK_CLOSE.running = false;
+  _edBulkCloseRender();
+}
+
+function _edBulkCloseRender() {
+  var host = $('crHost'); if (!host) return;
+  var ids = _EDT_BULK_CLOSE.ids;
+  var n = ids.length;
+  // Sample de hasta 4 tareas para mostrar título y responsable.
+  var sample = [];
+  for (var i = 0; i < ids.length && i < 4; i++) {
+    var task = (D.tasks || []).find(function(x){ return String(x.id) === String(ids[i]); });
+    if (task) sample.push(task);
+  }
+  var sampleHtml = sample.map(function(tk) {
+    return '<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:3px 0">'
+         +   '<span class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(tk.id) + '</span>'
+         +   '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(tk.nombre || '') + '</span>'
+         +   '<span style="font-size:11px;color:var(--fg-3);display:flex;align-items:center;gap:4px">' + paAvatar(tk.resp || '?', 14) + ' ' + esc((tk.resp || '').split(' ')[0]) + '</span>'
+         + '</div>';
+  }).join('');
+  if (n > sample.length) {
+    sampleHtml += '<div style="font-size:11px;color:var(--fg-3);padding:4px 0">+ ' + (n - sample.length) + (n - sample.length === 1 ? ' tarea más' : ' tareas más') + '</div>';
+  }
+  host.innerHTML = ''
+    + '<div class="cr-overlay" onclick="if(event.target===this)edBulkCloseClose()">'
+    +   '<div class="cr-backdrop" onclick="edBulkCloseClose()"></div>'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Cerrar tareas" style="max-width:580px">'
+    +     '<div class="cr-head">'
+    +       '<div style="width:32px;height:32px;border-radius:8px;background:var(--good-soft, var(--accent-soft));color:var(--good-fg, var(--accent));display:grid;place-items:center;flex-shrink:0">'
+    +         '<span style="font-weight:600;font-size:14px">✓</span>'
+    +       '</div>'
+    +       '<div style="flex:1">'
+    +         '<div class="cr-title">Cerrar ' + n + (n === 1 ? ' tarea' : ' tareas') + ' como <span style="color:var(--good-fg)">Listo</span></div>'
+    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">El resumen se guarda como nota de cierre <b>en cada una</b>.</div>'
+    +       '</div>'
+    +       '<button type="button" class="cr-x" onclick="edBulkCloseClose()" aria-label="Cerrar">×</button>'
+    +     '</div>'
+    +     '<div class="cr-body">'
+    +       '<div style="padding:10px 12px;background:var(--bg-2);border-radius:6px;margin-bottom:14px">'
+    +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">Vas a cerrar</div>'
+    +         sampleHtml
+    +       '</div>'
+    +       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">'
+    +         '<label for="bulkCloseResumen" style="font-size:12px;color:var(--fg-2);font-weight:500">Resumen de cierre <span class="req">*</span></label>'
+    +         '<span style="font-size:11px;color:var(--fg-3)">Se aplica a las ' + n + '</span>'
+    +       '</div>'
+    +       '<textarea id="bulkCloseResumen" class="cr-input" rows="4" style="resize:vertical;min-height:90px" placeholder="Resumen rápido de cómo se cerraron (lo verán en el historial)."></textarea>'
+    +     '</div>'
+    +     '<div class="cr-foot">'
+    +       '<div class="cr-foot-info"><b>Al cerrar:</b> las tareas se mueven al historial · libera ' + n + (n === 1 ? ' slot' : ' slots') + ' de carga.</div>'
+    +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edBulkCloseClose()">Cancelar</button>'
+    +       '<button type="button" class="pa-btn pa-btn-primary" onclick="edBulkCloseConfirm()">' + paIcon('check', 12) + ' Cerrar ' + n + (n === 1 ? ' tarea' : ' tareas') + '</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+  setTimeout(function(){ var ta = $('bulkCloseResumen'); if (ta) ta.focus(); }, 30);
+}
+
+function edBulkCloseClose() {
+  if (_EDT_BULK_CLOSE.running) return; // no cerrar mientras corre el bulk
+  var host = $('crHost'); if (host) host.innerHTML = '';
+  _EDT_BULK_CLOSE.ids = [];
+}
+
+function edBulkCloseConfirm() {
+  var ta = $('bulkCloseResumen');
+  var resumen = ta ? String(ta.value || '').trim() : '';
+  if (!resumen) {
+    toast('Falta el resumen para cerrar.', 'error');
+    if (ta) ta.focus();
+    return;
+  }
+  if (resumen.length < 5) {
+    toast('Contanos un poco más (mín. 5 caracteres).', 'error');
+    if (ta) ta.focus();
+    return;
+  }
+  var ids = (_EDT_BULK_CLOSE.ids || []).slice();
+  if (!ids.length) { edBulkCloseClose(); return; }
+  _EDT_BULK_CLOSE.running = true;
+  var btn = document.querySelector('.cr-foot .pa-btn-primary');
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = 'Cerrando…'; }
+  _edTkBulkClose(ids, resumen);
+}
+
+function _edTkBulkClose(ids, resumen) {
+  var ok = 0, fail = 0, pending = ids.length;
+  toast('Cerrando ' + pending + (pending === 1 ? ' tarea' : ' tareas') + '…', 'info');
+  var fields = { status: 'Listo', notas: 'CIERRE: ' + resumen };
+  ids.forEach(function(id) {
+    google.script.run
+      .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edBulkCloseDone(ok, fail); })
+      .withFailureHandler(function(){ fail++; if (--pending === 0) _edBulkCloseDone(ok, fail); })
+      .updateTaskFields(id, fields);
+  });
+}
+
+function _edBulkCloseDone(ok, fail) {
+  _EDT_BULK_CLOSE.running = false;
+  var host = $('crHost'); if (host) host.innerHTML = '';
+  _EDT_BULK_CLOSE.ids = [];
+  if (fail === 0) toast('✅ Cerradas: ' + ok, 'success');
+  else if (ok === 0) toast('Error: no se pudo cerrar ninguna', 'error');
+  else toast('⚠ Cerradas: ' + ok + ' OK, ' + fail + ' fallaron', 'info');
+  EDT.selectedIds = [];
+  if (typeof reload === 'function') reload();
+}
+
+// Variante de _edTkBulkRunMixed que ejecuta una callback al terminar
+// (en lugar del reload por defecto). Lo usa el flujo mix de avanzar:
+// terminar de avanzar y luego abrir el wizard de cierre.
+function _edTkBulkRunMixedThen(items, field, label, onDone) {
+  if (!items.length) { if (typeof onDone === 'function') onDone(); return; }
+  var ok = 0, fail = 0, pending = items.length;
+  toast('Aplicando a ' + pending + (pending === 1 ? ' tarea' : ' tareas') + '…', 'info');
+  items.forEach(function(it) {
+    google.script.run
+      .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edBulkMixedThenDone(label, ok, fail, onDone); })
+      .withFailureHandler(function(){ fail++; if (--pending === 0) _edBulkMixedThenDone(label, ok, fail, onDone); })
+      .updateTaskField(it.id, field, it.value);
+  });
+}
+function _edBulkMixedThenDone(label, ok, fail, onDone) {
+  if (fail === 0) toast('✅ ' + label + ': ' + ok, 'success');
+  else if (ok === 0) toast('Error en el paso 1: no se pudo avanzar ninguna', 'error');
+  else toast('⚠ ' + label + ': ' + ok + ' OK, ' + fail + ' fallaron', 'info');
+  if (typeof onDone === 'function') onDone();
 }
 // Modal de bulk-reassign: picker visual en vez de window.prompt.
 // Muestra los candidates según rol: head ve todos, manager solo su país.
@@ -5616,7 +5823,7 @@ function edTkBulkReasignOpen(ids) {
     +       (sampleHtml ? '<div style="padding:10px 12px;background:var(--bg-2);border-radius:6px;margin-bottom:14px">'
     +         '<div style="font-size:11px;color:var(--fg-3);margin-bottom:4px">Vas a reasignar</div>'
     +         sampleHtml
-    +       + '</div>' : '')
+    +       '</div>' : '')
     +       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">'
     +         '<label style="font-size:12px;color:var(--fg-2);font-weight:500">Nuevo responsable <span class="req">*</span></label>'
     +         '<span style="font-size:11px;color:var(--fg-3)">' + (role === 'manager' ? 'Equipo ' + esc(userCode || '—') : 'Roster LATAM') + ' · ' + candidates.length + ' personas</span>'
@@ -6211,8 +6418,16 @@ function edPanelSaveField(taskId, fieldKey, value) {
             }
           }
         }
+        // Auto-promote: si el backend cambió status de 'Pendiente' a 'En curso',
+        // reflejar en local + avisar al user con un toast informativo.
+        if (res.promoted === 'En curso' && D && D.tasks) {
+          var tp = D.tasks.find(function(x){ return x.id == taskId; });
+          if (tp) tp.status = 'En curso';
+          toast(LANG === 'pt' ? 'Tarefa passou a "En curso" automaticamente' : 'Tarea pasó a "En curso" automáticamente', 'info');
+        } else {
+          toast(LANG === 'pt' ? '✅ Salvo' : '✅ Guardado', 'success');
+        }
         if (typeof rEdTracker === 'function') rEdTracker(D);
-        toast('✅ Saved', 'success');
         _edScheduleReload();
       } else {
         toast('Error: ' + ((res && res.error) || 'could not save'), 'error');
@@ -6458,6 +6673,125 @@ function edPanelDeleteComment(commentId) {
       .deleteTaskComment(commentId);
   }, { danger: true, confirmLabel: 'Eliminar' });
 }
+// Carga el audit trail real desde el backend (sheet Activity) y reemplaza
+// el timeline sintético en el panel. Si no hay registros, deja el sintético.
+function edPanelLoadActivity(taskId) {
+  if (!taskId) return;
+  google.script.run
+    .withSuccessHandler(function(items) {
+      var host = $('tkActivity'); if (!host) return;
+      if (!items || !items.length) return; // dejar el sintético tal cual
+      var html = '';
+      items.slice(0, 12).forEach(function(it) {
+        var when = _commentRelativeTime(it.ts);
+        var iconName, dot, label;
+        switch (it.action) {
+          case 'create':         iconName = 'plus';    dot = 'info'; label = LANG === 'pt' ? 'criou a tarefa' : 'creó la tarea'; break;
+          case 'comment':        iconName = 'msg';     dot = 'info'; label = LANG === 'pt' ? 'comentou' : 'comentó'; break;
+          case 'close':          iconName = 'check';   dot = 'good'; label = LANG === 'pt' ? 'fechou' : 'cerró'; break;
+          case 'block':          iconName = 'block';   dot = 'warn'; label = LANG === 'pt' ? 'pôs em on hold' : 'puso en on hold'; break;
+          case 'reassign':       iconName = 'users';   dot = 'info'; label = (LANG === 'pt' ? 'reatribuiu a ' : 'reasignó a ') + esc(it.new_value || '—'); break;
+          case 'status_change':  iconName = 'arrowR';  dot = 'info'; label = (LANG === 'pt' ? 'mudou status para ' : 'cambió estado a ') + '<b>' + esc(_statusLabel(it.new_value) || it.new_value) + '</b>'; break;
+          default:               iconName = 'doc';     dot = 'info'; label = (LANG === 'pt' ? 'atualizou ' : 'actualizó ') + esc(it.field || 'campo');
+        }
+        var author = it.author_name ? '<b>' + esc(it.author_name) + '</b> ' : '';
+        html += '<div class="tk-hist-item">'
+             +    '<span class="tk-hist-icon tone-' + dot + '">' + paIcon(iconName, 10) + '</span>'
+             +    '<div style="font-size:13px;color:var(--fg-2)">' + author + label + '</div>'
+             +    '<div class="mono" style="font-size:11px;color:var(--fg-3)">' + esc(when) + '</div>'
+             + '</div>';
+      });
+      host.innerHTML = html;
+    })
+    .withFailureHandler(function(){ /* dejar el sintético */ })
+    .getTaskActivity(taskId);
+}
+
+// ────────────────────────────────────────────────────────────────
+// NOTIFICACIONES IN-APP (badge en avatar + modal de actividad)
+// ────────────────────────────────────────────────────────────────
+// Estrategia: localStorage 'lt-activity-seen-ts' guarda el último ts
+// que el user vio. Al cargar la app, fetch activity desde ese ts. Si
+// hay >0, mostrar badge rojo con count en el avatar header. Click →
+// modal con la lista. Marcar como vistas al cerrar el modal.
+var ACTIVITY_SEEN_KEY = 'lt-activity-seen-ts';
+var _NOTIF_RECENT = [];
+function _activitySeenTs() {
+  try { return localStorage.getItem(ACTIVITY_SEEN_KEY) || ''; }
+  catch(e) { return ''; }
+}
+function _markActivitySeen() {
+  try { localStorage.setItem(ACTIVITY_SEEN_KEY, new Date().toISOString()); } catch(e){}
+}
+function edNotifLoad() {
+  google.script.run
+    .withSuccessHandler(function(items) {
+      _NOTIF_RECENT = items || [];
+      edNotifRenderBadge();
+    })
+    .withFailureHandler(function(){ /* silent */ })
+    .getMyRecentActivity(_activitySeenTs());
+}
+function edNotifRenderBadge() {
+  var btn = document.querySelector('.pa-hd-avatar'); if (!btn) return;
+  var dot = document.getElementById('paAvNotifDot');
+  if (dot) dot.remove();
+  if (!_NOTIF_RECENT.length) return;
+  var d = document.createElement('span');
+  d.id = 'paAvNotifDot';
+  d.className = 'pa-av-notif-dot';
+  d.textContent = _NOTIF_RECENT.length > 9 ? '9+' : String(_NOTIF_RECENT.length);
+  // ubicar relativo al avatar — abs positioning vía CSS
+  btn.style.position = 'relative';
+  btn.appendChild(d);
+}
+function edNotifOpen() {
+  edUserMenuClose();
+  var items = _NOTIF_RECENT || [];
+  var ov = document.createElement('div');
+  ov.className = 'cr-overlay';
+  ov.id = 'edNotifOv';
+  ov.onclick = function(e){ if (e.target === ov) edNotifClose(); };
+  var rows = '';
+  if (!items.length) {
+    rows = '<div style="padding:32px 20px;text-align:center;color:var(--fg-3);font-size:13px">'
+         + esc(LANG === 'pt' ? 'Sem notificações novas.' : 'Sin notificaciones nuevas.')
+         + '</div>';
+  } else {
+    items.forEach(function(it) {
+      var when = _commentRelativeTime(it.ts);
+      var actLabel;
+      switch (it.action) {
+        case 'comment':       actLabel = LANG === 'pt' ? 'comentou em' : 'comentó en'; break;
+        case 'close':         actLabel = LANG === 'pt' ? 'fechou' : 'cerró'; break;
+        case 'block':         actLabel = LANG === 'pt' ? 'pôs em on hold' : 'puso en on hold'; break;
+        case 'reassign':      actLabel = (LANG === 'pt' ? 'reatribuiu a você' : 'te asignó'); break;
+        case 'status_change': actLabel = (LANG === 'pt' ? 'mudou status de' : 'cambió estado de'); break;
+        default:              actLabel = (LANG === 'pt' ? 'atualizou' : 'actualizó');
+      }
+      rows += '<div class="ed-notif-row" onclick="edNotifClose();edGoTaskInTracker(\'' + esc(it.task_id) + '\')">'
+           +    '<div style="font-size:13px;color:var(--fg-1)">'
+           +      '<b>' + esc(it.author_name || '—') + '</b> ' + esc(actLabel) + ' <b>#' + esc(it.task_id) + '</b>'
+           +    '</div>'
+           +    '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">' + esc(when) + '</div>'
+           + '</div>';
+    });
+  }
+  ov.innerHTML = '<div class="cr-modal" style="max-width:520px;max-height:80vh;display:flex;flex-direction:column">'
+              +    '<div class="cr-head"><div><div class="cr-eye">— ' + esc(LANG === 'pt' ? 'Atividade' : 'Actividad') + '</div>'
+              +    '<div class="cr-title">' + esc(LANG === 'pt' ? 'Novidades em suas tarefas' : 'Novedades en tus tareas') + '</div></div>'
+              +    '<button class="cr-x" onclick="edNotifClose()" aria-label="Cerrar">×</button></div>'
+              +    '<div style="flex:1;overflow-y:auto;padding:8px 14px 14px">' + rows + '</div>'
+              + '</div>';
+  document.body.appendChild(ov);
+  _markActivitySeen();
+  // Limpiar count del badge tras 1s (UX: el user lo ve un momento más)
+  setTimeout(function(){ _NOTIF_RECENT = []; edNotifRenderBadge(); }, 1000);
+}
+function edNotifClose() {
+  var ov = document.getElementById('edNotifOv'); if (ov) ov.remove();
+}
+
 function _commentRelativeTime(iso) {
   if (!iso) return '';
   var ms = new Date(iso).getTime();
@@ -6912,6 +7246,12 @@ function rEdTracker(D) {
     var commentTaskId = commentsHost.closest('[data-task-id]');
     if (commentTaskId) edPanelLoadComments(commentTaskId.getAttribute('data-task-id'));
   }
+  // Lazy-load activity log (audit trail real). Reemplaza el timeline sintético.
+  var activityHost = v.querySelector('#tkActivity');
+  if (activityHost) {
+    var actTaskId = activityHost.getAttribute('data-task-id');
+    if (actTaskId) edPanelLoadActivity(actTaskId);
+  }
   // Hover preview: tooltip compacto tras 400ms de hover sobre una fila.
   v.querySelectorAll('.pa-tbl-r[data-task-id]').forEach(_edTkAttachPreview);
   if (EDT.lastViewedId) {
@@ -7030,13 +7370,12 @@ function _renderTkPanel(sel) {
             : '<textarea class="tk-notes" data-task-id="' + esc(sel.id) + '" placeholder="Sin notas…" oninput="edPanelAutosizeNotes(this)" onblur="edPanelSaveNotes(this)" style="width:100%;border:1px solid var(--line-1);background:var(--bg-1);color:var(--fg-1);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>')
        + '</div>';
 
-  // Historial
-  if (tlHtml) {
-    html += '<div class="tk-section">'
-         +    '<div class="tk-section-h">Historial</div>'
-         +    '<div class="tk-history">' + tlHtml + '</div>'
-         + '</div>';
-  }
+  // Historial — el sintético se muestra primero, luego lazy-load reemplaza
+  // con activity log real (audit trail desde sheet Activity).
+  html += '<div class="tk-section">'
+       +    '<div class="tk-section-h">' + esc(LANG === 'pt' ? 'Histórico' : 'Historial') + '</div>'
+       +    '<div class="tk-history" id="tkActivity" data-task-id="' + esc(sel.id) + '">' + tlHtml + '</div>'
+       + '</div>';
   html += '</div>'; // tk-panel-main
 
   // Right rail con tabs funcionales (Comentarios / Documentos)
@@ -7680,7 +8019,10 @@ var EDC = {
 
 var _CR_TIPOS  = ['Contractual', 'Regulatorio', 'Contencioso', 'Privacy', 'Operativo'];
 var _CR_PRIOS  = ['Alta', 'Media', 'Baja'];
-var _CR_RIESGOS = ['Legal alto', 'Reputacional', 'Operativo'];
+// Riesgo simplificado: "Legal alto" → "Legal" (lo de "alto" era redundante
+// con prioridad Alta), "Operativo" → "Negocio" (evita solape con tipoTrabajo
+// "Operativo"). Backend acepta valores legacy por compat.
+var _CR_RIESGOS = ['Legal', 'Reputacional', 'Negocio'];
 // Fallback solo si D.equipos llega vacío (no debería pasar). Sincronizado
 // con todos los países activos del sheet Equipos al 2026-05.
 var _CR_PAIS_FALLBACK = ['CO', 'MX', 'BR', 'AR', 'CL', 'PE', 'CR', 'UY', 'EC'];
@@ -7761,9 +8103,13 @@ function _crConfMod(val) {
   if (val === 'confidencial') return 'cf-confidencial';
   return '';
 }
+// Confidencialidad: reducido de 3 a 2 niveles ("Restringido" era
+// indistinguible de "Confidencial" para el specialist según feedback).
+// El backend acepta los 3 valores por compat con data existente, pero
+// el wizard solo expone Normal/Confidencial. Tareas con valor legacy
+// 'restringido' se renderean como 'Confidencial' (display layer).
 var _CR_CONF_OPTS = [
-  { value: 'estandar', label: 'Estándar' },
-  { value: 'restringido', label: 'Restringido' },
+  { value: 'estandar', label: 'Normal' },
   { value: 'confidencial', label: 'Confidencial' }
 ];
 
@@ -8673,29 +9019,8 @@ function rEdMisTareas(D) {
     html += '<div class="pa-narrative">' + lede + '</div>';
   }
 
-  // KPIs
-  html += '<div class="pa-kpis">'
-       +    '<div class="pa-kpi" onclick="goEd(\'agrupadas\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Total activas</div>'
-       +      '<div class="val">' + total + '</div>'
-       +      '<div class="delta">en tu agenda</div>'
-       +    '</div>'
-       +    '<div class="pa-kpi ' + (overdue ? 'is-critical' : '') + '" onclick="edSetFilter(\'overdue\');goEd(\'tracker\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas</div>'
-       +      '<div class="val">' + overdue + '</div>'
-       +      '<div class="delta">' + (overdue ? 'resolver primero' : 'al día') + '</div>'
-       +    '</div>'
-       +    '<div class="pa-kpi ' + (dueToday ? 'is-warn' : '') + '" onclick="edSetFilter(\'today\');goEd(\'tracker\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> Vencen hoy</div>'
-       +      '<div class="val">' + dueToday + '</div>'
-       +      '<div class="delta">' + (dueToday ? 'cerrar hoy' : 'día limpio') + '</div>'
-       +    '</div>'
-       +    '<div class="pa-kpi ' + (blocked ? 'is-critical' : '') + '" onclick="edSetFilter(\'blocked\');goEd(\'tracker\')">'
-       +      '<div class="lab"><span class="dot" style="background:var(--fg-3)"></span> On hold</div>'
-       +      '<div class="val">' + blocked + '</div>'
-       +      '<div class="delta">' + (blocked ? 'necesitan empuje' : '—') + '</div>'
-       +    '</div>'
-       + '</div>';
+  // KPIs eliminados — Inicio ya los muestra. "Mis tareas" se enfoca en la
+  // LISTA densa de tus tareas activas, no en duplicar las stats del Home.
 
   // PERFORMANCE
   var me = (D && D.team || []).find(function(m){ return m.name === name; }) || {};
