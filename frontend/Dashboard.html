@@ -299,7 +299,7 @@
 </div>
 <!-- ═══ CREAR MODAL (tarea o proyecto) ═══ -->
 <div class="modal-overlay" id="createOv" onclick="if(event.target===this)closeCreate()">
-<div class="modal modal-wide">
+<div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="createT-title">
 <div class="modal-header">
   <h2 id="createT">Crear</h2>
   <button class="modal-close" onclick="closeCreate()" aria-label="Cerrar">✕</button>
@@ -371,9 +371,9 @@
 </div><!-- /.app -->
 
 <!-- EDIT MODAL -->
-<div class="modal-overlay" id="editOv" onclick="if(event.target===this)closeEdit()"><div class="modal"><div class="modal-header"><h2 id="editT">Editar</h2><button class="modal-close" onclick="closeEdit()" aria-label="Cerrar">✕</button></div><div class="modal-body" id="editB"></div><div class="modal-footer"><button class="btn-secondary" onclick="closeEdit()">Cancelar</button><button class="btn-submit btn-sm" id="editSaveBtn" onclick="saveEdit()">Guardar</button></div></div></div>
+<div class="modal-overlay" id="editOv" onclick="if(event.target===this)closeEdit()"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="editT"><div class="modal-header"><h2 id="editT">Editar</h2><button class="modal-close" onclick="closeEdit()" aria-label="Cerrar">✕</button></div><div class="modal-body" id="editB"></div><div class="modal-footer"><button class="btn-secondary" onclick="closeEdit()">Cancelar</button><button class="btn-submit" id="editSaveBtn" onclick="saveEdit()">Guardar</button></div></div></div>
 <!-- CONFIRM -->
-<div class="modal-overlay" id="confOv" onclick="if(event.target===this)closeCf()"><div class="modal" style="max-width:420px"><div class="modal-header"><h2>Confirmar</h2><button class="modal-close" onclick="closeCf()" aria-label="Cerrar">✕</button></div><div class="modal-body"><p id="confTxt" style="font-size:14px;color:var(--fg-2);line-height:1.55;margin:0"></p></div><div class="modal-footer"><button class="btn-secondary" onclick="closeCf()">Cancelar</button><button class="btn-submit btn-sm" id="confBtn">Confirmar</button></div></div></div>
+<div class="modal-overlay" id="confOv" onclick="if(event.target===this)closeCf()"><div class="modal" style="max-width:420px" role="alertdialog" aria-modal="true" aria-labelledby="confTxt"><div class="modal-header"><h2>Confirmar</h2><button class="modal-close" onclick="closeCf()" aria-label="Cerrar">✕</button></div><div class="modal-body"><p id="confTxt" style="font-size:14px;color:var(--fg-2);line-height:1.55;margin:0"></p></div><div class="modal-footer"><button class="btn-secondary" onclick="closeCf()">Cancelar</button><button class="btn-submit" id="confBtn">Confirmar</button></div></div></div>
 <div class="dd-overlay" id="ddO" onclick="closeDD()"></div><div class="dd-menu" id="ddM"></div>
 <!-- EDITORIAL ACTUALIZAR · panel deslizable (avanzar/cerrar/bloquear) -->
 <div id="uaHost"></div>

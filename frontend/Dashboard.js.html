@@ -1325,7 +1325,7 @@ function openEditProj(id) {
     + '<div class="form-3col" style="margin-bottom:14px">'
     +   '<div class="form-group"><label>País</label><select id="epPais">' + paisOpts + '</select></div>'
     +   '<div class="form-group"><label>Prioridad</label><select id="epPrio">' + prioOpts + '</select></div>'
-    +   '<div class="form-group"><label>Deadline</label>'
+    +   '<div class="form-group"><label>Plazo</label>'
     +     '<input type="' + (p.deadlineISO ? 'date' : 'text') + '" id="epDl" value="' + esc(p.deadlineISO || p.deadline || '') + '"></div>'
     + '</div>'
     + '<div class="form-3col" style="margin-bottom:14px">'
@@ -1389,7 +1389,7 @@ function saveEditTask() {
   // antes del confirm para no apilar dos overlays.
   if (fields.status === 'Listo') {
     closeEdit();
-    confirm_('¿Marcar como Listo? La tarea se moverá al Historial.', function(){ batchU(id, fields); });
+    confirm_('¿Marcar como Listo? La tarea se moverá a tus <b>Cerradas</b>.', function(){ batchU(id, fields); });
     return;
   }
   _setSaving(true);
@@ -3026,7 +3026,7 @@ function paEtaText(etaDays, deadline) {
   if (etaDays < 0) return 'Vencida hace ' + Math.abs(etaDays) + 'd';
   if (etaDays === 0) return 'Hoy';
   if (etaDays === 1) return 'Mañana';
-  return '+' + etaDays + ' d';
+  return '+' + etaDays + 'd';
 }
 
 // Empty state homogéneo: icono + frase principal + hint opcional. Usar en
@@ -3449,7 +3449,7 @@ function renderEdHead(viewId) {
     + '<button class="ed-burger" type="button" aria-label="Menú" onclick="edToggleSidebar()">&#9776;</button>'
     + '<div class="pa-hd-crumbs">' + _edCrumbs(viewId) + '</div>'
     + '<div class="pa-hd-search">'
-    +   '<div class="pa-search" role="button" tabindex="0" onclick="edSearchOpen()">'
+    +   '<div class="pa-search" role="button" tabindex="0" aria-label="Búsqueda global" onclick="edSearchOpen()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();edSearchOpen();}">'
     +     paIcon('search', 13)
     +     '<span class="ph">Buscar tarea, proyecto, persona…</span>'
     +     '<span class="kbd">' + _modKey() + 'K</span>'
@@ -3779,7 +3779,7 @@ function _edSearchEnsureMounted() {
   ov.id = 'edSearchOv';
   ov.onclick = function(e) { if (e.target === ov) edSearchClose(); };
   ov.innerHTML =
-      '<div class="ed-search-modal" role="dialog" aria-label="Búsqueda global">'
+      '<div class="ed-search-modal" role="dialog" aria-modal="true" aria-label="Búsqueda global">'
     +   '<div class="ed-search-head">'
     +     '<input type="text" class="ed-search-input" id="edSearchInput" placeholder="Buscar tareas, proyectos, personas…" autocomplete="off" spellcheck="false">'
     +     '<button type="button" class="ed-search-close" onclick="edSearchClose()" aria-label="Cerrar">×</button>'
@@ -4902,11 +4902,10 @@ function rEdHomeHQ(D) {
 var EDT = { filter: 'all', search: '', selectedId: null, country: null, selectedIds: [], skipCountriesView: false };
 
 function _etaTextFromDays(d) {
+  // Wrapper para no duplicar lógica con paEtaText. Antes retornaba strings
+  // distintos ("venció hace 1d" / "Vencida hace 1d") en mismo concepto.
   if (typeof d !== 'number') return '';
-  if (d < 0)  return 'venció hace ' + Math.abs(d) + 'd';
-  if (d === 0) return 'vence HOY';
-  if (d === 1) return 'mañana';
-  return 'en ' + d + 'd';
+  return paEtaText(d);
 }
 
 function _edFilterByRole(tasks, role, userName, userCode) {
@@ -5144,19 +5143,37 @@ function edTkBulkAction(action) {
   }
   if (action === 'avanzar') {
     // Cada tarea avanza según su status actual. Pendiente → En curso,
-    // En curso → En revisión, En revisión → Listo (cierra). Los que ya
-    // están en Listo o Bloqueado se ignoran.
+    // En curso → En revisión, En revisión → Listo. Los que ya están
+    // en Listo o Bloqueado se ignoran. Las que cerrarian (next='Listo')
+    // se separan: el cierre exige resumen — política unificada con el
+    // botón individual del panel. Si todas son cerrables, abrir el wizard
+    // de cerrar de la primera (no soporta bulk cerrar con resumen único).
     var nextOf = { 'Pendiente': 'En curso', 'En curso': 'En revisión', 'En revisión': 'Listo' };
     var toRun = [];
+    var toClose = [];
     ids.forEach(function(id) {
       var task = (D.tasks || []).find(function(t){ return t.id == id; });
       if (!task) return;
       var next = nextOf[task.status];
-      if (next) toRun.push({ id: id, value: next });
+      if (!next) return;
+      if (next === 'Listo') toClose.push(id);
+      else toRun.push({ id: id, value: next });
     });
-    if (!toRun.length) { toast('Ninguna de las seleccionadas puede avanzar.', 'info'); return; }
-    confirm_('¿Avanzar ' + toRun.length + (toRun.length === 1 ? ' tarea' : ' tareas') + ' al siguiente estado?', function() {
-      _edTkBulkRunMixed(toRun, 'status', 'Advanced');
+    if (!toRun.length && !toClose.length) { toast('Ninguna de las seleccionadas puede avanzar.', 'info'); return; }
+    if (toClose.length) {
+      var msg = toClose.length === 1
+        ? 'Una tarea pasaría a <b>Listo</b>. Para cerrar pedimos un resumen breve — usá el botón individual del panel.'
+        : '<b>' + toClose.length + ' tareas</b> pasarían a <b>Listo</b>. Para cerrarlas pedimos resumen — hacelo de a una desde el panel.';
+      toast('Cerralas individualmente con resumen.', 'info');
+      // Si HAY tareas que solo avanzan (no cierran), seguir con esas.
+      if (!toRun.length) {
+        confirm_(msg, function(){ /* nothing — user closes manually */ }, { confirmLabel: 'Entendido' });
+        return;
+      }
+    }
+    confirm_('¿Avanzar ' + toRun.length + (toRun.length === 1 ? ' tarea' : ' tareas') + ' al siguiente estado?'
+           + (toClose.length ? ' (' + toClose.length + ' que cerrarían quedarán fuera — cerralas de a una)' : ''), function() {
+      _edTkBulkRunMixed(toRun, 'status', 'Avanzadas');
     });
     return;
   }
@@ -5299,8 +5316,12 @@ function edTkBulkReasignConfirm() {
   var newResp = _EDT_BULK_REASSIGN_SELECTED;
   if (!newResp) { toast('Primero elegí un responsable.', 'error'); return; }
   var ids = EDT._pendingReassignIds || [];
-  edTkBulkReasignClose();
-  if (!ids.length) return;
+  if (!ids.length) { edTkBulkReasignClose(); return; }
+  // No cerramos el modal antes del network — mostramos loading state en el CTA
+  // y cerramos al final del bulk (_edTkBulkDone llama edTkBulkReasignClose).
+  var btn = document.querySelector('#bulkReasignOv .pa-btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Reasignando…'; }
+  _EDT_BULK_REASSIGN_RUNNING = true;
   _edTkBulkRun(ids, 'resp', newResp, 'Reasignadas');
 }
 
@@ -8021,8 +8042,17 @@ function _piRenderDetail(p, D) {
   var segBlk  = segPct(byStatus['Bloqueado']);
   var segLis  = segPct(byStatus['Listo']);
 
+  // Manager+head pueden editar proyecto. Specialist no (botón oculto).
+  var piRole = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var piCanEdit = (piRole === 'manager' || piRole === 'head');
   var html = ''
-    + '<button class="ed-btn pi-detail-back" onclick="edPiClose()">← Volver a proyectos</button>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">'
+    +   '<button class="ed-btn pi-detail-back" style="margin:0" onclick="edPiClose()">← Volver a proyectos</button>'
+    +   '<div style="margin-left:auto;display:flex;gap:6px">'
+    +     '<button class="pa-btn pa-btn-outline" onclick="edCrearOpen();setTimeout(function(){var s=$(\'crProj\');if(s){s.value=\'' + esc(String(p.id)) + '\';edCrearSetField(\'proyectoId\',\'' + esc(String(p.id)) + '\');}},100)">' + paIcon('plus', 12) + ' Nueva tarea en proyecto</button>'
+    +     (piCanEdit ? '<button class="pa-btn pa-btn-outline" onclick="openEditProj(\'' + esc(String(p.id)) + '\')">' + paIcon('save', 12) + ' Editar proyecto</button>' : '')
+    +   '</div>'
+    + '</div>'
     + '<div class="pi-detail-head">'
     +   '<h1 class="pi-detail-name">' + esc(p.nombre || '') + '</h1>'
     +   '<div class="pi-detail-pills">'
@@ -8765,10 +8795,13 @@ function rEdMiequipo(D) {
 
 // Click en row de equipo: por ahora un toast suave. El detalle de
 // persona aún no está implementado; cuando exista, esto navega.
+// Click en row de equipo: filtra el tracker por esa persona. Antes era un
+// stub con toast "próximamente"; el tour del manager promete que el "Ver
+// tareas →" lleva al tracker filtrado por persona.
 function _miqOpenPerson(name) {
-  if (typeof toast === 'function') {
-    toast('Detalle de ' + (name || 'persona') + ' próximamente', 'info');
-  }
+  if (!name) return;
+  if (typeof edSetRespFilter === 'function') edSetRespFilter(name);
+  if (typeof goEd === 'function') goEd('tracker');
 }
 
 // MARKER:EDITORIAL_MIEQUIPO_END
@@ -9577,7 +9610,8 @@ var EDCP = {
     tipoTrabajo: '',
     riesgo: '',
     lider: '',
-    deadline: ''
+    deadline: '',
+    participantes: '' // CSV de nombres seleccionados (multi-select)
   }
 };
 
@@ -9643,6 +9677,21 @@ function _crpRenderStep1() {
 function _crpRenderStep2() {
   var v = EDCP.values;
   var lideres = _crpLideres(v.pais).map(function(n){ return { value: n, label: n }; });
+  var hasPais = !!v.pais;
+  // Lista de miembros del país: si no hay país seleccionado, vacío.
+  // El user selecciona participantes con checkboxes (multi-select); el state
+  // se persiste en v.participantes como CSV.
+  var allMembers = _crpLideres(v.pais);
+  // Agregar también miembros del país (no solo líderes) — los líderes son
+  // subset de members. _crpLideres filtra equipos.code === pais y trae
+  // leader + members.
+  var partList = (v.participantes || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  var partChips = allMembers.map(function(name) {
+    var on = partList.indexOf(name) >= 0;
+    return '<button type="button" class="cr-pill-btn' + (on ? ' active' : '') + '" '
+         + 'onclick="edCrearProyectoToggleParticipante(\'' + escJs(name) + '\')">'
+         + esc(name) + '</button>';
+  }).join('');
   return ''
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
@@ -9657,14 +9706,34 @@ function _crpRenderStep2() {
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
     +     '<div class="cr-label">Líder <span class="req">*</span></div>'
-    +     _crSelectHtml('crpLider', lideres, v.lider, lideres.length ? 'Seleccionar…' : 'Elegí un país en el paso 1').replace('<select id="crpLider"', '<select id="crpLider" onchange="edCrearProyectoSetField(\'lider\', this.value)"')
+    +     (hasPais
+        ? _crSelectHtml('crpLider', lideres, v.lider, 'Seleccionar…').replace('<select id="crpLider"', '<select id="crpLider" onchange="edCrearProyectoSetField(\'lider\', this.value)"')
+        : '<select class="cr-input" disabled><option>Elegí un país en el paso 1</option></select>')
     +   '</div>'
     +   '<div class="cr-field">'
     +     '<div class="cr-label">Plazo <span class="req">*</span></div>'
     +     '<input type="date" class="cr-input" id="crpDeadline" value="' + esc(v.deadline) + '" '
+    +       'min="' + esc((D && D.today) || '') + '" '
     +       'onchange="edCrearProyectoSetField(\'deadline\', this.value)">'
     +   '</div>'
+    + '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Participantes <span style="font-weight:400;color:var(--fg-3);font-size:11px;margin-left:4px">' + (hasPais ? 'Click para incluir/excluir' : 'Elegí un país en el paso 1') + '</span></div>'
+    +   (hasPais && allMembers.length
+        ? '<div class="cr-pills-row">' + partChips + '</div>'
+        : '<div style="font-size:12px;color:var(--fg-3);padding:6px 0">' + (hasPais ? 'No hay miembros del país en el sheet Equipos.' : '—') + '</div>')
     + '</div>';
+}
+
+// Toggle un participante en la lista CSV. Se llama desde cada chip.
+function edCrearProyectoToggleParticipante(name) {
+  if (!EDCP || !EDCP.values) return;
+  var arr = (EDCP.values.participantes || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  var idx = arr.indexOf(name);
+  if (idx >= 0) arr.splice(idx, 1);
+  else arr.push(name);
+  EDCP.values.participantes = arr.join(', ');
+  _crpMount();
 }
 
 function _crpRenderStep3() {
@@ -9843,7 +9912,7 @@ function edCrearProyectoSubmit() {
       if (typeof hideLoader === 'function') hideLoader();
       if (btn) btn.disabled = false;
       if (res && res.success) {
-        toast('Project #' + res.id + ' created', 'success');
+        toast('✅ Proyecto #' + res.id + ' creado', 'success');
         try { localStorage.removeItem('lt-edcp-draft'); } catch(e){}
         edCrearProyectoClose();
         if (typeof reload === 'function') reload();
@@ -9868,7 +9937,7 @@ function edCrearProyectoSubmit() {
       deadline: v.deadline || '',
       status: 'Activo',
       notas: '',
-      participantes: ''
+      participantes: (v.participantes || '').trim()
     });
 }
 
