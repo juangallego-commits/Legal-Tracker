@@ -47,6 +47,18 @@
   --info:     #3a7ec2;     --info-soft:     rgba(58,126,194,0.10);   --info-fg:     #2c69a8;
   --dim:      #707179;     --dim-soft:      rgba(112,113,121,0.10);  --dim-fg:      #45464d;
 
+  /* Toast crítico (consumido por el JS para banners de error) */
+  --toast-bg: var(--bg-1);
+  --toast-fg: var(--fg-1);
+  --toast-border: var(--critical);
+
+  /* Semánticos por familia (pills .pa-pill-tipo) */
+  --semantic-regulatorio: #7c5cd9;
+  --semantic-contractual: var(--accent);
+  --semantic-privacy:     var(--info);
+  --semantic-contencioso: var(--critical);
+  --semantic-operativo:   var(--dim);
+
   /* Confidentiality */
   --conf-estandar: #9a9ba2;
   --conf-restringido: #c98a2e;
@@ -93,7 +105,7 @@
   --fg-1: #f4f4f5;
   --fg-2: #c0c0c6;
   --fg-3: #8a8a92;
-  --fg-4: #888892;  /* WCAG AA en bg-1 (#16161a) ≈ 4.6:1 — antes #5e5e66 era 3.0:1 */
+  --fg-4: #9a9aa3;  /* WCAG AA en bg-1 (#16161a) ≈ 5.2:1 — antes #888892 era 4.6:1 */
 
   /* En dark mode el sidebar SÍ es oscuro → texto claro */
   --fg-on-dark-1: #f4f4f5;
@@ -112,6 +124,18 @@
   --good:     #5cba85;     --good-soft:     rgba(92,186,133,0.14);     --good-fg:     #7ad19c;
   --info:     #6aa6e0;     --info-soft:     rgba(106,166,224,0.14);    --info-fg:     #8cbcec;
   --dim:      #8a8a92;     --dim-soft:      rgba(138,138,146,0.14);    --dim-fg:      #c0c0c6;
+
+  /* Toast crítico — overrides para dark */
+  --toast-bg: var(--bg-1);
+  --toast-fg: var(--fg-1);
+  --toast-border: var(--critical);
+
+  /* Semánticos por familia (pills .pa-pill-tipo) — dark */
+  --semantic-regulatorio: #9b82e8;
+  --semantic-contractual: var(--accent);
+  --semantic-privacy:     var(--info);
+  --semantic-contencioso: var(--critical);
+  --semantic-operativo:   var(--dim);
 
   --conf-estandar: #6a6a72;
   --conf-restringido: #e3a44b;
@@ -835,7 +859,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 .pa-kpi .lab { font-size: 12px; color: var(--fg-3); display: flex; align-items: center; gap: 6px; }
 .pa-kpi .lab .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .pa-kpi .val {
-  font-size: 32px; font-weight: 650;
+  font-size: 32px; font-weight: 600;
   letter-spacing: -0.025em; line-height: 1.05;
   margin-top: 8px;
   font-family: var(--font-mono);
@@ -846,6 +870,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   font-size: 11px; color: var(--fg-3);
   margin-top: 6px;
   display: inline-flex; align-items: center; gap: 4px;
+  line-height: 1.3; min-height: 20px;
 }
 /* Delta arrows with background pill: more glance-able than raw colored text */
 .pa-kpi .delta.up,
@@ -903,15 +928,16 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 }
 .pa-pill-baja .dot { background: var(--good); }
 
-.pa-pill-state-pendiente   { background: var(--bg-3); color: var(--fg-2); }
+/* Border-left + color = doble canal de información (accesibilidad daltonismo). */
+.pa-pill-state-pendiente   { background: var(--bg-3); color: var(--fg-2); border-left: 3px solid var(--info); }
 .pa-pill-state-pendiente .dot { background: var(--fg-3); }
-.pa-pill-state-curso       { background: var(--info-soft); color: var(--info-fg); }
+.pa-pill-state-curso       { background: var(--info-soft); color: var(--info-fg); border-left: 3px solid var(--accent); }
 .pa-pill-state-curso .dot  { background: var(--info); }
-.pa-pill-state-revision    { background: var(--accent-soft); color: var(--accent); }
+.pa-pill-state-revision    { background: var(--accent-soft); color: var(--accent); border-left: 3px solid var(--warn); }
 .pa-pill-state-revision .dot { background: var(--accent); }
-.pa-pill-state-listo       { background: var(--good-soft); color: var(--good-fg); }
+.pa-pill-state-listo       { background: var(--good-soft); color: var(--good-fg); border-left: 3px solid var(--good); }
 .pa-pill-state-listo .dot  { background: var(--good); }
-.pa-pill-state-bloqueado   { background: var(--critical-soft); color: var(--critical-fg); }
+.pa-pill-state-bloqueado   { background: var(--critical-soft); color: var(--critical-fg); border-left: 3px solid var(--critical); }
 .pa-pill-state-bloqueado .dot { background: var(--critical); }
 .pa-pill-state-cancelado   { background: var(--bg-2); color: var(--fg-3); }
 .pa-pill-state-cancelado .dot { background: var(--fg-4); }
@@ -921,7 +947,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
    especialidad. La familia se aplica con un suffix data-attr o class hint. */
 .pa-pill-tipo.tipo-Contractual { background: var(--accent-soft); color: var(--accent); }
 .pa-pill-tipo.tipo-Privacy { background: var(--info-soft); color: var(--info-fg); }
-.pa-pill-tipo.tipo-Regulatorio { background: color-mix(in oklab, #7c5cd9 14%, transparent); color: color-mix(in oklab, #7c5cd9 80%, var(--fg-1)); }
+.pa-pill-tipo.tipo-Regulatorio { background: color-mix(in oklab, var(--semantic-regulatorio) 14%, transparent); color: color-mix(in oklab, var(--semantic-regulatorio) 80%, var(--fg-1)); }
 .pa-pill-tipo.tipo-Contencioso { background: var(--critical-soft); color: var(--critical-fg); }
 .pa-pill-tipo.tipo-Operativo { background: var(--dim-soft); color: var(--dim-fg); }
 .pa-pill-country { background: var(--bg-2); color: var(--fg-2); font-family: var(--font-mono); font-size: 10px; padding: 0 6px; }
@@ -950,6 +976,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   border: 1px solid var(--line-1);
   border-radius: var(--r-3);
   overflow: hidden;
+}
+/* Wrapper para scroll horizontal en mobile/tablet sin romper el grid denso. */
+.pa-tbl-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 8px;
+}
+.pa-tbl-wrap > .pa-tbl {
+  min-width: 720px;
 }
 .pa-tbl-h {
   display: grid;
@@ -2932,4 +2967,47 @@ table tr:hover td { background: var(--bg-2); }
 
 /* Loader bar default-shown durante data fetch */
 .loader-bar.show, body.loading .loader-bar { display: block; }
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE — modales (tablet)
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .cr-modal, .ua-panel { max-width: calc(100vw - 32px) !important; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITIES (added in design-pass)
+   Patterns inline más repetidos extraídos a clases reutilizables.
+   ═══════════════════════════════════════════════════════════════ */
+.pa-meta-sm { font-size: 11px; color: var(--fg-3); }
+.pa-meta-xs { font-size: 10px; color: var(--fg-3); }
+.pa-mono-sm { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+.pa-row-padded { padding: 10px 12px; border-radius: 8px; }
+.pa-flex-between { display: flex; align-items: center; justify-content: space-between; }
+.pa-flex-center { display: flex; align-items: center; gap: 8px; }
+.pa-stack-tight { display: flex; flex-direction: column; gap: 4px; }
+.pa-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pa-section-meta { font-size: 11px; color: var(--fg-3); margin-bottom: 4px; }
+
+/* Skeleton loading — shimmer animado para data fetch states. */
+@keyframes pa-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.pa-skeleton-row {
+  background: linear-gradient(90deg, var(--bg-2) 25%, var(--bg-3, var(--bg-1)) 50%, var(--bg-2) 75%);
+  background-size: 200% 100%;
+  animation: pa-shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+  height: 14px;
+  margin: 6px 0;
+}
+.pa-skeleton-row.lg { height: 20px; }
+.pa-skeleton-row.sm { height: 10px; width: 60%; }
+
+/* NOTA design-pass: la consigna B1 mapeó border-left a colores que no
+   siempre coinciden con el background del pill (ej: curso usa bg=info-soft
+   pero border=accent, revision usa bg=accent-soft pero border=warn).
+   Se respetó la consigna literalmente; si visualmente choca, evaluar
+   alinear border = color principal de cada estado. */
 </style>
