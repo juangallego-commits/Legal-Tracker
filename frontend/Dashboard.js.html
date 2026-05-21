@@ -2953,6 +2953,12 @@ function paHashName(s) {
   for (var i = 0; i < s.length; i++) h = ((h * 31) + s.charCodeAt(i)) | 0;
   return Math.abs(h);
 }
+// Color de fondo (hex) del avatar de un nombre, derivado del hash. Permite
+// reusar la paleta de paAvatar() en otros elementos (sidebar avatar, header
+// avatar) que antes tenían mostaza hardcoded.
+function paAvatarColor(name) {
+  return PA_AV_PALETTE[paHashName(name || '') % PA_AV_PALETTE.length];
+}
 function paInitials(name) {
   if (!name) return '?';
   var parts = name.trim().split(/\s+/).filter(Boolean);
@@ -3058,6 +3064,200 @@ function _isMac() {
   } catch(e) { return false; }
 }
 function _modKey() { return _isMac() ? '⌘' : 'Ctrl+'; }
+
+// ════════════════════════════════════════════════════════════════
+// i18n — bilingüe ES (default) ↔ PT-BR (equipo de Brasil)
+// ────────────────────────────────────────────────────────────────
+// Helper t(esString) devuelve la versión PT si LANG === 'pt', sino el
+// original. Diccionario T_PT cubre las strings visibles más críticas
+// (sidebar, headers, botones, modales, tour). Strings no cubiertas
+// quedan en ES — backwards-compat total. Toggle en user menu.
+//
+// Convención: t() solo se llama en strings de UI estáticas (labels,
+// botones, headers de página). Las narrativas largas con interpolación
+// se traducen con t() en su fragmento estático. Status/prioridad/conf
+// quedan en ES (es como están guardadas en el sheet).
+var LANG_KEY = 'mydash-lang';
+var LANG = (function(){
+  try { return localStorage.getItem(LANG_KEY) === 'pt' ? 'pt' : 'es'; }
+  catch(e) { return 'es'; }
+})();
+var T_PT = {
+  // Sidebar groups
+  'Mi día': 'Meu dia',
+  'Donde trabajo': 'Onde trabalho',
+  'Análisis': 'Análise',
+  'Tu equipo': 'Sua equipe',
+  'Operación': 'Operação',
+  'LATAM': 'LATAM',
+  'Personas': 'Pessoas',
+  // Sidebar items
+  'Inicio': 'Início',
+  'Por urgencia': 'Por urgência',
+  'Mis tareas': 'Minhas tarefas',
+  'Tracker': 'Tracker',
+  'Proyectos': 'Projetos',
+  'Plantillas': 'Modelos',
+  'Mi desempeño': 'Meu desempenho',
+  'Cerradas': 'Fechadas',
+  'Mi equipo': 'Minha equipe',
+  'Métricas': 'Métricas',
+  'Operaciones': 'Operações',
+  'Por país': 'Por país',
+  'Equipo': 'Equipe',
+  'Analítica': 'Análise',
+  // Roles / workspace
+  'Specialist': 'Specialist',
+  'Manager': 'Manager',
+  'Global': 'Global',
+  'Country Lead': 'Country Lead',
+  'Global Legal Head': 'Global Legal Head',
+  'Legal Ops': 'Legal Ops',
+  // Header
+  '+ Nueva tarea': '+ Nova tarefa',
+  'Nueva tarea': 'Nova tarefa',
+  'Nueva tarea (N)': 'Nova tarefa (N)',
+  'Atajos (?)': 'Atalhos (?)',
+  'Buscar tarea, proyecto, persona…': 'Buscar tarefa, projeto, pessoa…',
+  // Tracker
+  'Tracker · ': 'Tracker · ',
+  'tareas activas': 'tarefas ativas',
+  'Activas': 'Ativas',
+  'Vencidas': 'Vencidas',
+  'Vencen hoy': 'Vencem hoje',
+  'Bloqueadas': 'Bloqueadas',
+  'Prioridad alta': 'Prioridade alta',
+  'Asignadas a mí': 'Atribuídas a mim',
+  'Buscar en tracker…': 'Buscar no tracker…',
+  'Todos los proyectos': 'Todos os projetos',
+  'Todos los países': 'Todos os países',
+  'Exportar': 'Exportar',
+  'Volver a países': 'Voltar a países',
+  'Excel (vista actual)': 'Excel (visão atual)',
+  'PDF mensual': 'PDF mensal',
+  'Limpiar': 'Limpar',
+  'Limpiar filtros': 'Limpar filtros',
+  // Tabla
+  'ID': 'ID',
+  'Tarea': 'Tarefa',
+  'Responsable': 'Responsável',
+  'Prioridad': 'Prioridade',
+  'Estado': 'Status',
+  'ETA': 'ETA',
+  'Confidencialidad': 'Confidencialidade',
+  'Plazo': 'Prazo',
+  // Bulk
+  'seleccionada': 'selecionada',
+  'seleccionadas': 'selecionadas',
+  'Avanzar': 'Avançar',
+  'Bloquear': 'Bloquear',
+  'Reasignar': 'Reatribuir',
+  'Cancelar': 'Cancelar',
+  // Panel detalle
+  'Estado actual': 'Status atual',
+  'Comentarios': 'Comentários',
+  'Documentos': 'Documentos',
+  'Líder': 'Líder',
+  'SLA objetivo': 'SLA objetivo',
+  'Riesgo': 'Risco',
+  'Proyecto': 'Projeto',
+  'Contraparte': 'Contraparte',
+  'Tipo de trabajo': 'Tipo de trabalho',
+  'Notas': 'Notas',
+  'Historial': 'Histórico',
+  'Cerrar como ✓ Listo': 'Fechar como ✓ Pronto',
+  'Avanzar →': 'Avançar →',
+  'Desbloquear': 'Desbloquear',
+  'Más': 'Mais',
+  'Edición avanzada': 'Edição avançada',
+  'Doble-click para editar': 'Duplo-clique para editar',
+  'Sin notas…': 'Sem notas…',
+  'Sin documentos adjuntos': 'Sem documentos anexados',
+  'Adjuntar enlace': 'Anexar link',
+  'Subir archivo': 'Enviar arquivo',
+  'Editar': 'Editar',
+  'Eliminar': 'Excluir',
+  'Enviar': 'Enviar',
+  // Wizard crear
+  'Crear nueva tarea': 'Criar nova tarefa',
+  'Empezá por lo esencial': 'Comece pelo essencial',
+  'Detalles, responsable y plazo': 'Detalhes, responsável e prazo',
+  'Lista para publicar': 'Pronta para publicar',
+  'Esencial': 'Essencial',
+  'Detalles': 'Detalhes',
+  'Confirmar': 'Confirmar',
+  'Continuar →': 'Continuar →',
+  'Revisar y publicar →': 'Revisar e publicar →',
+  '← Atrás': '← Voltar',
+  '← Editar': '← Editar',
+  'Publicar tarea': 'Publicar tarefa',
+  'Título de la tarea': 'Título da tarefa',
+  'Descripción / contexto': 'Descrição / contexto',
+  'Tipo': 'Tipo',
+  'País': 'País',
+  'Nivel de riesgo': 'Nível de risco',
+  'Ligar a proyecto': 'Vincular ao projeto',
+  'Sin proyecto': 'Sem projeto',
+  'Seleccionar…': 'Selecionar…',
+  'Asignada a vos': 'Atribuída a você',
+  'según tu equipo': 'segundo sua equipe',
+  // Estados pa-pill
+  'Hoy': 'Hoje',
+  'Mañana': 'Amanhã',
+  // Tour
+  'Tour de la herramienta': 'Tour da ferramenta',
+  'Saltar tour': 'Pular tour',
+  'Siguiente →': 'Próximo →',
+  'Empezar a usar': 'Começar a usar',
+  'Listo': 'Pronto',
+  // User menu
+  'Ver app como…': 'Ver app como…',
+  'Atajos y ayuda': 'Atalhos e ajuda',
+  'Sesión de Google · cerrá la pestaña para salir': 'Sessão do Google · feche a aba para sair',
+  // Help modal
+  'Atajos de teclado': 'Atalhos de teclado',
+  'Navegación': 'Navegação',
+  'Panel de detalle': 'Painel de detalhe',
+  'Crear': 'Criar',
+  'Abrir búsqueda global': 'Abrir busca global',
+  'Foco en el buscador del tracker': 'Foco no buscador do tracker',
+  'Mostrar esta ayuda': 'Mostrar esta ajuda',
+  'Cerrar cualquier modal o panel abierto': 'Fechar qualquer modal ou painel aberto',
+  'Seleccionar la siguiente tarea': 'Selecionar a próxima tarefa',
+  'Seleccionar la tarea anterior': 'Selecionar a tarefa anterior',
+  'Avanzar la tarea seleccionada al siguiente estado': 'Avançar a tarefa selecionada para o próximo status',
+  'Cerrar el panel de detalle': 'Fechar o painel de detalhe',
+  'Asistente de nueva tarea': 'Assistente de nova tarefa',
+  // Common short
+  'Hola': 'Olá',
+  'Sí': 'Sim',
+  'No': 'Não',
+  'Aceptar': 'Aceitar',
+  'Guardar': 'Salvar',
+  'Cerrar': 'Fechar'
+};
+function t(es) {
+  if (LANG !== 'pt') return es;
+  if (es == null) return '';
+  var s = String(es);
+  return T_PT[s] || s;
+}
+function setLang(lang) {
+  if (lang !== 'es' && lang !== 'pt') return;
+  if (LANG === lang) return;
+  LANG = lang;
+  try { localStorage.setItem(LANG_KEY, lang); } catch(e){}
+  // Re-mount everything that's affected by lang.
+  if (typeof mountEdShell === 'function') mountEdShell();
+  // Re-render vista activa
+  var activeView = document.querySelector('.view.active');
+  if (activeView && activeView.id) {
+    var viewId = activeView.id.replace(/^vEd/, '').toLowerCase();
+    if (typeof goEd === 'function') goEd(viewId);
+  }
+  // Cerrar user menu si está abierto
+  if (typeof edUserMenuClose === 'function') edUserMenuClose();
+}
 
 var ED_NAV_BY_ROLE = {
   specialist: [
@@ -3369,7 +3569,7 @@ function renderEdSidebar(role, activeViewId) {
   for (var i = 0; i < nav.length; i++) {
     var sec = nav[i];
     html += '<div class="pa-sb-group">'
-         +    '<div class="pa-sb-group-h">' + esc(sec.section) + '</div>';
+         +    '<div class="pa-sb-group-h">' + esc(t(sec.section)) + '</div>';
     for (var j = 0; j < sec.items.length; j++) {
       var it = sec.items[j];
       var isActive = it.id === activeViewId;
@@ -3386,11 +3586,11 @@ function renderEdSidebar(role, activeViewId) {
         });
       }
       html += '<button class="pa-sb-item' + (isActive ? ' is-active' : '') + (alert ? ' has-alert' : '')
-           +  '" type="button" data-viewid="' + esc(it.id) + '" data-label="' + esc(it.label) + '"'
+           +  '" type="button" data-viewid="' + esc(it.id) + '" data-label="' + esc(t(it.label)) + '"'
            +  (isActive ? ' aria-current="page"' : '')
            +  ' onclick="goEd(\'' + esc(it.id) + '\')">'
            +    paIcon(it.icon || 'dot', 14, 'ico')
-           +    '<span>' + esc(it.label) + '</span>';
+           +    '<span>' + esc(t(it.label)) + '</span>';
       if (badge != null) html += '<span class="ct">' + esc(String(badge)) + '</span>';
       else if (alert) html += '<span class="ct">!</span>';
       html += '</button>';
@@ -3400,7 +3600,7 @@ function renderEdSidebar(role, activeViewId) {
   html += '</nav>'
        + '<div class="pa-sb-footer">'
        +   '<div class="pa-sb-user" title="' + esc(name) + ' · ' + esc(subtitle) + '" style="cursor:default">'
-       +     '<div class="pa-sb-av">' + esc(initials.charAt(0)) + '</div>'
+       +     '<div class="pa-sb-av" style="background:' + paAvatarColor(name) + ';color:#fff">' + esc(initials.charAt(0)) + '</div>'
        +     '<div class="pa-sb-user-info">'
        +       '<div class="pa-sb-user-name">' + esc(name) + '</div>'
        +       '<div class="pa-sb-user-meta">' + esc(subtitle) + '</div>'
@@ -3436,12 +3636,11 @@ function _edCrumbs(viewId) {
   return c.map(function(seg, i){
     var isLast = i === c.length - 1;
     var sep = i > 0 ? '<span class="sep">/</span>' : '';
-    // El primer crumb (sección) navega a Home; el último es el view actual (no clickeable).
-    // Los intermedios también van al Home para simplificar (la nav real es vía sidebar).
+    var label = t(seg);
     if (isLast) {
-      return sep + '<span class="cur">' + esc(seg) + '</span>';
+      return sep + '<span class="cur">' + esc(label) + '</span>';
     }
-    return sep + '<span class="seg" style="cursor:pointer" onclick="goEd(\'home\')">' + esc(seg) + '</span>';
+    return sep + '<span class="seg" style="cursor:pointer" onclick="goEd(\'home\')">' + esc(label) + '</span>';
   }).join(' ');
 }
 
@@ -3455,14 +3654,14 @@ function renderEdHead(viewId) {
     + '<div class="pa-hd-search">'
     +   '<div class="pa-search" role="button" tabindex="0" aria-label="Búsqueda global" onclick="edSearchOpen()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();edSearchOpen();}">'
     +     paIcon('search', 13)
-    +     '<span class="ph">Buscar tarea, proyecto, persona…</span>'
+    +     '<span class="ph">' + esc(t('Buscar tarea, proyecto, persona…')) + '</span>'
     +     '<span class="kbd">' + _modKey() + 'K</span>'
     +   '</div>'
     + '</div>'
     + '<div class="pa-hd-actions">'
     +   '<button class="pa-btn pa-btn-icon" title="Atajos (?)" onclick="edHelpOpen()">' + paIcon('help', 14) + '</button>'
-    +   '<button class="pa-btn pa-btn-primary" title="Nueva tarea (N)" onclick="edCrearOpen()">' + paIcon('plus', 12) + ' Nueva tarea</button>'
-    +   '<button class="pa-hd-avatar" title="' + esc(name) + ' · Click para opciones" onclick="edUserMenuToggle(event)" type="button">' + esc(initial) + '</button>'
+    +   '<button class="pa-btn pa-btn-primary" title="' + esc(t('Nueva tarea (N)')) + '" onclick="edCrearOpen()">' + paIcon('plus', 12) + ' ' + esc(t('Nueva tarea')) + '</button>'
+    +   '<button class="pa-hd-avatar" style="background:' + paAvatarColor(name) + ';color:#fff" title="' + esc(name) + ' · Click para opciones" onclick="edUserMenuToggle(event)" type="button">' + esc(initial) + '</button>'
     + '</div>';
 }
 
@@ -3704,20 +3903,23 @@ function edUserMenuToggle(ev) {
     +   '<div class="ed-user-menu-sub">' + esc(roleLabel) + '</div>'
     + '</div>'
     + '<button class="ed-user-menu-item" onclick="setTheme(\'' + (theme === 'dark' ? 'light' : 'dark') + '\');edUserMenuClose()">'
-    +   paIcon(theme === 'dark' ? 'sun' : 'moon', 14) + ' Tema: ' + (theme === 'dark' ? 'claro' : 'oscuro')
+    +   paIcon(theme === 'dark' ? 'sun' : 'moon', 14) + ' ' + esc(t('Tema') || 'Tema') + ': ' + (theme === 'dark' ? (LANG === 'pt' ? 'claro' : 'claro') : (LANG === 'pt' ? 'escuro' : 'oscuro'))
+    + '</button>'
+    + '<button class="ed-user-menu-item" onclick="setLang(\'' + (LANG === 'pt' ? 'es' : 'pt') + '\')">'
+    +   paIcon('globe', 14) + ' ' + (LANG === 'pt' ? 'Idioma: Português' : 'Idioma: Español') + ' <span style="margin-left:auto;color:var(--fg-3);font-size:11px">' + (LANG === 'pt' ? 'cambiar a ES' : 'mudar para PT') + '</span>'
     + '</button>'
     + (canSwitch
       ? '<button class="ed-user-menu-item" onclick="edUserMenuClose();edToggleDemoDropdown(event)">'
-        + paIcon('users', 14) + ' Ver app como…'
+        + paIcon('users', 14) + ' ' + esc(t('Ver app como…'))
         + '</button>'
       : '')
     + '<button class="ed-user-menu-item" onclick="edUserMenuClose();edHelpOpen()">'
-    +   paIcon('help', 14) + ' Atajos y ayuda'
+    +   paIcon('help', 14) + ' ' + esc(t('Atajos y ayuda'))
     + '</button>'
     + '<button class="ed-user-menu-item" onclick="edStartTour();edUserMenuClose()">'
-    +   paIcon('spark', 14) + ' Tour de la herramienta'
+    +   paIcon('spark', 14) + ' ' + esc(t('Tour de la herramienta'))
     + '</button>'
-    + '<div class="ed-user-menu-foot">Sesión de Google · cerrá la pestaña para salir</div>';
+    + '<div class="ed-user-menu-foot">' + esc(t('Sesión de Google · cerrá la pestaña para salir')) + '</div>';
   document.body.appendChild(menu);
   setTimeout(function() {
     document.addEventListener('click', function _close(e) {
@@ -4353,10 +4555,12 @@ function rEdHomeSpecialist(D) {
 
   var html = '<div class="pa-page">';
 
-  // Greeting
+  // Greeting con eyebrow contextual + nombre destacado en accent
+  var todayLabel = todayLine ? todayLine.split(' ').slice(0, 2).join(' ') : '';
   html += '<div class="pa-greet">'
-       +    '<h1>Hola, ' + esc(firstName) + '</h1>'
-       +    '<span class="date">' + esc(todayLine || '') + '</span>'
+       +    '<div class="pa-greet-eye">' + esc(todayLabel ? '— Tu ' + todayLabel : 'Hoy') + '</div>'
+       +    '<h1>Hola, <span class="pa-greet-name">' + esc(firstName) + '</span></h1>'
+       +    (todayLine ? '<span class="pa-greet-meta">' + esc(todayLine) + '</span>' : '')
        + '</div>';
 
   // Banner si hay overdue
@@ -4574,11 +4778,12 @@ function rEdHomeManager(D) {
 
   var html = '<div class="pa-page">';
 
-  // Greeting
+  // Greeting con eyebrow + nombre destacado
+  var mgrTodayLabel = todayLine ? todayLine.split(' ').slice(0, 2).join(' ') : '';
   html += '<div class="pa-greet">'
-       +    '<h1>Hola, ' + esc(firstName) + '</h1>'
-       +    '<span class="date">' + esc(todayLine || '') + '</span>'
-       +    '<span class="pa-page-meta">' + esc((userCode || '—') + ' · ' + teamMine.length + ' specialists') + '</span>'
+       +    '<div class="pa-greet-eye">' + esc(mgrTodayLabel ? '— Tu ' + mgrTodayLabel : 'Hoy') + ' · ' + esc((userCode || '—') + ' · ' + teamMine.length + ' specialists') + '</div>'
+       +    '<h1>Hola, <span class="pa-greet-name">' + esc(firstName) + '</span></h1>'
+       +    (todayLine ? '<span class="pa-greet-meta">' + esc(todayLine) + '</span>' : '')
        + '</div>';
 
   // Narrative
@@ -4726,11 +4931,10 @@ function rEdHomeHQ(D) {
 
   var html = '<div class="pa-page">';
 
-  // Greeting
+  // Greeting global con eyebrow contextual
   html += '<div class="pa-greet">'
-       +    '<h1>Operaciones legales globales</h1>'
-       +    '<span class="date">' + esc(todayLine) + '</span>'
-       +    '<span class="pa-page-meta">' + countries.length + ' países · ' + (totalSpec || (D && D.team || []).length) + ' specialists · ' + totalMgr + ' managers</span>'
+       +    '<div class="pa-greet-eye">— ' + esc(todayLine || 'Hoy') + ' · ' + countries.length + ' países · ' + (totalSpec || (D && D.team || []).length) + ' specialists · ' + totalMgr + ' managers</div>'
+       +    '<h1>Operaciones <span class="pa-greet-name">legales globales</span></h1>'
        + '</div>';
 
   if (totalOpen > 0) {
@@ -6382,18 +6586,18 @@ function rEdTracker(D) {
   }
 
   html += '<div class="pa-filterbar">'
-       +    chip('all',     'Activas',       cAll,     null,       EDT.filter === 'all')
-       +    chip('overdue', 'Vencidas',      cOverdue, 'critical', EDT.filter === 'overdue')
-       +    chip('today',   'Vencen hoy',    cToday,   'warn',     EDT.filter === 'today')
-       +    chip('blocked', 'Bloqueadas',    cBlocked, null,       EDT.filter === 'blocked')
-       +    chip('alta',    'Prioridad alta',cAlta,    null,       EDT.filter === 'alta')
+       +    chip('all',     t('Activas'),         cAll,     null,       EDT.filter === 'all')
+       +    chip('overdue', t('Vencidas'),        cOverdue, 'critical', EDT.filter === 'overdue')
+       +    chip('today',   t('Vencen hoy'),      cToday,   'warn',     EDT.filter === 'today')
+       +    chip('blocked', t('Bloqueadas'),      cBlocked, null,       EDT.filter === 'blocked')
+       +    chip('alta',    t('Prioridad alta'),  cAlta,    null,       EDT.filter === 'alta')
        +    '<div class="pa-chip-divider"></div>'
-       +    chip('mine',    'Asignadas a mí',cMine,    null,       EDT.filter === 'mine')
-       +    chip('closed',  'Cerradas',      cClosed,  null,       EDT.filter === 'closed')
+       +    chip('mine',    t('Asignadas a mí'),  cMine,    null,       EDT.filter === 'mine')
+       +    chip('closed',  t('Cerradas'),        cClosed,  null,       EDT.filter === 'closed')
        +    '<div style="margin-left:auto;display:flex;gap:6px;align-items:center">'
        +      '<div class="pa-search" style="width:220px">'
        +        paIcon('search', 12)
-       +        '<input type="text" placeholder="Buscar en tracker…" value="' + esc(EDT.search) + '" oninput="edSetSearch(this.value)">'
+       +        '<input type="text" placeholder="' + esc(t('Buscar en tracker…')) + '" value="' + esc(EDT.search) + '" oninput="edSetSearch(this.value)">'
        +      '</div>';
   // Country select (head only): drill-down rápido país-por-país sin volver al countries-first.
   if (role === 'head') {
@@ -6408,7 +6612,7 @@ function rEdTracker(D) {
       }).join('');
     if (countryOpts) {
       html += '<select class="pa-select" style="width:auto;height:26px;font-size:12px;padding:0 28px 0 10px" onchange="edSetCountryFilter(this.value || \'__ALL__\')">'
-           +    '<option value="">Todos los países</option>' + countryOpts
+           +    '<option value="">' + esc(t('Todos los países')) + '</option>' + countryOpts
            + '</select>';
     }
   }
@@ -6424,7 +6628,7 @@ function rEdTracker(D) {
     }).join('');
   if (projOpts) {
     html += '<select class="pa-select" style="width:auto;height:26px;font-size:12px;padding:0 28px 0 10px" onchange="edSetProjectFilter(this.value)">'
-         +    '<option value="">Todos los proyectos</option>' + projOpts
+         +    '<option value="">' + esc(t('Todos los proyectos')) + '</option>' + projOpts
          + '</select>';
   }
   html += '</div></div>';

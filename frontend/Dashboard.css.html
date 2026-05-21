@@ -232,6 +232,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   border-right: 1px solid var(--sidebar-border);
   min-height: 0; overflow: hidden;
 }
+/* Sidebar dark: sutil shadow lateral hacia el main para separar planos.
+   En light no hace falta — el border-right ya separa con un line claro. */
+[data-theme="dark"] .ed-side {
+  box-shadow: 1px 0 0 rgba(0,0,0,0.6), inset -1px 0 0 rgba(255,255,255,0.04);
+}
 
 .ed-main {
   display: flex; flex-direction: column;
@@ -328,7 +333,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 .pa-sb-user:hover { background: var(--sidebar-hover); }
 .pa-sb-av {
   width: 22px; height: 22px; border-radius: 50%;
-  background: #d0a86b; color: #2a1c0a;
+  /* background y color setean inline via paAvatarColor() para coincidir
+     con la paleta de paAvatar() — antes era mostaza hardcoded inconsistente. */
   font-size: 10px; font-weight: 600;
   display: grid; place-items: center; flex-shrink: 0;
 }
@@ -382,7 +388,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 
 .pa-hd-avatar {
   width: 28px; height: 28px; border-radius: 50%;
-  background: #d0a86b; color: #2a1c0a;
+  /* bg+color via paAvatarColor() inline. */
   font-size: 11px; font-weight: 600;
   display: grid; place-items: center;
   margin-left: 4px;
@@ -748,13 +754,35 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 }
 .pa-section-h .link:hover { color: var(--accent); }
 
-.pa-greet { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+/* Greeting con eyebrow contextual + nombre con degradé sutil al accent.
+   Esto es el momento de marca de los Homes — antes era H1 plano + fecha. */
+.pa-greet {
+  display: flex; flex-direction: column;
+  gap: 4px; flex-wrap: wrap;
+  padding-bottom: 16px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--line-1);
+}
+.pa-greet-eye {
+  font-size: 11px; color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  font-weight: 600;
+}
 .pa-greet h1 {
-  font-size: 24px; font-weight: 600;
-  letter-spacing: -0.02em; margin: 0;
+  font-size: 28px; font-weight: 650;
+  letter-spacing: -0.025em; margin: 0;
+  line-height: 1.15;
   color: var(--fg-1);
 }
+.pa-greet-name {
+  background: linear-gradient(120deg, var(--accent) 0%, color-mix(in oklab, var(--accent) 70%, var(--fg-1) 30%) 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+.pa-greet-meta { color: var(--fg-3); font-size: 13px; margin-top: 2px; }
 .pa-greet .date { color: var(--fg-3); font-size: 13px; }
+/* Compat con homes manager/HQ que usan el span.date legacy */
+.pa-greet .date + .pa-page-meta { margin-left: 0; }
 
 .pa-narrative {
   font-size: 14px; color: var(--fg-2);
