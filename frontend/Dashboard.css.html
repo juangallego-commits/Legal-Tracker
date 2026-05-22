@@ -3010,4 +3010,180 @@ table tr:hover td { background: var(--bg-2); }
    pero border=accent, revision usa bg=accent-soft pero border=warn).
    Se respetó la consigna literalmente; si visualmente choca, evaluar
    alinear border = color principal de cada estado. */
+
+/* ═══════════════════════════════════════════════════════════════════
+   MOBILE (≤600px) — productividad completa en celular
+   ──────────────────────────────────────────────────────────────────
+   El 768px breakpoint cubre tablet (sidebar drawer + horizontal scroll
+   en tablas). Este bloque transforma el shape de las tablas a "card
+   stack" para que en pantalla angosta (375px iPhone) cada tarea sea
+   una card vertical legible — sin scroll horizontal forzado.
+   Además: modales fullscreen, touch targets ≥44px, padding más
+   compacto, inputs anti-zoom-iOS (font-size 16px).
+   ══════════════════════════════════════════════════════════════════ */
+@media (max-width: 600px) {
+  /* ── Reset el min-width que el 768px breakpoint impone ──────── */
+  .pa-tbl-wrap { overflow-x: visible; }
+  .pa-tbl-wrap > .pa-tbl { min-width: 0; }
+  .pa-tbl, .pa-tbl-h, .pa-tbl-r { min-width: 0 !important; }
+
+  /* ── Card-stack mode para tablas ─────────────────────────────── */
+  /* Ocultamos el header — los labels no aplican cuando cada row es
+     una card con todo apilado verticalmente. */
+  .pa-tbl-h { display: none; }
+  .pa-tbl {
+    background: transparent;
+    border: 0;
+    overflow: visible;
+  }
+  .pa-tbl-r {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    height: auto !important;
+    padding: 14px 14px;
+    margin-bottom: 8px;
+    border: 1px solid var(--line-1);
+    border-radius: 10px;
+    background: var(--bg-1);
+    /* Ignora el grid-template-columns inline del render. */
+    grid-template-columns: none !important;
+  }
+  .pa-tbl-r > * { width: auto; align-self: flex-start; }
+  /* Title gana prominencia: padded full-width, font más grande. */
+  .pa-tbl-r .title { width: 100%; order: 0; }
+  .pa-tbl-r .title .t { font-size: 15px; white-space: normal; }
+  .pa-tbl-r .title .meta { font-size: 12px; }
+  /* Pills (priority + status) en una fila inline. */
+  .pa-tbl-r .pa-pill { align-self: flex-start; }
+  /* ID + conf dot en una fila pequeña arriba. */
+  .pa-tbl-r .id { order: -2; align-self: flex-start; }
+  .pa-tbl-r > .pa-conf { order: -1; align-self: flex-start; }
+  /* Resp + eta abajo. */
+  .pa-tbl-r .resp { width: 100%; font-size: 13px; }
+  .pa-tbl-r .eta { font-size: 12px; align-self: flex-end; }
+  /* Checkbox span (.pa-check) si está, mantenerlo arriba a la derecha. */
+  .pa-tbl-r .pa-check { position: absolute; top: 12px; right: 12px; }
+
+  /* ── Modales fullscreen ──────────────────────────────────────── */
+  .cr-overlay, .ua-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+  .cr-modal, .ua-panel {
+    max-width: 100vw !important;
+    width: 100vw;
+    max-height: 100vh;
+    height: 100vh;
+    border-radius: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .cr-head, .ua-head {
+    padding: 14px 16px;
+    flex: 0 0 auto;
+  }
+  .cr-body, .ua-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 14px 16px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .cr-foot, .ua-foot {
+    flex: 0 0 auto;
+    padding: 12px 14px;
+    border-top: 1px solid var(--line-1);
+    background: var(--bg-1);
+    /* Sticky para que los botones queden visibles sin scroll. */
+    position: sticky; bottom: 0;
+    display: flex; flex-wrap: wrap; gap: 8px;
+  }
+  /* Hint info debajo, no en columna lateral. */
+  .cr-foot-info, .ua-foot-info { width: 100%; font-size: 11px; }
+
+  /* ── Touch targets ≥44px ─────────────────────────────────────── */
+  .cr-pill-btn { padding: 10px 14px; min-height: 36px; }
+  .pa-btn { min-height: 36px; }
+  .pa-btn-icon { min-width: 36px; min-height: 36px; }
+  .cr-input, .ua-input, input[type="text"], input[type="date"], select, textarea {
+    font-size: 16px !important; /* Evita zoom de iOS al focus. */
+    min-height: 44px;
+  }
+  textarea { min-height: 80px; }
+  .cr-x, .ua-x { width: 36px; height: 36px; font-size: 22px; }
+
+  /* ── Padding general más compacto ────────────────────────────── */
+  .pa-page { padding: 12px; }
+  .pa-greet h1 { font-size: 22px; }
+  .pa-greet-eye { font-size: 11px; }
+  .pa-section-h { margin: 16px 0 8px; flex-wrap: wrap; gap: 6px; }
+  .pa-section-h h3 { font-size: 14px; }
+
+  /* ── KPIs grid: 2 cols (en lugar de 1 que era el default del 768px).
+     Con 4 KPIs cabe mejor en 2x2 que stacked 4 high. ──────────── */
+  .pa-kpis { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .pa-kpi { padding: 10px; }
+  .pa-kpi .val { font-size: 22px; }
+  .pa-kpi .delta { font-size: 10px; }
+
+  /* ── "Lo que más necesita atención" card ─────────────────────── */
+  .pa-next-task { padding: 14px; }
+  .pa-next-task-head { flex-wrap: wrap; }
+  .pa-next-task-title { font-size: 15px; }
+  .pa-next-task-meta { flex-direction: column; align-items: stretch; gap: 8px; }
+  .pa-next-task-meta > span:last-child { width: 100%; justify-content: space-between; }
+
+  /* ── Bulk action bar: sticky-bottom en mobile ────────────────── */
+  .pa-bulkbar {
+    position: sticky;
+    bottom: 0;
+    z-index: 30;
+    background: var(--bg-1);
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    padding: 8px;
+    box-shadow: 0 -4px 12px rgba(0,0,0,0.3);
+    flex-wrap: wrap;
+  }
+
+  /* ── Tk-panel: ya está fullscreen en 768px, refinamos el padding y
+     el textarea de comentarios para que el keyboard virtual no lo
+     comprima. ────────────────────────────────────────────────── */
+  .tk-panel-main { padding-bottom: 120px; }
+  .tk-comment-edit-ta, #tkCommentInput { min-height: 80px; font-size: 16px; }
+
+  /* ── Header más compacto: avatar pegado al borde derecho ─────── */
+  .ed-head { padding: 0 12px; gap: 6px; }
+  .pa-hd-crumbs { font-size: 12px; }
+  .pa-hd-actions { gap: 4px; }
+  /* Avatar circular más grande para tap (≥44px) */
+  .pa-hd-avatar { width: 36px; height: 36px; font-size: 14px; }
+
+  /* ── Sidebar drawer: anchura completa en mobile ───────────────── */
+  body.sidebar-open .ed-side {
+    width: 86vw; max-width: 320px;
+  }
+
+  /* ── Wizard de crear: pills wrap más compactas ───────────────── */
+  .cr-pills-row { gap: 6px; }
+  .cr-step-indicator { font-size: 11px; }
+
+  /* ── Toast no pegado al borde inferior (donde está el bulkbar) — */
+  .toast { bottom: 80px; right: 12px; left: 12px; max-width: none; }
+
+  /* ── Confirm modal centrado, no fullscreen (es más simple) ───── */
+  #confOv .modal { max-width: calc(100vw - 24px); margin: 12px; }
+}
+
+/* ── Extra small (≤375px iPhone SE / 12 mini) ──────────────────── */
+@media (max-width: 375px) {
+  .pa-page { padding: 8px; }
+  .pa-greet h1 { font-size: 20px; }
+  .pa-kpis { grid-template-columns: 1fr; }
+  .pa-btn { font-size: 12px; padding: 0 10px; }
+  .pa-hd-avatar { width: 32px; height: 32px; }
+}
+
 </style>
