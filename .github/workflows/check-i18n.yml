@@ -1,0 +1,32 @@
+name: Check i18n coverage
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/Dashboard.js.html'
+      - 'frontend/I18n.js.html'
+      - 'scripts/check-i18n.js'
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/Dashboard.js.html'
+      - 'frontend/I18n.js.html'
+      - 'scripts/check-i18n.js'
+
+jobs:
+  check-i18n:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run i18n audit
+        run: node scripts/check-i18n.js --no-orphans
+        # Exit code 1 si hay t() calls que no están en T_PT.
+        # Orphans (entries en T_PT que nadie usa) NO rompen el build
+        # — son solo ruido, los limpia el próximo refactor.
