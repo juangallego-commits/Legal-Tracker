@@ -387,6 +387,9 @@
   window.__DATA__ = <?!= data ?>;
   window.__USER__ = <?!= currentUser ?>;
 </script>
+<!-- i18n module: T_PT dict + t() helper. Cargado ANTES de Dashboard.js
+     para que LANG y T_PT estén disponibles cuando Dashboard.js corre. -->
+<?!= include("frontend/I18n.js") ?>
 <?!= include("frontend/Dashboard.js") ?>
 </body>
 </html>
