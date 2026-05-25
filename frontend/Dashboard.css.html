@@ -64,11 +64,18 @@
   --conf-restringido: #c98a2e;
   --conf-confidencial: #d04848;
 
-  /* Shadows */
+  /* Shadows — layered (varias capas sutiles, estilo Linear/Notion) */
   --shadow-1: 0 1px 0 rgba(15,15,17,0.04);
-  --shadow-2: 0 1px 2px rgba(15,15,17,0.06), 0 1px 0 rgba(15,15,17,0.04);
-  --shadow-3: 0 6px 24px rgba(15,15,17,0.08), 0 2px 6px rgba(15,15,17,0.06);
-  --shadow-pop: 0 12px 40px rgba(15,15,17,0.18), 0 4px 12px rgba(15,15,17,0.08);
+  --shadow-2: 0 1px 2px rgba(15,15,17,0.05), 0 1px 1px rgba(15,15,17,0.04), 0 1px 0 rgba(15,15,17,0.03);
+  --shadow-3:
+    0 1px 2px rgba(15,15,17,0.04),
+    0 4px 8px rgba(15,15,17,0.05),
+    0 8px 20px rgba(15,15,17,0.07);
+  --shadow-pop:
+    0 0 0 1px rgba(15,15,17,0.04),
+    0 2px 4px rgba(15,15,17,0.05),
+    0 6px 16px rgba(15,15,17,0.10),
+    0 18px 48px rgba(15,15,17,0.14);
 
   /* Radii */
   --r-1: 4px; --r-2: 6px; --r-3: 8px; --r-4: 10px; --r-5: 12px; --r-pill: 999px;
@@ -77,7 +84,7 @@
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-7: 32px; --s-8: 40px; --s-9: 56px;
 
   /* Type */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Layout */
@@ -88,24 +95,26 @@
 }
 
 [data-theme="dark"] {
-  --bg-0: #0e0e10;
-  --bg-1: #16161a;
-  --bg-2: #1d1d22;
-  --bg-3: #26262c;
-  --bg-sidebar: #0a0a0c;
-  --bg-sidebar-2: #141418;
-  --sidebar-hover: rgba(255,255,255,0.04);
-  --sidebar-hover-strong: rgba(255,255,255,0.06);
-  --sidebar-border: rgba(255,255,255,0.06);
+  /* Escala de superficies dark: grises profundos elegantes, NO negro puro.
+     Cada paso ~1 nivel más claro para jerarquía suave (base → surface → raised). */
+  --bg-0: #0b0c0e;
+  --bg-1: #121316;
+  --bg-2: #1a1b1f;
+  --bg-3: #24262b;
+  --bg-sidebar: #08090b;
+  --bg-sidebar-2: #121316;
+  --sidebar-hover: rgba(255,255,255,0.045);
+  --sidebar-hover-strong: rgba(255,255,255,0.07);
+  --sidebar-border: rgba(255,255,255,0.07);
 
-  --line-1: rgba(255,255,255,0.06);
-  --line-2: rgba(255,255,255,0.10);
+  --line-1: rgba(255,255,255,0.07);
+  --line-2: rgba(255,255,255,0.11);
   --line-3: rgba(255,255,255,0.18);
 
   --fg-1: #f4f4f5;
-  --fg-2: #c0c0c6;
-  --fg-3: #8a8a92;
-  --fg-4: #9a9aa3;  /* WCAG AA en bg-1 (#16161a) ≈ 5.2:1 — antes #888892 era 4.6:1 */
+  --fg-2: #c2c2c8;
+  --fg-3: #9296a0;  /* WCAG AA en bg-1 (#121316) ≈ 5.6:1 — secundario legible, no tenue */
+  --fg-4: #a0a3ad;  /* placeholders / hints ≈ 6.5:1 */
 
   /* En dark mode el sidebar SÍ es oscuro → texto claro */
   --fg-on-dark-1: #f4f4f5;
@@ -141,10 +150,18 @@
   --conf-restringido: #e3a44b;
   --conf-confidencial: #e26a6a;
 
-  --shadow-1: 0 1px 0 rgba(0,0,0,0.5);
-  --shadow-2: 0 1px 2px rgba(0,0,0,0.6), 0 1px 0 rgba(0,0,0,0.4);
-  --shadow-3: 0 8px 24px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.4);
-  --shadow-pop: 0 16px 48px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.4);
+  /* Layered shadows dark: profundidad por opacidad acumulada, suaves y limpias. */
+  --shadow-1: 0 1px 0 rgba(0,0,0,0.4);
+  --shadow-2: 0 1px 2px rgba(0,0,0,0.5), 0 1px 1px rgba(0,0,0,0.4), 0 1px 0 rgba(0,0,0,0.3);
+  --shadow-3:
+    0 1px 2px rgba(0,0,0,0.4),
+    0 4px 10px rgba(0,0,0,0.45),
+    0 10px 24px rgba(0,0,0,0.5);
+  --shadow-pop:
+    0 0 0 1px rgba(0,0,0,0.5),
+    0 2px 6px rgba(0,0,0,0.45),
+    0 8px 20px rgba(0,0,0,0.5),
+    0 22px 56px rgba(0,0,0,0.6);
 }
 
 /* Backwards-compat tokens (legacy code references) */
@@ -237,11 +254,18 @@ textarea:focus-visible,
    duplicar el outline encima del shadow. */
 input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offset: 0; }
 
-/* Custom scrollbar */
+/* Custom scrollbar — fino, minimalista, esquinas redondeadas, theme-aware. */
+* { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--line-3); }
+::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--line-3); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
 
 /* ═══════════════════════════════════════════════════════════════
    APP SHELL — Sidebar + Main + Header
@@ -912,19 +936,25 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 }
 .pa-pill .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 
+/* Pills de prioridad — peso visual liviano: fondo translúcido tenue + borde
+   muy fino. El color/contraste lo lleva el texto (fg semántico) y el dot.
+   Antes el de Media (warn-soft 0.14 + borde 22%) se veía marrón/pesado en dark. */
 .pa-pill-alta {
-  background: var(--critical-soft); color: var(--critical-fg);
-  border: 1px solid color-mix(in oklab, var(--critical) 22%, transparent);
+  background: color-mix(in oklab, var(--critical) 9%, transparent);
+  color: var(--critical-fg);
+  border: 1px solid color-mix(in oklab, var(--critical) 16%, transparent);
 }
 .pa-pill-alta .dot { background: var(--critical); }
 .pa-pill-media {
-  background: var(--warn-soft); color: var(--warn-fg);
-  border: 1px solid color-mix(in oklab, var(--warn) 22%, transparent);
+  background: color-mix(in oklab, var(--warn) 8%, transparent);
+  color: var(--warn-fg);
+  border: 1px solid color-mix(in oklab, var(--warn) 14%, transparent);
 }
 .pa-pill-media .dot { background: var(--warn); }
 .pa-pill-baja {
-  background: var(--good-soft); color: var(--good-fg);
-  border: 1px solid color-mix(in oklab, var(--good) 22%, transparent);
+  background: color-mix(in oklab, var(--good) 8%, transparent);
+  color: var(--good-fg);
+  border: 1px solid color-mix(in oklab, var(--good) 14%, transparent);
 }
 .pa-pill-baja .dot { background: var(--good); }
 
@@ -975,7 +1005,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   background: var(--bg-1);
   border: 1px solid var(--line-1);
   border-radius: var(--r-3);
-  overflow: hidden;
+  /* 'clip' (no 'hidden') clipea las esquinas redondeadas SIN crear un
+     scroll-container, para que el header sticky (.pa-tbl-h) se ancle al
+     scroll de .view y se pinee al scrollear. Degrada limpio sin soporte. */
+  overflow: clip;
 }
 /* Wrapper para scroll horizontal en mobile/tablet sin romper el grid denso. */
 .pa-tbl-wrap {
@@ -996,7 +1029,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   color: var(--fg-3);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  /* Encabezado pegajoso estilo Notion: queda visible al scrollear la .view.
+     Fondo SÓLIDO (no translúcido) para no ver las filas pasar por detrás. */
   background: var(--bg-2);
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 .pa-tbl-h > * { display: flex; align-items: center; gap: 4px; }
 .pa-tbl-r {
@@ -1007,7 +1045,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   border-bottom: 1px solid var(--line-1);
   font-size: 13px;
   cursor: pointer;
-  transition: background .1s;
+  transition: background 150ms ease-in-out;
   position: relative;
   color: var(--fg-1);
 }
@@ -1329,7 +1367,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   border: 1px solid var(--line-2);
   box-shadow: var(--shadow-pop);
   overflow: hidden;
-  animation: pa-modal-in .2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: lt-modal-in 160ms ease both;
 }
 .modal-wide { max-width: 800px; }
 .modal-header {
@@ -1399,7 +1437,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   min-width: 200px;
   padding: 4px;
   display: none;
+  transform-origin: top;
 }
+.dd-menu.is-open, .dd-menu.show { animation: lt-modal-in 160ms ease both; }
 .dd-menu.is-open, .dd-menu.show { display: block; }
 .dd-item {
   display: flex; align-items: center; gap: 8px;
@@ -2343,6 +2383,8 @@ table tr:hover td { background: var(--bg-2); }
 .ed-search-overlay {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: none; align-items: flex-start; justify-content: center;
   z-index: 100; padding-top: 80px;
 }
@@ -2354,6 +2396,7 @@ table tr:hover td { background: var(--bg-2); }
   border: 1px solid var(--line-2);
   box-shadow: var(--shadow-pop);
   overflow: hidden;
+  animation: lt-modal-in 160ms ease both;
 }
 .ed-search-head { display: flex; align-items: stretch; border-bottom: 1px solid var(--line-1); }
 .ed-search-input {
@@ -2443,7 +2486,7 @@ table tr:hover td { background: var(--bg-2); }
   box-shadow: var(--shadow-pop);
   overflow: hidden;
   z-index: 1;
-  animation: pa-modal-in .2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: lt-modal-in 160ms ease both;
 }
 
 .ua-head, .cr-head, .crp-head {
@@ -3192,6 +3235,119 @@ table tr:hover td { background: var(--bg-2); }
   .pa-kpis { grid-template-columns: 1fr; }
   .pa-btn { font-size: 12px; padding: 0 10px; }
   .pa-hd-avatar { width: 32px; height: 32px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONTRATO COMPARTIDO (lt-*) — emitido por el JS, definido acá.
+   Toasts apilados, skeletons, validación de formularios y la
+   animación de entrada de modales/dropdowns.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Entrada de modales / dropdowns — fade + scale sutil (Linear/Notion). */
+@keyframes lt-modal-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ── TOASTS apilados con barra de progreso ─────────────────────── */
+.lt-toast-stack {
+  position: fixed;
+  bottom: 20px; right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 200;
+  pointer-events: none;
+}
+.lt-toast {
+  pointer-events: auto;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  padding: 10px 14px 12px;
+  font-size: 13px;
+  color: var(--fg-1);
+  position: relative;
+  overflow: hidden;
+  min-width: 220px;
+  max-width: 360px;
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.04),
+    0 2px 4px rgba(0,0,0,0.06),
+    0 8px 20px rgba(0,0,0,0.12),
+    0 16px 40px rgba(0,0,0,0.14);
+  animation: lt-toast-in 180ms ease both;
+}
+[data-theme="dark"] .lt-toast {
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.5),
+    0 2px 6px rgba(0,0,0,0.45),
+    0 8px 20px rgba(0,0,0,0.5),
+    0 18px 44px rgba(0,0,0,0.6);
+}
+.lt-toast-out { animation: lt-toast-out 160ms ease forwards; }
+.lt-toast-success { border-left: 3px solid var(--good); }
+.lt-toast-error   { border-left: 3px solid var(--critical); }
+.lt-toast-info    { border-left: 3px solid var(--info); }
+.lt-toast-success .lt-toast-bar { background: var(--good); }
+.lt-toast-error   .lt-toast-bar { background: var(--critical); }
+.lt-toast-info    .lt-toast-bar { background: var(--info); }
+.lt-toast-bar {
+  position: absolute;
+  left: 0; bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  animation: lt-toast-bar 3500ms linear forwards;
+}
+@keyframes lt-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes lt-toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(4px); }
+}
+@keyframes lt-toast-bar {
+  from { width: 100%; }
+  to   { width: 0; }
+}
+
+/* ── SKELETONS (shimmer) ───────────────────────────────────────── */
+.lt-skel {
+  background: linear-gradient(
+    90deg,
+    var(--bg-2) 25%,
+    var(--bg-3) 50%,
+    var(--bg-2) 75%
+  );
+  background-size: 200% 100%;
+  border-radius: 6px;
+  animation: lt-shimmer 1.2s ease-in-out infinite;
+}
+.lt-skel-row { height: 44px; margin-bottom: 6px; }
+.lt-skel-wrap { margin-top: 8px; }
+@keyframes lt-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ── VALIDACIÓN DE FORMULARIOS ─────────────────────────────────── */
+.lt-invalid,
+select.lt-invalid,
+textarea.lt-invalid { border-color: var(--critical) !important; }
+.lt-field-msg {
+  color: var(--critical-fg, var(--critical));
+  font-size: 11px;
+  margin-top: 4px;
+  display: block;
+}
+
+/* Respeta usuarios que pidieron menos movimiento. */
+@media (prefers-reduced-motion: reduce) {
+  .lt-toast, .lt-toast-out, .lt-skel, .lt-toast-bar,
+  .modal, .cr-modal, .ed-search-modal, .dd-menu.is-open, .dd-menu.show {
+    animation-duration: 0.01ms !important;
+  }
 }
 
 </style>
