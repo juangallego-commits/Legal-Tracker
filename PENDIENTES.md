@@ -29,7 +29,12 @@ Se va actualizando a medida que avanzamos.
 ## 🟢 Workstreams abiertos (próximas sesiones)
 
 - **Slack end-to-end**: revisar el flujo completo y cerrar el gap de firma (#9).
-- **Calendar de Google**: integrarlo en el tracker (ver tareas/eventos sin saltar a Calendar) + explorar crear tareas automáticas desde eventos (posiblemente vía notas). Requiere decidir scope OAuth (`calendar.readonly` vs `calendar.events`) y modelo de sync.
+- **Calendar de Google** (decidido: *ver + crear tareas desde eventos*). Plan v1 de la próxima tanda:
+  - Manifiesto: agregar scope `calendar.readonly` → **re-autorizar** tras deploy.
+  - `Config!CalendarId` = ID del calendario compartido del equipo (manual, como `DriveFolder`). Fallback al primario.
+  - Backend: `getUpcomingCalendarEvents()` (lee próximos ~14 días) + `createTaskFromCalendarEvent(eventId)` (arma la tarea: nombre=título, deadline=fecha del evento, notas=descripción, resp=usuario actual; reusa `addTask`).
+  - Frontend: ítem "Calendario" en el sidebar + vista que lista eventos próximos con botón "Crear tarea" por evento (one-click, no auto-trigger en v1 para evitar duplicados).
+  - v2 (después): import automático vía trigger, parseando un marcador en las notas del evento.
 - **Polish de UI**: barrido de pantallas que se ven mal/inconsistentes. Empezado por el buscador (Cmd+K). Siguiente candidato: pills de prioridad ("Media" se ve pesado en dark).
 
 ## ✅ Resuelto en código (no requiere acción manual)
