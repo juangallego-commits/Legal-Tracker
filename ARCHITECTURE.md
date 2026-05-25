@@ -115,7 +115,7 @@ countBizDays(start, end, country)         // O(1) con feriados por país
 | `Proyectos` | Proyectos | 17 cols. Headers en row 1 |
 | `Comments` | Comentarios por tarea | Auto-creada en primer uso. Headers en row 1 |
 | `Activity` | Audit log de cambios | Auto-creada. Acciones: comment, status_change, close, block, reassign, create |
-| `Config` | Heads + parámetros globales | `Heads` (CSV de emails) define el rol HQ |
+| `Config` | Heads + parámetros globales | `Heads` (CSV de emails) define el rol HQ. `Capacidad default` (número) + `Capacidad: <Nombre>` (override por persona) alimentan las load bars |
 | `Feriados` | Días no laborables por país | Manual; afecta `countBizDays` y SLA |
 | `Templates` | Checklists por tipoTrabajo | Opcional; pre-llena Notas al crear tarea |
 | (`Telemetry`) | Logs de mutations | Generada por `_telemetry()`; no user-facing |
