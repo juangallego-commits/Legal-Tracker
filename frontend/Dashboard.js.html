@@ -186,8 +186,8 @@ function setTheme(theme) {
   var active = document.querySelector('.view.active');
   if (!active || !active.id || typeof goEd !== 'function') return;
   var EDVIEW_MAP = {
-    vEdHome: 'home', vEdTracker: 'tracker', vEdAgrupadas: 'agrupadas',
-    vEdProyectosIndex: 'proyectos', vEdMisTareas: 'mistareas',
+    vEdHome: 'home', vEdTracker: 'tracker',
+    vEdProyectosIndex: 'proyectos',
     vEdAnalytics: 'analytics', vEdHistorial: 'historial',
     vEdMiequipo: 'miequipo', vEdResumen: 'paises', vEdPlantillas: 'plantillas'
   };
@@ -1334,9 +1334,7 @@ function reload() {
       if (active && active.id && typeof goEd === 'function') {
         if (active.id === 'vEdHome') goEd('home');
         else if (active.id === 'vEdTracker') goEd('tracker');
-        else if (active.id === 'vEdAgrupadas') goEd('agrupadas');
         else if (active.id === 'vEdProyectosIndex') goEd('proyectos');
-        else if (active.id === 'vEdMisTareas') goEd('mistareas');
         else if (active.id === 'vEdAnalytics') goEd('analytics');
         else if (active.id === 'vEdHistorial') goEd('historial');
         else if (active.id === 'vEdMiequipo') goEd('miequipo');
@@ -2233,8 +2231,6 @@ function renderEdSidebar(role, activeViewId) {
 // Crumbs derivados del view activo (override desde mountEdShell o goEd).
 var _ED_CRUMBS_BY_VIEW = {
   home:       ['Mi día', 'Inicio'],
-  agrupadas:  ['Mi día', 'Por urgencia'],
-  mistareas:  ['Mi día', 'Mis tareas'],
   tracker:    ['Donde trabajo', 'Tracker'],
   proyectos:  ['Donde trabajo', 'Proyectos'],
   plantillas: ['Donde trabajo', 'Biblioteca'],
@@ -6088,132 +6084,6 @@ function _agBuckets(tasks) {
   return { overdue: overdue.sort(sortAsc), today: today.sort(sortAsc), week: week.sort(sortAsc), later: later.sort(sortAsc) };
 }
 
-function _agBucketNarr(key, tasks) {
-  // Contextual bucket narrative based on real counts, blocks, y nombre de la
-  // más urgente cuando aporta. Devuelve HTML (b/span); el caller decide si lo
-  // strippea (header sin formato) o lo deja (cuerpo).
-  if (tasks.length === 0) {
-    if (key === 'overdue') return 'Sin tareas vencidas. <b>Estás en forma.</b>';
-    if (key === 'today') return 'Nada vence hoy. <b>Día limpio.</b>';
-    if (key === 'week') return 'No hay tareas agendadas para esta semana.';
-    return 'No hay tareas con SLA cómodo.';
-  }
-  var blockedCount = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
-  var altaCount = tasks.filter(function(t){ return t.priority === 'Alta'; }).length;
-  // tasks viene ordenado por etaDays asc (más urgente primero) — usable para "la más crítica".
-  var top = tasks[0];
-  var topName = top && top.nombre ? esc(String(top.nombre).substring(0, 50)) : '';
-  if (key === 'overdue') {
-    var blockedFrag = blockedCount ? ('<span class="warn">' + blockedCount + ' esperando a tercero.</span> ') : '';
-    var topFrag = topName ? (' La más crítica: <b>«' + topName + '»</b>.') : '';
-    return blockedFrag + '<b>Sugerido:</b> follow-up o escalamiento suave.' + topFrag;
-  }
-  if (key === 'today') {
-    var altaFrag = altaCount ? ('<b>' + altaCount + ' de prioridad alta</b>. ') : '';
-    var topToday = topName ? (' Empezá por <b>«' + topName + '»</b>.') : '';
-    return altaFrag + 'Cerrar antes de fin de día.' + topToday;
-  }
-  if (key === 'week') {
-    return altaCount
-      ? ('<b>' + altaCount + ' de prioridad alta</b> con margen cómodo. Arrancá por la de mayor scope.')
-      : 'Tareas con margen cómodo. Planificá tu semana.';
-  }
-  return '<b>El SLA es cómodo.</b> Podés tomarte tu tiempo.';
-}
-
-function rEdAgrupadas(D) {
-  var v = $('vEdAgrupadas'); if (!v) return;
-  var name = _effectiveUserName();
-  var tasks = (D && D.tasks) ? D.tasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; }) : [];
-  var b = _agBuckets(tasks);
-  var totalActive = b.overdue.length + b.today.length + b.week.length + b.later.length;
-  var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
-
-  var html = '<div class="pa-page">';
-
-  // Page header
-  html += '<div class="pa-page-h">'
-       +    '<span class="pa-page-title">Por urgencia</span>'
-       +    '<span class="pa-page-sub">' + totalActive + ' tareas en 4 franjas</span>'
-       +    '<span class="pa-page-meta">' + esc(todayLine || '') + '</span>'
-       + '</div>';
-
-  if (totalActive > 0) {
-    html += '<div class="pa-narrative">Lectura rápida antes del tracker — arrancá por las urgentes; "Después" puede esperar.</div>';
-  }
-
-  // 4 KPIs
-  html += '<div class="pa-kpis">'
-       +    '<div class="pa-kpi ' + (b.overdue.length ? 'is-critical' : '') + '">'
-       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas</div>'
-       +      '<div class="val">' + b.overdue.length + '</div>'
-       +      '<div class="delta">' + (b.overdue.length ? 'requieren acción ahora' : 'todo al día') + '</div>'
-       +    '</div>'
-       +    '<div class="pa-kpi ' + (b.today.length ? 'is-warn' : '') + '">'
-       +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> Vencen hoy</div>'
-       +      '<div class="val">' + b.today.length + '</div>'
-       +      '<div class="delta">' + (b.today.length ? 'cerrar antes de fin de día' : 'día limpio') + '</div>'
-       +    '</div>'
-       +    '<div class="pa-kpi">'
-       +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Esta semana</div>'
-       +      '<div class="val">' + b.week.length + '</div>'
-       +      '<div class="delta">en cola</div>'
-       +    '</div>'
-       +    '<div class="pa-kpi">'
-       +      '<div class="lab"><span class="dot" style="background:var(--fg-3)"></span> Después</div>'
-       +      '<div class="val">' + b.later.length + '</div>'
-       +      '<div class="delta">SLA cómodo</div>'
-       +    '</div>'
-       + '</div>';
-
-  // Buckets como secciones con tabla densa
-  var buckets = [
-    { key: 'overdue', title: 'Vencidas',    tasks: b.overdue, dotColor: 'var(--critical)' },
-    { key: 'today',   title: 'Vencen hoy',  tasks: b.today,   dotColor: 'var(--warn)' },
-    { key: 'week',    title: 'Esta semana', tasks: b.week,    dotColor: 'var(--info)' },
-    { key: 'later',   title: 'Después',     tasks: b.later,   dotColor: 'var(--fg-3)' }
-  ];
-
-  buckets.forEach(function(bk) {
-    html += '<div class="pa-section-h">'
-         +    '<h3><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + bk.dotColor + ';margin-right:8px;vertical-align:middle"></span>' + esc(bk.title) + '</h3>'
-         +    '<span class="meta">' + (bk.tasks.length ? bk.tasks.length + (bk.tasks.length === 1 ? ' tarea' : ' tareas') : '—') + '</span>'
-         +    '<span class="meta" style="color:var(--fg-3);margin-left:auto;max-width:60%;text-align:right">' + _agBucketNarr(bk.key, bk.tasks) + '</span>'
-         + '</div>';
-    if (bk.tasks.length === 0) {
-      var emptyMsg, emptyIcon;
-      if (bk.key === 'overdue')      { emptyMsg = 'Sin vencidas. Bien jugado.'; emptyIcon = '✓'; }
-      else if (bk.key === 'today')   { emptyMsg = 'Nada vence hoy.';             emptyIcon = '☼'; }
-      else if (bk.key === 'week')    { emptyMsg = 'Sin tareas en cola esta semana.'; emptyIcon = '◐'; }
-      else                            { emptyMsg = 'Sin tareas con margen cómodo.';    emptyIcon = '◇'; }
-      html += '<div class="pa-card" style="display:flex;align-items:center;gap:12px;padding:14px 18px;color:var(--fg-3)">'
-           +    '<span style="width:32px;height:32px;border-radius:8px;background:var(--bg-2);display:grid;place-items:center;font-size:14px;color:var(--fg-2)">' + emptyIcon + '</span>'
-           +    '<span style="font-size:13px">' + esc(emptyMsg) + '</span>'
-           + '</div>';
-    } else {
-      html += '<div class="pa-tbl">';
-      bk.tasks.forEach(function(t) {
-        var pn = _projNameForTask(t);
-        var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
-        var conf = _confLevel(t);
-        html += '<div class="pa-tbl-r" style="grid-template-columns: 20px 64px 1fr 100px 110px 90px" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
-             +    paConfDot(conf)
-             +    '<span class="id mono">' + esc(t.id) + '</span>'
-             +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + '</span></div>'
-             +    paPriorityPill(t.priority)
-             +    paStatusPill(t.status)
-             +    '<span class="eta mono' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(t.eta || paEtaText(t.etaDays)) + '</span>'
-             + '</div>';
-      });
-      html += '</div>';
-    }
-  });
-
-  html += '</div>'; // pa-page
-  v.innerHTML = html;
-}
-
-// MARKER:EDITORIAL_AGRUPADAS_END
 
 // ───────────────────────────────────────────────────────────────
 // MARKER:EDITORIAL_ACTUALIZAR_BEGIN
@@ -6539,7 +6409,6 @@ function edUSubmit() {
         }
         if (active.id === 'vEdHome' && typeof goEd === 'function') goEd('home');
         else if (active.id === 'vEdTracker' && typeof goEd === 'function') goEd('tracker');
-        else if (active.id === 'vEdAgrupadas' && typeof goEd === 'function') goEd('agrupadas');
       }).withFailureHandler(function(e) {
         console.error(e);
         if (typeof hideLoader === 'function') hideLoader();
@@ -7524,128 +7393,6 @@ function rEdProyectosIndex(D) {
 // MARKER:EDITORIAL_PROYECTOS_END
 
 // ───────────────────────────────────────────────────────────────
-// MARKER:EDITORIAL_MISTAREAS_BEGIN  (owned by Agente M)
-// Mis tareas editorial: hero stats + perf cells + tabla compacta
-// con las tareas activas del USER efectivo. Cada fila abre la tarea
-// en el tracker editorial via edGoTaskInTracker(id). Reusa clases
-// .esp-hero / .esp-stat / .esp-perf / .tk-table / .tk-row /
-// .cf-dot / .ed-* — no agrega CSS nuevo.
-// ───────────────────────────────────────────────────────────────
-
-function rEdMisTareas(D) {
-  var v = $('vEdMisTareas'); if (!v) return;
-  var name = _effectiveUserName();
-  var allTasks = (D && D.tasks) || [];
-  var mine = allTasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; });
-
-  var overdue = mine.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
-  var dueToday = mine.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; }).length;
-  var blocked = mine.filter(function(t){ return t.status === 'Bloqueado'; }).length;
-  var total = mine.length;
-
-  var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
-  var eyebrow = 'Mis tareas' + (todayLine ? ' · ' + todayLine : '');
-
-  // H1 dinámico (singular/plural/cero)
-  var h1Inner;
-  if (total === 0) {
-    h1Inner = '<em>No hay tareas activas</em><br>en tu agenda.';
-  } else if (total === 1) {
-    h1Inner = 'Tenés <em>1 tarea activa</em><br>en tu agenda.';
-  } else {
-    h1Inner = 'Tenés <em>' + esc(String(total).padStart(2,'0')) + ' tareas activas</em><br>en tu agenda.';
-  }
-
-  // Lede narrativa según los warns
-  var ledeBits = [];
-  if (overdue) ledeBits.push('<span class="crit">' + overdue + ' vencidas</span>');
-  if (dueToday) ledeBits.push('<span class="warn">' + dueToday + ' vencen hoy</span>');
-  if (blocked) ledeBits.push('<span class="crit">' + blocked + ' bloqueadas</span>');
-  var lede;
-  if (total === 0) {
-    lede = 'Día limpio. Aprovechá para avanzar el trabajo de proyecto.';
-  } else if (ledeBits.length === 0) {
-    lede = 'Todo en cola, sin incendios urgentes. Avanzá por prioridad.';
-  } else {
-    lede = ledeBits.join(' · ') + '. Click en una fila para abrir el tracker.';
-  }
-
-  var html = '<div class="pa-page">';
-
-  // Page header
-  html += '<div class="pa-page-h">'
-       +    '<span class="pa-page-title">Mis tareas</span>'
-       +    '<span class="pa-page-sub">' + total + ' activas · ' + esc(todayLine || '') + '</span>'
-       + '</div>';
-
-  if (lede && total > 0) {
-    html += '<div class="pa-narrative">' + lede + '</div>';
-  }
-
-  // KPIs eliminados — Inicio ya los muestra. "Mis tareas" se enfoca en la
-  // LISTA densa de tus tareas activas, no en duplicar las stats del Home.
-
-  // PERFORMANCE
-  var me = (D && D.team || []).find(function(m){ return m.name === name; }) || {};
-  var streak = (typeof me.streak === 'number' && me.streak > 0) ? me.streak : 0;
-  var hasPerf = streak > 0
-             || (me.avgAlta && me.avgAlta !== '—')
-             || (me.avgMedia && me.avgMedia !== '—')
-             || (me.avgBaja && me.avgBaja !== '—');
-  if (hasPerf) {
-    html += '<div class="pa-section-h"><h3>Tu mes hasta ahora</h3><span class="meta">cierre promedio · racha on-time</span></div>'
-         +  '<div class="pa-card">'
-         +    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px">'
-         +      '<div><div class="pa-meta-sm">🔥 Racha en tiempo</div>'
-         +        '<div class="mono" style="font-size:24px;font-weight:600;color:var(--good-fg);margin-top:4px">' + (streak || '—') + '</div>'
-         +        '<div class="pa-meta-sm">tareas seguidas</div></div>'
-         +      '<div><div class="pa-meta-sm">Prioridad alta</div>'
-         +        '<div class="mono" style="font-size:24px;font-weight:600;margin-top:4px">' + esc(me.avgAlta || '—') + '</div>'
-         +        '<div class="pa-meta-sm">cierre · SLA 2d</div></div>'
-         +      '<div><div class="pa-meta-sm">Media</div>'
-         +        '<div class="mono" style="font-size:24px;font-weight:600;margin-top:4px">' + esc(me.avgMedia || '—') + '</div>'
-         +        '<div class="pa-meta-sm">cierre · SLA 5d</div></div>'
-         +      '<div><div class="pa-meta-sm">Baja</div>'
-         +        '<div class="mono" style="font-size:24px;font-weight:600;margin-top:4px">' + esc(me.avgBaja || '—') + '</div>'
-         +        '<div class="pa-meta-sm">cierre · SLA 7d</div></div>'
-         +    '</div>'
-         +  '</div>';
-  }
-
-  // ACTIVE TASKS TABLE
-  html += '<div class="pa-section-h">'
-       +    '<h3>Tus tareas activas</h3>'
-       +    '<span class="meta">' + total + (total === 1 ? ' tarea' : ' tareas') + '</span>'
-       +    '<button class="link" onclick="goEd(\'tracker\')">Abrir en tracker →</button>'
-       + '</div>';
-
-  if (mine.length === 0) {
-    html += paEmpty('inbox', 'Día limpio. No tenés tareas activas.', 'Aprovechá para avanzar trabajo de proyecto.');
-    html += '<div style="margin-top:8px;text-align:center"><button class="pa-btn pa-btn-outline" onclick="goEd(\'agrupadas\')">Ver por urgencia →</button></div>';
-  } else {
-    var rows = (typeof _edSortByUrgency === 'function') ? _edSortByUrgency(mine) : mine.slice();
-    html += '<div class="pa-tbl">';
-    rows.forEach(function(t) {
-      var pn = _projNameForTask(t);
-      var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
-      var conf = _confLevel(t);
-      html += '<div class="pa-tbl-r" style="grid-template-columns: 20px 64px 1fr 100px 110px 90px" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
-           +    paConfDot(conf)
-           +    '<span class="id mono">' + esc(t.id) + '</span>'
-           +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + '</span></div>'
-           +    paPriorityPill(t.priority)
-           +    paStatusPill(t.status)
-           +    '<span class="eta mono' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(t.eta || paEtaText(t.etaDays)) + '</span>'
-           + '</div>';
-    });
-    html += '</div>';
-  }
-
-  html += '</div>'; // pa-page
-  v.innerHTML = html;
-}
-
-// MARKER:EDITORIAL_MISTAREAS_END
 
 // MARKER:EDITORIAL_HISTORIAL_BEGIN  (owned by Agente O1)
 // Historial editorial · "Cerradas" (specialist) / "Historial" (manager/head).
