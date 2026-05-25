@@ -184,15 +184,14 @@ function setTheme(theme) {
     if (head && typeof renderEdHead === 'function') head.innerHTML = renderEdHead(activeViewId);
   }
   var active = document.querySelector('.view.active');
-  if (!active || !active.id) return;
-  if (active.id === 'vEdHome' && typeof goEd === 'function') { goEd('home'); return; }
-  if (active.id === 'vEdTracker' && typeof goEd === 'function') { goEd('tracker'); return; }
-  if (active.id === 'vEdAnalytics' && typeof goEd === 'function') { goEd('analytics'); return; }
-  if (typeof go === 'function') {
-    var v = active.id.replace(/^v/, '');
-    v = v.charAt(0).toLowerCase() + v.slice(1);
-    go(v);
-  }
+  if (!active || !active.id || typeof goEd !== 'function') return;
+  var EDVIEW_MAP = {
+    vEdHome: 'home', vEdTracker: 'tracker', vEdAgrupadas: 'agrupadas',
+    vEdProyectosIndex: 'proyectos', vEdMisTareas: 'mistareas',
+    vEdAnalytics: 'analytics', vEdHistorial: 'historial',
+    vEdMiequipo: 'miequipo', vEdResumen: 'paises', vEdPlantillas: 'plantillas'
+  };
+  if (EDVIEW_MAP[active.id]) goEd(EDVIEW_MAP[active.id]);
 }
 
 // Restore preferred theme on load (default to dark).
@@ -294,36 +293,6 @@ function taskOverdueBySLA(t) {
   return bizDays > (SLA_LIMITS[t.priority] || 5);
 }
 
-// ════════════════════════════════════════════════════════════════
-// 4 · MAIN RENDER ORCHESTRATOR
-// ════════════════════════════════════════════════════════════════
-
-function render() {
-  var tasks = ft(), team = fTeam();
-  var lastDone = (D.historial && D.historial.length > 0)
-    ? (' · Última: ' + D.historial[0].nombre.substring(0, 25))
-    : '';
-  $('metaInfo').textContent = 'Sem. ' + (D.semana || '') + ' · Act. ' + (D.generated || '') + lastDone;
-  $('totalB').textContent     = tasks.length + ' tareas';
-  $('pillAll').textContent    = '🌐 Todos (' + D.tasks.length + ')';
-  $('tabTracker').textContent = 'Tracker (' + D.tasks.length + ')';
-  $('tabHistorial').textContent = 'Historial (' + (D.historial || []).length + ')';
-  $('tabProyectos').textContent = 'Proyectos (' + (D.projects || []).length + ')';
-  var ov = D.sla ? D.sla.overdue : 0;
-  $('ovBadge').classList.toggle('show', ov > 0);
-  $('ovN').textContent = ov;
-  rDonut(tasks);
-  rLoad(team);
-  rTeam(team);
-  rTable(tasks);
-  rPChips();
-  rRChips();
-  rActiveFilters();
-  rAnalytics(tasks, team);
-  rHist();
-  rProjects();
-}
-
 // ═══ FILTER ═══
 function taskProjectName(t) {
   if (t.proyectoId && D.projects) {
@@ -392,108 +361,10 @@ function mc(n) {
   return '';
 }
 
-function fC(c) {
-  F.country = c;
-  F.resp = 'ALL';
-  document.querySelectorAll('.cpill').forEach(function(b) {
-    b.classList.toggle('active', b.dataset.country === c);
-  });
-  persistFilters();
-  render();
-}
-
-function fSt(s) {
-  F.status = s;
-  document.querySelectorAll('#fBar .fbtn').forEach(function(b) {
-    b.classList.toggle('active', b.textContent.trim() === (s === 'ALL' ? 'Todos' : s));
-  });
-  persistFilters();
-  rTable(ft());
-  rActiveFilters();
-}
-
-function fPr(p) {
-  F.project = F.project === p ? 'ALL' : p;
-  persistFilters();
-  rPChips();
-  rTable(ft());
-  rActiveFilters();
-}
-// Buscador con debounce 200ms — evita recomputar render() en cada keystroke.
-var _searchDebounced = debounce(function() {
-  F.search = $('sInput').value;
-  persistFilters();
-  render();
-}, 200);
-function onS(){ _searchDebounced(); }
-function tSort(col) {
-  if (SORT.col === col) SORT.asc = !SORT.asc;
-  else { SORT.col = col; SORT.asc = true; }
-  rTable(ft());
-}
-
-function fR(name) {
-  F.resp = F.resp === name ? 'ALL' : name;
-  persistFilters();
-  rRChips();
-  rTable(ft());
-  rActiveFilters();
-}
-
-function fPSt(s) {
-  F.projStatus = s;
-  document.querySelectorAll('#projFBar .fbtn').forEach(function(b) {
-    b.classList.toggle('active', b.textContent.trim() === (s === 'ALL' ? 'Todos' : s));
-  });
-  persistFilters();
-  rProjects();
-}
-
-// Toggle del filtro "Mis tareas". CURRENT_USER siempre está definido
-// (viene resuelto del server via SSO + allowlist).
-function toggleMyTasks() {
-  var btn = $('myTasksBtn');
-  if (F._myTasks) {
-    F._myTasks = false;
-    F.resp = 'ALL';
-    btn.classList.remove('active');
-    $('sInput').value = '';
-    F.search = '';
-  } else {
-    if (!CURRENT_USER) { toast('Sesión no identificada', 'error'); return; }
-    F._myTasks = true;
-    F.resp = CURRENT_USER;
-    btn.classList.add('active');
-  }
-  render();
-}
-function rRChips() {
-  var c = $('rChips');
-  if (!c) return;
-  var team = fTeam().filter(function(t){ return t.total > 0; });
-  c.innerHTML = '<span class="filter-label">Resp:</span>' + team.map(function(t) {
-    var active = F.resp === t.name ? ' active' : '';
-    return '<button class="pchip' + active + '" data-act="filter-resp" data-arg="' + esc(t.name) + '">'
-      + esc(t.name.split(' ').slice(0, 2).join(' ')) + '</button>';
-  }).join('');
-}
-function fTeamCard(name) {
-  F.resp = F.resp === name ? 'ALL' : name;
-  render();
-  var target = document.querySelector('.table-wrap');
-  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
 // ═══ BUILD ═══
 function buildUI() {
-  // Country pills + country dropdowns
+  // Country dropdowns
   if (D.equipos) D.equipos.forEach(function(eq) {
-    var b = document.createElement('button');
-    b.className = 'cpill'; b.dataset.country = eq.code;
-    var cnt = D.tasks.filter(function(t) { return (t.pais || mc(t.resp)) === eq.code; }).length;
-    b.textContent = eq.code + ' (' + cnt + ')';
-    b.title = eq.country;
-    b.onclick = function() { fC(eq.code); };
-    $('cBar').appendChild(b);
     ['fPais', 'pPais'].forEach(function(id) {
       var o = document.createElement('option');
       o.value = eq.code; o.textContent = eq.code + ' — ' + eq.country;
@@ -572,415 +443,6 @@ function _loadTemplates(cb) {
       queue.forEach(function(fn) { try { fn(_TEMPLATES_CACHE); } catch (e) {} });
     })
     .getTemplates();
-}
-
-// ═══ CHARTS ═══
-// Donut de distribución por prioridad. Anota el total de tareas en el centro.
-function rDonut(tasks) {
-  var c = $('cPrio');
-  if (!c) return;
-  if (CH.p) CH.p.destroy();
-  var a = 0, m = 0, b = 0;
-  tasks.forEach(function(t) {
-    if (t.priority === 'Alta') a++;
-    else if (t.priority === 'Media') m++;
-    else b++;
-  });
-  var n = tasks.length;
-  var th = chartTheme();
-  CH.p = new Chart(c, {
-    type: 'doughnut',
-    data: {
-      labels: ['Alta', 'Media', 'Baja'],
-      datasets: [{
-        data: [a, m, b],
-        backgroundColor: th.prio,
-        borderColor: th.surface, borderWidth: 4, hoverOffset: 10
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: true, cutout: '74%',
-      plugins: {
-        legend: { position: 'bottom', labels: { padding: 18, usePointStyle: true, pointStyle: 'circle', font: { size: 12, weight: 600 } } },
-        tooltip: { backgroundColor: th.surface2, padding: 12, cornerRadius: 10 }
-      },
-      animation: { duration: 900 }
-    },
-    plugins: [{
-      id: 'ct',
-      afterDraw: function(ch) {
-        var x = ch.ctx;
-        x.save();
-        x.font = "800 32px 'JetBrains Mono',monospace";
-        x.fillStyle = th.ink;
-        x.textAlign = 'center'; x.textBaseline = 'middle';
-        x.fillText(n, ch.width / 2, ch.height / 2 - 8);
-        x.font = "600 11px 'Nunito Sans',sans-serif";
-        x.fillStyle = th.muted;
-        x.fillText('tareas', ch.width / 2, ch.height / 2 + 16);
-        x.restore();
-      }
-    }]
-  });
-}
-
-// Barra horizontal de carga: por persona si hay country filter, por equipo si no.
-// Skip si el card está oculto por role-gating (specialist).
-function rLoad(team) {
-  var c = $('cLoad');
-  if (!c) return;
-  var card = $('cardLoad');
-  if (card && getComputedStyle(card).display === 'none') return;
-  if (CH.l) CH.l.destroy();
-  var labels, dA, dM, dB;
-  if (F.country !== 'ALL') {
-    $('loadT').textContent = 'Carga por persona';
-    labels = team.map(function(t){ return t.name.split(' ').slice(0, 2).join(' '); });
-    dA = team.map(function(t){ return t.alta; });
-    dM = team.map(function(t){ return t.media; });
-    dB = team.map(function(t){ return t.baja; });
-  } else {
-    $('loadT').textContent = 'Carga por equipo';
-    var cd = {};
-    team.forEach(function(t) {
-      var cc = t.country || '?';
-      if (!cd[cc]) cd[cc] = { a: 0, m: 0, b: 0 };
-      cd[cc].a += t.alta; cd[cc].m += t.media; cd[cc].b += t.baja;
-    });
-    var k = Object.keys(cd).sort();
-    labels = k;
-    dA = k.map(function(x){ return cd[x].a; });
-    dM = k.map(function(x){ return cd[x].m; });
-    dB = k.map(function(x){ return cd[x].b; });
-  }
-  var th = chartTheme();
-  CH.l = new Chart(c, {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [
-        { label: 'Alta',  data: dA, backgroundColor: th.prio[0], borderRadius: 6, barPercentage: .5, categoryPercentage: .7 },
-        { label: 'Media', data: dM, backgroundColor: th.prio[1], borderRadius: 6, barPercentage: .5, categoryPercentage: .7 },
-        { label: 'Baja',  data: dB, backgroundColor: th.prio[2], borderRadius: 6, barPercentage: .5, categoryPercentage: .7 }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: true, indexAxis: 'y',
-      scales: {
-        x: { stacked: true, grid: { color: th.ruleSoft }, ticks: { stepSize: 2 } },
-        y: { stacked: true, grid: { display: false }, ticks: { font: { size: 12, weight: 700 } } }
-      },
-      plugins: {
-        legend: { position: 'top', align: 'end', labels: { padding: 14, usePointStyle: true, pointStyle: 'circle', font: { size: 11, weight: 600 } } },
-        tooltip: { backgroundColor: th.surface2, padding: 12, cornerRadius: 10 }
-      },
-      animation: { duration: 700 }
-    }
-  });
-}
-
-// ═══ TEAM ═══
-function rTeam(team) {
-  var g = $('tGrid');
-  if (!g) return;
-  var at = team.filter(function(t){ return t.total > 0; });
-  if (!at.length) { g.innerHTML = ''; return; }
-  g.innerHTML = at.map(function(t, i) {
-    var bg = AVC[i % AVC.length];
-    var s = '';
-    if (t.alta > 0)       s += '<span class="tcard-stat" style="background:var(--red-dim);color:var(--red)">' + t.alta + ' alta</span>';
-    if (t.enCurso > 0)    s += '<span class="tcard-stat" style="background:var(--blue-dim);color:var(--blue)">' + t.enCurso + ' curso</span>';
-    if (t.bloqueado > 0)  s += '<span class="tcard-stat" style="background:var(--yellow-dim);color:var(--yellow)">' + t.bloqueado + ' bloq</span>';
-    if (t.enRevision > 0) s += '<span class="tcard-stat" style="background:var(--purple-dim);color:var(--purple)">' + t.enRevision + ' rev</span>';
-    if (t.pendiente > 0)  s += '<span class="tcard-stat" style="background:var(--surface3);color:var(--text-muted)">' + t.pendiente + ' pend</span>';
-    var sel = F.resp === t.name ? ' tcard-sel' : '';
-    return '<div class="tcard' + sel + '" style="cursor:pointer" data-act="filter-team" data-arg="' + esc(t.name) + '">'
-      +   '<div class="tcard-top">'
-      +     '<div class="tcard-av" style="background:' + bg + '">' + esc(t.initials) + '</div>'
-      +     '<div>'
-      +       '<div class="tcard-name">' + esc(t.name.split(' ').slice(0, 2).join(' ')) + '</div>'
-      +       '<div class="tcard-sub">' + esc(t.country || '') + ' · ' + t.total + '</div>'
-      +     '</div>'
-      +   '</div>'
-      +   '<div class="tcard-stats">' + s + '</div>'
-      + '</div>';
-  }).join('');
-}
-
-// ═══ TABLE ═══
-function rTable(tasks) {
-  var tb = $('tBody');
-  if (!tb) return;
-  if (!tasks.length) {
-    tb.innerHTML = '<tr><td colspan="11"><div class="empty"><div class="empty-icon">📋</div>No hay tareas</div></td></tr>';
-    return;
-  }
-  // Ordenamiento por columna clickeable (SORT.col)
-  if (SORT.col) {
-    var sc = SORT.col, sa = SORT.asc;
-    tasks = tasks.slice().sort(function(a, b) {
-      if (sc === 'priority') {
-        return ((PRIO_ORDER[a.priority] || 1) - (PRIO_ORDER[b.priority] || 1)) * (sa ? 1 : -1);
-      }
-      if (sc === 'status') {
-        return ((STATUS_ORDER[a.status] || 2) - (STATUS_ORDER[b.status] || 2)) * (sa ? 1 : -1);
-      }
-      if (sc === 'deadline') {
-        var da = pd(a.deadline), db = pd(b.deadline);
-        if (!da && !db) return 0;
-        if (!da) return 1;
-        if (!db) return -1;
-        return (da - db) * (sa ? 1 : -1);
-      }
-      var va = (a[sc] || '').toString().toLowerCase();
-      var vb = (b[sc] || '').toString().toLowerCase();
-      return va < vb ? (sa ? -1 : 1) : va > vb ? (sa ? 1 : -1) : 0;
-    });
-  }
-  var pMap = {};
-  if (D.projects) D.projects.forEach(function(p){ pMap[p.id] = p.nombre; });
-  tb.innerHTML = tasks.map(function(t) {
-    var dl = renderDeadlineBadge(t.deadline);
-    var projName = t.proyectoId && pMap[t.proyectoId] ? pMap[t.proyectoId] : (t.proyecto || '—');
-    return '<tr>' +
-      '<td class="col-id">' + t.id + '</td>' +
-      '<td class="col-nombre" data-act="open-edit" data-id="' + t.id + '">' + esc(t.nombre) + '</td>' +
-      '<td><span style="color:var(--purple);font-size:12px">' + esc(projName) + '</span></td>' +
-      '<td class="col-resp">' + esc(t.resp) + '</td>' +
-      '<td>' + renderPrioBadge(t.priority, t.id) + '</td>' +
-      '<td>' + renderStatusBadge(t.status, t.id) + '</td>' +
-      '<td>' + dl.html + '</td>' +
-      '<td>' + renderTipoCell(t.tipoTrabajo) + '</td>' +
-      '<td>' + renderRiesgoCell(t.riesgo) + '</td>' +
-      '<td class="col-acc">' + esc(t.acc || '') + '</td>' +
-      '<td><button class="btn-icon" data-act="show-task-menu" data-id="' + t.id + '" aria-label="Acciones tarea ' + t.id + '">⋮</button></td>' +
-    '</tr>';
-  }).join('');
-  ['nombre','resp','priority','status','deadline'].forEach(function(c){var el=$('sI_'+c);if(el)el.textContent=SORT.col===c?(SORT.asc?'▲':'▼'):''});
-}
-
-function rPChips() {
-  var c = $('pChips');
-  if (!c) return;
-  var pMap = {};
-  ft().forEach(function(t) {
-    var pn = taskProjectName(t) || 'Sin proyecto';
-    if (!pMap[pn]) pMap[pn] = 0;
-    pMap[pn]++;
-  });
-  var keys = Object.keys(pMap).filter(function(k){ return k !== 'Sin proyecto'; });
-  if (!keys.length) { c.innerHTML = ''; return; }
-  c.innerHTML = '<span class="filter-label">Proyecto:</span>' + keys.map(function(k) {
-    var active = F.project === k ? ' active' : '';
-    return '<button class="pchip' + active + '" data-act="filter-project" data-arg="' + esc(k) + '">'
-      + esc(k) + ' (' + pMap[k] + ')</button>';
-  }).join('');
-}
-
-// ═══ PROJECTS ═══
-function rProjects() {
-  var g = $('projGrid');
-  if (!g) return;
-
-  var projs = (D.projects || []).filter(function(p) {
-    if (F.country !== 'ALL' && p.pais !== F.country) return false;
-    if (F.projStatus !== 'ALL' && p.status !== F.projStatus) return false;
-    if (F.search) {
-      var s = F.search.toLowerCase();
-      if ((p.nombre || '').toLowerCase().indexOf(s) < 0 &&
-          (p.descripcion || '').toLowerCase().indexOf(s) < 0) return false;
-    }
-    return true;
-  });
-
-  if (!projs.length) {
-    g.innerHTML = '<div class="empty"><div class="empty-icon">📁</div>No hay proyectos'
-      + (F.country !== 'ALL' ? ' en ' + F.country : '') + '</div>';
-    return;
-  }
-
-  g.innerHTML = projs.map(function(p) {
-    var ts = p.taskStats || { total: 0, listo: 0, pendiente: 0, enCurso: 0, enRevision: 0, bloqueado: 0 };
-    var pct = ts.total > 0 ? Math.round(ts.listo / ts.total * 100) : 0;
-    var pColor = pct >= 100 ? 'var(--green)' : pct >= 50 ? 'var(--blue)' : 'var(--rappi)';
-
-    var prioBadge = '<span class="badge ' + (BADGE_PRIO[p.priority] || 'b-media')
-      + '" style="font-size:10px;padding:2px 8px;cursor:default">'
-      + (EMOJI_PRIO[p.priority] || '🟡') + ' ' + esc(_priorityLabel(p.priority)) + '</span>';
-    var statusBadge = renderProjStatusBadge(p.status);
-
-    var stats = '';
-    if (ts.pendiente > 0)  stats += '<span class="pcard-stat" style="background:var(--surface3);color:var(--text-muted)">' + ts.pendiente + ' pend</span>';
-    if (ts.enCurso > 0)    stats += '<span class="pcard-stat" style="background:var(--blue-dim);color:var(--blue)">' + ts.enCurso + ' curso</span>';
-    if (ts.enRevision > 0) stats += '<span class="pcard-stat" style="background:var(--purple-dim);color:var(--purple)">' + ts.enRevision + ' rev</span>';
-    if (ts.bloqueado > 0)  stats += '<span class="pcard-stat" style="background:var(--yellow-dim);color:var(--yellow)">' + ts.bloqueado + ' bloq</span>';
-    if (ts.listo > 0)      stats += '<span class="pcard-stat" style="background:var(--green-dim);color:var(--green)">' + ts.listo + ' listo</span>';
-
-    // Lista de tareas del proyecto (colapsada por defecto)
-    var taskRows = (p.tasks || []).map(function(t) {
-      return '<div class="pcard-task">'
-        + '<span class="pcard-task-id">#' + t.id + '</span>'
-        + '<span class="pcard-task-name">' + esc(t.nombre) + '</span>'
-        + renderStatusBadge(t.status, null, true)
-        + '</div>';
-    }).join('');
-
-    var info = '<div class="pcard-info">'
-      + (p.responsable ? '<span>👤 ' + esc(p.responsable.split(' ').slice(0, 2).join(' ')) + '</span>' : '')
-      + (p.participantes && p.participantes.length > 0 ? '<span>👥 +' + p.participantes.length + '</span>' : '')
-      + (p.deadline ? '<span>📅 ' + esc(p.deadline) + '</span>' : '')
-      + '<span>📋 ' + ts.total + ' tareas</span>'
-      + '</div>';
-
-    var progress = '<div class="pcard-progress">'
-      + '<div class="pbar-track"><div class="pbar-fill" style="width:' + pct + '%;background:' + pColor + '"></div></div>'
-      + '<div class="pbar-label"><span>' + pct + '% completado</span><span>' + ts.listo + '/' + ts.total + '</span></div>'
-      + '</div>';
-
-    var countryTag = p.pais
-      ? '<span style="font-size:11px;color:var(--text-dim);font-weight:700">' + esc(p.pais) + '</span>'
-      : '';
-
-    return '<div class="pcard">'
-      + '<div class="pcard-top">'
-      +   '<button class="pcard-edit btn-icon" data-act="open-edit-project" data-id="' + p.id + '" aria-label="Editar proyecto ' + esc(p.nombre) + '" title="Editar proyecto">⋮</button>'
-      +   '<div class="pcard-meta">' + prioBadge + statusBadge + countryTag + '</div>'
-      +   '<div class="pcard-name">' + esc(p.nombre) + '</div>'
-      +   (p.descripcion ? '<div class="pcard-desc">' + esc(p.descripcion) + '</div>' : '')
-      +   info
-      +   progress
-      + '</div>'
-      + (stats ? '<div class="pcard-stats">' + stats + '</div>' : '')
-      + '<div class="pcard-footer">'
-      +   '<button class="pcard-add" data-act="create-task-in-project" data-id="' + p.id + '" title="Añadir tarea a este proyecto (preload)">+ tarea</button>'
-      +   (ts.total > 0
-            ? '<button class="pcard-toggle" data-act="toggle-ptasks"><span class="arrow">▶</span> Ver tareas (' + ts.total + ')</button>'
-            : '')
-      + '</div>'
-      + (ts.total > 0 ? '<div class="pcard-tasks" id="pt' + p.id + '">' + taskRows + '</div>' : '')
-      + '</div>';
-  }).join('');
-}
-
-function togglePTasks(btn) {
-  // Busca .pcard-tasks dentro del mismo pcard (robusto ante cambios de estructura)
-  var pcard = btn.closest ? btn.closest('.pcard') : null;
-  if (!pcard) return;
-  var tasks = pcard.querySelector('.pcard-tasks');
-  if (!tasks) return;
-  var open = tasks.classList.toggle('open');
-  var arrow = btn.querySelector('.arrow');
-  if (arrow) arrow.style.transform = open ? 'rotate(90deg)' : 'rotate(0)';
-}
-
-// ═══ HISTORIAL ═══
-function rHist() {
-  var hist = fHist();
-  $('hBadge').textContent = hist.length + ' completadas';
-  var tb = $('hBody');
-  if (!tb) return;
-  if (!hist.length) {
-    tb.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">✅</div>Sin completadas</div></td></tr>';
-    return;
-  }
-  var pMap = {};
-  if (D.projects) D.projects.forEach(function(p){ pMap[p.id] = p.nombre; });
-  tb.innerHTML = hist.map(function(t) {
-    var pn = t.proyectoId && pMap[t.proyectoId] ? pMap[t.proyectoId] : (t.proyecto || '—');
-    return '<tr>' +
-      '<td class="col-id">' + t.id + '</td>' +
-      '<td style="font-weight:700">' + esc(t.nombre) + '</td>' +
-      '<td style="color:var(--purple);font-size:12px">' + esc(pn) + '</td>' +
-      '<td class="col-resp">' + esc(t.resp) + '</td>' +
-      '<td>' + renderPrioBadge(t.priority) + '</td>' +
-      '<td style="font-family:var(--mono);font-size:12px;color:var(--text-muted)">' + esc(t.creado) + '</td>' +
-      '<td style="font-family:var(--mono);font-size:12px;color:var(--green)">' + esc(t.cerrado) + '</td>' +
-    '</tr>';
-  }).join('');
-}
-
-// ═══ ANALYTICS ═══
-function rAnalytics(tasks, team) {
-  $('slaOn').textContent = D.sla ? D.sla.onTime : 0;
-  $('slaRk').textContent = D.sla ? D.sla.atRisk : 0;
-  $('slaOv').textContent = D.sla ? D.sla.overdue : 0;
-
-  // Donut por prioridad (versión analytics, sin anotación central)
-  var c1 = $('cPrioA');
-  if (c1) {
-    if (CH.pa) CH.pa.destroy();
-    var a = 0, m = 0, b = 0;
-    tasks.forEach(function(t) {
-      if (t.priority === 'Alta') a++;
-      else if (t.priority === 'Media') m++;
-      else b++;
-    });
-    var thA = chartTheme();
-    CH.pa = new Chart(c1, {
-      type: 'doughnut',
-      data: {
-        labels: ['Alta', 'Media', 'Baja'],
-        datasets: [{
-          data: [a, m, b],
-          backgroundColor: thA.prio,
-          borderColor: thA.surface, borderWidth: 4
-        }]
-      },
-      options: {
-        responsive: true, cutout: '70%',
-        plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true } } }
-      }
-    });
-  }
-
-  // Barra apilada de estado por responsable
-  var c2 = $('cStatA');
-  if (c2 && team.length) {
-    if (CH.sa) CH.sa.destroy();
-    var thS = chartTheme();
-    CH.sa = new Chart(c2, {
-      type: 'bar',
-      data: {
-        labels: team.map(function(t){ return t.name.split(' ').slice(0, 2).join(' '); }),
-        datasets: [
-          { label: 'Pend.', data: team.map(function(t){ return t.pendiente; }),  backgroundColor: thS.dim,    borderRadius: 4, barPercentage: .5 },
-          { label: 'Curso', data: team.map(function(t){ return t.enCurso; }),    backgroundColor: thS.info,   borderRadius: 4, barPercentage: .5 },
-          { label: 'Rev.',  data: team.map(function(t){ return t.enRevision; }), backgroundColor: thS.accent, borderRadius: 4, barPercentage: .5 },
-          { label: 'Bloq.', data: team.map(function(t){ return t.bloqueado; }),  backgroundColor: thS.prio[1],borderRadius: 4, barPercentage: .5 }
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        scales: {
-          x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11, weight: 700 } } },
-          y: { stacked: true, grid: { color: thS.ruleSoft }, ticks: { stepSize: 2 } }
-        },
-        plugins: { legend: { position: 'top', labels: { padding: 12, usePointStyle: true, font: { size: 11 } } } }
-      }
-    });
-  }
-}
-
-// ═══ VIEWS ═══
-// Orden debe coincidir con el orden de <button class="nav-tab"> en el HTML.
-// La nav-tab "Crear" no está en VIEWS porque es un modal global.
-var VIEWS = ['resumen','tracker','proyectos','miequipo','analytics','historial','mistareas'];
-
-function go(v) {
-  VIEWS.forEach(function(x) {
-    var id = 'v' + x.charAt(0).toUpperCase() + x.slice(1);
-    var e = $(id);
-    if (e) e.classList.toggle('active', x === v);
-  });
-  document.querySelectorAll('.nav-tab').forEach(function(b, i) {
-    b.classList.toggle('active', VIEWS[i] === v);
-  });
-  if (v === 'resumen')   rResumen();
-  if (v === 'analytics') rAnalytics(ft(), fTeam());
-  if (v === 'historial') rHist();
-  if (v === 'proyectos') rProjects();
-  if (v === 'mistareas') rMisTareas();
-  if (v === 'miequipo')  rMiEquipo();
 }
 
 // ═══ CREATE MODAL ═══
@@ -1249,7 +711,6 @@ function reopenEditWithFreshData() {
     .withSuccessHandler(function(d) {
       hideLoader();
       D = d;
-      render();
       // Refresh solo el modal body con data nueva
       if ($('editOv').classList.contains('show')) {
         if (kind === 'task') openEdit(id);
@@ -1609,7 +1070,6 @@ function uf(id, f, v) {
   // Aplicar cambio optimista (solo si no va a moverse al historial)
   if (!willMoveToHistorial && task) {
     task[f] = v;
-    render();
   }
 
   showLoader();
@@ -1620,13 +1080,13 @@ function uf(id, f, v) {
         reload(); // Sincroniza stats reales del server
       } else {
         // Rollback: restaurar valor previo
-        if (!willMoveToHistorial && task) { task[f] = prevValue; render(); }
+        if (!willMoveToHistorial && task) { task[f] = prevValue; }
         toast('Error: ' + (r.error || ''), 'error');
       }
       hideLoader();
     })
     .withFailureHandler(function(e) {
-      if (!willMoveToHistorial && task) { task[f] = prevValue; render(); }
+      if (!willMoveToHistorial && task) { task[f] = prevValue; }
       toast('Error: ' + e.message, 'error');
       hideLoader();
     })
@@ -1868,7 +1328,6 @@ function reload() {
   google.script.run
     .withSuccessHandler(function(d){
       D = d;
-      render();
       // Re-render de la vista editorial activa para que tareas/proyectos
       // recién creados se vean con etaDays/eta enriquecidos.
       var active = document.querySelector('.view.active');
@@ -1899,26 +1358,7 @@ function mountUserChip() {
   // 1) Body class para CSS role-gating (.role-head / .role-manager / .role-specialist)
   document.body.classList.add('role-' + (USER.role || 'specialist'));
 
-  // 2) Chip con avatar + nombre + badge del rol
-  var chip = $('userChip'), av = $('userChipAv'), nm = $('userChipName');
-  if (chip) {
-    chip.style.display = 'flex';
-    nm.textContent = CURRENT_USER.split(' ').slice(0, 2).join(' ');
-    var initials = CURRENT_USER.split(' ').slice(0, 2)
-      .map(function(w){ return w[0]; }).join('').toUpperCase();
-    av.textContent = initials;
-    av.style.background = AVC[CURRENT_USER.length % AVC.length] || 'var(--rappi)';
-
-    // Badge con el rol: Head / Manager CO / Specialist
-    var badge = document.createElement('span');
-    badge.className = 'user-role-badge';
-    badge.textContent = USER.role === 'head'    ? 'Head'
-                      : USER.role === 'manager' ? 'Manager ' + (USER.code || '')
-                                                : 'Specialist';
-    chip.appendChild(badge);
-  }
-
-  // 3) Pre-fill en formularios de creación
+  // 2) Pre-fill en formularios de creación
   var fResp = $('fResp');
   if (fResp) fResp.value = CURRENT_USER;
   var countryCode = USER.code || mc(CURRENT_USER);
@@ -1929,582 +1369,6 @@ function mountUserChip() {
   if (USER.role === 'specialist') {
     F.resp = CURRENT_USER;
   }
-}
-
-// ═══ RESUMEN EJECUTIVO (head) ═══
-// Vista diseñada para el rol head: visibilidad agregada + detectar problemas
-// sistémicos. KPIs globales, comparativa por país, proyectos en riesgo y
-// tendencia de cierre últimas 8 semanas.
-function rResumen() {
-  if (!USER || USER.role !== 'head') return;
-
-  var tasks    = D.tasks || [];
-  var hist     = D.historial || [];
-  var projects = D.projects || [];
-  var equipos  = D.equipos || [];
-
-  // Helper: días hábiles entre dos Date
-  function bizDaysBetween(from, to) {
-    var biz = 0, cur = new Date(from);
-    while (cur < to) {
-      cur.setDate(cur.getDate() + 1);
-      var dy = cur.getDay();
-      if (dy !== 0 && dy !== 6) biz++;
-    }
-    return biz;
-  }
-
-  // ── KPIs globales
-  var vencidasNow = tasks.filter(taskOverdueBySLA).length;
-  var cutoffMs = Date.now() - 30 * 864e5;
-  var recentDone = hist.filter(function(t) {
-    var f = pd(t.cerrado);
-    return f && f.getTime() >= cutoffMs;
-  });
-  var lateGlobal = recentDone.filter(function(t) {
-    if (!t.creado || !t.cerrado) return false;
-    var c = pd(t.creado), f = pd(t.cerrado);
-    if (!c || !f) return false;
-    return bizDaysBetween(c, f) > (SLA_LIMITS[t.priority] || 5);
-  }).length;
-  var onTimeGlobal = recentDone.length > 0
-    ? Math.round((recentDone.length - lateGlobal) / recentDone.length * 100)
-    : null;
-  var activeProjects = projects.filter(function(p) {
-    return p.status !== 'Completado' && p.status !== 'Cancelado';
-  }).length;
-
-  if ($('rxActivas'))   $('rxActivas').textContent   = tasks.length;
-  if ($('rxVencidas'))  $('rxVencidas').textContent  = vencidasNow;
-  if ($('rxOnTime'))    $('rxOnTime').textContent    = onTimeGlobal == null ? '—' : (onTimeGlobal + '%');
-  if ($('rxProyectos')) $('rxProyectos').textContent = activeProjects;
-
-  // ── Comparativa por país
-  var countryMap = {};
-  equipos.forEach(function(eq) {
-    countryMap[eq.code] = {
-      code: eq.code, name: eq.country, leader: eq.leader,
-      activas: 0, vencidas: 0, bloqueadas: 0,
-      cerradas30: 0, late30: 0, proyectos: 0
-    };
-  });
-  tasks.forEach(function(t) {
-    var cc = t.pais || mc(t.resp);
-    if (!countryMap[cc]) return;
-    countryMap[cc].activas++;
-    if (taskOverdueBySLA(t))     countryMap[cc].vencidas++;
-    if (t.status === 'Bloqueado') countryMap[cc].bloqueadas++;
-  });
-  recentDone.forEach(function(t) {
-    var cc = t.pais || mc(t.resp);
-    if (!countryMap[cc]) return;
-    countryMap[cc].cerradas30++;
-    if (!t.creado || !t.cerrado) return;
-    var c = pd(t.creado), f = pd(t.cerrado);
-    if (!c || !f) return;
-    if (bizDaysBetween(c, f) > (SLA_LIMITS[t.priority] || 5)) countryMap[cc].late30++;
-  });
-  projects.forEach(function(p) {
-    if (p.status === 'Completado' || p.status === 'Cancelado') return;
-    if (countryMap[p.pais]) countryMap[p.pais].proyectos++;
-  });
-
-  var countries = Object.keys(countryMap).map(function(k){ return countryMap[k]; });
-  // Ordenar por "temperatura": vencidas*2 + bloqueadas desc
-  countries.sort(function(a, b) {
-    var heatA = a.vencidas * 2 + a.bloqueadas;
-    var heatB = b.vencidas * 2 + b.bloqueadas;
-    if (heatA !== heatB) return heatB - heatA;
-    return b.activas - a.activas;
-  });
-
-  if ($('rxCountriesBadge')) $('rxCountriesBadge').textContent = countries.length + (countries.length === 1 ? ' país' : ' países');
-  if ($('rxCountriesBody')) {
-    $('rxCountriesBody').innerHTML = countries.map(function(c) {
-      var ot = c.cerradas30 > 0 ? Math.round((c.cerradas30 - c.late30) / c.cerradas30 * 100) : null;
-      var otColor = ot == null ? 'var(--text-dim)'
-                  : ot >= 90   ? 'var(--green)'
-                  : ot >= 70   ? 'var(--yellow)'
-                               : 'var(--red)';
-      var venColor = c.vencidas   > 0 ? 'var(--red)'    : 'var(--text-dim)';
-      var blqColor = c.bloqueadas > 0 ? 'var(--yellow)' : 'var(--text-dim)';
-      return '<tr>'
-        + '<td><strong>' + esc(c.code) + '</strong> <span style="color:var(--text-dim);font-size:11px;margin-left:4px">' + esc(c.name || '') + '</span></td>'
-        + '<td class="col-resp">' + esc(c.leader || '—') + '</td>'
-        + '<td>' + c.activas + '</td>'
-        + '<td><span style="color:' + venColor + ';font-weight:700">' + c.vencidas + '</span></td>'
-        + '<td><span style="color:' + blqColor + ';font-weight:700">' + c.bloqueadas + '</span></td>'
-        + '<td><span style="color:' + otColor + ';font-weight:700">' + (ot == null ? '—' : ot + '%') + '</span></td>'
-        + '<td>' + c.proyectos + '</td>'
-        + '</tr>';
-    }).join('');
-  }
-
-  // ── Proyectos en riesgo: ≥2 bloqueadas o ≥3 vencidas
-  var risky = projects
-    .filter(function(p){ return p.status !== 'Completado' && p.status !== 'Cancelado'; })
-    .map(function(p) {
-      var pTasks  = tasks.filter(function(t){ return t.proyectoId == p.id; });
-      var blocked = pTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
-      var overdue = pTasks.filter(taskOverdueBySLA).length;
-      return { p: p, blocked: blocked, overdue: overdue, risk: blocked * 2 + overdue };
-    })
-    .filter(function(x){ return x.blocked >= 2 || x.overdue >= 3; })
-    .sort(function(a, b){ return b.risk - a.risk; })
-    .slice(0, 8);
-
-  if ($('rxRiskBadge')) $('rxRiskBadge').textContent = risky.length + (risky.length === 1 ? ' proyecto' : ' proyectos');
-  if ($('rxRiskList')) {
-    if (!risky.length) {
-      $('rxRiskList').innerHTML = '<div class="empty" style="padding:40px"><div class="empty-icon">✅</div>Sin proyectos en riesgo</div>';
-    } else {
-      $('rxRiskList').innerHTML = risky.map(function(x) {
-        return '<div class="rx-risk-item" data-act="open-edit-project" data-id="' + x.p.id + '">'
-          + '<div class="rx-risk-info">'
-          +   '<div class="rx-risk-name">' + esc(x.p.nombre) + '</div>'
-          +   '<div class="rx-risk-meta">'
-          +     esc(x.p.pais || '—')
-          +     (x.p.responsable ? ' · ' + esc(x.p.responsable.split(' ').slice(0,2).join(' ')) : '')
-          +   '</div>'
-          + '</div>'
-          + '<div class="rx-risk-stats">'
-          +   (x.blocked > 0 ? '<span class="rx-risk-stat" style="background:var(--yellow-dim);color:var(--yellow)">🟡 ' + x.blocked + '</span>' : '')
-          +   (x.overdue > 0 ? '<span class="rx-risk-stat" style="background:var(--red-dim);color:var(--red)">⚠ ' + x.overdue + '</span>' : '')
-          + '</div>'
-          + '</div>';
-      }).join('');
-    }
-  }
-
-  // ── Tendencia: tareas cerradas por semana (últimas 8 semanas)
-  var now = new Date();
-  var thisWeekStart = new Date(now);
-  thisWeekStart.setHours(0, 0, 0, 0);
-  var dow = thisWeekStart.getDay();
-  var daysToMonday = dow === 0 ? 6 : dow - 1;
-  thisWeekStart.setDate(thisWeekStart.getDate() - daysToMonday);
-
-  var buckets = [0,0,0,0,0,0,0,0];
-  hist.forEach(function(t) {
-    var f = pd(t.cerrado);
-    if (!f) return;
-    var diffMs = thisWeekStart.getTime() - f.getTime();
-    var weeksAgo = Math.floor(diffMs / (7 * 864e5));
-    // Tareas cerradas durante la semana actual aparecen como weeksAgo = -1 (porque
-    // thisWeekStart es lunes 00:00 y la tarea se cerró después).
-    if (weeksAgo === -1) weeksAgo = 0;
-    if (weeksAgo >= 0 && weeksAgo < 8) buckets[weeksAgo]++;
-  });
-
-  var labels = [], data = [];
-  for (var i = 7; i >= 0; i--) {
-    var wDate = new Date(thisWeekStart.getTime() - i * 7 * 864e5);
-    labels.push(wDate.getDate() + '/' + (wDate.getMonth() + 1));
-    data.push(buckets[i]);
-  }
-
-  var canvas = $('rxTrend');
-  if (canvas) {
-    if (CH.rxTrend) CH.rxTrend.destroy();
-    var thT = chartTheme();
-    CH.rxTrend = new Chart(canvas, {
-      type: 'bar',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'Cerradas',
-          data: data,
-          backgroundColor: thT.info,
-          borderRadius: 6,
-          barPercentage: .6
-        }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: true,
-        scales: {
-          x: { grid: { display: false }, ticks: { font: { size: 11, weight: 700 } } },
-          y: { grid: { color: thT.ruleSoft }, ticks: { precision: 0 } }
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: { backgroundColor: thT.surface2, padding: 12, cornerRadius: 10 }
-        }
-      }
-    });
-  }
-}
-
-// ═══ MI EQUIPO (manager + head) ═══
-// Grid de miembros con sus stats + Hotspots (tareas vencidas/bloqueadas).
-// Para managers el team del backend ya viene filtrado a su país.
-// Para heads el team incluye a todos los miembros.
-function rMiEquipo() {
-  if (!USER || USER.role === 'specialist') return;
-
-  var equipo = D.team || [];
-  var tasks  = D.tasks || [];
-  var hist   = D.historial || [];
-
-  // Para manager: filtrar team a su país (el backend ya lo hace, defensive).
-  if (USER.role === 'manager' && USER.code) {
-    equipo = equipo.filter(function(m){ return m.country === USER.code; });
-  }
-
-  // Título
-  var titleEl = $('meqTitle');
-  if (titleEl) titleEl.textContent = USER.role === 'head' ? 'Todos los equipos' : 'Mi equipo (' + (USER.code || '—') + ')';
-  var countEl = $('meqTeamCount');
-  if (countEl) countEl.textContent = equipo.length + (equipo.length === 1 ? ' persona' : ' personas');
-
-  // ─── Hotspots: tareas vencidas o bloqueadas, ordenadas por antigüedad de creación
-  var hotspots = tasks.filter(function(t) {
-    if (t.status === 'Bloqueado') return true;
-    if (taskOverdueBySLA(t)) return true;
-    return false;
-  });
-  // Ordena por días desde creación, descendente (más viejas primero)
-  hotspots.sort(function(a, b) {
-    var ca = a.creadoRaw ? new Date(a.creadoRaw).getTime() : Date.now();
-    var cb = b.creadoRaw ? new Date(b.creadoRaw).getTime() : Date.now();
-    return ca - cb;
-  });
-
-  var hsBody = $('meqHotspotsBody');
-  var hsCount = $('meqHotspotsCount');
-  if (hsCount) hsCount.textContent = hotspots.length + (hotspots.length === 1 ? ' tarea' : ' tareas');
-  if (hsBody) {
-    if (!hotspots.length) {
-      hsBody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">🎉</div>Sin hotspots — todo bajo control</div></td></tr>';
-    } else {
-      hsBody.innerHTML = hotspots.map(function(t) {
-        var ageDays = t.creadoRaw
-          ? Math.floor((Date.now() - new Date(t.creadoRaw).getTime()) / 864e5)
-          : '—';
-        var ageClass = (typeof ageDays === 'number' && ageDays > 14) ? ' critical'
-                     : (typeof ageDays === 'number' && ageDays > 7)  ? ' warn' : '';
-        var dl = renderDeadlineBadge(t.deadline);
-        return '<tr>'
-          +   '<td class="col-id">' + t.id + '</td>'
-          +   '<td class="col-nombre" data-act="open-edit" data-id="' + t.id + '">' + esc(t.nombre) + '</td>'
-          +   '<td class="col-resp">' + esc(t.resp) + '</td>'
-          +   '<td>' + renderStatusBadge(t.status, t.id) + '</td>'
-          +   '<td>' + dl.html + '</td>'
-          +   '<td><span class="hotspot-days' + ageClass + '">' + ageDays + (typeof ageDays === 'number' ? 'd' : '') + '</span></td>'
-          +   '<td><button class="btn-icon" data-act="show-task-menu" data-id="' + t.id + '" aria-label="Acciones">⋮</button></td>'
-          + '</tr>';
-      }).join('');
-    }
-  }
-
-  // ─── Grid de miembros: para cada miembro, computar sus contadores
-  // usando tasks + historial visibles (ya filtrados por rol en backend).
-  var stats = {}; // name -> {activas, vencidas, bloqueadas, onTimePct, alta, media, baja}
-  equipo.forEach(function(m) {
-    stats[m.name] = {
-      member: m,
-      activas: 0,
-      vencidas: 0,
-      bloqueadas: 0,
-      cerradas: 0,
-      lateCerradas: 0,
-      alta: 0, media: 0, baja: 0
-    };
-  });
-  tasks.forEach(function(t) {
-    var s = stats[t.resp];
-    if (!s) return;
-    s.activas++;
-    if (t.priority === 'Alta')  s.alta++;
-    if (t.priority === 'Media') s.media++;
-    if (t.priority === 'Baja')  s.baja++;
-    if (t.status === 'Bloqueado') s.bloqueadas++;
-    if (taskOverdueBySLA(t))      s.vencidas++;
-  });
-  // On-time% a partir del historial (última ventana cercana a 30 días)
-  var cutoffMs = Date.now() - 30 * 864e5;
-  hist.forEach(function(t) {
-    var s = stats[t.resp];
-    if (!s || !t.creado || !t.cerrado) return;
-    var c = pd(t.creado), f = pd(t.cerrado);
-    if (!c || !f || f.getTime() < cutoffMs) return;
-    var biz = 0, cur = new Date(c);
-    while (cur < f) {
-      cur.setDate(cur.getDate() + 1);
-      var dy = cur.getDay();
-      if (dy !== 0 && dy !== 6) biz++;
-    }
-    s.cerradas++;
-    if (biz > (SLA_LIMITS[t.priority] || 5)) s.lateCerradas++;
-  });
-
-  var grid = $('meqGrid');
-  if (!grid) return;
-  if (!equipo.length) {
-    grid.innerHTML = '<div class="empty"><div class="empty-icon">👥</div>Sin miembros en el equipo</div>';
-    return;
-  }
-  // Ordenar: los que tienen más vencidas/bloqueadas primero (lo que pide atención)
-  var sorted = equipo.slice().sort(function(a, b) {
-    var sa = stats[a.name], sb = stats[b.name];
-    var heatA = (sa ? (sa.vencidas * 2 + sa.bloqueadas) : 0);
-    var heatB = (sb ? (sb.vencidas * 2 + sb.bloqueadas) : 0);
-    if (heatA !== heatB) return heatB - heatA;
-    return a.name.localeCompare(b.name);
-  });
-
-  grid.innerHTML = sorted.map(function(m, idx) {
-    var s = stats[m.name] || { activas:0, vencidas:0, bloqueadas:0, cerradas:0, lateCerradas:0, alta:0, media:0, baja:0 };
-    var bg = AVC[idx % AVC.length];
-    var onTime = s.cerradas > 0 ? Math.round((s.cerradas - s.lateCerradas) / s.cerradas * 100) : null;
-    var isHot = s.vencidas > 0 || s.bloqueadas > 0;
-
-    // Barra de distribución por prioridad (% del total activas)
-    var total = s.alta + s.media + s.baja || 1;
-    var bar = '<div class="meq-bar">'
-      + (s.alta  > 0 ? '<div class="meq-bar-seg meq-bar-alta"  style="width:' + (s.alta/total*100)  + '%"></div>' : '')
-      + (s.media > 0 ? '<div class="meq-bar-seg meq-bar-media" style="width:' + (s.media/total*100) + '%"></div>' : '')
-      + (s.baja  > 0 ? '<div class="meq-bar-seg meq-bar-baja"  style="width:' + (s.baja/total*100)  + '%"></div>' : '')
-      + '</div>';
-
-    return '<div class="meq-card' + (isHot ? ' meq-hot' : '') + '">'
-      + '<div class="meq-head">'
-      +   '<div class="meq-av" style="background:' + bg + '">' + esc(m.initials || '') + '</div>'
-      +   '<div>'
-      +     '<div class="meq-name">' + esc(m.name) + '</div>'
-      +     '<div class="meq-country">' + esc(m.country || '—') + '</div>'
-      +   '</div>'
-      + '</div>'
-      + '<div class="meq-stats">'
-      +   '<div class="meq-stat"><div class="meq-stat-num" style="color:var(--blue)">'   + s.activas    + '</div><div class="meq-stat-lbl">Activas</div></div>'
-      +   '<div class="meq-stat"><div class="meq-stat-num" style="color:var(--red)">'    + s.vencidas   + '</div><div class="meq-stat-lbl">Vencidas</div></div>'
-      +   '<div class="meq-stat"><div class="meq-stat-num" style="color:var(--yellow)">' + s.bloqueadas + '</div><div class="meq-stat-lbl">Bloq.</div></div>'
-      +   '<div class="meq-stat"><div class="meq-stat-num" style="color:var(--green)">'
-      +      (onTime == null ? '—' : (onTime + '%'))
-      +      '</div><div class="meq-stat-lbl">On-time</div></div>'
-      + '</div>'
-      + '<div class="meq-bar-row">'
-      +   '<span style="color:var(--red)">' + s.alta + '</span>'
-      +   bar
-      +   '<span style="color:var(--green)">' + s.baja + '</span>'
-      + '</div>'
-      + '<button class="meq-view-btn" data-act="view-member-tasks" data-arg="' + esc(m.name) + '">Ver sus tareas →</button>'
-      + '</div>';
-  }).join('');
-}
-
-// ═══ MI DESEMPEÑO ═══
-// Calcula métricas personales del specialist:
-//   1. Racha on-time: cuántas de las últimas tareas cerradas se cerraron
-//      dentro del SLA de su prioridad (consecutivas desde la más reciente).
-//      Es "motivacional" — se rompe con la primera tarde.
-//   2. Tiempo promedio de cierre por prioridad: (cerrado - creado) en días
-//      hábiles, promediado por grupo. Muestra los 30 días más recientes
-//      para que refleje desempeño actual, no histórico de hace años.
-function _computeAndRenderPerf(myDone) {
-  var cutoffMs = Date.now() - 30 * 864e5;
-
-  // Ayudante: días hábiles entre dos fechas (excluye sábados y domingos).
-  function bizDaysBetween(from, to) {
-    var biz = 0, cur = new Date(from);
-    while (cur < to) {
-      cur.setDate(cur.getDate() + 1);
-      var dy = cur.getDay();
-      if (dy !== 0 && dy !== 6) biz++;
-    }
-    return biz;
-  }
-
-  // ── Racha on-time (últimas 10, consecutivas desde la más reciente)
-  var recent = myDone.slice().sort(function(a, b) {
-    var ca = pd(a.cerrado), cb = pd(b.cerrado);
-    if (!ca && !cb) return 0;
-    if (!ca) return 1;
-    if (!cb) return -1;
-    return cb - ca;
-  }).slice(0, 20);
-  var streak = 0;
-  for (var i = 0; i < recent.length; i++) {
-    var t = recent[i];
-    if (!t.creado || !t.cerrado) break;
-    var c = pd(t.creado), f = pd(t.cerrado);
-    if (!c || !f) break;
-    var biz = bizDaysBetween(c, f);
-    var limit = SLA_LIMITS[t.priority] || 5;
-    if (biz > limit) break;
-    streak++;
-  }
-
-  // ── Tiempo promedio de cierre por prioridad (últimos 30 días)
-  var sums = { Alta: { n: 0, b: 0 }, Media: { n: 0, b: 0 }, Baja: { n: 0, b: 0 } };
-  myDone.forEach(function(t) {
-    if (!t.creado || !t.cerrado) return;
-    var c = pd(t.creado), f = pd(t.cerrado);
-    if (!c || !f) return;
-    if (f.getTime() < cutoffMs) return;
-    var bucket = sums[t.priority];
-    if (!bucket) return;
-    bucket.n++;
-    bucket.b += bizDaysBetween(c, f);
-  });
-
-  function fmtAvg(bucket, slaLimit) {
-    if (!bucket.n) return '—';
-    var avg = bucket.b / bucket.n;
-    return avg.toFixed(1);
-  }
-
-  // ── Render
-  if ($('mtStreak')) {
-    $('mtStreak').textContent = streak;
-    $('mtStreak').style.color = streak >= 5 ? 'var(--green)'
-                              : streak >= 1 ? 'var(--rappi)'
-                                            : 'var(--text-dim)';
-  }
-  if ($('mtStreakSub')) {
-    $('mtStreakSub').textContent = streak === 0
-      ? 'última cerrada fuera de SLA'
-      : streak === 1
-        ? 'tarea cerrada a tiempo'
-        : streak + ' tareas seguidas a tiempo';
-    // Texto del hijo ya tiene el número; simplificamos:
-    $('mtStreakSub').textContent = 'tareas seguidas a tiempo';
-  }
-  if ($('mtAvgAlta'))  $('mtAvgAlta').textContent  = fmtAvg(sums.Alta)  + (sums.Alta.n  ? 'd' : '');
-  if ($('mtAvgMedia')) $('mtAvgMedia').textContent = fmtAvg(sums.Media) + (sums.Media.n ? 'd' : '');
-  if ($('mtAvgBaja'))  $('mtAvgBaja').textContent  = fmtAvg(sums.Baja)  + (sums.Baja.n  ? 'd' : '');
-}
-
-// ═══ MIS TAREAS ═══
-// Vista agrupada por urgencia. La ordenación no es por prioridad sino por
-// cuán pronto vence la tarea, que es lo que le importa al specialist día a día.
-// Buckets:
-//   ⚠ Vencidas       deadline pasado y no Listo
-//   🔥 Hoy           deadline = hoy
-//   📅 Esta semana   deadline en los próximos 7 días
-//   🔜 Después       deadline más lejano
-//   📋 Sin deadline  task sin deadline definido
-function rMisTareas() {
-  if (!CURRENT_USER) return;
-  var myTasks = D.tasks.filter(function(t){ return t.resp === CURRENT_USER; });
-  var myDone  = (D.historial || []).filter(function(t){ return t.resp === CURRENT_USER; });
-
-  // Atraso: tareas activas vencidas por SLA (no counts cerradas)
-  var atraso = myTasks.filter(taskOverdueBySLA).length;
-
-  // Cerradas esta semana (label textual del tracker)
-  var semLabel = D.semana || '';
-  var cerradasSemana = myDone.filter(function(t){ return t.semana === semLabel; }).length;
-
-  // % on-time: de las tareas cerradas, cuáles cumplieron su SLA en días hábiles.
-  var totalDone = myDone.length;
-  var lateDone = myDone.filter(function(t) {
-    if (!t.creado || !t.cerrado) return false;
-    var c = pd(t.creado), f = pd(t.cerrado);
-    if (!c || !f) return false;
-    var biz = 0, cur = new Date(c);
-    while (cur < f) {
-      cur.setDate(cur.getDate() + 1);
-      var dy = cur.getDay();
-      if (dy !== 0 && dy !== 6) biz++;
-    }
-    return biz > (SLA_LIMITS[t.priority] || 5);
-  }).length;
-  var onTimePct = totalDone > 0 ? Math.round((totalDone - lateDone) / totalDone * 100) : 100;
-
-  $('mt-total').textContent  = myTasks.length;
-  $('mt-atraso').textContent = atraso;
-  $('mt-semana').textContent = cerradasSemana;
-  $('mt-ontime').textContent = onTimePct + '%';
-  $('mtTitle').textContent   = 'Mis tareas activas — ' + CURRENT_USER + ' (' + myTasks.length + ')';
-
-  // ─────────── Mi desempeño ────────────────────────────────────────────
-  // Solo tiene sentido si el specialist ha cerrado al menos una tarea.
-  var perfCard = $('mtPerfCard');
-  if (perfCard) {
-    if (!myDone.length) {
-      perfCard.style.display = 'none';
-    } else {
-      perfCard.style.display = '';
-      _computeAndRenderPerf(myDone);
-    }
-  }
-
-  var tb = $('mtBody');
-  if (!tb) return;
-  if (!myTasks.length) {
-    tb.innerHTML = '<tr><td colspan="8"><div class="empty"><div class="empty-icon">🎉</div>¡Sin tareas pendientes!</div></td></tr>';
-    return;
-  }
-
-  // Clasificar tareas en buckets de urgencia
-  var today = new Date(); today.setHours(0, 0, 0, 0);
-  var todayMs = today.getTime();
-  var weekEndMs = todayMs + 7 * 864e5;
-
-  var buckets = { vencidas: [], hoy: [], semana: [], despues: [], sinFecha: [] };
-  myTasks.forEach(function(t) {
-    if (!t.deadline) { buckets.sinFecha.push(t); return; }
-    var d = pd(t.deadline);
-    if (!d) { buckets.sinFecha.push(t); return; }
-    d.setHours(0, 0, 0, 0);
-    var dMs = d.getTime();
-    if (dMs < todayMs)        buckets.vencidas.push(t);
-    else if (dMs === todayMs) buckets.hoy.push(t);
-    else if (dMs <= weekEndMs) buckets.semana.push(t);
-    else                      buckets.despues.push(t);
-  });
-
-  // Sort dentro de cada bucket: por prioridad y luego por deadline ascendente
-  var sortBucket = function(arr) {
-    return arr.sort(function(a, b) {
-      var pa = PRIO_ORDER[a.priority] || 1, pb = PRIO_ORDER[b.priority] || 1;
-      if (pa !== pb) return pa - pb;
-      var da = pd(a.deadline), db = pd(b.deadline);
-      if (!da && !db) return 0;
-      if (!da) return 1;
-      if (!db) return -1;
-      return da - db;
-    });
-  };
-  Object.keys(buckets).forEach(function(k){ buckets[k] = sortBucket(buckets[k]); });
-
-  var pMap = {};
-  if (D.projects) D.projects.forEach(function(p){ pMap[p.id] = p.nombre; });
-
-  // Render cada bucket no-vacío como sección separada
-  var sections = [
-    { key: 'vencidas', label: '⚠ Vencidas',      cls: 'mt-bucket-vencidas' },
-    { key: 'hoy',      label: '🔥 Hoy',          cls: 'mt-bucket-hoy' },
-    { key: 'semana',   label: '📅 Esta semana',  cls: 'mt-bucket-semana' },
-    { key: 'despues',  label: '🔜 Después',      cls: 'mt-bucket-despues' },
-    { key: 'sinFecha', label: '📋 Sin deadline', cls: 'mt-bucket-sinfecha' }
-  ];
-
-  var html = '';
-  sections.forEach(function(s) {
-    var bucket = buckets[s.key];
-    if (!bucket.length) return;
-    // Header row
-    html += '<tr class="mt-section-row ' + s.cls + '">'
-         +    '<td colspan="8">' + s.label + ' <span class="mt-section-count">' + bucket.length + '</span></td>'
-         +  '</tr>';
-    // Task rows
-    bucket.forEach(function(t) {
-      var dl = renderDeadlineBadge(t.deadline);
-      var pn = t.proyectoId && pMap[t.proyectoId] ? pMap[t.proyectoId] : (t.proyecto || '—');
-      html += '<tr>'
-           +   '<td class="col-id">' + t.id + '</td>'
-           +   '<td class="col-nombre" data-act="open-edit" data-id="' + t.id + '">' + esc(t.nombre) + '</td>'
-           +   '<td><span style="color:var(--purple);font-size:12px">' + esc(pn) + '</span></td>'
-           +   '<td>' + renderPrioBadge(t.priority, t.id) + '</td>'
-           +   '<td>' + renderStatusBadge(t.status, t.id) + '</td>'
-           +   '<td>' + dl.html + '</td>'
-           +   '<td class="col-acc">' + esc(t.acc || '') + '</td>'
-           +   '<td><button class="btn-icon" data-act="show-task-menu" data-id="' + t.id + '" aria-label="Acciones tarea ' + t.id + '">⋮</button></td>'
-           + '</tr>';
-    });
-  });
-  tb.innerHTML = html;
 }
 
 // ═══ TAGS INPUT (accionables y participantes) ═══
@@ -2591,10 +1455,6 @@ function removeTag(containerId, i) {
 
 function addParticipant(sel){if(!sel.value)return;if(_tagsPartHandle)_tagsPartHandle.add(sel.value);sel.value='';closeDD()}
 
-// ═══ ACTUALIZAR go() PARA MIS TAREAS ═══
-// Reemplazar la función go existente con esta versión:
-// (copiar la función go abajo)
-
 // ════════════════════════════════════════════════════════════════
 // EVENT DELEGATION
 // Un solo listener de click/change en document. Cada elemento con
@@ -2602,15 +1462,11 @@ function addParticipant(sel){if(!sel.value)return;if(_tagsPartHandle)_tagsPartHa
 // escapar strings dentro de onclick="..." inline (XSS-safe).
 // ════════════════════════════════════════════════════════════════
 var ACTIONS = {
-  'filter-resp':     function(el){ fR(el.dataset.arg); },
-  'filter-team':     function(el){ fTeamCard(el.dataset.arg); },
-  'filter-project':  function(el){ fPr(el.dataset.arg); },
   'open-edit':       function(el){ openEdit(Number(el.dataset.id)); },
   'open-edit-project': function(el){ openEditProj(Number(el.dataset.id)); },
   'show-prio-menu':  function(el){ showPM({stopPropagation:function(){}, target: el}, Number(el.dataset.id)); },
   'show-status-menu':function(el){ showSM({stopPropagation:function(){}, target: el}, Number(el.dataset.id)); },
   'show-task-menu':  function(el){ showTM({stopPropagation:function(){}, target: el}, Number(el.dataset.id)); },
-  'toggle-ptasks':   function(el){ togglePTasks(el); },
   'update-field':    function(el){ uf(Number(el.dataset.id), el.dataset.field, el.dataset.val); },
   // 'update-field-confirm': cuando es status→Listo redirige al wizard
   // edUOpen('cerrar') que exige resumen mandatory (consistencia con el
@@ -2626,16 +1482,7 @@ var ACTIONS = {
   },
   'add-tag':         function(el){ addTag(el.dataset.container, el.dataset.val); },
   'remove-tag':      function(el){ removeTag(el.dataset.container, Number(el.dataset.i)); },
-  'clear-filter':    function(el){ var i = Number(el.dataset.i); if (_filterClearers[i]) { _filterClearers[i](); persistFilters(); render(); } },
-  'clear-all-filters': function(){ clearAllFilters(); },
   'create-task-in-project': function(el){ openCreate('newTask', Number(el.dataset.id)); },
-  'view-member-tasks': function(el) {
-    // Desde "Mi equipo": ir al Tracker con el filtro del miembro aplicado
-    F.resp = el.dataset.arg;
-    persistFilters();
-    go('tracker');
-    render();
-  },
   'miq-open-person': function(el) {
     // Desde el editorial "Mi equipo / Equipos": placeholder hasta que
     // exista la vista de detalle de persona. Por ahora, toast suave.
@@ -2737,81 +1584,13 @@ function debounce(fn, wait) {
 var FILTER_KEY = 'lt_filters_v1';
 var PERSISTED_KEYS = ['country','status','project','resp','search','projStatus'];
 
-function persistFilters() {
-  try {
-    var snapshot = {};
-    PERSISTED_KEYS.forEach(function(k){ snapshot[k] = F[k]; });
-    localStorage.setItem(FILTER_KEY, JSON.stringify(snapshot));
-  } catch (e) { /* localStorage no disponible o bloqueado */ }
-}
-
 function restoreFilters() {
   try {
     var raw = localStorage.getItem(FILTER_KEY);
     if (!raw) return;
     var obj = JSON.parse(raw);
     PERSISTED_KEYS.forEach(function(k){ if (obj[k] !== undefined) F[k] = obj[k]; });
-    if (F.search) $('sInput') && ($('sInput').value = F.search);
   } catch (e) {}
-}
-
-// ════════════════════════════════════════════════════════════════
-// CHIPS DE FILTROS ACTIVOS
-// Muestra arriba de la tabla de Tracker qué filtros están aplicados, con
-// una ✕ para quitar cada uno individualmente y "Limpiar todo".
-// ════════════════════════════════════════════════════════════════
-var _filterClearers = [];
-
-function rActiveFilters() {
-  var container = $('activeFilters');
-  if (!container) return;
-  var chips = [];
-  if (F.country !== 'ALL') chips.push({
-    label: 'País: ' + F.country,
-    clear: function(){ F.country = 'ALL'; document.querySelectorAll('.cpill').forEach(function(b){ b.classList.toggle('active', b.dataset.country === 'ALL'); }); }
-  });
-  if (F.status !== 'ALL') chips.push({
-    label: 'Estado: ' + F.status,
-    clear: function(){ F.status = 'ALL'; document.querySelectorAll('#fBar .fbtn').forEach(function(b){ b.classList.toggle('active', b.textContent.trim() === 'Todos'); }); }
-  });
-  if (F.resp !== 'ALL') chips.push({
-    label: 'Resp: ' + F.resp,
-    clear: function(){ F.resp = 'ALL'; }
-  });
-  if (F.project !== 'ALL') chips.push({
-    label: 'Proyecto: ' + F.project,
-    clear: function(){ F.project = 'ALL'; }
-  });
-  if (F.search) chips.push({
-    label: 'Búsqueda: ' + F.search,
-    clear: function(){ F.search = ''; if ($('sInput')) $('sInput').value = ''; }
-  });
-
-  if (!chips.length) { container.innerHTML = ''; return; }
-
-  container.innerHTML = chips.map(function(c, i) {
-    return '<span class="filter-chip" data-act="clear-filter" data-i="' + i + '">'
-      +      esc(c.label) + ' <span class="chip-x">✕</span>'
-      +    '</span>';
-  }).join('')
-  + '<button class="filter-clear-all" data-act="clear-all-filters">Limpiar todo</button>';
-
-  _filterClearers = chips.map(function(c){ return c.clear; });
-}
-
-function clearAllFilters() {
-  F.country = 'ALL';
-  F.status = 'ALL';
-  F.project = 'ALL';
-  F.resp = 'ALL';
-  F.search = '';
-  F._myTasks = false;
-  if ($('sInput')) $('sInput').value = '';
-  if ($('myTasksBtn')) $('myTasksBtn').classList.remove('active');
-  document.querySelectorAll('.cpill').forEach(function(b){ b.classList.toggle('active', b.dataset.country === 'ALL'); });
-  document.querySelectorAll('#fBar .fbtn').forEach(function(b){ b.classList.toggle('active', b.textContent.trim() === 'Todos'); });
-  persistFilters();
-  render();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2852,9 +1631,6 @@ document.addEventListener('DOMContentLoaded', function() {
   // en la UI (pills de país, fbtn de estado, sInput, myTasksBtn).
   restoreFilters();
   syncFilterUIFromState();
-  // render() poblaba vistas legacy (vTracker, vResumen, etc.) que el rediseño
-  // ya no muestra. Se invoca on-demand desde go() si algún rEd* fallback es necesario.
-  // render();
   // Editorial shell: sidebar + header dinámicos según rol, default a Inicio editorial.
   if (typeof mountEdShell === 'function') mountEdShell();
   if (typeof goEd === 'function') goEd('home');
@@ -4306,22 +3082,19 @@ function goEd(viewId) {
     return;
   }
   // Editorial Proyectos · Index — disponible para los 3 roles (todos
-  // tienen el item "proyectos" en el sidebar). Si por algún motivo el
-  // renderer no está disponible, caemos al legacy go('proyectos').
+  // tienen el item "proyectos" en el sidebar).
   if (viewId === 'proyectos' && typeof rEdProyectosIndex === 'function') {
     var v4 = $('vEdProyectosIndex'); if (v4) v4.classList.add('active');
     rEdProyectosIndex(D);
     return;
   }
-  // Editorial Mis tareas — disponible para los 3 roles. Si el renderer
-  // no está disponible, caemos al legacy go('mistareas').
+  // Editorial Mis tareas — disponible para los 3 roles.
   if (viewId === 'mistareas' && typeof rEdMisTareas === 'function') {
     var v5 = $('vEdMisTareas'); if (v5) v5.classList.add('active');
     rEdMisTareas(D);
     return;
   }
-  // Editorial Historial — disponible para los 3 roles. Si el renderer
-  // no está disponible, caemos al legacy go('historial').
+  // Editorial Historial — disponible para los 3 roles.
   if (viewId === 'historial' && typeof rEdHistorial === 'function') {
     var v6 = $('vEdHistorial'); if (v6) v6.classList.add('active');
     rEdHistorial(D);
@@ -4347,8 +3120,7 @@ function goEd(viewId) {
     return;
   }
   // Editorial Resumen · Por país — solo head (HQ). Si el rol efectivo
-  // no es head, mostramos un mensaje claro. Si el renderer no está
-  // disponible, fallback al legacy go('resumen').
+  // no es head, mostramos un mensaje claro.
   if (viewId === 'paises') {
     var roleP = _effectiveRole();
     if (roleP !== 'head') {
@@ -4368,7 +3140,6 @@ function goEd(viewId) {
       rEdResumen(D);
       return;
     }
-    if (typeof go === 'function') go('resumen');
     return;
   }
   if (viewId === 'plantillas') {
@@ -4376,7 +3147,6 @@ function goEd(viewId) {
     if (typeof rEdPlantillas === 'function') rEdPlantillas(D);
     return;
   }
-  if (typeof go === 'function') go(viewId);
 }
 
 function rEdHomeSpecialist(D) {
@@ -6419,6 +5189,7 @@ function edPanelLoadActivity(taskId) {
           case 'create':         iconName = 'plus';    dot = 'info'; label = LANG === 'pt' ? 'criou a tarefa' : 'creó la tarea'; break;
           case 'comment':        iconName = 'msg';     dot = 'info'; label = LANG === 'pt' ? 'comentou' : 'comentó'; break;
           case 'close':          iconName = 'check';   dot = 'good'; label = LANG === 'pt' ? 'fechou' : 'cerró'; break;
+          case 'reopen':         iconName = 'refresh'; dot = 'info'; label = LANG === 'pt' ? 'reabriu' : 'reabrió'; break;
           case 'block':          iconName = 'block';   dot = 'warn'; label = LANG === 'pt' ? 'pôs em on hold' : 'puso en on hold'; break;
           case 'reassign':       iconName = 'users';   dot = 'info'; label = (LANG === 'pt' ? 'reatribuiu a ' : 'reasignó a ') + esc(it.new_value || '—'); break;
           case 'status_change':  iconName = 'arrowR';  dot = 'info'; label = (LANG === 'pt' ? 'mudou status para ' : 'cambió estado a ') + '<b>' + esc(_statusLabel(it.new_value) || it.new_value) + '</b>'; break;
@@ -6494,6 +5265,7 @@ function edNotifOpen() {
       switch (it.action) {
         case 'comment':       actLabel = LANG === 'pt' ? 'comentou em' : 'comentó en'; break;
         case 'close':         actLabel = LANG === 'pt' ? 'fechou' : 'cerró'; break;
+        case 'reopen':        actLabel = LANG === 'pt' ? 'reabriu' : 'reabrió'; break;
         case 'block':         actLabel = LANG === 'pt' ? 'pôs em on hold' : 'puso en on hold'; break;
         case 'reassign':      actLabel = (LANG === 'pt' ? 'reatribuiu a você' : 'te asignó'); break;
         case 'status_change': actLabel = (LANG === 'pt' ? 'mudou status de' : 'cambió estado de'); break;
@@ -7173,15 +5945,18 @@ function _renderTkPanel(sel) {
        + '</div>';
   html += '</aside>';
 
-  // Bottom action bar — readonly cuando la tarea ya está cerrada (Listo).
-  // Tareas cerradas viven en el historial; solo pueden verse, no modificarse
-  // desde el panel. Para reabrir el user usa "Más" → editar manual.
+  // Bottom action bar — la tarea cerrada (Listo) vive en el historial y es
+  // de solo lectura, pero el dueño / manager / head puede reabrirla
+  // (vuelve a Tracking Activo como "En curso") con el botón Reabrir.
   if (sel.status === 'Listo') {
     html += '<div class="tk-panel-actions">'
          +    '<span style="font-size:12px;color:var(--fg-3);display:flex;align-items:center;gap:6px">'
          +      paIcon('check', 12) + esc(t('Tarea cerrada')) + (sel.cerrado ? ' · ' + esc(sel.cerrado) : '')
          +    '</span>'
-         +    '<div style="margin-left:auto">'
+         +    '<div style="margin-left:auto;display:flex;gap:8px">'
+         +      (canReassign || (sel.resp || '').trim().toLowerCase() === ((USER && USER.name) || '').trim().toLowerCase()
+                  ? '<button class="pa-btn pa-btn-outline" onclick="edReabrir(\'' + esc(sel.id) + '\')">' + paIcon('refresh', 12) + ' ' + esc(t('Reabrir')) + '</button>'
+                  : '')
          +      '<button class="pa-btn pa-btn-outline" onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')">' + paIcon('more', 12) + ' ' + esc(t('Edición avanzada')) + '</button>'
          +    '</div>'
          + '</div>';
@@ -7629,6 +6404,31 @@ function edUDesbloquear(taskId) {
     .updateTaskField(taskId, 'status', 'En curso');
 }
 
+// Reabre una tarea cerrada: la vuelve a Tracking Activo en estado "En curso".
+// Confirma primero porque mueve la fila de Historial → Activo.
+function edReabrir(taskId) {
+  if (!taskId) return;
+  confirm_(t('¿Reabrir esta tarea? Volverá a tus tareas activas como "En curso".'), function() {
+    if (typeof showLoader === 'function') showLoader();
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (typeof hideLoader === 'function') hideLoader();
+        if (res && res.success) {
+          toast(t('Tarea reabierta'), 'success');
+          if (typeof edClosePanel === 'function') edClosePanel();
+          if (typeof reload === 'function') reload();
+        } else {
+          toast((res && (res.error || res.message)) || t('No se pudo reabrir.'), 'error');
+        }
+      })
+      .withFailureHandler(function(e) {
+        if (typeof hideLoader === 'function') hideLoader();
+        toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+      })
+      .reopenTaskById(taskId);
+  }, { confirmLabel: t('Reabrir') });
+}
+
 function edUClose() {
   EDU.taskId = null;
   EDU.variant = null;
@@ -7694,7 +6494,6 @@ function edUSubmit() {
       google.script.run.withSuccessHandler(function(fresh) {
         if (!fresh) return;
         D = fresh;
-        if (typeof render === 'function') render();
         var active = document.querySelector('.view.active');
         if (!active) return;
         // Tras cierre en el tracker, auto-seleccionar la siguiente
@@ -8838,7 +7637,7 @@ function _edHistFilterByRole(D) {
   return hist.slice();
 }
 
-// Días hábiles entre dos Date — replica local del helper usado en rResumen()
+// Días hábiles entre dos Date.
 // para no depender del orden de declaración entre archivos editados.
 function _edBizDaysBetween(from, to) {
   var biz = 0, cur = new Date(from);

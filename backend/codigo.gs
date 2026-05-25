@@ -2608,6 +2608,60 @@ function _closeTaskByIdImpl(taskId, slackUser) {
   return { success: true, id: taskId, nombre: tn, message: 'Tarea #' + taskId + ' "' + tn + '" cerrada y movida a Historial' };
 }
 
+// Busca una tarea por ID en el Historial. Devuelve {row, resp, pais, rowData}
+// con la fila completa (padded a TASK_COLS) o null si no está.
+function _readHistorialTaskById(ss, taskId) {
+  var ws = ss.getSheetByName(SHEET_HISTORIAL);
+  if (!ws) return null;
+  var lr = ws.getLastRow();
+  if (lr < 4) return null;
+  var lc = Math.min(ws.getLastColumn(), TASK_COLS);
+  var data = ws.getRange(4, 1, lr - 3, lc).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][0] == taskId) {
+      var rowData = data[i].slice();
+      while (rowData.length < TASK_COLS) rowData.push('');
+      return { row: i + 4, resp: data[i][2], pais: (data[i][12] || '').toString().trim(), rowData: rowData };
+    }
+  }
+  return null;
+}
+
+// Reabre una tarea cerrada: la mueve del Historial de vuelta a Tracking Activo,
+// la pone "En curso" y limpia la fecha de cierre. Mismas reglas de permiso que
+// el cierre (_authorizeTaskWrite). Preserva el ID original.
+function reopenTaskById(taskId) {
+  return _telemetry('reopenTaskById', function() {
+    return _safeMutation(function() { return _reopenTaskByIdImpl(taskId); });
+  }, { taskId: taskId });
+}
+function _reopenTaskByIdImpl(taskId) {
+  var ctx = _getAuthContext();
+  var found = _readHistorialTaskById(ctx.ss, taskId);
+  if (!found) return { success: false, message: 'Tarea #' + taskId + ' no encontrada en el historial' };
+  _authorizeTaskWrite(ctx, { resp: found.resp, pais: found.pais });
+
+  var wsH = ctx.ss.getSheetByName(SHEET_HISTORIAL);
+  var wsA = ctx.ss.getSheetByName(SHEET_ACTIVO);
+  var tn = found.rowData[1];
+  found.rowData[6] = 'En curso'; // col 7 = estado
+  found.rowData[9] = '';         // col 10 = fecha de cierre
+
+  // Lock para que append+delete sean atómicos (igual que moveToHistorial):
+  // sin él, un reopen concurrente podría borrar la fila equivocada del Historial.
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  try {
+    wsA.appendRow(found.rowData);
+    wsH.deleteRow(found.row);
+  } finally {
+    lock.releaseLock();
+  }
+  invalidateCache();
+  _logActivity(ctx, taskId, 'reopen', 'status', 'Listo', 'En curso');
+  return { success: true, id: taskId, nombre: tn, message: 'Tarea #' + taskId + ' "' + tn + '" reabierta y movida a Tracking Activo' };
+}
+
 // Bloquea una tarea por ID. Mismas validaciones que closeTaskById.
 function blockTaskById(taskId, reason, slackUser) {
   return _telemetry('blockTaskById', function() {

@@ -73,7 +73,7 @@ doGet(e)                                  // Web app entry; auth + render Dashbo
 getTrackerData()                          // Snapshot JSON; cache 30s (90KB guard)
 getEditorialData()                        // Extiende con campos derivados (eta, slaTarget, load, capacity, etc.)
 addTask() / updateTaskField() / updateTaskFields()
-blockTaskById() / closeTaskById()
+blockTaskById() / closeTaskById() / reopenTaskById()   // reopen: Historial → Tracking Activo, vuelve a "En curso"
 addProject() / updateProjectFields()
 uploadDocument() / attachDocumentLink() / removeDocument()
 getTaskComments(taskId) / addTaskComment() / editTaskComment() / deleteTaskComment()
@@ -114,7 +114,7 @@ countBizDays(start, end, country)         // O(1) con feriados por país
 | `Equipos` | Roster + allowlist | code/country/leader/members/emails. Define quién accede |
 | `Proyectos` | Proyectos | 17 cols. Headers en row 1 |
 | `Comments` | Comentarios por tarea | Auto-creada en primer uso. Headers en row 1 |
-| `Activity` | Audit log de cambios | Auto-creada. Acciones: comment, status_change, close, block, reassign, create |
+| `Activity` | Audit log de cambios | Auto-creada. Acciones: comment, status_change, close, reopen, block, reassign, create |
 | `Config` | Heads + parámetros globales | `Heads` (CSV de emails) define el rol HQ. `Capacidad default` (número) + `Capacidad: <Nombre>` (override por persona) alimentan las load bars |
 | `Feriados` | Días no laborables por país | Manual; afecta `countBizDays` y SLA |
 | `Templates` | Checklists por tipoTrabajo | Opcional; pre-llena Notas al crear tarea |
