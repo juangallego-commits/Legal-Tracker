@@ -467,6 +467,13 @@ function openCreate(tab, prefillProjectId) {
   }
   $('createT').textContent = tab === 'newProj' ? 'Crear proyecto' : 'Crear tarea';
   $('createOv').classList.add('show');
+  // Validación en vivo del form de tarea (título + responsable requeridos).
+  if (tab !== 'newProj' && typeof ltWireValidation === 'function') {
+    ltWireValidation([
+      { id: 'fNom', msg: 'El nombre es obligatorio.' },
+      { id: 'fResp', msg: 'Elegí un responsable.' }
+    ], 'btnT');
+  }
   // Auto-focus en el primer input relevante
   setTimeout(function() {
     var input = tab === 'newProj' ? $('pNom') : $('fNom');
@@ -507,6 +514,7 @@ function submitTask() {
       if (res.success) {
         fm('fMsg', '✅ Tarea #' + res.id + ' creada', 'success');
         toast('Tarea #' + res.id + ' creada', 'success');
+        ['fNom', 'fResp'].forEach(function(id){ if (typeof ltFieldValid === 'function') ltFieldValid($(id)); });
         ['fNom', 'fNot', 'fContraparte'].forEach(function(id){ if ($(id)) $(id).value = ''; });
         $('fDl').value = '';
         if (_tagsAccHandle) _tagsAccHandle.clear();
@@ -790,6 +798,10 @@ function openEdit(id) {
       '<input type="text" id="eContraparte" value="' + esc(t.contraparte || '') + '" maxlength="120" placeholder="Contraparte (opcional)"></div>' +
     renderDocsSection('task', id, t.documentos || []);
   $('editOv').classList.add('show');
+  // Validación en vivo: el nombre de la tarea es obligatorio.
+  if (typeof ltWireValidation === 'function') {
+    ltWireValidation([{ id: 'eNom', msg: 'El nombre no puede quedar vacío.' }], 'editSaveBtn');
+  }
 }
 // Edición de proyectos: monta el form en el mismo modal genérico (#editOv).
 // El dispatcher saveEdit() decide qué guardar según EDIT_KIND.
@@ -1272,6 +1284,17 @@ function _skeleton(lines) {
   return out + '</div>';
 }
 
+// Skeleton loader nuevo (contrato lt-skel-*). N filas grises animadas.
+// Usar como placeholder mientras un fetch async está en vuelo.
+function ltSkeleton(rows) {
+  rows = rows || 5;
+  var out = '<div class="lt-skel-wrap">';
+  for (var i = 0; i < rows; i++) {
+    out += '<div class="lt-skel lt-skel-row"></div>';
+  }
+  return out + '</div>';
+}
+
 // Empty state con personalidad: ícono grande + título serif italic +
 // subtítulo + CTA opcional. Usar cuando una lista está completamente
 // vacía (no como mensaje de "filtro sin resultados").
@@ -1323,23 +1346,120 @@ function pd(s) {
   if (!isNaN(d3.getTime())) return d3;
   return null;
 }
+// Toasts apilados con barra de progreso (estilo Linear/Notion).
+// Retrocompatible con todas las llamadas existentes toast('msg', 'success'|'error'|'info'|...).
+// Mapea types viejos (warn/warning/danger/ok…) a los tres canónicos.
+function _ltToastStack() {
+  var stack = document.getElementById('lt-toasts');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'lt-toasts';
+    stack.className = 'lt-toast-stack';
+    document.body.appendChild(stack);
+  }
+  return stack;
+}
+function _ltToastType(type) {
+  switch ((type || '').toLowerCase()) {
+    case 'success': case 'ok': case 'good': case 'done': return 'success';
+    case 'error': case 'danger': case 'fail': case 'bad': return 'error';
+    default: return 'info'; // info/warn/warning/notice/'' → info
+  }
+}
 function toast(msg, type) {
-  var e = $('toast');
-  type = type || 'info';
-  var icons = { success: '✓', error: '✕', info: 'ℹ', warn: '⚠' };
-  var icon = icons[type] || icons.info;
-  e.innerHTML = '<span class="toast-icon">' + icon + '</span>'
-              + '<span class="toast-msg"></span>';
-  e.querySelector('.toast-msg').textContent = msg;
-  e.className = 'toast toast-' + type + ' show';
-  clearTimeout(e._t);
-  e._t = setTimeout(function(){ e.classList.remove('show'); }, 3000);
+  type = _ltToastType(type);
+  var stack = _ltToastStack();
+  var el = document.createElement('div');
+  el.className = 'lt-toast lt-toast-' + type;
+  el.setAttribute('role', 'status');
+  el.innerHTML = '<span class="lt-toast-msg">' + esc(msg) + '</span>'
+               + '<span class="lt-toast-bar"></span>';
+  stack.appendChild(el);
+  // a ~3340ms iniciar la salida, remover el nodo a 3500ms.
+  el._outT = setTimeout(function(){ el.classList.add('lt-toast-out'); }, 3340);
+  el._delT = setTimeout(function(){ if (el.parentNode) el.parentNode.removeChild(el); }, 3500);
+  return el;
 }
 
 function fm(id, text, cls) {
   var e = $(id);
   e.textContent = text;
   e.className = 'form-msg msg-' + (cls || 'info');
+}
+
+// ════════════════════════════════════════════════════════════════
+// VALIDACIÓN EN TIEMPO REAL (contrato lt-invalid / lt-field-msg)
+// Marca un input como inválido: agrega clase lt-invalid y un mensaje
+// <div class="lt-field-msg"> inmediatamente debajo. Sin duplicar mensajes.
+// ════════════════════════════════════════════════════════════════
+function ltFieldInvalid(input, msg) {
+  if (!input) return;
+  input.classList.add('lt-invalid');
+  input.setAttribute('aria-invalid', 'true');
+  var next = input.nextElementSibling;
+  if (next && next.classList && next.classList.contains('lt-field-msg')) {
+    next.textContent = msg; // actualizar, no duplicar
+  } else {
+    var div = document.createElement('div');
+    div.className = 'lt-field-msg';
+    div.textContent = msg;
+    if (input.parentNode) input.parentNode.insertBefore(div, input.nextSibling);
+  }
+}
+function ltFieldValid(input) {
+  if (!input) return;
+  input.classList.remove('lt-invalid');
+  input.removeAttribute('aria-invalid');
+  var next = input.nextElementSibling;
+  if (next && next.classList && next.classList.contains('lt-field-msg')) {
+    if (next.parentNode) next.parentNode.removeChild(next);
+  }
+}
+// Valida un campo required: vacío → invalid, sino → valid. Devuelve true si es válido.
+function _ltValidateRequired(input, msg) {
+  if (!input) return true;
+  var val = (input.value || '').trim();
+  if (!val) { ltFieldInvalid(input, msg); return false; }
+  ltFieldValid(input);
+  return true;
+}
+// Cablea validación en vivo sobre un set de campos {id, msg} de un form,
+// deshabilitando elegante el botón submit mientras haya inválidos.
+// fields: [{ id, msg }]. submitId: id del botón.
+function ltWireValidation(fields, submitId) {
+  var btn = submitId ? $(submitId) : null;
+  function revalidate(markEmpty) {
+    var allOk = true;
+    fields.forEach(function(f) {
+      var input = $(f.id);
+      if (!input) return;
+      var empty = !(input.value || '').trim();
+      if (empty) {
+        allOk = false;
+        if (markEmpty) ltFieldInvalid(input, f.msg); // solo marcar tras interacción
+      } else {
+        ltFieldValid(input);
+      }
+    });
+    if (btn) btn.disabled = !allOk;
+    return allOk;
+  }
+  fields.forEach(function(f) {
+    var input = $(f.id);
+    if (!input || input._ltWired) return;
+    input._ltWired = true;
+    var handler = function() {
+      // Al editar: si quedó vacío, marcar este campo; sino limpiarlo.
+      if (!(input.value || '').trim()) ltFieldInvalid(input, f.msg);
+      else ltFieldValid(input);
+      revalidate(false);
+    };
+    input.addEventListener('input', handler);
+    input.addEventListener('change', handler);
+  });
+  // Estado inicial del botón (sin marcar campos vacíos todavía).
+  revalidate(false);
+  return revalidate;
 }
 
 // Re-renderiza la vista editorial activa SIN ir al server. Base del optimistic
@@ -2656,8 +2776,14 @@ function mountEdShell() {
 // goEd('tracker') + EDT.selectedId; click en proyecto → goEd
 // ('proyectos'). Esc o click fuera cierra.
 // ════════════════════════════════════════════════════════════════
-var EDS = { mounted: false, query: '', activeIdx: 0 };
+var EDS = { mounted: false, query: '', activeIdx: 0, actions: [] };
 var _edSearchDebounced = null;
+
+// Ejecuta una acción global del Cmd+K por índice (rellenado en cada render).
+function edSearchRunAction(idx) {
+  var a = EDS.actions && EDS.actions[idx];
+  if (a && typeof a.run === 'function') a.run();
+}
 
 function _edSearchEnsureMounted() {
   if (EDS.mounted) return;
@@ -2737,6 +2863,114 @@ function edSearchClose() {
   var ov = $('edSearchOv'); if (ov) ov.classList.remove('show');
 }
 
+// Fuzzy subsequence matcher con ranking simple. Devuelve un score (mayor = mejor)
+// o -1 si no matchea. Premia: match exacto de substring, prefijo, y caracteres
+// contiguos. Sirve para tolerar typos/abreviaturas (estilo Linear/Notion).
+function _edFuzzyScore(text, q) {
+  text = (text || '').toLowerCase();
+  q = (q || '').toLowerCase();
+  if (!q) return 0;
+  if (!text) return -1;
+  // Substring exacto: el mejor caso. Prefijo puntúa aún más alto.
+  var idx = text.indexOf(q);
+  if (idx >= 0) {
+    return 1000 - idx + (idx === 0 ? 200 : 0);
+  }
+  // Subsecuencia: cada char de q debe aparecer en orden dentro de text.
+  var score = 0, ti = 0, prevMatch = -2, matched = 0;
+  for (var qi = 0; qi < q.length; qi++) {
+    var ch = q.charAt(qi);
+    var found = -1;
+    for (var j = ti; j < text.length; j++) {
+      if (text.charAt(j) === ch) { found = j; break; }
+    }
+    if (found < 0) return -1; // char no encontrado → no matchea
+    matched++;
+    if (found === prevMatch + 1) score += 5; // contigüidad
+    if (found === 0 || /[\s\-_\/.#]/.test(text.charAt(found - 1))) score += 3; // inicio de palabra
+    score += 1;
+    prevMatch = found;
+    ti = found + 1;
+  }
+  // Penalizar texto muy largo respecto a la query (matches dispersos valen menos).
+  return score - Math.floor(text.length / 40);
+}
+
+// Devuelve el mejor score fuzzy sobre varios campos (usa el campo más relevante).
+function _edFuzzyBest(fields, q) {
+  var best = -1;
+  for (var i = 0; i < fields.length; i++) {
+    var s = _edFuzzyScore(fields[i], q);
+    if (s > best) best = s;
+  }
+  return best;
+}
+
+// Acciones globales del Cmd+K (estilo command palette de Linear). Cada entrada
+// referencia una función EXISTENTE; solo se incluyen las que existen en runtime.
+// Esto evita listar comandos rotos si alguna feature se quita en el futuro.
+function _edSearchActions() {
+  var acts = [];
+  var lang = (typeof LANG !== 'undefined') ? LANG : 'es';
+  if (typeof edCrearOpen === 'function') {
+    acts.push({
+      label: lang === 'pt' ? 'Criar nova tarefa' : 'Crear nueva tarea',
+      hint: lang === 'pt' ? 'Abre o assistente de criação' : 'Abre el asistente de creación',
+      keywords: 'crear nueva tarea criar nova tarefa create task new',
+      run: function(){ edSearchClose(); edCrearOpen(); }
+    });
+  }
+  if (typeof setTheme === 'function') {
+    var curTheme = (document.documentElement.dataset.theme === 'light') ? 'light' : 'dark';
+    if (curTheme === 'dark') {
+      acts.push({
+        label: lang === 'pt' ? 'Modo claro' : 'Modo claro',
+        hint: lang === 'pt' ? 'Trocar para tema claro' : 'Cambiar al tema claro',
+        keywords: 'modo claro light theme tema',
+        run: function(){ edSearchClose(); setTheme('light'); }
+      });
+    } else {
+      acts.push({
+        label: lang === 'pt' ? 'Modo escuro' : 'Modo oscuro',
+        hint: lang === 'pt' ? 'Trocar para tema escuro' : 'Cambiar al tema oscuro',
+        keywords: 'modo oscuro escuro dark theme tema',
+        run: function(){ edSearchClose(); setTheme('dark'); }
+      });
+    }
+  }
+  if (typeof edNotifOpen === 'function') {
+    acts.push({
+      label: lang === 'pt' ? 'Ver atividade recente' : 'Ver actividad reciente',
+      hint: lang === 'pt' ? 'Abre o painel de atividade' : 'Abre el panel de actividad',
+      keywords: 'actividad reciente atividade recente activity notifications notificaciones',
+      run: function(){ edSearchClose(); edNotifOpen(); }
+    });
+  }
+  if (typeof setLang === 'function') {
+    var toEs = (lang === 'pt');
+    acts.push({
+      label: toEs ? 'Cambiar idioma: Español' : 'Mudar idioma: Português',
+      hint: toEs ? 'Cambiar la interfaz a Español' : 'Trocar a interface para Português',
+      keywords: 'cambiar idioma language idioma español portugues português es pt',
+      run: function(){ edSearchClose(); setLang(toEs ? 'es' : 'pt'); }
+    });
+  }
+  return acts;
+}
+
+// Filtra acciones globales por fuzzy match. Devuelve [{kind:'action', item, score}].
+function _edSearchActionMatches(q) {
+  var acts = _edSearchActions();
+  var out = [];
+  for (var i = 0; i < acts.length; i++) {
+    var a = acts[i];
+    var s = _edFuzzyBest([a.label, a.keywords], q);
+    if (s >= 0) out.push({ kind: 'action', item: a, score: s });
+  }
+  out.sort(function(x, y){ return y.score - x.score; });
+  return out;
+}
+
 function _edSearchFilter(query) {
   var q = (query || '').trim().toLowerCase();
   if (!q) return [];
@@ -2745,12 +2979,19 @@ function _edSearchFilter(query) {
   var pMap = {};
   projects.forEach(function(p){ pMap[p.id] = p.nombre; });
   var out = [];
-  for (var i = 0; i < tasks.length && out.length < 80; i++) {
+  // Tareas: ranking fuzzy. El título (nombre) e id pesan más que campos
+  // secundarios. Toleramos typos/abreviaturas vía subsecuencia.
+  var taskMatches = [];
+  for (var i = 0; i < tasks.length; i++) {
     var t = tasks[i];
     var pn = (t.proyectoId && pMap[t.proyectoId]) ? pMap[t.proyectoId] : '';
-    var hay = [t.nombre, t.resp, t.notas, t.tipoTrabajo, t.pais, pn].join(' ').toLowerCase();
-    if (hay.indexOf(q) >= 0) out.push({ kind: 'task', item: t, projectName: pn });
+    var primary = _edFuzzyBest([String(t.nombre || ''), String(t.id || '')], q);
+    var secondary = _edFuzzyBest([t.resp, t.notas, t.tipoTrabajo, t.pais, pn], q);
+    var score = primary >= 0 ? primary + 50 : secondary; // primary gana siempre
+    if (score >= 0) taskMatches.push({ kind: 'task', item: t, projectName: pn, score: score });
   }
+  taskMatches.sort(function(a, b){ return b.score - a.score; });
+  for (var tm = 0; tm < taskMatches.length && out.length < 80; tm++) out.push(taskMatches[tm]);
   for (var j = 0; j < projects.length && out.length < 100; j++) {
     var p = projects[j];
     var hay2 = [p.nombre, p.responsable, p.lider, p.notas, p.tipoTrabajo, p.pais].join(' ').toLowerCase();
@@ -2806,6 +3047,7 @@ function _edSearchRender() {
     return;
   }
   var results = _edSearchFilter(q);
+  var actionShow = _edSearchActionMatches(q).slice(0, 5);
   // Cap por sección. Total visible 15: 8 tasks + 4 projects + 3 docs
   // (si una sección no llena su cuota, las otras pueden expandirse).
   var taskAll = results.filter(function(r){ return r.kind === 'task'; });
@@ -2815,7 +3057,7 @@ function _edSearchRender() {
   var projShow = projAll.slice(0, 4);
   var docShow  = docAll.slice(0, 5);
 
-  if (!taskShow.length && !projShow.length && !docShow.length) {
+  if (!actionShow.length && !taskShow.length && !projShow.length && !docShow.length) {
     host.innerHTML = ''
       + '<div class="ed-search-empty">'
       +   '<div style="font-size:13px;color:var(--fg-2)">Sin resultados para "<b>' + esc(q) + '</b>"</div>'
@@ -2825,6 +3067,22 @@ function _edSearchRender() {
   }
 
   var html = '';
+  // Acciones globales primero (command palette estilo Linear). Guardamos los
+  // handlers en EDS.actions para invocarlos por índice desde el onclick.
+  EDS.actions = actionShow.map(function(r){ return r.item; });
+  if (actionShow.length) {
+    html += '<div class="ed-search-section">' + esc((typeof LANG !== 'undefined' && LANG === 'pt') ? 'Ações' : 'Acciones') + '</div>';
+    actionShow.forEach(function(r, ai) {
+      var a = r.item;
+      html += '<div class="ed-search-result" onclick="edSearchRunAction(' + ai + ')">'
+           +    '<span class="ed-search-r-kind">acción</span>'
+           +    '<span class="ed-search-r-id">⌘</span>'
+           +    '<span class="ed-search-r-name">' + _edSearchHighlight(a.label || '', q) + '</span>'
+           +    '<span class="ed-search-r-resp">' + esc(a.hint || '') + '</span>'
+           +    '<span class="ed-search-r-eta">↵</span>'
+           +  '</div>';
+    });
+  }
   if (taskShow.length) {
     html += '<div class="ed-search-section">Tareas</div>';
     taskShow.forEach(function(r) {
@@ -9097,7 +9355,7 @@ function _rEdBibPlantillas(D) {
 
   // Cache de la lista rica (estado+autor). Se recarga al mutar.
   if (_BIBLIO_CACHE == null) {
-    v.innerHTML = '<div class="pa-page">' + _bibSubnav('plantillas') + '<div style="padding:32px;text-align:center;color:var(--fg-3)">Cargando biblioteca…</div></div>';
+    v.innerHTML = '<div class="pa-page">' + _bibSubnav('plantillas') + ltSkeleton(5) + '</div>';
     _loadBiblioteca(function() { _rEdBibPlantillas(D); });
     return;
   }
@@ -9337,7 +9595,7 @@ function _loadBibDocs(cb) {
 function _rEdBibDocs(D) {
   var v = $('vEdPlantillas'); if (!v) return;
   if (_BIBDOCS_CACHE == null) {
-    v.innerHTML = '<div class="pa-page">' + _bibSubnav('documentos') + '<div style="padding:32px;text-align:center;color:var(--fg-3)">Cargando documentos…</div></div>';
+    v.innerHTML = '<div class="pa-page">' + _bibSubnav('documentos') + ltSkeleton(5) + '</div>';
     _loadBibDocs(function() { _rEdBibDocs(D); });
     return;
   }
@@ -9483,7 +9741,7 @@ function _loadCalEvents(cb) {
 function rEdCalendar(D) {
   var v = $('vEdCalendar'); if (!v) return;
   if (_CALEV_CACHE == null) {
-    v.innerHTML = '<div class="pa-page"><div style="padding:32px;text-align:center;color:var(--fg-3)">Cargando calendario…</div></div>';
+    v.innerHTML = '<div class="pa-page">' + ltSkeleton(5) + '</div>';
     _loadCalEvents(function() { rEdCalendar(D); });
     return;
   }
