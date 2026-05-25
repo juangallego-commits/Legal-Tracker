@@ -8998,7 +8998,24 @@ function edCrearProyectoSubmit() {
 // cambia una plantilla, invalidamos _TEMPLATES_CACHE para forzar refresh
 // en el wizard de Crear (sino el dropdown sigue mostrando la versión vieja
 // hasta que recargue la página).
+// Biblioteca tiene 2 sub-secciones: Plantillas y Documentos. rEdPlantillas es
+// el dispatcher (lo llama goEd); cada sub-render inyecta la sub-nav arriba.
+var EDBIB_TAB = 'plantillas';
+function edBibSetTab(tab) {
+  EDBIB_TAB = (tab === 'documentos') ? 'documentos' : 'plantillas';
+  rEdPlantillas(D);
+}
+function _bibSubnav(active) {
+  return '<div style="display:flex;gap:6px;margin:0 0 16px">'
+    +    '<div class="pa-chip' + (active === 'plantillas' ? ' is-active' : '') + '" onclick="edBibSetTab(\'plantillas\')">Plantillas</div>'
+    +    '<div class="pa-chip' + (active === 'documentos' ? ' is-active' : '') + '" onclick="edBibSetTab(\'documentos\')">Documentos</div>'
+    + '</div>';
+}
 function rEdPlantillas(D) {
+  if (EDBIB_TAB === 'documentos') return _rEdBibDocs(D);
+  return _rEdBibPlantillas(D);
+}
+function _rEdBibPlantillas(D) {
   var v = $('vEdPlantillas'); if (!v) return;
   var role = _effectiveRole();
   var canApprove = (role === 'manager' || role === 'head');
@@ -9007,8 +9024,8 @@ function rEdPlantillas(D) {
 
   // Cache de la lista rica (estado+autor). Se recarga al mutar.
   if (_BIBLIO_CACHE == null) {
-    v.innerHTML = '<div class="pa-page"><div style="padding:32px;text-align:center;color:var(--fg-3)">Cargando biblioteca…</div></div>';
-    _loadBiblioteca(function() { rEdPlantillas(D); });
+    v.innerHTML = '<div class="pa-page">' + _bibSubnav('plantillas') + '<div style="padding:32px;text-align:center;color:var(--fg-3)">Cargando biblioteca…</div></div>';
+    _loadBiblioteca(function() { _rEdBibPlantillas(D); });
     return;
   }
 
@@ -9019,7 +9036,7 @@ function rEdPlantillas(D) {
   });
   var pendCount = items.filter(function(x){ return x.estado === 'pendiente'; }).length;
 
-  var html = '<div class="pa-page">';
+  var html = '<div class="pa-page">' + _bibSubnav('plantillas');
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">Biblioteca</span>'
        +    '<span class="pa-page-sub">' + items.length + (items.length === 1 ? ' plantilla' : ' plantillas')
@@ -9234,6 +9251,152 @@ function edPltDelete(tipo, estado) {
       })
       .deleteTemplate(tipo, estado);
   }, { danger: true, confirmLabel: 'Eliminar' });
+}
+
+// ── Biblioteca · Documentos ─────────────────────────────────────
+var _BIBDOCS_CACHE = null;
+function _loadBibDocs(cb) {
+  google.script.run
+    .withSuccessHandler(function(res) { _BIBDOCS_CACHE = (res && res.items) || []; cb(); })
+    .withFailureHandler(function() { _BIBDOCS_CACHE = []; cb(); })
+    .getBibliotecaDocs();
+}
+function _rEdBibDocs(D) {
+  var v = $('vEdPlantillas'); if (!v) return;
+  if (_BIBDOCS_CACHE == null) {
+    v.innerHTML = '<div class="pa-page">' + _bibSubnav('documentos') + '<div style="padding:32px;text-align:center;color:var(--fg-3)">Cargando documentos…</div></div>';
+    _loadBibDocs(function() { _rEdBibDocs(D); });
+    return;
+  }
+  var role = _effectiveRole();
+  var canManage = (role === 'manager' || role === 'head');
+  var myName = _effectiveUserName();
+  function _sameName(a, b){ return (a || '').toString().trim().toLowerCase() === (b || '').toString().trim().toLowerCase(); }
+  var docs = (_BIBDOCS_CACHE || []).slice().sort(function(a, b){ return (b.fecha || '').localeCompare(a.fecha || ''); });
+
+  var html = '<div class="pa-page">' + _bibSubnav('documentos');
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">Biblioteca</span>'
+       +    '<span class="pa-page-sub">' + docs.length + ' documento' + (docs.length === 1 ? '' : 's') + '</span>'
+       +    '<div class="pa-page-meta">'
+       +      '<button class="pa-btn pa-btn-outline" onclick="edBibDocLinkOpen()">' + paIcon('doc', 12) + ' Agregar enlace</button>'
+       +      '<button class="pa-btn pa-btn-primary" onclick="var i=$(\'bibDocFileInput\'); if(i) i.click();">' + paIcon('plus', 12) + ' Subir archivo</button>'
+       +      '<input type="file" id="bibDocFileInput" style="display:none" onchange="edBibDocUpload(this)">'
+       +    '</div>'
+       + '</div>';
+  html += '<div class="pa-narrative">Documentos e insumos del equipo. Cualquiera puede agregar un enlace (Drive/externo) o subir un archivo (máx. 45 MB).</div>';
+
+  if (docs.length === 0) {
+    html += paEmpty('folder', 'Todavía no hay documentos.', 'Agregá el primero con "Agregar enlace" o "Subir archivo".');
+    html += '</div>';
+    v.innerHTML = html;
+    return;
+  }
+
+  html += '<div class="pa-tbl" style="margin-top:14px">'
+       +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 100px 150px 130px 130px">'
+       +      '<div>Documento</div><div>Tipo</div><div>Autor</div><div>Categoría</div><div></div>'
+       +    '</div>';
+  docs.forEach(function(d) {
+    var tipoPill = d.tipo === 'file'
+      ? '<span class="pa-pill pa-pill-tipo">Archivo</span>'
+      : '<span class="pa-pill pa-pill-tipo">Enlace</span>';
+    var canDel = canManage || _sameName(d.autor, myName);
+    var btns = '<div style="display:flex;gap:6px;justify-content:flex-end">'
+      +   '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="edBibDocOpen(\'' + esc(d.id) + '\')">Abrir</button>'
+      +   (canDel ? '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px;color:var(--critical-fg)" onclick="edBibDocDelete(\'' + esc(d.id) + '\')">Eliminar</button>' : '')
+      + '</div>';
+    html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr 100px 150px 130px 130px;height:46px">'
+         +    '<div style="font-size:13px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(d.nombre) + '">' + esc(d.nombre) + '</div>'
+         +    '<div>' + tipoPill + '</div>'
+         +    '<div style="font-size:12px;color:var(--fg-3)">' + esc(d.autor || '—') + '</div>'
+         +    '<div style="font-size:12px;color:var(--fg-3)">' + esc(d.categoria || '—') + '</div>'
+         +    btns
+         + '</div>';
+  });
+  html += '</div></div>';
+  v.innerHTML = html;
+}
+function edBibDocOpen(id) {
+  var d = (_BIBDOCS_CACHE || []).filter(function(x){ return x.id === id; })[0];
+  if (d && d.url) { try { window.open(d.url, '_blank'); } catch (e) {} }
+}
+function edBibDocDelete(id) {
+  confirm_('¿Quitar este documento de la biblioteca? Si es un archivo, el original queda en Drive.', function() {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res && res.success) { _BIBDOCS_CACHE = null; toast('Documento eliminado', 'success'); _rEdBibDocs(D); }
+        else toast((res && res.error) || 'No se pudo eliminar.', 'error');
+      })
+      .withFailureHandler(function(e) { toast('Error: ' + (e && e.message || 'desconocido'), 'error'); })
+      .deleteBibliotecaDoc(id);
+  }, { danger: true, confirmLabel: 'Quitar' });
+}
+function edBibDocUpload(input) {
+  var file = input && input.files && input.files[0];
+  if (!file) return;
+  if (typeof showLoader === 'function') showLoader();
+  var reader = new FileReader();
+  reader.onload = function() {
+    var base64 = String(reader.result).split(',')[1];
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (typeof hideLoader === 'function') hideLoader();
+        input.value = '';
+        if (res && res.success) { _BIBDOCS_CACHE = null; toast('Archivo subido', 'success'); _rEdBibDocs(D); }
+        else toast((res && res.error) || 'No se pudo subir.', 'error');
+      })
+      .withFailureHandler(function(e) {
+        if (typeof hideLoader === 'function') hideLoader();
+        input.value = '';
+        toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+      })
+      .uploadBibliotecaDocFile({ name: file.name, mimeType: file.type, data: base64 }, '');
+  };
+  reader.onerror = function() { if (typeof hideLoader === 'function') hideLoader(); toast('No se pudo leer el archivo', 'error'); };
+  reader.readAsDataURL(file);
+}
+function edBibDocLinkOpen() {
+  var host = $('edPltHost');
+  if (!host) { host = document.createElement('div'); host.id = 'edPltHost'; document.body.appendChild(host); }
+  host.innerHTML = '<div class="cr-overlay" onclick="if(event.target===this)edBibDocLinkClose()">'
+    +   '<div class="cr-backdrop" onclick="edBibDocLinkClose()"></div>'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Agregar enlace">'
+    +     '<div class="cr-head"><div><div class="cr-eye">— Nuevo documento</div><div class="cr-title">Agregar enlace</div></div>'
+    +       '<button type="button" class="cr-x" onclick="edBibDocLinkClose()" aria-label="Cerrar">×</button></div>'
+    +     '<div class="cr-body">'
+    +       '<div class="cr-field"><div class="cr-label">Nombre</div><input id="bibLinkName" class="cr-input" placeholder="Ej: Política de privacidad LATAM" maxlength="120"></div>'
+    +       '<div class="cr-field"><div class="cr-label">Enlace <span class="req">*</span></div><input id="bibLinkUrl" class="cr-input" placeholder="https://drive.google.com/…"></div>'
+    +       '<div class="cr-field"><div class="cr-label">Categoría</div><input id="bibLinkCat" class="cr-input" placeholder="Ej: Compliance, Plantillas Drive… (opcional)" maxlength="40"></div>'
+    +     '</div>'
+    +     '<div class="cr-foot">'
+    +       '<div class="cr-foot-info">Cualquiera del equipo puede consultarlo desde Biblioteca.</div>'
+    +       '<button type="button" class="ed-btn ghost" onclick="edBibDocLinkClose()">Cancelar</button>'
+    +       '<button type="button" class="ed-btn accent" id="bibLinkSaveBtn" onclick="edBibDocLinkSave()">Agregar</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+  setTimeout(function(){ var i = $('bibLinkUrl'); if (i) i.focus(); }, 60);
+}
+function edBibDocLinkClose() { var host = $('edPltHost'); if (host) host.innerHTML = ''; }
+function edBibDocLinkSave() {
+  var url = ($('bibLinkUrl') && $('bibLinkUrl').value || '').trim();
+  var name = ($('bibLinkName') && $('bibLinkName').value || '').trim();
+  var cat = ($('bibLinkCat') && $('bibLinkCat').value || '').trim();
+  if (!url) { toast('Pegá un enlace.', 'error'); return; }
+  var btn = $('bibLinkSaveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Agregando…'; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Agregar'; }
+      if (res && res.success) { _BIBDOCS_CACHE = null; toast('Enlace agregado', 'success'); edBibDocLinkClose(); _rEdBibDocs(D); }
+      else toast((res && res.error) || 'No se pudo agregar.', 'error');
+    })
+    .withFailureHandler(function(e) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Agregar'; }
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .addBibliotecaDocLink(name, url, cat);
 }
 
 

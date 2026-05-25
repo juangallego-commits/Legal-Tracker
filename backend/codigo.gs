@@ -12,7 +12,8 @@ const SHEET_PROYECTOS = 'Proyectos';
 const SHEET_COMMENTS  = 'Comments'; // Auto-created on first use; cols: id, task_id, author_email, author_name, ts, body
 const SHEET_ACTIVITY  = 'Activity'; // Auto-created; cols: id, ts, task_id, author_email, author_name, action, field, old_value, new_value
 const SHEET_FERIADOS  = 'Feriados'; // Manual; cols: pais (CO/MX/CR/...) | fecha (YYYY-MM-DD) | nombre
-const SHEET_TEMPLATES = 'Templates'; // Optional; cols: tipoTrabajo, checklist (JSON array of strings). See sample at EOF.
+const SHEET_TEMPLATES = 'Templates'; // Optional; cols: tipoTrabajo | checklist(JSON) | estado | autor.
+const SHEET_BIBLIO_DOCS = 'BibliotecaDocs'; // Optional; cols: id | nombre | tipo(link|file) | url | categoria | autor | fecha.
 
 // ── DAILY DIGEST ────────────────────────────────────────────────
 // URL del web app deployado (/exec). Se usa en los emails del digest
@@ -2157,6 +2158,111 @@ function _deleteTemplateImpl(tipoTrabajo, estado) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ════════════════════════════════════════════════════════════════
+// BIBLIOTECA · DOCUMENTOS (enlaces + archivos en Drive)
+// ════════════════════════════════════════════════════════════════
+// Hoja BibliotecaDocs: id | nombre | tipo(link|file) | url | categoria | autor | fecha
+// Cualquiera puede agregar. Borrar: el autor, o manager/head.
+function _ensureBiblioDocsSheet(ss) {
+  var ws = ss.getSheetByName(SHEET_BIBLIO_DOCS);
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_BIBLIO_DOCS);
+    ws.getRange(1, 1, 1, 7).setValues([['id', 'nombre', 'tipo', 'url', 'categoria', 'autor', 'fecha']]);
+    ws.getRange(1, 1, 1, 7).setFontWeight('bold');
+    ws.setFrozenRows(1);
+  }
+  return ws;
+}
+
+function getBibliotecaDocs() {
+  return _telemetry('getBibliotecaDocs', function() {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ws = ss.getSheetByName(SHEET_BIBLIO_DOCS);
+    if (!ws) return { items: [] };
+    var lr = ws.getLastRow();
+    if (lr < 2) return { items: [] };
+    var data = ws.getRange(2, 1, lr - 1, 7).getValues();
+    var items = [];
+    data.forEach(function(r) {
+      var id = (r[0] || '').toString().trim();
+      var nombre = (r[1] || '').toString().trim();
+      if (!id || !nombre) return;
+      items.push({
+        id: id, nombre: nombre,
+        tipo: (r[2] || 'link').toString().trim().toLowerCase(),
+        url: (r[3] || '').toString().trim(),
+        categoria: (r[4] || '').toString().trim(),
+        autor: (r[5] || '').toString().trim(),
+        fecha: (r[6] || '').toString().trim()
+      });
+    });
+    return { items: items };
+  });
+}
+
+function addBibliotecaDocLink(nombre, url, categoria) {
+  return _telemetry('addBibliotecaDocLink', function() {
+    return _safeMutation(function() {
+      var ctx = _getAuthContext();
+      var u = (url || '').toString().trim();
+      if (!u) return { success: false, error: 'Pegá un enlace.' };
+      if (!/^https?:\/\//i.test(u)) return { success: false, error: 'El enlace debe empezar con http:// o https://' };
+      var nm = (nombre || '').toString().trim().slice(0, 120) || u.slice(0, 80);
+      var cat = (categoria || '').toString().trim().slice(0, 40);
+      var ws = _ensureBiblioDocsSheet(ctx.ss);
+      var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);
+      ws.appendRow(_sanitizeRow([id, nm, 'link', u, cat, (ctx.user && ctx.user.name) || ctx.email || '', new Date().toISOString()]));
+      return { success: true, id: id };
+    });
+  }, {});
+}
+
+function uploadBibliotecaDocFile(fileData, categoria) {
+  return _telemetry('uploadBibliotecaDocFile', function() {
+    return _safeMutation(function() {
+      var ctx = _getAuthContext();
+      if (!fileData || !fileData.data || !fileData.name) return { success: false, error: 'Datos de archivo inválidos' };
+      var mime = (fileData.mimeType || '').toString().trim().toLowerCase();
+      if (!_UPLOAD_ALLOWED_MIME[mime]) return { success: false, error: 'Tipo de archivo no permitido' };
+      var bytes = Utilities.base64Decode(fileData.data);
+      if (bytes.length > _UPLOAD_MAX_BYTES) return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
+      var folder = _ensureSubfolder(_getRootFolder(), 'Biblioteca');
+      var file = folder.createFile(Utilities.newBlob(bytes, mime, fileData.name));
+      var cat = (categoria || '').toString().trim().slice(0, 40);
+      var ws = _ensureBiblioDocsSheet(ctx.ss);
+      var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);
+      ws.appendRow(_sanitizeRow([id, file.getName(), 'file', file.getUrl(), cat, (ctx.user && ctx.user.name) || ctx.email || '', new Date().toISOString()]));
+      return { success: true, id: id, url: file.getUrl() };
+    });
+  }, {});
+}
+
+function deleteBibliotecaDoc(id) {
+  return _telemetry('deleteBibliotecaDoc', function() {
+    return _safeMutation(function() {
+      var ctx = _getAuthContext();
+      var did = (id || '').toString().trim();
+      if (!did) return { success: false, error: 'ID requerido.' };
+      var ws = ctx.ss.getSheetByName(SHEET_BIBLIO_DOCS);
+      if (!ws) return { success: false, error: 'No hay documentos.' };
+      var lr = ws.getLastRow();
+      if (lr < 2) return { success: false, error: 'No hay documentos.' };
+      var data = ws.getRange(2, 1, lr - 1, 6).getValues();
+      var rowIdx = -1, autor = '';
+      for (var i = 0; i < data.length; i++) {
+        if ((data[i][0] || '').toString().trim() === did) { rowIdx = i + 2; autor = (data[i][5] || '').toString().trim(); break; }
+      }
+      if (rowIdx < 0) return { success: false, error: 'Documento no encontrado.' };
+      var isManager = (ctx.role === 'manager' || ctx.role === 'head');
+      if (!isManager && _normalizeName(autor) !== _normalizeName((ctx.user && ctx.user.name) || '')) {
+        return { success: false, error: 'Solo podés eliminar tus propios documentos.' };
+      }
+      ws.deleteRow(rowIdx); // el archivo en Drive no se borra (queda en la carpeta Biblioteca)
+      return { success: true, id: did };
+    });
+  }, {});
 }
 // O(1) en lugar del while-day-by-day. Para historial extenso (años),
 // el loop original disparaba miles de iteraciones por entry × cientos
