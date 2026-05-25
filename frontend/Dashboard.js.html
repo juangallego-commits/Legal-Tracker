@@ -119,6 +119,9 @@
 const PRIO_ORDER   = {'Alta':0,'Media':1,'Baja':2};
 const STATUS_ORDER = {'Bloqueado':0,'En curso':1,'Pendiente':2,'En revisión':3,'Listo':4};
 const ALL_STATUSES = ['Pendiente','En curso','En revisión','Bloqueado','Listo'];
+// Ventana de "Esta semana" (días). Compartida entre el KPI del Home y el
+// bucket de la vista Por urgencia para que el conteo coincida (antes 7 vs 5).
+const ED_WEEK_DAYS = 7;
 const SLA_LIMITS   = {'Alta':2,'Media':5,'Baja':7};
 
 // Badge CSS class maps
@@ -3493,7 +3496,7 @@ function rEdHomeSpecialist(D) {
   var tasks = (D && D.tasks) ? D.tasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; }) : [];
   var overdue   = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
   var dueToday  = tasks.filter(function(t){ return t.etaDays === 0; }).length;
-  var thisWeek  = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= 7; }).length;
+  var thisWeek  = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= ED_WEEK_DAYS; }).length;
   var blocked   = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
   // Top 4 ordenadas por urgencia
@@ -6438,7 +6441,7 @@ function _agBuckets(tasks) {
     if (d == null) { later.push(t); continue; }
     if (d < 0) overdue.push(t);
     else if (d === 0) today.push(t);
-    else if (d <= 5) week.push(t);
+    else if (d <= ED_WEEK_DAYS) week.push(t);
     else later.push(t);
   }
   // ordenar por urgencia dentro de cada bucket
