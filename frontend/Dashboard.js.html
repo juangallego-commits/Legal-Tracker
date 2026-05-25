@@ -1078,28 +1078,36 @@ function uf(id, f, v) {
   var task = D.tasks.find(function(x){ return x.id == id; });
   var prevValue = task ? task[f] : null;
 
-  // Aplicar cambio optimista (solo si no va a moverse al historial)
-  if (!willMoveToHistorial && task) {
-    task[f] = v;
+  if (willMoveToHistorial) {
+    // Cierre (mueve al historial): no es trivial de simular optimistamente,
+    // así que mantenemos loader + reload de sincronización.
+    showLoader();
+    google.script.run
+      .withSuccessHandler(function(r) {
+        hideLoader();
+        if (r && r.success) { toast(r.moved ? '✅ Movida al historial' : '✅ OK', 'success'); reload(); }
+        else toast('Error: ' + ((r && r.error) || ''), 'error');
+      })
+      .withFailureHandler(function(e) { hideLoader(); toast('Error: ' + (e && e.message || ''), 'error'); })
+      .updateTaskField(id, f, v);
+    return;
   }
 
-  showLoader();
+  // OPTIMISTIC: aplicamos el cambio en memoria y re-renderamos YA (sin loader).
+  // El server corre en background; si falla, revertimos en silencio + toast.
+  if (task) { task[f] = v; _rerenderActive(); }
   google.script.run
     .withSuccessHandler(function(r) {
-      if (r.success) {
-        toast(r.moved ? '✅ Movida al historial' : '✅ OK', 'success');
-        reload(); // Sincroniza stats reales del server
+      if (r && r.success) {
+        _reloadSilent(); // reconcilia stats reales (KPI/SLA/etaDays) sin spinner
       } else {
-        // Rollback: restaurar valor previo
-        if (!willMoveToHistorial && task) { task[f] = prevValue; }
-        toast('Error: ' + (r.error || ''), 'error');
+        if (task) { task[f] = prevValue; _rerenderActive(); }
+        toast('Error: ' + ((r && r.error) || 'no se pudo guardar'), 'error');
       }
-      hideLoader();
     })
     .withFailureHandler(function(e) {
-      if (!willMoveToHistorial && task) { task[f] = prevValue; }
-      toast('Error: ' + e.message, 'error');
-      hideLoader();
+      if (task) { task[f] = prevValue; _rerenderActive(); }
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
     })
     .updateTaskField(id, f, v);
 }
@@ -1334,27 +1342,37 @@ function fm(id, text, cls) {
   e.className = 'form-msg msg-' + (cls || 'info');
 }
 
+// Re-renderiza la vista editorial activa SIN ir al server. Base del optimistic
+// UI: tras mutar D en memoria, esto refleja el cambio al instante.
+var _ED_ACTIVE_MAP = {
+  vEdHome: 'home', vEdTracker: 'tracker', vEdCalendar: 'calendar',
+  vEdProyectosIndex: 'proyectos', vEdMisTareas: 'mistareas', vEdAgrupadas: 'agrupadas',
+  vEdAnalytics: 'analytics', vEdHistorial: 'historial', vEdMiequipo: 'miequipo',
+  vEdResumen: 'paises', vEdPlantillas: 'plantillas'
+};
+function _rerenderActive() {
+  var active = document.querySelector('.view.active');
+  if (!active || !active.id || typeof goEd !== 'function') return;
+  if (_ED_ACTIVE_MAP[active.id]) goEd(_ED_ACTIVE_MAP[active.id]);
+}
+
+// Recarga del server CON loader (acciones que el usuario inició explícitamente
+// y donde el spinner es esperable, p.ej. crear, o el primer load).
 function reload() {
   showLoader();
   google.script.run
-    .withSuccessHandler(function(d){
-      D = d;
-      // Re-render de la vista editorial activa para que tareas/proyectos
-      // recién creados se vean con etaDays/eta enriquecidos.
-      var active = document.querySelector('.view.active');
-      if (active && active.id && typeof goEd === 'function') {
-        if (active.id === 'vEdHome') goEd('home');
-        else if (active.id === 'vEdTracker') goEd('tracker');
-        else if (active.id === 'vEdCalendar') goEd('calendar');
-        else if (active.id === 'vEdProyectosIndex') goEd('proyectos');
-        else if (active.id === 'vEdAnalytics') goEd('analytics');
-        else if (active.id === 'vEdHistorial') goEd('historial');
-        else if (active.id === 'vEdMiequipo') goEd('miequipo');
-        else if (active.id === 'vEdResumen') goEd('paises');
-      }
-      hideLoader();
-    })
-    .withFailureHandler(function(e){ hideLoader(); toast('Error al recargar: ' + e.message, 'error'); })
+    .withSuccessHandler(function(d){ D = d; _rerenderActive(); hideLoader(); })
+    .withFailureHandler(function(e){ hideLoader(); toast('Error al recargar: ' + (e && e.message || ''), 'error'); })
+    .getEditorialData();
+}
+
+// Reconcile en segundo plano SIN loader: tras un cambio optimista exitoso,
+// traemos las stats reales del server (KPI/SLA/etaDays) y re-renderamos sin
+// que el usuario perciba un spinner. Si falla, el estado optimista se mantiene.
+function _reloadSilent() {
+  google.script.run
+    .withSuccessHandler(function(d){ if (d) { D = d; _rerenderActive(); } })
+    .withFailureHandler(function(){ /* el optimista ya quedó aplicado; no molestar */ })
     .getEditorialData();
 }
 // ═══ USER SESSION ═══
@@ -1530,6 +1548,36 @@ document.addEventListener('click', function(e) {
 //  · Esc  → cierra modales/dropdowns
 //  · /    → enfoca el buscador
 // ════════════════════════════════════════════════════════════════
+// Focus trap: cuando hay un modal/overlay abierto, Tab cicla SOLO dentro de él
+// (a11y — el foco no se "escapa" al contenido de fondo). Devuelve el contenedor
+// del modal abierto más prominente, o null si no hay ninguno.
+function _activeModalEl() {
+  var sov = $('edSearchOv');
+  if (sov && sov.classList.contains('show')) return sov.querySelector('.ed-search-modal') || sov;
+  var hostIds = ['uaHost', 'crHost', 'crpHost', 'edPltHost'];
+  for (var i = 0; i < hostIds.length; i++) {
+    var h = $(hostIds[i]);
+    if (h && h.innerHTML && h.innerHTML.trim()) return h.firstElementChild || h;
+  }
+  if ($('confOv') && $('confOv').classList.contains('show')) return $('confOv').querySelector('.modal') || $('confOv');
+  if ($('editOv') && $('editOv').classList.contains('show')) return $('editOv').querySelector('.modal') || $('editOv');
+  if ($('createOv') && $('createOv').classList.contains('show')) return $('createOv').querySelector('.modal') || $('createOv');
+  var bulk = document.getElementById('bulkReasignOv'); if (bulk) return bulk.querySelector('.modal, .cr-modal') || bulk;
+  var panel = document.getElementById('tkPanelOv'); if (panel) return panel.querySelector('aside') || panel;
+  return null;
+}
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Tab') return;
+  var modal = _activeModalEl();
+  if (!modal) return;
+  var sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+  var nodes = Array.prototype.filter.call(modal.querySelectorAll(sel), function(el){ return el.offsetParent !== null; });
+  if (!nodes.length) return;
+  var first = nodes[0], last = nodes[nodes.length - 1];
+  if (!modal.contains(document.activeElement)) { e.preventDefault(); first.focus(); return; }
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     // Tour primero (cubre el viewport con z-index 95 + el tour promete
@@ -1546,6 +1594,8 @@ document.addEventListener('keydown', function(e) {
     if ($('createOv') && $('createOv').classList.contains('show')) { closeCreate(); return; }
     if ($('editOv') && $('editOv').classList.contains('show')) { closeEdit(); return; }
     if ($('confOv') && $('confOv').classList.contains('show')) { closeCf(); return; }
+    if (document.getElementById('bulkReasignOv')) { if (typeof edTkBulkReasignClose === 'function') edTkBulkReasignClose(); return; }
+    if (document.getElementById('tkPanelOv')) { if (typeof edClosePanel === 'function') edClosePanel(); return; }
     return;
   }
   var ae = document.activeElement;
@@ -4361,10 +4411,22 @@ function edTkBulkReasignConfirm() {
   _edTkBulkRun(ids, 'resp', newResp, 'Reasignadas');
 }
 
+// Aplica un cambio de campo en memoria a varias tareas y re-renderiza YA
+// (optimistic). El reconcile final (_reloadSilent en _edTkBulkDone) corrige
+// cualquier fila que el server haya rechazado, así que no hace falta revertir
+// fila por fila.
+function _edApplyOptimistic(pairs, field) {
+  if (!D || !D.tasks) return;
+  var byId = {};
+  pairs.forEach(function(p){ byId[String(p.id)] = p.value; });
+  D.tasks.forEach(function(t){
+    if (byId.hasOwnProperty(String(t.id))) t[field] = byId[String(t.id)];
+  });
+  _rerenderActive();
+}
 function _edTkBulkRun(ids, field, value, label) {
   var ok = 0, fail = 0, pending = ids.length;
-  var nLbl = pending + ' ' + (pending === 1 ? t('tarea') : t('tareas'));
-  toast(t('Aplicando a') + ' ' + nLbl + '…', 'info');
+  _edApplyOptimistic(ids.map(function(id){ return { id: id, value: value }; }), field);
   ids.forEach(function(id) {
     google.script.run
       .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edTkBulkDone(label, ok, fail); })
@@ -4374,8 +4436,7 @@ function _edTkBulkRun(ids, field, value, label) {
 }
 function _edTkBulkRunMixed(items, field, label) {
   var ok = 0, fail = 0, pending = items.length;
-  var nLbl = pending + ' ' + (pending === 1 ? t('tarea') : t('tareas'));
-  toast(t('Aplicando a') + ' ' + nLbl + '…', 'info');
+  _edApplyOptimistic(items, field);
   items.forEach(function(it) {
     google.script.run
       .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edTkBulkDone(label, ok, fail); })
@@ -4388,7 +4449,9 @@ function _edTkBulkDone(label, ok, fail) {
   else if (ok === 0) toast(t('Error: no se pudo aplicar ninguna'), 'error');
   else toast('⚠ ' + label + ': ' + ok + ' OK, ' + fail + ' ' + t('fallaron'), 'info');
   EDT.selectedIds = [];
-  if (typeof reload === 'function') reload();
+  // Reconcile sin spinner: el cambio optimista ya se ve; esto sincroniza stats
+  // y corrige fallos parciales contra la verdad del server.
+  _reloadSilent();
 }
 
 // ─── DOCUMENTOS DEL PANEL (tracker side panel) ──────────────────
@@ -4635,24 +4698,27 @@ function edReasignarConfirm() {
     if (typeof toast === 'function') toast('La tarea ya está asignada a ' + newResp + '.', 'info');
     return;
   }
-  if (typeof showLoader === 'function') showLoader();
+  // OPTIMISTIC: aplicamos, cerramos picker+panel y re-renderamos al instante.
+  var prevResp = task ? task.resp : null;
+  if (task) task.resp = newResp;
+  edReasignarClose();
+  if (typeof edClosePanel === 'function') edClosePanel();
+  _rerenderActive();
+  if (typeof toast === 'function') toast('✅ Reasignada a ' + newResp, 'success');
   google.script.run
     .withSuccessHandler(function(r){
-      if (typeof hideLoader === 'function') hideLoader();
       if (r && r.success) {
-        if (typeof toast === 'function') toast('✅ Reasignada a ' + newResp, 'success');
-        edReasignarClose();
-        // Cerrar el panel también: el manager acabó de reasignar, la tarea ya
-        // no es suya. Si el panel sigue abierto post-reload, confunde.
-        if (typeof edClosePanel === 'function') edClosePanel();
-        if (typeof reload === 'function') reload();
+        _reloadSilent();
       } else {
-        if (typeof toast === 'function') toast('Error: ' + ((r && r.error) || 'no se pudo reasignar'), 'error');
+        if (task) task.resp = prevResp;
+        _rerenderActive();
+        if (typeof toast === 'function') toast('Error: ' + ((r && r.error) || 'no se pudo reasignar') + ' · se revirtió', 'error');
       }
     })
     .withFailureHandler(function(e){
-      if (typeof hideLoader === 'function') hideLoader();
-      if (typeof toast === 'function') toast('Error: ' + e.message, 'error');
+      if (task) task.resp = prevResp;
+      _rerenderActive();
+      if (typeof toast === 'function') toast('Error: ' + (e && e.message || 'desconocido') + ' · se revirtió', 'error');
     })
     .updateTaskField(taskId, 'resp', newResp);
 }
