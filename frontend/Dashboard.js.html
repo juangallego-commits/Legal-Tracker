@@ -1495,6 +1495,14 @@ function _reloadSilent() {
     .withFailureHandler(function(){ /* el optimista ya quedó aplicado; no molestar */ })
     .getEditorialData();
 }
+
+// Navega al Tracker con un filtro principal aplicado. Usado por los KPIs del
+// Home para que "Vencidas"/"On hold" lleven a la lista YA filtrada (antes
+// caían a la lista completa y el usuario tenía que re-filtrar).
+function edGoTrackerFiltered(filter) {
+  if (typeof EDT !== 'undefined') { EDT.filter = filter || 'all'; EDT.groupBy = 'none'; }
+  if (typeof goEd === 'function') goEd('tracker');
+}
 // ═══ USER SESSION ═══
 // Con SSO de Google no hay login form: el server ya resolvió al visitante
 // contra la allowlist en doGet() y lo inyectó como window.__USER__. Este
@@ -2082,6 +2090,7 @@ var ED_NAV_BY_ROLE = {
     { section: 'LATAM', items: [
       { id: 'home',     label: 'Operaciones', icon: 'home',     view: 'home' },
       { id: 'tracker',  label: 'Tracker',     icon: 'inbox',    view: 'tracker' },
+      { id: 'paises',   label: 'Por país',    icon: 'globe',    view: 'paises' },
       { id: 'calendar', label: 'Calendario',  icon: 'calendar', view: 'calendar' }
     ]},
     { section: 'Personas', items: [
@@ -2427,7 +2436,22 @@ var _ED_CRUMBS_BY_VIEW = {
   historial:  ['Análisis', 'Historial']
 };
 function _edCrumbs(viewId) {
-  var c = _ED_CRUMBS_BY_VIEW[viewId] || ['Inicio'];
+  // Derivar grupo + label del nav REAL del rol, para que el breadcrumb coincida
+  // siempre con la sección del sidebar (antes era un mapa estático que se
+  // contradecía con el menú: p.ej. Tracker decía "Donde trabajo" pero para el
+  // specialist vive en "Mi día").
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var navRole = role === 'head' ? 'head' : (role === 'manager' ? 'manager' : 'specialist');
+  var nav = (typeof ED_NAV_BY_ROLE !== 'undefined' && ED_NAV_BY_ROLE[navRole]) || [];
+  var grp = null, lbl = null;
+  for (var gi = 0; gi < nav.length && !lbl; gi++) {
+    for (var ii = 0; ii < nav[gi].items.length; ii++) {
+      if (nav[gi].items[ii].id === viewId) { grp = nav[gi].section; lbl = nav[gi].items[ii].label; break; }
+    }
+  }
+  var c;
+  if (lbl) c = [grp, lbl];
+  else c = _ED_CRUMBS_BY_VIEW[viewId] || ['Inicio']; // fallback para vistas sin item de nav
   return c.map(function(seg, i){
     var isLast = i === c.length - 1;
     var sep = i > 0 ? '<span class="sep">/</span>' : '';
@@ -3504,28 +3528,28 @@ function rEdHomeSpecialist(D) {
          +    '<div class="msg"><b>' + esc(ovrLbl) + '</b>'
          +      (oldestId ? ' · ' + esc(t('la más antigua es')) + ' <b>#' + esc(oldestId) + '</b>' : '')
          +    '</div>'
-         +    '<button class="act" onclick="goEd(\'agrupadas\')">' + esc(t('Ver vencidas →')) + '</button>'
+         +    '<button class="act" onclick="edGoTrackerFiltered(\'overdue\')">' + esc(t('Ver vencidas →')) + '</button>'
          + '</div>';
   }
 
   // KPIs
   html += '<div class="pa-kpis">'
-       +    '<div class="pa-kpi ' + (overdue ? 'is-critical' : '') + '" onclick="goEd(\'agrupadas\')">'
+       +    '<div class="pa-kpi ' + (overdue ? 'is-critical' : '') + '" onclick="edGoTrackerFiltered(\'overdue\')">'
        +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> ' + esc(t('Vencidas')) + '</div>'
        +      '<div class="val">' + overdue + '</div>'
        +      '<div class="delta">' + esc(overdue ? t('Resolver primero') : t('Al día')) + '</div>'
        +    '</div>'
-       +    '<div class="pa-kpi ' + (dueToday ? 'is-warn' : '') + '" onclick="goEd(\'agrupadas\')">'
+       +    '<div class="pa-kpi ' + (dueToday ? 'is-warn' : '') + '" onclick="edGoTrackerFiltered(\'today\')">'
        +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> ' + esc(t('Vencen hoy')) + '</div>'
        +      '<div class="val">' + dueToday + '</div>'
        +      '<div class="delta">' + esc(dueToday ? t('Cerrar hoy') : t('Día limpio')) + '</div>'
        +    '</div>'
-       +    '<div class="pa-kpi" onclick="goEd(\'mistareas\')">'
+       +    '<div class="pa-kpi" onclick="goEd(\'agrupadas\')">'
        +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> ' + esc(t('Esta semana')) + '</div>'
        +      '<div class="val">' + thisWeek + '</div>'
        +      '<div class="delta">' + esc(t('en cola')) + '</div>'
        +    '</div>'
-       +    '<div class="pa-kpi ' + (blocked ? 'is-critical' : '') + '" onclick="goEd(\'mistareas\')">'
+       +    '<div class="pa-kpi ' + (blocked ? 'is-critical' : '') + '" onclick="edGoTrackerFiltered(\'blocked\')">'
        +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> ' + esc(t('On hold')) + '</div>'
        +      '<div class="val">' + blocked + '</div>'
        +      '<div class="delta">' + esc(blocked ? t('Necesitan empuje') : '—') + '</div>'
@@ -5875,7 +5899,7 @@ function rEdTracker(D) {
        +    chip('blocked', t('On hold'),         cBlocked, null,       EDT.filter === 'blocked')
        +    chip('alta',    t('Prioridad alta'),  cAlta,    null,       EDT.filter === 'alta')
        +    '<div class="pa-chip-divider"></div>'
-       +    chip('mine',    t('Asignadas a mí'),  cMine,    null,       EDT.filter === 'mine')
+       +    (role !== 'specialist' ? chip('mine', t('Asignadas a mí'), cMine, null, EDT.filter === 'mine') : '')
        +    chip('closed',  t('Cerradas'),        cClosed,  null,       EDT.filter === 'closed')
        +    '<div style="margin-left:auto;display:flex;gap:6px;align-items:center">'
        +      '<div class="pa-search" style="width:220px">'
@@ -9773,7 +9797,9 @@ function rEdCalendar(D) {
          +      '<div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(ev.title) + '">' + esc(ev.title) + '</div>'
          +      (ev.location ? '<div style="font-size:11px;color:var(--fg-3)">' + esc(ev.location) + '</div>' : '')
          +    '</div>'
-         +    '<div style="display:flex;justify-content:flex-end;align-items:flex-start"><button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="edCalCreateTask(\'' + esc(ev.id) + '\')">' + paIcon('plus', 11) + ' Crear tarea</button></div>'
+         +    '<div style="display:flex;justify-content:flex-end;align-items:flex-start">' + (ev.created
+                ? '<span class="pa-pill pa-pill-good" style="height:26px">' + paIcon('check', 11) + ' Tarea creada</span>'
+                : '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="edCalCreateTask(\'' + esc(ev.id) + '\')">' + paIcon('plus', 11) + ' Crear tarea</button>') + '</div>'
          + '</div>';
   });
   html += '</div></div>';
@@ -9787,8 +9813,13 @@ function edCalCreateTask(eventId) {
     google.script.run
       .withSuccessHandler(function(res) {
         if (typeof hideLoader === 'function') hideLoader();
-        if (res && res.success) { toast('Tarea creada desde el evento', 'success'); if (typeof reload === 'function') reload(); }
-        else toast((res && (res.error || res.message)) || 'No se pudo crear la tarea.', 'error');
+        if (res && res.success) {
+          // Marcar el evento como ya convertido para evitar duplicados al
+          // re-clickear (el botón pasa a estado "creada", deshabilitado).
+          if (ev) ev.created = true;
+          toast('Tarea creada desde el evento', 'success');
+          if (typeof reload === 'function') reload(); // sincroniza D + re-render calendario
+        } else toast((res && (res.error || res.message)) || 'No se pudo crear la tarea.', 'error');
       })
       .withFailureHandler(function(e) { if (typeof hideLoader === 'function') hideLoader(); toast('Error: ' + (e && e.message || 'desconocido'), 'error'); })
       .createTaskFromCalendarEvent(eventId);
