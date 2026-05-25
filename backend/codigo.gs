@@ -294,7 +294,9 @@ function _getEditorialDataImpl() {
       var memberTasks = tasksByResp[member.name] || [];
       var activeTasks = memberTasks.filter(function(t){ return t.status !== 'Listo' && t.status !== 'Cancelado'; });
       member.load     = activeTasks.length;
-      member.capacity = capMap.byName[_normalizeName(member.name)] || capMap.def;
+      var capByName   = capMap.byName[_normalizeName(member.name)];
+      member.capacity = capByName || capMap.def;
+      member.capacityEstimated = !capByName; // true = usa el default (no hay Capacidad: <nombre> en Config)
       member.overdue  = activeTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
       member.blocked  = activeTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
 
@@ -433,10 +435,29 @@ function _getEditorialDataImpl() {
 
   // Globales
   data.today = today;
+  data.templatesPending = _countPendingTemplates(ss);
   data.roleSpecific = data.roleSpecific || {};
   data.roleSpecific.narrative = _buildNarrative(data);
 
   return data;
+}
+
+// Cuenta plantillas con estado 'pendiente' (propuestas esperando aprobación).
+// Se expone en el payload para el badge del menú Biblioteca, sin tener que
+// abrir la vista. Defensivo: cualquier error → 0 (el badge simplemente no sale).
+function _countPendingTemplates(ss) {
+  try {
+    var ws = ss.getSheetByName(SHEET_TEMPLATES);
+    if (!ws) return 0;
+    var lr = ws.getLastRow();
+    if (lr < 2) return 0;
+    var col = ws.getRange(2, 3, lr - 1, 1).getValues(); // columna 'estado'
+    var n = 0;
+    for (var i = 0; i < col.length; i++) {
+      if ((col[i][0] || '').toString().trim().toLowerCase() === 'pendiente') n++;
+    }
+    return n;
+  } catch (e) { return 0; }
 }
 
 // Helper: % de cierres dentro de SLA dado un array de histos. null si vacío.

@@ -119,6 +119,9 @@
 const PRIO_ORDER   = {'Alta':0,'Media':1,'Baja':2};
 const STATUS_ORDER = {'Bloqueado':0,'En curso':1,'Pendiente':2,'En revisión':3,'Listo':4};
 const ALL_STATUSES = ['Pendiente','En curso','En revisión','Bloqueado','Listo'];
+// Ventana de "Esta semana" (días). Compartida entre el KPI del Home y el
+// bucket de la vista Por urgencia para que el conteo coincida (antes 7 vs 5).
+const ED_WEEK_DAYS = 7;
 const SLA_LIMITS   = {'Alta':2,'Media':5,'Baja':7};
 
 // Badge CSS class maps
@@ -2336,6 +2339,9 @@ function _badgeFor(itemId, role) {
   if (itemId === 'proyectos') return (D.projects || []).length || null;
   if (itemId === 'paises')    return (D.countries || []).length || null;
   if (itemId === 'historial') return (D.historial || []).length || null;
+  // Biblioteca: badge de propuestas pendientes de aprobar (solo para quienes
+  // aprueban — manager/head). Para specialist no es accionable.
+  if (itemId === 'plantillas') return (role !== 'specialist' && D.templatesPending) ? D.templatesPending : null;
   return null;
 }
 
@@ -3493,7 +3499,7 @@ function rEdHomeSpecialist(D) {
   var tasks = (D && D.tasks) ? D.tasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; }) : [];
   var overdue   = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
   var dueToday  = tasks.filter(function(t){ return t.etaDays === 0; }).length;
-  var thisWeek  = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= 7; }).length;
+  var thisWeek  = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= ED_WEEK_DAYS; }).length;
   var blocked   = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
   // Top 4 ordenadas por urgencia
@@ -3868,7 +3874,7 @@ function rEdHomeManager(D) {
            +    '</div>'
            +    '<div class="pa-flex-center">'
            +      '<span style="flex:1;height:6px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + Math.min(pct, 100) + '%;background:' + loadColor + '"></span></span>'
-           +      '<span class="mono" style="font-size:11px;color:' + loadFg + ';min-width:50px;text-align:right">' + (m.load || 0) + '/' + (m.capacity || 0) + '</span>'
+           +      '<span class="mono" style="font-size:11px;color:' + loadFg + ';min-width:50px;text-align:right"' + (m.capacityEstimated ? ' title="' + esc(t('Capacidad estimada — configurá «Capacidad: ' + (m.name || '') + '» en Config para fijarla')) + '"' : '') + '>' + (m.load || 0) + '/' + (m.capacityEstimated ? '~' : '') + (m.capacity || 0) + '</span>'
            +    '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.overdue || 0) ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + (m.overdue || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.blocked || 0) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + (m.blocked || 0) + '</div>'
@@ -4503,8 +4509,11 @@ function _edTkBulkClose(ids, resumen) {
   var ok = 0, fail = 0, pending = ids.length;
   var nLbl = pending + ' ' + (pending === 1 ? t('tarea') : t('tareas'));
   toast(t('Cerrando') + ' ' + nLbl + '…', 'info');
-  var fields = { status: 'Listo', notas: 'CIERRE: ' + resumen };
   ids.forEach(function(id) {
+    // notas por tarea: antepone el cierre PRESERVANDO el checklist previo
+    // (antes un único fields pisaba las notas de todas las tareas).
+    var tk = (D.tasks || []).find(function(x){ return String(x.id) === String(id); });
+    var fields = { status: 'Listo', notas: 'CIERRE: ' + resumen + (tk && tk.notas ? '\n\n' + tk.notas : '') };
     google.script.run
       .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edBulkCloseDone(ok, fail); })
       .withFailureHandler(function(){ fail++; if (--pending === 0) _edBulkCloseDone(ok, fail); })
@@ -6435,7 +6444,7 @@ function _agBuckets(tasks) {
     if (d == null) { later.push(t); continue; }
     if (d < 0) overdue.push(t);
     else if (d === 0) today.push(t);
-    else if (d <= 5) week.push(t);
+    else if (d <= ED_WEEK_DAYS) week.push(t);
     else later.push(t);
   }
   // ordenar por urgencia dentro de cada bucket
@@ -6725,12 +6734,16 @@ function edUSubmit() {
     var resumen = ($('uaResumen') && $('uaResumen').value || '').trim();
     if (!resumen) { if (typeof toast === 'function') toast('Falta el resumen para cerrar', 'error'); return; }
     fields.status = 'Listo';
-    fields.notas = 'CIERRE: ' + resumen;
+    // Anteponer el cierre PRESERVANDO las notas previas (checklist/contexto).
+    // Antes se sobrescribía notas entero → se perdía el checklist.
+    fields.notas = 'CIERRE: ' + resumen + (task.notas ? '\n\n' + task.notas : '');
   } else if (EDU.variant === 'bloquear') {
     var razon = ($('uaRazon') && $('uaRazon').value || '').trim();
     if (!razon) { if (typeof toast === 'function') toast('Falta el motivo para bloquear', 'error'); return; }
     fields.status = 'Bloqueado';
-    fields.notas = razon;
+    // La razón debe quedar como PRIMERA línea (el backend deriva blockedReason
+    // y accionable de notas[0]), pero conservamos el checklist debajo.
+    fields.notas = razon + (task.notas ? '\n\n' + task.notas : '');
   } else {
     // Si "Avanzar" llevaría a 'Listo' (cierre), forzamos la variant 'cerrar'
     // para pedir resumen y respetar la validación de cierre.
@@ -9773,33 +9786,33 @@ function rEdCalendar(D) {
   var err = _CALEV_CACHE.error;
   var html = '<div class="pa-page">';
   html += '<div class="pa-page-h">'
-       +    '<span class="pa-page-title">Calendario</span>'
-       +    '<span class="pa-page-sub">próximos 14 días</span>'
-       +    '<div class="pa-page-meta"><button class="pa-btn pa-btn-outline" onclick="_CALEV_CACHE=null;rEdCalendar(D)">' + paIcon('refresh', 12) + ' Actualizar</button></div>'
+       +    '<span class="pa-page-title">' + esc(t('Calendario')) + '</span>'
+       +    '<span class="pa-page-sub">' + esc(t('próximos 14 días')) + '</span>'
+       +    '<div class="pa-page-meta"><button class="pa-btn pa-btn-outline" onclick="_CALEV_CACHE=null;rEdCalendar(D)">' + paIcon('refresh', 12) + ' ' + esc(t('Actualizar')) + '</button></div>'
        + '</div>';
-  html += '<div class="pa-narrative">Eventos de tu Google Calendar del equipo, acá mismo. Creá una tarea desde cualquier evento con un click — sin saltar a Calendar.</div>';
+  html += '<div class="pa-narrative">' + esc(t('Eventos de tu Google Calendar del equipo, acá mismo. Creá una tarea desde cualquier evento con un click — sin saltar a Calendar.')) + '</div>';
 
   if (err) {
-    html += paEmpty('calendar', 'No pude leer el calendario.', esc(err) + ' Configurá Config!CalendarId o revisá los permisos de Calendar.');
+    html += paEmpty('calendar', t('No pude leer el calendario.'), esc(err) + ' ' + esc(t('Configurá Config!CalendarId o revisá los permisos de Calendar.')));
     html += '</div>'; v.innerHTML = html; return;
   }
   if (!events.length) {
-    html += paEmpty('calendar', 'Sin eventos en los próximos 14 días.', 'Cuando haya eventos vas a poder crear tareas desde acá.');
+    html += paEmpty('calendar', t('Sin eventos en los próximos 14 días.'), t('Cuando haya eventos vas a poder crear tareas desde acá.'));
     html += '</div>'; v.innerHTML = html; return;
   }
 
   html += '<div class="pa-tbl" style="margin-top:14px">'
-       +    '<div class="pa-tbl-h" style="grid-template-columns: 190px 1fr 130px"><div>Cuándo</div><div>Evento</div><div></div></div>';
+       +    '<div class="pa-tbl-h" style="grid-template-columns: 190px 1fr 130px"><div>' + esc(t('Cuándo')) + '</div><div>' + esc(t('Evento')) + '</div><div></div></div>';
   events.forEach(function(ev) {
     html += '<div class="pa-tbl-r" style="grid-template-columns: 190px 1fr 130px;min-height:46px;height:auto;padding-top:8px;padding-bottom:8px">'
-         +    '<div style="font-size:12px;color:var(--fg-2)">' + esc(ev.startLabel || '—') + (ev.allDay ? ' <span style="color:var(--fg-4)">· todo el día</span>' : '') + '</div>'
+         +    '<div style="font-size:12px;color:var(--fg-2)">' + esc(ev.startLabel || '—') + (ev.allDay ? ' <span style="color:var(--fg-4)">· ' + esc(t('todo el día')) + '</span>' : '') + '</div>'
          +    '<div style="min-width:0">'
          +      '<div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(ev.title) + '">' + esc(ev.title) + '</div>'
          +      (ev.location ? '<div style="font-size:11px;color:var(--fg-3)">' + esc(ev.location) + '</div>' : '')
          +    '</div>'
          +    '<div style="display:flex;justify-content:flex-end;align-items:flex-start">' + (ev.created
-                ? '<span class="pa-pill pa-pill-good" style="height:26px">' + paIcon('check', 11) + ' Tarea creada</span>'
-                : '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="edCalCreateTask(\'' + esc(ev.id) + '\')">' + paIcon('plus', 11) + ' Crear tarea</button>') + '</div>'
+                ? '<span class="pa-pill pa-pill-good" style="height:26px">' + paIcon('check', 11) + ' ' + esc(t('Tarea creada')) + '</span>'
+                : '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="edCalCreateTask(\'' + esc(ev.id) + '\')">' + paIcon('plus', 11) + ' ' + esc(t('Crear tarea')) + '</button>') + '</div>'
          + '</div>';
   });
   html += '</div></div>';
@@ -9807,8 +9820,8 @@ function rEdCalendar(D) {
 }
 function edCalCreateTask(eventId) {
   var ev = (_CALEV_CACHE && _CALEV_CACHE.items || []).filter(function(x){ return x.id === eventId; })[0];
-  var nm = ev ? ev.title : 'este evento';
-  confirm_('¿Crear una tarea desde "' + nm + '"? Queda asignada a vos, con el plazo del evento. Podés editarla después.', function() {
+  var nm = ev ? ev.title : t('este evento');
+  confirm_(t('¿Crear una tarea desde') + ' "' + nm + '"? ' + t('Queda asignada a vos, con el plazo del evento. Podés editarla después.'), function() {
     if (typeof showLoader === 'function') showLoader();
     google.script.run
       .withSuccessHandler(function(res) {
@@ -9817,13 +9830,13 @@ function edCalCreateTask(eventId) {
           // Marcar el evento como ya convertido para evitar duplicados al
           // re-clickear (el botón pasa a estado "creada", deshabilitado).
           if (ev) ev.created = true;
-          toast('Tarea creada desde el evento', 'success');
+          toast(t('Tarea creada desde el evento'), 'success');
           if (typeof reload === 'function') reload(); // sincroniza D + re-render calendario
-        } else toast((res && (res.error || res.message)) || 'No se pudo crear la tarea.', 'error');
+        } else toast((res && (res.error || res.message)) || t('No se pudo crear la tarea.'), 'error');
       })
-      .withFailureHandler(function(e) { if (typeof hideLoader === 'function') hideLoader(); toast('Error: ' + (e && e.message || 'desconocido'), 'error'); })
+      .withFailureHandler(function(e) { if (typeof hideLoader === 'function') hideLoader(); toast(t('Error') + ': ' + (e && e.message || t('desconocido')), 'error'); })
       .createTaskFromCalendarEvent(eventId);
-  }, { confirmLabel: 'Crear tarea' });
+  }, { confirmLabel: t('Crear tarea') });
 }
 
 
