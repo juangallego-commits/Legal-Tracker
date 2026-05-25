@@ -4503,8 +4503,11 @@ function _edTkBulkClose(ids, resumen) {
   var ok = 0, fail = 0, pending = ids.length;
   var nLbl = pending + ' ' + (pending === 1 ? t('tarea') : t('tareas'));
   toast(t('Cerrando') + ' ' + nLbl + '…', 'info');
-  var fields = { status: 'Listo', notas: 'CIERRE: ' + resumen };
   ids.forEach(function(id) {
+    // notas por tarea: antepone el cierre PRESERVANDO el checklist previo
+    // (antes un único fields pisaba las notas de todas las tareas).
+    var tk = (D.tasks || []).find(function(x){ return String(x.id) === String(id); });
+    var fields = { status: 'Listo', notas: 'CIERRE: ' + resumen + (tk && tk.notas ? '\n\n' + tk.notas : '') };
     google.script.run
       .withSuccessHandler(function(res){ (res && res.success) ? ok++ : fail++; if (--pending === 0) _edBulkCloseDone(ok, fail); })
       .withFailureHandler(function(){ fail++; if (--pending === 0) _edBulkCloseDone(ok, fail); })
@@ -6725,12 +6728,16 @@ function edUSubmit() {
     var resumen = ($('uaResumen') && $('uaResumen').value || '').trim();
     if (!resumen) { if (typeof toast === 'function') toast('Falta el resumen para cerrar', 'error'); return; }
     fields.status = 'Listo';
-    fields.notas = 'CIERRE: ' + resumen;
+    // Anteponer el cierre PRESERVANDO las notas previas (checklist/contexto).
+    // Antes se sobrescribía notas entero → se perdía el checklist.
+    fields.notas = 'CIERRE: ' + resumen + (task.notas ? '\n\n' + task.notas : '');
   } else if (EDU.variant === 'bloquear') {
     var razon = ($('uaRazon') && $('uaRazon').value || '').trim();
     if (!razon) { if (typeof toast === 'function') toast('Falta el motivo para bloquear', 'error'); return; }
     fields.status = 'Bloqueado';
-    fields.notas = razon;
+    // La razón debe quedar como PRIMERA línea (el backend deriva blockedReason
+    // y accionable de notas[0]), pero conservamos el checklist debajo.
+    fields.notas = razon + (task.notas ? '\n\n' + task.notas : '');
   } else {
     // Si "Avanzar" llevaría a 'Listo' (cierre), forzamos la variant 'cerrar'
     // para pedir resumen y respetar la validación de cierre.
