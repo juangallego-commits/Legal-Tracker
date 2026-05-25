@@ -1005,7 +1005,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   background: var(--bg-1);
   border: 1px solid var(--line-1);
   border-radius: var(--r-3);
-  overflow: hidden;
+  /* 'clip' (no 'hidden') clipea las esquinas redondeadas SIN crear un
+     scroll-container, para que el header sticky (.pa-tbl-h) se ancle al
+     scroll de .view y se pinee al scrollear. Degrada limpio sin soporte. */
+  overflow: clip;
 }
 /* Wrapper para scroll horizontal en mobile/tablet sin romper el grid denso. */
 .pa-tbl-wrap {
