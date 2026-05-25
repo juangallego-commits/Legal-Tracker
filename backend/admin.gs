@@ -156,17 +156,10 @@ function setupSheets() {
   } else {
     log('· Hoja Templates ya existía');
   }
-  if (tpl.getLastRow() <= 1) {
-    var templates = [
-      ['Revisión NDA', JSON.stringify(['Verificar partes', 'Jurisdicción aplicable', 'Cláusulas IP', 'Término', 'Confidencialidad recíproca'])],
-      ['Revisión contractual', JSON.stringify(['Partes y representación', 'Objeto del contrato', 'Plazo y vigencia', 'Precio y forma de pago', 'Resolución / terminación', 'Confidencialidad', 'Ley aplicable y jurisdicción'])],
-      ['Derecho de petición', JSON.stringify(['Identificación del peticionario', 'Hechos relevantes', 'Pretensión clara', 'Fundamento jurídico', 'Soportes y anexos', 'Plazo legal de respuesta (15 días hábiles)'])]
-    ];
-    tpl.getRange(2, 1, templates.length, 2).setValues(templates);
-    log('✓ Insertadas ' + templates.length + ' templates (NDA, Contractual, Petición)');
-  } else {
-    log('· Templates ya tenía ' + (tpl.getLastRow() - 1) + ' filas, no se sobreescribe');
-  }
+  // No se siembran plantillas de ejemplo: la Biblioteca arranca vacía y el
+  // equipo crea las suyas desde la UI (Biblioteca → Nueva plantilla). Antes
+  // se insertaban 3 samples que en producción se veían como "data inventada".
+  log('· Templates: sin seed de ejemplo (la biblioteca arranca vacía)');
 
   // ── 3. Tracking Activo: col 19 = Contraparte (header en row 3) ──
   var tk = ss.getSheetByName(SHEET_ACTIVO);

@@ -1876,7 +1876,7 @@ var ED_NAV_BY_ROLE = {
     { section: 'Donde trabajo', items: [
       { id: 'tracker',    label: 'Tracker',     icon: 'inbox',  view: 'tracker' },
       { id: 'proyectos',  label: 'Proyectos',   icon: 'folder', view: 'proyectos' },
-      { id: 'plantillas', label: 'Plantillas', icon: 'doc',    view: 'plantillas' }
+      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
       { id: 'analytics', label: 'Mi desempeño',  icon: 'chart',   view: 'analytics' },
@@ -1892,7 +1892,7 @@ var ED_NAV_BY_ROLE = {
     { section: 'Operación', items: [
       { id: 'agrupadas',  label: 'Por urgencia', icon: 'calendar', view: 'agrupadas' },
       { id: 'proyectos',  label: 'Proyectos',    icon: 'folder',   view: 'proyectos' },
-      { id: 'plantillas', label: 'Plantillas',   icon: 'doc',      view: 'plantillas' }
+      { id: 'plantillas', label: 'Biblioteca',   icon: 'doc',      view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
       { id: 'analytics', label: 'Métricas',   icon: 'chart',   view: 'analytics' },
@@ -1907,7 +1907,7 @@ var ED_NAV_BY_ROLE = {
     { section: 'Personas', items: [
       { id: 'miequipo',   label: 'Equipo',     icon: 'users',  view: 'miequipo' },
       { id: 'proyectos',  label: 'Proyectos',  icon: 'folder', view: 'proyectos' },
-      { id: 'plantillas', label: 'Plantillas', icon: 'doc',    view: 'plantillas' }
+      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
       { id: 'analytics', label: 'Analítica',  icon: 'chart',   view: 'analytics' },
@@ -9198,28 +9198,8 @@ function edCrearProyectoSubmit() {
 // MARKER:EDITORIAL_CREAR_PROYECTO_END
 
 // ═══════════════════════════════════════════════════════════════
-// BIBLIOTECA DE PLANTILLAS · feature nueva
-// Plantillas aprobadas que precargan campos del wizard de Crear.
+// BIBLIOTECA · Plantillas (checklists por tipo de trabajo)
 // ═══════════════════════════════════════════════════════════════
-// Biblioteca de plantillas — datos vienen del backend (hoja 'Templates').
-// Vacío hasta que tu equipo cree plantillas reales en el sheet.
-// TODO: cargar via google.script.run.getTemplates() cuando el shape esté listo.
-var TEMPLATES = [];
-var CAT_TONE = { Contractual: 'accent', Privacy: 'info', Regulatorio: 'warn', Contencioso: 'critical', Operativo: 'dim' };
-
-var EDPLT = { selectedId: 'TPL-001', filter: 'todas' };
-
-function _paCatPill(cat) {
-  var tone = CAT_TONE[cat] || 'dim';
-  return '<span class="pa-pill" style="background:var(--' + tone + '-soft);color:var(--' + tone + '-fg)">' +
-    '<span class="dot" style="background:var(--' + tone + ')"></span>' + esc(cat) + '</span>';
-}
-function _paApprovalPill(approved) {
-  return approved
-    ? '<span class="pa-pill pa-pill-good">' + paIcon('check', 10) + ' Aprobada</span>'
-    : '<span class="pa-pill pa-pill-warn">' + paIcon('alert', 10) + ' En revisión</span>';
-}
-
 // Render real de la vista Biblioteca: lee la hoja Templates vía getTemplates().
 // La data tiene forma { tipoTrabajo: [item1, item2, ...] }. Solo manager y
 // head pueden crear/editar/eliminar; specialist es read-only. Cuando se
@@ -9441,217 +9421,5 @@ function edPltDelete(tipo) {
   }, { danger: true, confirmLabel: 'Eliminar' });
 }
 
-// Mantengo la implementación mock antigua oculta para no romper referencias.
-// El array TEMPLATES = [] mock + funciones edPltSelect/edPltSetFilter/
-// edPltCreateFromTemplate quedan no-usadas. Se pueden borrar en próxima pasada.
-function _rEdPlantillasLegacyMock(D) {
-  var v = $('vEdPlantillas'); if (!v) return;
-  var role = _effectiveRole();
-  var userName = _effectiveUserName();
-
-  // Empty state — hasta que existan plantillas reales en la hoja 'Templates'
-  if (!TEMPLATES.length) {
-    v.innerHTML = ''
-      + '<div class="pa-page">'
-      +   '<div class="pa-page-h">'
-      +     '<span class="pa-page-title">Biblioteca</span>'
-      +     '<span class="pa-page-sub">Plantillas aprobadas para crear tareas al toque</span>'
-      +   '</div>'
-      +   '<div style="margin-top:48px;padding:48px;border:1px dashed var(--line-2);border-radius:var(--r-3);text-align:center;background:var(--bg-1)">'
-      +     '<div style="font-size:28px;opacity:.4;margin-bottom:8px">📚</div>'
-      +     '<div style="font-size:14px;font-weight:600;color:var(--fg-1);margin-bottom:4px">Tu biblioteca está vacía</div>'
-      +     '<div style="font-size:12px;color:var(--fg-3);max-width:420px;margin:0 auto;line-height:1.5">'
-      +       'Acá van las plantillas aprobadas por el equipo legal. '
-      +       'Para crear una, agregá filas a la hoja <span class="mono" style="background:var(--bg-2);padding:1px 5px;border-radius:3px">Templates</span> '
-      +       'del spreadsheet (columnas: tipoTrabajo, checklist en JSON).'
-      +     '</div>'
-      +   '</div>'
-      + '</div>';
-    return;
-  }
-  var counts = {
-    todas: TEMPLATES.length,
-    Contractual: TEMPLATES.filter(function(t){ return t.cat === 'Contractual'; }).length,
-    Privacy:     TEMPLATES.filter(function(t){ return t.cat === 'Privacy'; }).length,
-    Regulatorio: TEMPLATES.filter(function(t){ return t.cat === 'Regulatorio'; }).length,
-    Contencioso: TEMPLATES.filter(function(t){ return t.cat === 'Contencioso'; }).length,
-    Operativo:   TEMPLATES.filter(function(t){ return t.cat === 'Operativo'; }).length,
-    mias: TEMPLATES.filter(function(t){ return t.maintainer === userName; }).length,
-    draft: TEMPLATES.filter(function(t){ return !t.approved; }).length
-  };
-  var visible = TEMPLATES.filter(function(t) {
-    if (EDPLT.filter === 'todas') return true;
-    if (EDPLT.filter === 'mias')  return t.maintainer === userName;
-    if (EDPLT.filter === 'draft') return !t.approved;
-    return t.cat === EDPLT.filter;
-  });
-  var sel = TEMPLATES.find(function(t){ return t.id === EDPLT.selectedId; }) || TEMPLATES[0];
-
-  var canEdit = (role === 'manager' || role === 'head');
-
-  var html = '<div style="display:grid;grid-template-columns:1fr 380px;height:100%;min-height:0">';
-  html += '<div style="overflow:auto;padding:24px 28px 56px"><div style="max-width:none">';
-
-  // Header
-  html += '<div class="pa-page-h">'
-       +    '<span class="pa-page-title">Biblioteca</span>'
-       +    '<span class="pa-page-sub">' + TEMPLATES.length + ' plantillas · ' + (TEMPLATES.length - counts.draft) + ' aprobadas · ' + counts.draft + ' en revisión</span>'
-       +    '<div class="pa-page-meta">'
-       +      '<button class="pa-btn pa-btn-outline" disabled title="Próximamente">' + paIcon('download', 12) + ' Exportar</button>'
-       +      (canEdit ? '<button class="pa-btn pa-btn-primary" disabled title="Próximamente">' + paIcon('plus', 12) + ' Nueva plantilla</button>' : '')
-       +    '</div>'
-       + '</div>';
-
-  // Hero: most used this week
-  html += '<div class="pa-section-h" style="margin-top:18px">'
-       +    '<h3>Más usadas esta semana</h3>'
-       +    '<span class="meta">Click para usar una directo</span>'
-       + '</div>';
-  html += '<div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:10px">';
-  TEMPLATES.slice(0, 4).forEach(function(t) {
-    html += '<div class="pa-card" style="padding:14px;cursor:pointer;position:relative" onclick="edPltSelect(\'' + esc(t.id) + '\')">'
-         +    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">'
-         +      _paCatPill(t.cat)
-         +      '<span class="pa-pill pa-pill-country">' + esc(t.country) + '</span>'
-         +    '</div>'
-         +    '<div style="font-size:13px;font-weight:600;line-height:1.35;margin-bottom:4px">' + esc(t.name) + '</div>'
-         +    '<div class="pa-meta-sm">'
-         +      '<span class="mono">' + t.usage30d + '</span> usos · ' + esc(t.last)
-         +    '</div>'
-         +    '<button class="pa-btn pa-btn-icon" style="position:absolute;top:8px;right:8px;width:22px;height:22px" onclick="event.stopPropagation();edPltCreateFromTemplate(\'' + esc(t.id) + '\')" title="Usar plantilla">'
-         +      paIcon('arrowR', 11)
-         +    '</button>'
-         + '</div>';
-  });
-  html += '</div>';
-
-  // Filters
-  function fchip(key, label, count, tone) {
-    var cls = 'pa-chip';
-    if (tone === 'warn') cls += ' is-warn';
-    if (EDPLT.filter === key) cls += ' is-active';
-    return '<div class="' + cls + '" onclick="edPltSetFilter(\'' + key + '\')">' + esc(label) + ' <span class="ct">' + count + '</span></div>';
-  }
-  html += '<div class="pa-filterbar" style="margin-top:22px">'
-       +    fchip('todas', 'Todas', counts.todas)
-       +    '<div class="pa-chip-divider"></div>'
-       +    fchip('Contractual', 'Contractual', counts.Contractual)
-       +    fchip('Privacy', 'Privacy', counts.Privacy)
-       +    fchip('Regulatorio', 'Regulatorio', counts.Regulatorio)
-       +    fchip('Contencioso', 'Contencioso', counts.Contencioso)
-       +    fchip('Operativo', 'Operativo', counts.Operativo)
-       +    '<div class="pa-chip-divider"></div>'
-       +    fchip('mias', 'Las mías', counts.mias)
-       +    fchip('draft', 'En revisión', counts.draft, 'warn')
-       +    '<div style="margin-left:auto"><div class="pa-search" style="width:200px"><input type="text" placeholder="Buscar plantilla…" disabled title="Próximamente"></div></div>'
-       + '</div>';
-
-  // Table
-  html += '<div class="pa-tbl">'
-       +    '<div class="pa-tbl-h" style="grid-template-columns: 20px 1fr 120px 80px 130px 100px 70px 80px">'
-       +      '<div></div><div>Plantilla</div><div>Categoría</div><div>País</div><div>Maintainer</div><div>Estado</div><div>Usos 30d</div><div>Actualizada</div>'
-       +    '</div>';
-  visible.forEach(function(t) {
-    var isSel = t.id === sel.id;
-    html += '<div class="pa-tbl-r' + (isSel ? ' is-selected' : '') + '" style="grid-template-columns: 20px 1fr 120px 80px 130px 100px 70px 80px;height:50px" onclick="edPltSelect(\'' + esc(t.id) + '\')">'
-         +    '<span style="display:grid;place-items:center;color:' + (t.fav ? 'var(--warn)' : 'var(--fg-4)') + '">' + paIcon('star', 12) + '</span>'
-         +    '<div class="title"><span class="t" style="font-weight:500">' + esc(t.name) + '</span><span class="meta">' + esc(t.desc) + '</span></div>'
-         +    '<span>' + _paCatPill(t.cat) + '</span>'
-         +    '<span class="pa-pill pa-pill-country">' + esc(t.country) + '</span>'
-         +    '<span style="display:flex;align-items:center;gap:6px">' + paAvatar(t.maintainer, 18) + '<span style="font-size:12px">' + esc(t.maintainer.split(' ')[0]) + '</span></span>'
-         +    '<span>' + _paApprovalPill(t.approved) + '</span>'
-         +    '<span class="mono" style="font-size:12px;color:var(--fg-2)">' + t.usage30d + '</span>'
-         +    '<span class="pa-meta-sm">' + esc(t.last) + '</span>'
-         + '</div>';
-  });
-  html += '</div>';
-
-  html += '</div></div>'; // close left column
-
-  // Right drawer
-  html += '<aside style="border-left:1px solid var(--line-1);background:var(--bg-1);display:flex;flex-direction:column;min-height:0;overflow:auto">';
-  if (sel) {
-    html += '<div style="padding:16px 18px 14px;border-bottom:1px solid var(--line-1)">'
-         +    '<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--fg-3)">'
-         +      '<span class="mono">' + esc(sel.id) + '</span><span>·</span>'
-         +      _paCatPill(sel.cat)
-         +      '<span class="pa-pill pa-pill-country">' + esc(sel.country) + '</span>'
-         +      '<span style="margin-left:auto">' + paIcon('more', 13) + '</span>'
-         +    '</div>'
-         +    '<div style="margin-top:10px">' + _paApprovalPill(sel.approved) + '</div>'
-         +    '<h2 style="margin:10px 0 6px;font-size:19px;font-weight:600;letter-spacing:-0.015em;line-height:1.25">' + esc(sel.name) + '</h2>'
-         +    '<p style="margin:0;font-size:13px;color:var(--fg-2);line-height:1.5">' + esc(sel.desc) + '</p>'
-         + '</div>';
-    // Stats
-    html += '<div style="padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:10px;border-bottom:1px solid var(--line-1)">'
-         +    '<div><div style="font-size:10px;color:var(--fg-3);font-weight:600;text-transform:uppercase;letter-spacing:0.06em">Usos en 30d</div>'
-         +    '<div class="mono" style="font-size:22px;font-weight:600;letter-spacing:-0.02em;margin-top:2px">' + sel.usage30d + '</div></div>'
-         +    '<div><div style="font-size:10px;color:var(--fg-3);font-weight:600;text-transform:uppercase;letter-spacing:0.06em">Cierre promedio</div>'
-         +    '<div class="mono" style="font-size:22px;font-weight:600;letter-spacing:-0.02em;margin-top:2px">4.2 <span style="font-size:12px;color:var(--fg-3);font-weight:400">días</span></div></div>'
-         + '</div>';
-    // Precarga
-    html += '<div style="padding:14px 18px;border-bottom:1px solid var(--line-1)">'
-         +    '<div style="font-size:10px;color:var(--fg-3);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Va a precargar</div>';
-    var fields = [
-      { l: 'Tipo de trabajo', v: sel.cat, edit: false },
-      { l: 'Prioridad', v: 'Media', edit: true },
-      { l: 'SLA objetivo', v: '5 días hábiles', edit: true },
-      { l: 'Confidencialidad', v: 'Restringido', edit: false },
-      { l: 'Líder por defecto', v: 'Manager del país', edit: true }
-    ];
-    fields.forEach(function(f, i) {
-      html += '<div style="display:grid;grid-template-columns:120px 1fr 14px;align-items:center;padding:7px 0;border-top:' + (i ? '1px solid var(--line-1)' : '0') + ';font-size:12px">'
-           +    '<span style="color:var(--fg-3)">' + esc(f.l) + '</span>'
-           +    '<span style="color:var(--fg-1)">' + esc(f.v) + '</span>'
-           +    '<span style="color:var(--fg-4)" title="' + (f.edit ? 'Editable al usar' : 'Bloqueado') + '">' + paIcon(f.edit ? 'spark' : 'lock', 10) + '</span>'
-           + '</div>';
-    });
-    html += '<div style="font-size:10px;color:var(--fg-3);margin-top:8px;display:flex;gap:10px">'
-         +    '<span>' + paIcon('spark', 9) + ' editable al usar</span>'
-         +    '<span>' + paIcon('lock', 9) + ' bloqueado por aprobación</span>'
-         + '</div>'
-         + '</div>';
-    // Maintainer
-    html += '<div style="padding:14px 18px;flex:1">'
-         +    '<div style="font-size:10px;color:var(--fg-3);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Maintainer</div>'
-         +    '<div style="display:flex;align-items:center;gap:10px">' + paAvatar(sel.maintainer, 28)
-         +      '<div><div style="font-size:13px;font-weight:500">' + esc(sel.maintainer) + '</div>'
-         +      '<div class="pa-meta-sm">Aprobada · próxima revisión jul 2026</div></div>'
-         +    '</div>'
-         + '</div>';
-    // Actions
-    html += '<div style="padding:14px;border-top:1px solid var(--line-1);display:flex;flex-direction:column;gap:6px">'
-         +    '<button class="pa-btn pa-btn-primary" style="height:36px;justify-content:center;font-size:13px" onclick="edPltCreateFromTemplate(\'' + esc(sel.id) + '\')">'
-         +      paIcon('plus', 13) + ' Crear tarea desde esta plantilla'
-         +    '</button>'
-         +    (canEdit
-         ?    '<div style="display:flex;gap:6px">'
-         +      '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center" disabled title="Próximamente">' + paIcon('doc', 12) + ' Duplicar</button>'
-         +      '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center" disabled title="Próximamente">' + paIcon('save', 12) + ' Editar</button>'
-         +    '</div>'
-         :    '')
-         + '</div>';
-  }
-  html += '</aside>';
-  html += '</div>'; // close grid
-
-  v.innerHTML = html;
-}
-
-function edPltSelect(id) {
-  EDPLT.selectedId = id;
-  rEdPlantillas(D);
-}
-function edPltSetFilter(key) {
-  EDPLT.filter = key;
-  rEdPlantillas(D);
-}
-function edPltCreateFromTemplate(id) {
-  var t = TEMPLATES.find(function(x){ return x.id === id; });
-  if (!t) return;
-  // Por ahora: abrir el wizard de Crear con un toast indicando la plantilla
-  if (typeof toast === 'function') toast('Plantilla "' + t.name + '" cargada', 'info');
-  if (typeof edCrearOpen === 'function') edCrearOpen();
-}
 
 </script>
