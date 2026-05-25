@@ -3874,7 +3874,7 @@ function rEdHomeManager(D) {
            +    '</div>'
            +    '<div class="pa-flex-center">'
            +      '<span style="flex:1;height:6px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + Math.min(pct, 100) + '%;background:' + loadColor + '"></span></span>'
-           +      '<span class="mono" style="font-size:11px;color:' + loadFg + ';min-width:50px;text-align:right">' + (m.load || 0) + '/' + (m.capacity || 0) + '</span>'
+           +      '<span class="mono" style="font-size:11px;color:' + loadFg + ';min-width:50px;text-align:right"' + (m.capacityEstimated ? ' title="' + esc(t('Capacidad estimada — configurá «Capacidad: ' + (m.name || '') + '» en Config para fijarla')) + '"' : '') + '>' + (m.load || 0) + '/' + (m.capacityEstimated ? '~' : '') + (m.capacity || 0) + '</span>'
            +    '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.overdue || 0) ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + (m.overdue || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.blocked || 0) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + (m.blocked || 0) + '</div>'

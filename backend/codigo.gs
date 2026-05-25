@@ -294,7 +294,9 @@ function _getEditorialDataImpl() {
       var memberTasks = tasksByResp[member.name] || [];
       var activeTasks = memberTasks.filter(function(t){ return t.status !== 'Listo' && t.status !== 'Cancelado'; });
       member.load     = activeTasks.length;
-      member.capacity = capMap.byName[_normalizeName(member.name)] || capMap.def;
+      var capByName   = capMap.byName[_normalizeName(member.name)];
+      member.capacity = capByName || capMap.def;
+      member.capacityEstimated = !capByName; // true = usa el default (no hay Capacidad: <nombre> en Config)
       member.overdue  = activeTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
       member.blocked  = activeTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
 
