@@ -147,12 +147,14 @@ function setupSheets() {
   var tpl = ss.getSheetByName(SHEET_TEMPLATES);
   if (!tpl) {
     tpl = ss.insertSheet(SHEET_TEMPLATES);
-    tpl.getRange(1, 1, 1, 2).setValues([['tipoTrabajo', 'checklist']]);
-    tpl.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
+    tpl.getRange(1, 1, 1, 4).setValues([['tipoTrabajo', 'checklist', 'estado', 'autor']]);
+    tpl.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
     tpl.setFrozenRows(1);
     tpl.setColumnWidth(1, 200);
     tpl.setColumnWidth(2, 600);
-    log('✓ Hoja Templates creada (con headers)');
+    tpl.setColumnWidth(3, 90);
+    tpl.setColumnWidth(4, 160);
+    log('✓ Hoja Templates creada (con headers: tipoTrabajo|checklist|estado|autor)');
   } else {
     log('· Hoja Templates ya existía');
   }

@@ -445,6 +445,17 @@ function _loadTemplates(cb) {
     .getTemplates();
 }
 
+// Cache de la lista rica de Biblioteca (incluye estado + autor). Se invalida
+// (=null) en cada mutación de plantillas para forzar refetch. Distinta de
+// _TEMPLATES_CACHE, que es el dict aprobado que consume el wizard de Crear.
+var _BIBLIO_CACHE = null;
+function _loadBiblioteca(cb) {
+  google.script.run
+    .withSuccessHandler(function(res) { _BIBLIO_CACHE = (res && res.items) || []; cb(); })
+    .withFailureHandler(function() { _BIBLIO_CACHE = []; cb(); })
+    .getBibliotecaTemplates();
+}
+
 // ═══ CREATE MODAL ═══
 // Abre el modal global de creación. Opcional: tab inicial ('newTask'|'newProj')
 // y proyectoId a preseleccionar (útil para "+tarea" desde una pcard).
@@ -8990,72 +9001,72 @@ function edCrearProyectoSubmit() {
 function rEdPlantillas(D) {
   var v = $('vEdPlantillas'); if (!v) return;
   var role = _effectiveRole();
-  var canEdit = (role === 'manager' || role === 'head');
+  var canApprove = (role === 'manager' || role === 'head');
+  var myName = _effectiveUserName();
+  function _sameName(a, b){ return (a || '').toString().trim().toLowerCase() === (b || '').toString().trim().toLowerCase(); }
 
-  // Si la cache local no está cargada todavía, fetch — el render se llama
-  // de nuevo cuando responde.
-  if (_TEMPLATES_CACHE == null) {
-    v.innerHTML = '<div class="pa-page"><div style="padding:32px;text-align:center;color:var(--fg-3)">Cargando plantillas…</div></div>';
-    _loadTemplates(function() { rEdPlantillas(D); });
+  // Cache de la lista rica (estado+autor). Se recarga al mutar.
+  if (_BIBLIO_CACHE == null) {
+    v.innerHTML = '<div class="pa-page"><div style="padding:32px;text-align:center;color:var(--fg-3)">Cargando biblioteca…</div></div>';
+    _loadBiblioteca(function() { rEdPlantillas(D); });
     return;
   }
 
-  // _TEMPLATES_CACHE = { tipoTrabajo: [items] } — convertir a array para iterar ordenado.
-  var dict = _TEMPLATES_CACHE || {};
-  var tipos = Object.keys(dict).sort();
-  var templates = tipos.map(function(t){ return { tipo: t, items: dict[t] || [] }; });
-  // Detectamos si quedan tipos sin plantilla. Si todos están usados, el botón
-  // "Nueva plantilla" se deshabilita con tooltip explicativo (sino el user
-  // clickea, abre modal sin botón Guardar, y se confunde).
-  var availableTiposCount = (typeof _CR_TIPOS !== 'undefined')
-    ? _CR_TIPOS.filter(function(t){ return tipos.indexOf(t) < 0; }).length
-    : 0;
-  var newBtnAttrs = availableTiposCount > 0
-    ? 'onclick="edPltOpenEditor(null)"'
-    : 'disabled title="Ya tenés una plantilla por cada tipo de trabajo. Editá las existentes o eliminá alguna para crear otra."';
+  var items = (_BIBLIO_CACHE || []).slice().sort(function(a, b) {
+    if (a.tipo !== b.tipo) return a.tipo.localeCompare(b.tipo);
+    if (a.estado === b.estado) return 0;
+    return a.estado === 'pendiente' ? -1 : 1; // pendiente primero
+  });
+  var pendCount = items.filter(function(x){ return x.estado === 'pendiente'; }).length;
 
   var html = '<div class="pa-page">';
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">Biblioteca</span>'
-       +    '<span class="pa-page-sub">' + templates.length + (templates.length === 1 ? ' plantilla' : ' plantillas') + ' · una por tipo de trabajo</span>'
+       +    '<span class="pa-page-sub">' + items.length + (items.length === 1 ? ' plantilla' : ' plantillas')
+       +      (pendCount ? ' · ' + pendCount + ' pendiente' + (pendCount === 1 ? '' : 's') + ' de aprobación' : '') + '</span>'
        +    '<div class="pa-page-meta">'
-       +      (canEdit ? '<button class="pa-btn pa-btn-primary" ' + newBtnAttrs + '>' + paIcon('plus', 12) + ' Nueva plantilla</button>' : '')
+       +      '<button class="pa-btn pa-btn-primary" onclick="edPltOpenEditor(null,null)">' + paIcon('plus', 12) + ' Nueva plantilla</button>'
        +    '</div>'
        + '</div>';
 
-  if (!canEdit) {
-    html += '<div class="pa-narrative">Las plantillas pre-cargan el checklist de notas al crear una tarea. Solo managers y Global pueden editarlas.</div>';
-  } else {
-    html += '<div class="pa-narrative">Las plantillas se aplican automáticamente al elegir el <b>Tipo de trabajo</b> en el wizard de Crear. Si el campo Notas está vacío, se prellena con los ítems del checklist.</div>';
-  }
+  html += '<div class="pa-narrative">' + (canApprove
+    ? 'Las plantillas pre-cargan el checklist de Notas al crear una tarea. Cualquiera puede proponer una; las creadas por specialists quedan <b>pendientes</b> hasta que las apruebes.'
+    : 'Las plantillas pre-cargan el checklist de Notas al crear una tarea. Podés proponer una: quedará <b>pendiente</b> hasta que un manager o Global la apruebe.') + '</div>';
 
-  if (templates.length === 0) {
-    html += paEmpty('doc', 'Tu biblioteca está vacía.', canEdit
-      ? 'Creá tu primera plantilla con "Nueva plantilla". Cada tipo de trabajo (Contractual, Privacy, etc.) puede tener una.'
-      : 'Pedile a tu manager que cree plantillas para tus tipos de trabajo más frecuentes.');
+  if (items.length === 0) {
+    html += paEmpty('doc', 'Tu biblioteca está vacía.', 'Creá la primera con "Nueva plantilla". Cada tipo de trabajo puede tener una.');
     html += '</div>';
     v.innerHTML = html;
     return;
   }
 
   html += '<div class="pa-tbl" style="margin-top:14px">'
-       +    '<div class="pa-tbl-h" style="grid-template-columns: 200px 1fr 90px 200px">'
-       +      '<div>Tipo de trabajo</div><div>Checklist</div><div>Ítems</div><div></div>'
+       +    '<div class="pa-tbl-h" style="grid-template-columns: 170px 1fr 110px 150px 200px">'
+       +      '<div>Tipo</div><div>Checklist</div><div>Estado</div><div>Autor</div><div></div>'
        +    '</div>';
-  templates.forEach(function(t) {
-    var preview = t.items.slice(0, 3).join(' · ');
-    if (t.items.length > 3) preview += ' · …';
-    var actions = canEdit
-      ? '<div style="display:flex;gap:6px;justify-content:flex-end">'
-        +   '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="event.stopPropagation();edPltOpenEditor(\'' + esc(t.tipo) + '\')">Editar</button>'
-        +   '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px;color:var(--critical-fg)" onclick="event.stopPropagation();edPltDelete(\'' + esc(t.tipo) + '\')">Eliminar</button>'
-        + '</div>'
-      : '';
-    html += '<div class="pa-tbl-r" style="grid-template-columns: 200px 1fr 90px 200px;height:48px">'
+  items.forEach(function(t) {
+    var preview = t.checklist.slice(0, 3).join(' · ');
+    if (t.checklist.length > 3) preview += ' · …';
+    var estadoPill = t.estado === 'pendiente'
+      ? '<span class="pa-pill pa-pill-warn">Pendiente</span>'
+      : '<span class="pa-pill pa-pill-good">Aprobada</span>';
+    var mine = _sameName(t.autor, myName);
+    var canDelete = canApprove || (t.estado === 'pendiente' && mine);
+    var btns = '<div style="display:flex;gap:6px;justify-content:flex-end">';
+    if (canApprove && t.estado === 'pendiente') {
+      btns += '<button class="pa-btn pa-btn-primary" style="height:26px;font-size:11px;padding:0 8px" onclick="event.stopPropagation();edPltApprove(\'' + esc(t.tipo) + '\')">Aprobar</button>';
+    }
+    btns += '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="event.stopPropagation();edPltOpenEditor(\'' + esc(t.tipo) + '\',\'' + esc(t.estado) + '\')">' + (canApprove || mine ? 'Editar' : 'Proponer cambio') + '</button>';
+    if (canDelete) {
+      btns += '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px;color:var(--critical-fg)" onclick="event.stopPropagation();edPltDelete(\'' + esc(t.tipo) + '\',\'' + esc(t.estado) + '\')">Eliminar</button>';
+    }
+    btns += '</div>';
+    html += '<div class="pa-tbl-r" style="grid-template-columns: 170px 1fr 110px 150px 200px;height:48px">'
          +    '<div><span class="pa-pill pa-pill-tipo">' + esc(t.tipo) + '</span></div>'
          +    '<div style="font-size:12px;color:var(--fg-2);line-height:1.45">' + esc(preview) + '</div>'
-         +    '<div class="mono" style="font-size:12px;color:var(--fg-3)">' + t.items.length + '</div>'
-         +    actions
+         +    '<div>' + estadoPill + '</div>'
+         +    '<div style="font-size:12px;color:var(--fg-3)">' + esc(t.autor || '—') + '</div>'
+         +    btns
          + '</div>';
   });
   html += '</div></div>';
@@ -9065,16 +9076,18 @@ function rEdPlantillas(D) {
 
 // Editor de plantilla: modal con dropdown de tipoTrabajo + textarea de items
 // (uno por línea). Si `tipo` se pasa, edita la existente; si null, crea nueva.
-var EDPLT_EDIT = { tipo: null, items: [], saving: false };
-function edPltOpenEditor(tipo) {
-  var role = _effectiveRole();
-  if (role !== 'manager' && role !== 'head') {
-    toast('Solo managers o Global pueden editar plantillas.', 'error');
-    return;
-  }
-  var dict = _TEMPLATES_CACHE || {};
+var EDPLT_EDIT = { tipo: null, estado: null, items: [], saving: false };
+function edPltOpenEditor(tipo, estado) {
+  // Cualquiera puede abrir el editor. El estado final (aprobada/pendiente) lo
+  // decide el backend según el rol; acá solo pre-cargamos los ítems.
   EDPLT_EDIT.tipo = tipo || null;
-  EDPLT_EDIT.items = tipo && dict[tipo] ? dict[tipo].slice() : [];
+  EDPLT_EDIT.estado = estado || null;
+  var match = null;
+  if (tipo) {
+    match = (_BIBLIO_CACHE || []).filter(function(x){ return x.tipo === tipo && (!estado || x.estado === estado); })[0]
+         || (_BIBLIO_CACHE || []).filter(function(x){ return x.tipo === tipo; })[0];
+  }
+  EDPLT_EDIT.items = (match && match.checklist) ? match.checklist.slice() : [];
   EDPLT_EDIT.saving = false;
   _edPltMountEditor();
 }
@@ -9089,15 +9102,12 @@ function _edPltMountEditor() {
     host.id = 'edPltHost';
     document.body.appendChild(host);
   }
-  var existingTipos = Object.keys(_TEMPLATES_CACHE || {});
   var isNew = !EDPLT_EDIT.tipo;
-  // En modo "nueva" solo dejamos elegir tipos que NO tengan plantilla ya
-  // (una plantilla por tipo). En edición, el tipo está fijo (no se cambia).
-  var availableTipos = isNew
-    ? _CR_TIPOS.filter(function(t){ return existingTipos.indexOf(t) < 0; })
-    : [EDPLT_EDIT.tipo];
-  var noTiposLeft = isNew && availableTipos.length === 0;
+  // Cualquier tipo es elegible; el backend hace upsert por (tipo, estado).
+  var availableTipos = isNew ? (_CR_TIPOS || []).slice() : [EDPLT_EDIT.tipo];
+  var noTiposLeft = false;
   var itemsText = (EDPLT_EDIT.items || []).join('\n');
+  var willBePending = (typeof _effectiveRole === 'function') && _effectiveRole() === 'specialist';
 
   var html = '<div class="cr-overlay" onclick="if(event.target===this)edPltCloseEditor()">'
            +   '<div class="cr-backdrop" onclick="edPltCloseEditor()"></div>'
@@ -9114,6 +9124,9 @@ function _edPltMountEditor() {
   if (noTiposLeft) {
     html += '<div class="pa-narrative">Ya tenés una plantilla para cada tipo de trabajo. Editá las existentes desde la lista, o eliminá alguna para crear otra con ese tipo.</div>';
   } else {
+    if (willBePending) {
+      html += '<div class="pa-narrative" style="border-left:3px solid var(--warn);padding-left:10px">Tu propuesta quedará <b>pendiente</b> hasta que un manager o Global la apruebe. Recién entonces se aplicará en el wizard de Crear.</div>';
+    }
     html += '<div class="cr-field">'
          +    '<div class="cr-label">Tipo de trabajo <span class="req">*</span></div>'
          +    (isNew
@@ -9167,9 +9180,10 @@ function edPltSave() {
       EDPLT_EDIT.saving = false;
       if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
       if (res && res.success) {
-        _TEMPLATES_CACHE = _TEMPLATES_CACHE || {};
-        _TEMPLATES_CACHE[res.tipo] = res.checklist || [];
-        toast('Plantilla guardada', 'success');
+        // Invalidar ambas caches: wizard (aprobadas) + biblioteca (rica).
+        _TEMPLATES_CACHE = null;
+        _BIBLIO_CACHE = null;
+        toast(res.estado === 'pendiente' ? 'Propuesta enviada · pendiente de aprobación' : 'Plantilla guardada', 'success');
         edPltCloseEditor();
         rEdPlantillas(D);
       } else {
@@ -9183,12 +9197,32 @@ function edPltSave() {
     })
     .saveTemplate(tipo, items);
 }
-function edPltDelete(tipo) {
-  confirm_('¿Eliminar la plantilla de "' + tipo + '"? Las tareas ya creadas no se modifican.', function() {
+// Aprobar una propuesta pendiente (manager/Global). Reemplaza la aprobada vigente.
+function edPltApprove(tipo) {
+  confirm_('¿Aprobar la plantilla de "' + tipo + '"? Reemplazará a la aprobada vigente para ese tipo y se aplicará en el wizard de Crear.', function() {
     google.script.run
       .withSuccessHandler(function(res) {
         if (res && res.success) {
-          if (_TEMPLATES_CACHE) delete _TEMPLATES_CACHE[tipo];
+          _TEMPLATES_CACHE = null; _BIBLIO_CACHE = null;
+          toast('Plantilla aprobada', 'success');
+          rEdPlantillas(D);
+        } else {
+          toast((res && res.error) || 'No se pudo aprobar.', 'error');
+        }
+      })
+      .withFailureHandler(function(e) {
+        toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+      })
+      .approveTemplate(tipo);
+  }, { confirmLabel: 'Aprobar' });
+}
+function edPltDelete(tipo, estado) {
+  var lbl = estado === 'pendiente' ? 'la propuesta pendiente' : 'la plantilla aprobada';
+  confirm_('¿Eliminar ' + lbl + ' de "' + tipo + '"? Las tareas ya creadas no se modifican.', function() {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res && res.success) {
+          _TEMPLATES_CACHE = null; _BIBLIO_CACHE = null;
           toast('Plantilla eliminada', 'success');
           rEdPlantillas(D);
         } else {
@@ -9198,7 +9232,7 @@ function edPltDelete(tipo) {
       .withFailureHandler(function(e) {
         toast('Error: ' + (e && e.message || 'desconocido'), 'error');
       })
-      .deleteTemplate(tipo);
+      .deleteTemplate(tipo, estado);
   }, { danger: true, confirmLabel: 'Eliminar' });
 }
 

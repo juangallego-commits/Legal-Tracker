@@ -1953,17 +1953,22 @@ function readConfig(ss){var ws=ss.getSheetByName(SHEET_CONFIG);if(!ws)return {};
 // readTemplates(ss) → { tipoTrabajo: ['item1', ...] }. Si la hoja no existe o
 // está vacía retorna {} (no error). Filas con JSON inválido se loggean y se
 // saltan. Backwards-compat: si la hoja no existe, la app sigue funcionando.
+// Hoja Templates: cols tipoTrabajo | checklist(JSON) | estado | autor.
+// estado: 'aprobada' | 'pendiente'. Vacío (filas legacy) = aprobada.
+// Wizard dict: SOLO aprobadas (las pendientes no pre-llenan Crear).
 function readTemplates(ss) {
   var ws = ss.getSheetByName(SHEET_TEMPLATES);
   if (!ws) return {};
   var lr = ws.getLastRow();
   if (lr < 2) return {};
-  var data = ws.getRange(2, 1, lr - 1, 2).getValues();
+  var data = ws.getRange(2, 1, lr - 1, 4).getValues();
   var out = {};
   data.forEach(function(r) {
     var tipo = (r[0] || '').toString().trim();
     var raw  = (r[1] || '').toString().trim();
+    var estado = (r[2] || '').toString().trim().toLowerCase();
     if (!tipo || !raw) return;
+    if (estado === 'pendiente') return; // pendientes no van al wizard
     try {
       var arr = JSON.parse(raw);
       if (Array.isArray(arr)) {
@@ -1976,6 +1981,57 @@ function readTemplates(ss) {
     }
   });
   return out;
+}
+
+// Asegura la hoja Templates con headers de 4 columnas.
+function _ensureTemplatesSheet(ss) {
+  var ws = ss.getSheetByName(SHEET_TEMPLATES);
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_TEMPLATES);
+    ws.getRange(1, 1, 1, 4).setValues([['tipoTrabajo', 'checklist', 'estado', 'autor']]);
+    ws.getRange(1, 1, 1, 4).setFontWeight('bold');
+    ws.setFrozenRows(1);
+  }
+  return ws;
+}
+
+// Busca la fila de una plantilla por (tipo, estado). Vacío en sheet = aprobada.
+function _tplFindRow(ws, tipo, estado) {
+  var lr = ws.getLastRow();
+  if (lr < 2) return -1;
+  var data = ws.getRange(2, 1, lr - 1, 3).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if ((data[i][0] || '').toString().trim() !== tipo) continue;
+    var e = (data[i][2] || '').toString().trim().toLowerCase();
+    if (e !== 'pendiente') e = 'aprobada';
+    if (e === estado) return i + 2;
+  }
+  return -1;
+}
+
+// Lista completa para la vista Biblioteca: incluye estado + autor de cada
+// plantilla (aprobadas y pendientes). No se cachea (necesita estado fresco).
+function getBibliotecaTemplates() {
+  return _telemetry('getBibliotecaTemplates', function() {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ws = ss.getSheetByName(SHEET_TEMPLATES);
+    if (!ws) return { items: [] };
+    var lr = ws.getLastRow();
+    if (lr < 2) return { items: [] };
+    var data = ws.getRange(2, 1, lr - 1, 4).getValues();
+    var items = [];
+    data.forEach(function(r) {
+      var tipo = (r[0] || '').toString().trim();
+      var raw  = (r[1] || '').toString().trim();
+      if (!tipo || !raw) return;
+      var estado = (r[2] || '').toString().trim().toLowerCase();
+      if (estado !== 'pendiente') estado = 'aprobada';
+      var arr = [];
+      try { var p = JSON.parse(raw); if (Array.isArray(p)) arr = p.map(function(s){ return String(s); }).filter(Boolean); } catch (e) {}
+      items.push({ tipo: tipo, checklist: arr, estado: estado, autor: (r[3] || '').toString().trim() });
+    });
+    return { items: items };
+  });
 }
 
 // Entry-point expuesto al frontend vía google.script.run. Cachea 1h bajo
@@ -1995,12 +2051,11 @@ function _getTemplatesImpl() {
   return dict;
 }
 
-// ── Save / Delete templates desde la UI ─────────────────────────
-// Permiten editar la hoja Templates sin tocar el spreadsheet manualmente.
-// Solo manager/head pueden mutar plantillas (specialist es read-only).
-// saveTemplate hace upsert por tipoTrabajo: si existe, reemplaza; si no, append.
-// Invalidan la cache templates_v1 inmediatamente para que el próximo
-// getTemplates() (incluido el del wizard de Crear) refleje el cambio.
+// ── Crear / aprobar / eliminar plantillas desde la UI ───────────
+// Cualquiera puede crear: specialist → 'pendiente' (requiere aprobación de
+// manager/Global); manager/head → 'aprobada' directo. Upsert por (tipo,estado):
+// a lo sumo una aprobada + una pendiente por tipo. Invalidan templates_v1 para
+// que el wizard de Crear refleje el cambio.
 function saveTemplate(tipoTrabajo, checklistArray) {
   return _telemetry('saveTemplate', function() {
     return _safeMutation(function() { return _saveTemplateImpl(tipoTrabajo, checklistArray); });
@@ -2008,9 +2063,6 @@ function saveTemplate(tipoTrabajo, checklistArray) {
 }
 function _saveTemplateImpl(tipoTrabajo, checklistArray) {
   var ctx = _getAuthContext();
-  if (ctx.role !== 'manager' && ctx.role !== 'head') {
-    return { success: false, error: 'Solo managers o Global pueden editar plantillas.' };
-  }
   var tipo = (tipoTrabajo || '').toString().trim();
   if (!tipo) return { success: false, error: 'Elegí un tipo de trabajo.' };
   if (!Array.isArray(checklistArray)) return { success: false, error: 'checklist debe ser un array.' };
@@ -2020,67 +2072,88 @@ function _saveTemplateImpl(tipoTrabajo, checklistArray) {
     .filter(Boolean)
     .slice(0, 50);
   if (!clean.length) return { success: false, error: 'Agregá al menos un ítem al checklist.' };
-  var ss = ctx.ss;
-  var ws = ss.getSheetByName(SHEET_TEMPLATES);
-  if (!ws) {
-    ws = ss.insertSheet(SHEET_TEMPLATES);
-    ws.getRange(1, 1, 1, 2).setValues([['tipoTrabajo', 'checklist']]);
-    ws.getRange(1, 1, 1, 2).setFontWeight('bold');
-    ws.setFrozenRows(1);
-  }
+  var estado = (ctx.role === 'manager' || ctx.role === 'head') ? 'aprobada' : 'pendiente';
+  var autor = (ctx.user && ctx.user.name) || ctx.email || '';
+  var ws = _ensureTemplatesSheet(ctx.ss);
   var lock = LockService.getScriptLock();
-  try { lock.waitLock(8000); } catch (e) { throw new Error('Server busy, retry in a moment.'); }
+  try { lock.waitLock(8000); } catch (e) { throw new Error('Servidor ocupado, reintentá en un momento.'); }
   try {
-    var lr = ws.getLastRow();
-    var rowIdx = -1;
-    if (lr >= 2) {
-      var data = ws.getRange(2, 1, lr - 1, 1).getValues();
-      for (var i = 0; i < data.length; i++) {
-        if ((data[i][0] || '').toString().trim() === tipo) { rowIdx = i + 2; break; }
-      }
-    }
-    var payload = _sanitizeRow([tipo, JSON.stringify(clean)]);
-    if (rowIdx > 0) {
-      ws.getRange(rowIdx, 1, 1, 2).setValues([payload]);
-    } else {
-      ws.appendRow(payload);
-    }
+    var rowIdx = _tplFindRow(ws, tipo, estado);
+    var payload = _sanitizeRow([tipo, JSON.stringify(clean), estado, autor]);
+    if (rowIdx > 0) ws.getRange(rowIdx, 1, 1, 4).setValues([payload]);
+    else ws.appendRow(payload);
     try { CacheService.getScriptCache().remove('templates_v1'); } catch (e) {}
-    return { success: true, tipo: tipo, checklist: clean };
+    return { success: true, tipo: tipo, estado: estado, checklist: clean };
   } finally {
     lock.releaseLock();
   }
 }
 
-function deleteTemplate(tipoTrabajo) {
-  return _telemetry('deleteTemplate', function() {
-    return _safeMutation(function() { return _deleteTemplateImpl(tipoTrabajo); });
+// Aprueba la propuesta pendiente de un tipo: borra la aprobada vigente (si la
+// hay) y promueve la pendiente a aprobada. Solo manager/head.
+function approveTemplate(tipoTrabajo) {
+  return _telemetry('approveTemplate', function() {
+    return _safeMutation(function() { return _approveTemplateImpl(tipoTrabajo); });
   }, { tipo: tipoTrabajo });
 }
-function _deleteTemplateImpl(tipoTrabajo) {
+function _approveTemplateImpl(tipoTrabajo) {
   var ctx = _getAuthContext();
   if (ctx.role !== 'manager' && ctx.role !== 'head') {
-    return { success: false, error: 'Solo managers o Global pueden eliminar plantillas.' };
+    return { success: false, error: 'Solo managers o Global pueden aprobar plantillas.' };
   }
   var tipo = (tipoTrabajo || '').toString().trim();
   if (!tipo) return { success: false, error: 'Tipo requerido.' };
-  var ss = ctx.ss;
-  var ws = ss.getSheetByName(SHEET_TEMPLATES);
+  var ws = ctx.ss.getSheetByName(SHEET_TEMPLATES);
   if (!ws) return { success: false, error: 'No hay plantillas todavía.' };
   var lock = LockService.getScriptLock();
-  try { lock.waitLock(8000); } catch (e) { throw new Error('Server busy, retry in a moment.'); }
+  try { lock.waitLock(8000); } catch (e) { throw new Error('Servidor ocupado, reintentá en un momento.'); }
   try {
-    var lr = ws.getLastRow();
-    if (lr < 2) return { success: false, error: 'No hay plantillas.' };
-    var data = ws.getRange(2, 1, lr - 1, 1).getValues();
-    var rowIdx = -1;
-    for (var i = 0; i < data.length; i++) {
-      if ((data[i][0] || '').toString().trim() === tipo) { rowIdx = i + 2; break; }
+    var pendIdx = _tplFindRow(ws, tipo, 'pendiente');
+    if (pendIdx < 0) return { success: false, error: 'No hay propuesta pendiente para este tipo.' };
+    var apprIdx = _tplFindRow(ws, tipo, 'aprobada');
+    if (apprIdx > 0) {
+      ws.deleteRow(apprIdx);
+      if (apprIdx < pendIdx) pendIdx--; // la fila pendiente se corrió hacia arriba
     }
-    if (rowIdx < 0) return { success: false, error: 'Plantilla no encontrada.' };
-    ws.deleteRow(rowIdx);
+    ws.getRange(pendIdx, 3).setValue('aprobada');
     try { CacheService.getScriptCache().remove('templates_v1'); } catch (e) {}
     return { success: true, tipo: tipo };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Elimina una plantilla por (tipo, estado). manager/head: cualquiera.
+// specialist: solo sus propias propuestas pendientes.
+function deleteTemplate(tipoTrabajo, estado) {
+  return _telemetry('deleteTemplate', function() {
+    return _safeMutation(function() { return _deleteTemplateImpl(tipoTrabajo, estado); });
+  }, { tipo: tipoTrabajo });
+}
+function _deleteTemplateImpl(tipoTrabajo, estado) {
+  var ctx = _getAuthContext();
+  var tipo = (tipoTrabajo || '').toString().trim();
+  if (!tipo) return { success: false, error: 'Tipo requerido.' };
+  var est = (estado || 'aprobada').toString().trim().toLowerCase();
+  if (est !== 'pendiente') est = 'aprobada';
+  var isManager = (ctx.role === 'manager' || ctx.role === 'head');
+  var ws = ctx.ss.getSheetByName(SHEET_TEMPLATES);
+  if (!ws) return { success: false, error: 'No hay plantillas todavía.' };
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); } catch (e) { throw new Error('Servidor ocupado, reintentá en un momento.'); }
+  try {
+    var rowIdx = _tplFindRow(ws, tipo, est);
+    if (rowIdx < 0) return { success: false, error: 'Plantilla no encontrada.' };
+    if (!isManager) {
+      if (est !== 'pendiente') return { success: false, error: 'Solo managers o Global pueden eliminar plantillas aprobadas.' };
+      var autorCell = (ws.getRange(rowIdx, 4).getValue() || '').toString().trim();
+      if (_normalizeName(autorCell) !== _normalizeName((ctx.user && ctx.user.name) || '')) {
+        return { success: false, error: 'Solo podés eliminar tus propias propuestas.' };
+      }
+    }
+    ws.deleteRow(rowIdx);
+    try { CacheService.getScriptCache().remove('templates_v1'); } catch (e) {}
+    return { success: true, tipo: tipo, estado: est };
   } finally {
     lock.releaseLock();
   }
