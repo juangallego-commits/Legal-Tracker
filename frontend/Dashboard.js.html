@@ -2082,6 +2082,7 @@ var ED_NAV_BY_ROLE = {
     { section: 'LATAM', items: [
       { id: 'home',     label: 'Operaciones', icon: 'home',     view: 'home' },
       { id: 'tracker',  label: 'Tracker',     icon: 'inbox',    view: 'tracker' },
+      { id: 'paises',   label: 'Por país',    icon: 'globe',    view: 'paises' },
       { id: 'calendar', label: 'Calendario',  icon: 'calendar', view: 'calendar' }
     ]},
     { section: 'Personas', items: [
@@ -2427,7 +2428,22 @@ var _ED_CRUMBS_BY_VIEW = {
   historial:  ['Análisis', 'Historial']
 };
 function _edCrumbs(viewId) {
-  var c = _ED_CRUMBS_BY_VIEW[viewId] || ['Inicio'];
+  // Derivar grupo + label del nav REAL del rol, para que el breadcrumb coincida
+  // siempre con la sección del sidebar (antes era un mapa estático que se
+  // contradecía con el menú: p.ej. Tracker decía "Donde trabajo" pero para el
+  // specialist vive en "Mi día").
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var navRole = role === 'head' ? 'head' : (role === 'manager' ? 'manager' : 'specialist');
+  var nav = (typeof ED_NAV_BY_ROLE !== 'undefined' && ED_NAV_BY_ROLE[navRole]) || [];
+  var grp = null, lbl = null;
+  for (var gi = 0; gi < nav.length && !lbl; gi++) {
+    for (var ii = 0; ii < nav[gi].items.length; ii++) {
+      if (nav[gi].items[ii].id === viewId) { grp = nav[gi].section; lbl = nav[gi].items[ii].label; break; }
+    }
+  }
+  var c;
+  if (lbl) c = [grp, lbl];
+  else c = _ED_CRUMBS_BY_VIEW[viewId] || ['Inicio']; // fallback para vistas sin item de nav
   return c.map(function(seg, i){
     var isLast = i === c.length - 1;
     var sep = i > 0 ? '<span class="sep">/</span>' : '';
@@ -5875,7 +5891,7 @@ function rEdTracker(D) {
        +    chip('blocked', t('On hold'),         cBlocked, null,       EDT.filter === 'blocked')
        +    chip('alta',    t('Prioridad alta'),  cAlta,    null,       EDT.filter === 'alta')
        +    '<div class="pa-chip-divider"></div>'
-       +    chip('mine',    t('Asignadas a mí'),  cMine,    null,       EDT.filter === 'mine')
+       +    (role !== 'specialist' ? chip('mine', t('Asignadas a mí'), cMine, null, EDT.filter === 'mine') : '')
        +    chip('closed',  t('Cerradas'),        cClosed,  null,       EDT.filter === 'closed')
        +    '<div style="margin-left:auto;display:flex;gap:6px;align-items:center">'
        +      '<div class="pa-search" style="width:220px">'

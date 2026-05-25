@@ -295,8 +295,8 @@ function _getEditorialDataImpl() {
       var activeTasks = memberTasks.filter(function(t){ return t.status !== 'Listo' && t.status !== 'Cancelado'; });
       member.load     = activeTasks.length;
       member.capacity = capMap.byName[_normalizeName(member.name)] || capMap.def;
-      member.overdue  = memberTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
-      member.blocked  = memberTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
+      member.overdue  = activeTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
+      member.blocked  = activeTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
 
       var memberHist = histByResp[member.name] || [];
 
