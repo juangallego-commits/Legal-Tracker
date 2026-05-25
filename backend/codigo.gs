@@ -219,6 +219,28 @@ function getTrackerData() {
 function getEditorialData() {
   return _telemetry('getEditorialData', _getEditorialDataImpl);
 }
+
+// Capacidad de tareas por persona, usada para las load bars y el ranking de
+// "quién necesita atención". Se lee de la hoja Config (key→value):
+//   - "Capacidad default"      → número base para todo el equipo (fallback 5).
+//   - "Capacidad: <Nombre>"    → override individual (insensible a acentos/caso).
+// Si Config no existe o un valor es inválido (no numérico o <= 0), cae al default.
+function _resolveCapacityMap(config) {
+  var DEFAULT = 5;
+  var out = { def: DEFAULT, byName: {} };
+  if (!config) return out;
+  var parsedDefault = parseInt(config['Capacidad default'], 10);
+  if (!isNaN(parsedDefault) && parsedDefault > 0) out.def = parsedDefault;
+  Object.keys(config).forEach(function(k) {
+    var m = /^Capacidad:\s*(.+)$/.exec(k);
+    if (!m) return;
+    var n = parseInt(config[k], 10);
+    if (isNaN(n) || n <= 0) return;
+    out.byName[_normalizeName(m[1])] = n;
+  });
+  return out;
+}
+
 function _getEditorialDataImpl() {
   var data = getTrackerData();
   var today = Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy-MM-dd');
@@ -265,12 +287,13 @@ function _getEditorialDataImpl() {
 
     var nowMsMember = new Date().getTime();
     var THIRTY_DAYS_MS_M = 30 * 24 * 60 * 60 * 1000;
+    var capMap = _resolveCapacityMap(data.config);
 
     data.team.forEach(function(member) {
       var memberTasks = tasksByResp[member.name] || [];
       var activeTasks = memberTasks.filter(function(t){ return t.status !== 'Listo' && t.status !== 'Cancelado'; });
       member.load     = activeTasks.length;
-      member.capacity = 5; // TODO Fase 2: leer de hoja Config
+      member.capacity = capMap.byName[_normalizeName(member.name)] || capMap.def;
       member.overdue  = memberTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
       member.blocked  = memberTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
 
