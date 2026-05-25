@@ -2264,6 +2264,70 @@ function deleteBibliotecaDoc(id) {
     });
   }, {});
 }
+
+// ════════════════════════════════════════════════════════════════
+// GOOGLE CALENDAR (read-only) · ver eventos + crear tareas desde ellos
+// ════════════════════════════════════════════════════════════════
+// Calendario del equipo: Config!CalendarId (ID del calendario compartido).
+// Fallback al calendario primario del usuario si no está configurado.
+function _resolveTeamCalendar() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var config = readConfig(ss);
+  var calId = (config['CalendarId'] || config['calendarId'] || '').toString().trim();
+  if (calId) {
+    try { var c = CalendarApp.getCalendarById(calId); if (c) return c; } catch (e) {}
+  }
+  try { return CalendarApp.getDefaultCalendar(); } catch (e) { return null; }
+}
+
+// Próximos eventos (~14 días) del calendario del equipo. Read-only.
+function getUpcomingCalendarEvents() {
+  return _telemetry('getUpcomingCalendarEvents', function() {
+    var cal = _resolveTeamCalendar();
+    if (!cal) return { items: [], error: 'No hay calendario disponible. Configurá Config!CalendarId.' };
+    var now = new Date();
+    var until = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    var tz = 'America/Bogota';
+    var events;
+    try { events = cal.getEvents(now, until); } catch (e) { return { items: [], error: 'No pude leer el calendario (¿permisos?).' }; }
+    var items = events.map(function(ev) {
+      var start = ev.getStartTime();
+      var allDay = ev.isAllDayEvent();
+      return {
+        id: ev.getId(),
+        title: ev.getTitle() || '(sin título)',
+        startIso: start ? Utilities.formatDate(start, tz, 'yyyy-MM-dd') : '',
+        startLabel: start ? Utilities.formatDate(start, tz, allDay ? 'EEE d MMM' : 'EEE d MMM · HH:mm') : '',
+        allDay: allDay,
+        desc: (ev.getDescription() || '').toString().slice(0, 500),
+        location: (ev.getLocation() || '').toString().slice(0, 120)
+      };
+    });
+    return { items: items };
+  });
+}
+
+// Crea una tarea del Tracker a partir de un evento: título → nombre, fecha →
+// plazo, descripción → notas, asignada al usuario actual. Reusa addTask.
+function createTaskFromCalendarEvent(eventId) {
+  return _telemetry('createTaskFromCalendarEvent', function() {
+    var cal = _resolveTeamCalendar();
+    if (!cal) return { success: false, error: 'No hay calendario disponible.' };
+    var ev = null;
+    try { ev = cal.getEventById(eventId); } catch (e) {}
+    if (!ev) return { success: false, error: 'Evento no encontrado.' };
+    var ctx = _getAuthContext();
+    var start = ev.getStartTime();
+    var taskObj = {
+      nombre: (ev.getTitle() || 'Tarea de evento').toString().slice(0, 80),
+      resp: (ctx.user && ctx.user.name) || '',
+      deadline: start ? Utilities.formatDate(start, 'America/Bogota', 'yyyy-MM-dd') : '',
+      notas: (ev.getDescription() || '').toString().slice(0, 500),
+      priority: 'Media'
+    };
+    return _safeMutation(function() { return _addTaskImpl(taskObj); });
+  }, { eventId: eventId });
+}
 // O(1) en lugar del while-day-by-day. Para historial extenso (años),
 // el loop original disparaba miles de iteraciones por entry × cientos
 // de entries → segundos de CPU. Algoritmo: total días entre fechas,
