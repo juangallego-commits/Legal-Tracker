@@ -6419,6 +6419,7 @@ function edPanelLoadActivity(taskId) {
           case 'create':         iconName = 'plus';    dot = 'info'; label = LANG === 'pt' ? 'criou a tarefa' : 'creó la tarea'; break;
           case 'comment':        iconName = 'msg';     dot = 'info'; label = LANG === 'pt' ? 'comentou' : 'comentó'; break;
           case 'close':          iconName = 'check';   dot = 'good'; label = LANG === 'pt' ? 'fechou' : 'cerró'; break;
+          case 'reopen':         iconName = 'refresh'; dot = 'info'; label = LANG === 'pt' ? 'reabriu' : 'reabrió'; break;
           case 'block':          iconName = 'block';   dot = 'warn'; label = LANG === 'pt' ? 'pôs em on hold' : 'puso en on hold'; break;
           case 'reassign':       iconName = 'users';   dot = 'info'; label = (LANG === 'pt' ? 'reatribuiu a ' : 'reasignó a ') + esc(it.new_value || '—'); break;
           case 'status_change':  iconName = 'arrowR';  dot = 'info'; label = (LANG === 'pt' ? 'mudou status para ' : 'cambió estado a ') + '<b>' + esc(_statusLabel(it.new_value) || it.new_value) + '</b>'; break;
@@ -6494,6 +6495,7 @@ function edNotifOpen() {
       switch (it.action) {
         case 'comment':       actLabel = LANG === 'pt' ? 'comentou em' : 'comentó en'; break;
         case 'close':         actLabel = LANG === 'pt' ? 'fechou' : 'cerró'; break;
+        case 'reopen':        actLabel = LANG === 'pt' ? 'reabriu' : 'reabrió'; break;
         case 'block':         actLabel = LANG === 'pt' ? 'pôs em on hold' : 'puso en on hold'; break;
         case 'reassign':      actLabel = (LANG === 'pt' ? 'reatribuiu a você' : 'te asignó'); break;
         case 'status_change': actLabel = (LANG === 'pt' ? 'mudou status de' : 'cambió estado de'); break;
@@ -7173,15 +7175,18 @@ function _renderTkPanel(sel) {
        + '</div>';
   html += '</aside>';
 
-  // Bottom action bar — readonly cuando la tarea ya está cerrada (Listo).
-  // Tareas cerradas viven en el historial; solo pueden verse, no modificarse
-  // desde el panel. Para reabrir el user usa "Más" → editar manual.
+  // Bottom action bar — la tarea cerrada (Listo) vive en el historial y es
+  // de solo lectura, pero el dueño / manager / head puede reabrirla
+  // (vuelve a Tracking Activo como "En curso") con el botón Reabrir.
   if (sel.status === 'Listo') {
     html += '<div class="tk-panel-actions">'
          +    '<span style="font-size:12px;color:var(--fg-3);display:flex;align-items:center;gap:6px">'
          +      paIcon('check', 12) + esc(t('Tarea cerrada')) + (sel.cerrado ? ' · ' + esc(sel.cerrado) : '')
          +    '</span>'
-         +    '<div style="margin-left:auto">'
+         +    '<div style="margin-left:auto;display:flex;gap:8px">'
+         +      (canReassign || (sel.resp || '').trim().toLowerCase() === ((USER && USER.name) || '').trim().toLowerCase()
+                  ? '<button class="pa-btn pa-btn-outline" onclick="edReabrir(\'' + esc(sel.id) + '\')">' + paIcon('refresh', 12) + ' ' + esc(t('Reabrir')) + '</button>'
+                  : '')
          +      '<button class="pa-btn pa-btn-outline" onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')">' + paIcon('more', 12) + ' ' + esc(t('Edición avanzada')) + '</button>'
          +    '</div>'
          + '</div>';
@@ -7627,6 +7632,31 @@ function edUDesbloquear(taskId) {
       toast('Error: ' + (e && e.message || 'desconocido'), 'error');
     })
     .updateTaskField(taskId, 'status', 'En curso');
+}
+
+// Reabre una tarea cerrada: la vuelve a Tracking Activo en estado "En curso".
+// Confirma primero porque mueve la fila de Historial → Activo.
+function edReabrir(taskId) {
+  if (!taskId) return;
+  confirm_(t('¿Reabrir esta tarea? Volverá a tus tareas activas como "En curso".'), function() {
+    if (typeof showLoader === 'function') showLoader();
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (typeof hideLoader === 'function') hideLoader();
+        if (res && res.success) {
+          toast(t('Tarea reabierta'), 'success');
+          if (typeof edClosePanel === 'function') edClosePanel();
+          if (typeof reload === 'function') reload();
+        } else {
+          toast((res && (res.error || res.message)) || t('No se pudo reabrir.'), 'error');
+        }
+      })
+      .withFailureHandler(function(e) {
+        if (typeof hideLoader === 'function') hideLoader();
+        toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+      })
+      .reopenTaskById(taskId);
+  }, { confirmLabel: t('Reabrir') });
 }
 
 function edUClose() {
