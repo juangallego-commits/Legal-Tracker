@@ -9786,33 +9786,33 @@ function rEdCalendar(D) {
   var err = _CALEV_CACHE.error;
   var html = '<div class="pa-page">';
   html += '<div class="pa-page-h">'
-       +    '<span class="pa-page-title">Calendario</span>'
-       +    '<span class="pa-page-sub">próximos 14 días</span>'
-       +    '<div class="pa-page-meta"><button class="pa-btn pa-btn-outline" onclick="_CALEV_CACHE=null;rEdCalendar(D)">' + paIcon('refresh', 12) + ' Actualizar</button></div>'
+       +    '<span class="pa-page-title">' + esc(t('Calendario')) + '</span>'
+       +    '<span class="pa-page-sub">' + esc(t('próximos 14 días')) + '</span>'
+       +    '<div class="pa-page-meta"><button class="pa-btn pa-btn-outline" onclick="_CALEV_CACHE=null;rEdCalendar(D)">' + paIcon('refresh', 12) + ' ' + esc(t('Actualizar')) + '</button></div>'
        + '</div>';
-  html += '<div class="pa-narrative">Eventos de tu Google Calendar del equipo, acá mismo. Creá una tarea desde cualquier evento con un click — sin saltar a Calendar.</div>';
+  html += '<div class="pa-narrative">' + esc(t('Eventos de tu Google Calendar del equipo, acá mismo. Creá una tarea desde cualquier evento con un click — sin saltar a Calendar.')) + '</div>';
 
   if (err) {
-    html += paEmpty('calendar', 'No pude leer el calendario.', esc(err) + ' Configurá Config!CalendarId o revisá los permisos de Calendar.');
+    html += paEmpty('calendar', t('No pude leer el calendario.'), esc(err) + ' ' + esc(t('Configurá Config!CalendarId o revisá los permisos de Calendar.')));
     html += '</div>'; v.innerHTML = html; return;
   }
   if (!events.length) {
-    html += paEmpty('calendar', 'Sin eventos en los próximos 14 días.', 'Cuando haya eventos vas a poder crear tareas desde acá.');
+    html += paEmpty('calendar', t('Sin eventos en los próximos 14 días.'), t('Cuando haya eventos vas a poder crear tareas desde acá.'));
     html += '</div>'; v.innerHTML = html; return;
   }
 
   html += '<div class="pa-tbl" style="margin-top:14px">'
-       +    '<div class="pa-tbl-h" style="grid-template-columns: 190px 1fr 130px"><div>Cuándo</div><div>Evento</div><div></div></div>';
+       +    '<div class="pa-tbl-h" style="grid-template-columns: 190px 1fr 130px"><div>' + esc(t('Cuándo')) + '</div><div>' + esc(t('Evento')) + '</div><div></div></div>';
   events.forEach(function(ev) {
     html += '<div class="pa-tbl-r" style="grid-template-columns: 190px 1fr 130px;min-height:46px;height:auto;padding-top:8px;padding-bottom:8px">'
-         +    '<div style="font-size:12px;color:var(--fg-2)">' + esc(ev.startLabel || '—') + (ev.allDay ? ' <span style="color:var(--fg-4)">· todo el día</span>' : '') + '</div>'
+         +    '<div style="font-size:12px;color:var(--fg-2)">' + esc(ev.startLabel || '—') + (ev.allDay ? ' <span style="color:var(--fg-4)">· ' + esc(t('todo el día')) + '</span>' : '') + '</div>'
          +    '<div style="min-width:0">'
          +      '<div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(ev.title) + '">' + esc(ev.title) + '</div>'
          +      (ev.location ? '<div style="font-size:11px;color:var(--fg-3)">' + esc(ev.location) + '</div>' : '')
          +    '</div>'
          +    '<div style="display:flex;justify-content:flex-end;align-items:flex-start">' + (ev.created
-                ? '<span class="pa-pill pa-pill-good" style="height:26px">' + paIcon('check', 11) + ' Tarea creada</span>'
-                : '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="edCalCreateTask(\'' + esc(ev.id) + '\')">' + paIcon('plus', 11) + ' Crear tarea</button>') + '</div>'
+                ? '<span class="pa-pill pa-pill-good" style="height:26px">' + paIcon('check', 11) + ' ' + esc(t('Tarea creada')) + '</span>'
+                : '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="edCalCreateTask(\'' + esc(ev.id) + '\')">' + paIcon('plus', 11) + ' ' + esc(t('Crear tarea')) + '</button>') + '</div>'
          + '</div>';
   });
   html += '</div></div>';
@@ -9820,8 +9820,8 @@ function rEdCalendar(D) {
 }
 function edCalCreateTask(eventId) {
   var ev = (_CALEV_CACHE && _CALEV_CACHE.items || []).filter(function(x){ return x.id === eventId; })[0];
-  var nm = ev ? ev.title : 'este evento';
-  confirm_('¿Crear una tarea desde "' + nm + '"? Queda asignada a vos, con el plazo del evento. Podés editarla después.', function() {
+  var nm = ev ? ev.title : t('este evento');
+  confirm_(t('¿Crear una tarea desde') + ' "' + nm + '"? ' + t('Queda asignada a vos, con el plazo del evento. Podés editarla después.'), function() {
     if (typeof showLoader === 'function') showLoader();
     google.script.run
       .withSuccessHandler(function(res) {
@@ -9830,13 +9830,13 @@ function edCalCreateTask(eventId) {
           // Marcar el evento como ya convertido para evitar duplicados al
           // re-clickear (el botón pasa a estado "creada", deshabilitado).
           if (ev) ev.created = true;
-          toast('Tarea creada desde el evento', 'success');
+          toast(t('Tarea creada desde el evento'), 'success');
           if (typeof reload === 'function') reload(); // sincroniza D + re-render calendario
-        } else toast((res && (res.error || res.message)) || 'No se pudo crear la tarea.', 'error');
+        } else toast((res && (res.error || res.message)) || t('No se pudo crear la tarea.'), 'error');
       })
-      .withFailureHandler(function(e) { if (typeof hideLoader === 'function') hideLoader(); toast('Error: ' + (e && e.message || 'desconocido'), 'error'); })
+      .withFailureHandler(function(e) { if (typeof hideLoader === 'function') hideLoader(); toast(t('Error') + ': ' + (e && e.message || t('desconocido')), 'error'); })
       .createTaskFromCalendarEvent(eventId);
-  }, { confirmLabel: 'Crear tarea' });
+  }, { confirmLabel: t('Crear tarea') });
 }
 
 
