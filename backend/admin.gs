@@ -55,6 +55,31 @@ function _requireWipeConfirmation() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// CLEAR SAMPLE TEMPLATES · one-shot
+// ════════════════════════════════════════════════════════════════
+// Borra las 3 plantillas de ejemplo que el setupSheets viejo sembraba
+// (Revisión NDA / Revisión contractual / Derecho de petición) y que en
+// producción se ven como "data inventada". Gated por HEAD. Idempotente:
+// correrla de nuevo no hace nada si ya no están.
+// Cómo correr: editor de Apps Script → dropdown → clearSampleTemplates → Run.
+function clearSampleTemplates() {
+  var who = _requireAdminEmail();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var ws = ss.getSheetByName(SHEET_TEMPLATES);
+  if (!ws) { Logger.log('clearSampleTemplates: no existe la hoja Templates.'); return; }
+  var samples = ['Revisión NDA', 'Revisión contractual', 'Derecho de petición'];
+  var lr = ws.getLastRow();
+  if (lr < 2) { Logger.log('clearSampleTemplates: Templates vacía, nada que borrar.'); return; }
+  var data = ws.getRange(2, 1, lr - 1, 1).getValues();
+  var removed = 0;
+  for (var i = data.length - 1; i >= 0; i--) { // bottom-up para no desplazar índices
+    if (samples.indexOf((data[i][0] || '').toString().trim()) >= 0) { ws.deleteRow(i + 2); removed++; }
+  }
+  try { CacheService.getScriptCache().remove('templates_v1'); } catch (e) {}
+  Logger.log('clearSampleTemplates por ' + who + ': ' + removed + ' fila(s) de ejemplo borradas.');
+}
+
+// ════════════════════════════════════════════════════════════════
 // SETUP · ONE-SHOT SHEET INITIALIZATION
 // ════════════════════════════════════════════════════════════════
 // Crea/migra todas las hojas y columnas necesarias para activar
@@ -147,12 +172,14 @@ function setupSheets() {
   var tpl = ss.getSheetByName(SHEET_TEMPLATES);
   if (!tpl) {
     tpl = ss.insertSheet(SHEET_TEMPLATES);
-    tpl.getRange(1, 1, 1, 2).setValues([['tipoTrabajo', 'checklist']]);
-    tpl.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
+    tpl.getRange(1, 1, 1, 4).setValues([['tipoTrabajo', 'checklist', 'estado', 'autor']]);
+    tpl.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#FF4940').setFontColor('#FFFFFF');
     tpl.setFrozenRows(1);
     tpl.setColumnWidth(1, 200);
     tpl.setColumnWidth(2, 600);
-    log('✓ Hoja Templates creada (con headers)');
+    tpl.setColumnWidth(3, 90);
+    tpl.setColumnWidth(4, 160);
+    log('✓ Hoja Templates creada (con headers: tipoTrabajo|checklist|estado|autor)');
   } else {
     log('· Hoja Templates ya existía');
   }

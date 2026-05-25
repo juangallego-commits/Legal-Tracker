@@ -117,7 +117,8 @@ countBizDays(start, end, country)         // O(1) con feriados por país
 | `Activity` | Audit log de cambios | Auto-creada. Acciones: comment, status_change, close, reopen, block, reassign, create |
 | `Config` | Heads + parámetros globales | `Heads` (CSV de emails) define el rol HQ. `Capacidad default` (número) + `Capacidad: <Nombre>` (override por persona) alimentan las load bars |
 | `Feriados` | Días no laborables por país | Manual; afecta `countBizDays` y SLA |
-| `Templates` | Checklists por tipoTrabajo | Opcional; pre-llena Notas al crear tarea |
+| `Templates` | Checklists por tipoTrabajo | Cols: tipoTrabajo \| checklist \| estado(aprobada/pendiente) \| autor. Cualquiera propone; specialist→pendiente. Solo aprobadas pre-llenan Notas |
+| `BibliotecaDocs` | Documentos del equipo (enlaces + archivos Drive) | Auto-creada. Cols: id \| nombre \| tipo \| url \| categoria \| autor \| fecha. Cualquiera agrega |
 | (`Telemetry`) | Logs de mutations | Generada por `_telemetry()`; no user-facing |
 
 ---
