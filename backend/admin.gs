@@ -80,6 +80,26 @@ function clearSampleTemplates() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// INSTALL DIGEST TRIGGER · one-shot
+// ════════════════════════════════════════════════════════════════
+// El digest "no funcionaba" porque (a) faltaba declarar el scope de envío de
+// mail (ya agregado en appsscript.json) y (b) el trigger time-based hay que
+// crearlo a mano. Esto crea/reinstala el trigger diario a las 8am (hora del
+// proyecto, America/Bogota). Gated por HEAD. Idempotente: borra triggers
+// previos de sendDailyDigest para no duplicar.
+// IMPORTANTE: tras el deploy con el nuevo scope, hay que RE-AUTORIZAR la app
+// (correr cualquier función desde el editor dispara el prompt de permisos).
+function installDigestTrigger() {
+  var who = _requireAdminEmail();
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function(tg) {
+    if (tg.getHandlerFunction() === 'sendDailyDigest') { ScriptApp.deleteTrigger(tg); removed++; }
+  });
+  ScriptApp.newTrigger('sendDailyDigest').timeBased().everyDays(1).atHour(8).create();
+  Logger.log('installDigestTrigger por ' + who + ': ' + removed + ' trigger(s) viejo(s) borrado(s) · 1 nuevo (diario ~8am).');
+}
+
+// ════════════════════════════════════════════════════════════════
 // SETUP · ONE-SHOT SHEET INITIALIZATION
 // ════════════════════════════════════════════════════════════════
 // Crea/migra todas las hojas y columnas necesarias para activar

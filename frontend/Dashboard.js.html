@@ -2617,7 +2617,7 @@ function _edSearchEnsureMounted() {
     +     '<button type="button" class="ed-search-close" onclick="edSearchClose()" aria-label="Cerrar">×</button>'
     +   '</div>'
     +   '<div class="ed-search-results" id="edSearchResults"></div>'
-    +   '<div class="ed-search-hint">Esc para cerrar · Enter para abrir el primero</div>'
+    +   '<div class="ed-search-hint"><kbd>↓</kbd> <kbd>↑</kbd> navegar · <kbd>Enter</kbd> abrir · <kbd>Esc</kbd> cerrar</div>'
     + '</div>';
   document.body.appendChild(ov);
   var input = ov.querySelector('#edSearchInput');
@@ -2747,9 +2747,6 @@ function _edSearchRender() {
     host.innerHTML = ''
       + '<div class="ed-search-empty">'
       +   '<div style="font-size:13px;color:var(--fg-2)">Escribí para buscar tareas, proyectos o documentos…</div>'
-      +   '<div style="font-size:11px;color:var(--fg-3);margin-top:6px">'
-      +     '<kbd>↓</kbd> <kbd>↑</kbd> navegar · <kbd>Enter</kbd> abrir · <kbd>Esc</kbd> cerrar'
-      +   '</div>'
       + '</div>';
     return;
   }
