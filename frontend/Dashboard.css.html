@@ -2363,6 +2363,11 @@ table tr:hover td { background: var(--bg-2); }
   outline: none;
 }
 .ed-search-input::placeholder { color: var(--fg-4); }
+/* El input ocupa todo el head; el outline naranja global de :focus-visible se
+   veía como un rectángulo duro dentro del modal redondeado. Movemos el foco al
+   modal (borde accent) — sigue siendo visible para a11y, pero limpio. */
+.ed-search-input:focus-visible { outline: none; }
+.ed-search-modal:focus-within { border-color: var(--accent); }
 .ed-search-close {
   width: 44px; flex: 0 0 44px;
   background: transparent; border: 0; border-left: 1px solid var(--line-1);
@@ -2375,7 +2380,10 @@ table tr:hover td { background: var(--bg-2); }
 .ed-search-result:hover, .ed-search-result.active { background: var(--bg-2); }
 .ed-search-result-name { font-size: 13px; color: var(--fg-1); font-weight: 500; }
 .ed-search-result-meta { font-size: 11px; color: var(--fg-3); margin-top: 2px; }
-.ed-search-hint { padding: 8px 18px; font-size: 11px; color: var(--fg-3); border-top: 1px solid var(--line-1); }
+.ed-search-hint { padding: 8px 18px; font-size: 11px; color: var(--fg-3); border-top: 1px solid var(--line-1); display: flex; align-items: center; gap: 4px; }
+.ed-search-hint kbd { font-family: var(--font-mono); font-size: 10px; padding: 1px 5px; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 4px; color: var(--fg-2); }
+.ed-search-empty { padding: 28px 18px; text-align: center; }
+.ed-search-section { padding: 8px 18px 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-4); }
 
 /* Demo role dropdown (solo visible para usuarios con rol 'head') */
 .ed-demo-dropdown {

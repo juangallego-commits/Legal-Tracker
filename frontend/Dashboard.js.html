@@ -186,7 +186,7 @@ function setTheme(theme) {
   var active = document.querySelector('.view.active');
   if (!active || !active.id || typeof goEd !== 'function') return;
   var EDVIEW_MAP = {
-    vEdHome: 'home', vEdTracker: 'tracker',
+    vEdHome: 'home', vEdTracker: 'tracker', vEdCalendar: 'calendar',
     vEdProyectosIndex: 'proyectos',
     vEdAnalytics: 'analytics', vEdHistorial: 'historial',
     vEdMiequipo: 'miequipo', vEdResumen: 'paises', vEdPlantillas: 'plantillas'
@@ -1345,6 +1345,7 @@ function reload() {
       if (active && active.id && typeof goEd === 'function') {
         if (active.id === 'vEdHome') goEd('home');
         else if (active.id === 'vEdTracker') goEd('tracker');
+        else if (active.id === 'vEdCalendar') goEd('calendar');
         else if (active.id === 'vEdProyectosIndex') goEd('proyectos');
         else if (active.id === 'vEdAnalytics') goEd('analytics');
         else if (active.id === 'vEdHistorial') goEd('historial');
@@ -1878,8 +1879,9 @@ function _modKey() { return _isMac() ? '⌘' : 'Ctrl+'; }
 var ED_NAV_BY_ROLE = {
   specialist: [
     { section: 'Mi día', items: [
-      { id: 'home',      label: 'Inicio',   icon: 'home',  view: 'home' },
-      { id: 'tracker',   label: 'Tracker',  icon: 'inbox', view: 'tracker' }
+      { id: 'home',      label: 'Inicio',     icon: 'home',     view: 'home' },
+      { id: 'tracker',   label: 'Tracker',    icon: 'inbox',    view: 'tracker' },
+      { id: 'calendar',  label: 'Calendario', icon: 'calendar', view: 'calendar' }
     ]},
     { section: 'Donde trabajo', items: [
       { id: 'proyectos',  label: 'Proyectos',  icon: 'folder', view: 'proyectos' },
@@ -1892,9 +1894,10 @@ var ED_NAV_BY_ROLE = {
   ],
   manager: [
     { section: 'Tu equipo', items: [
-      { id: 'home',      label: 'Inicio',     icon: 'home',  view: 'home' },
-      { id: 'miequipo',  label: 'Mi equipo',  icon: 'users', view: 'miequipo' },
-      { id: 'tracker',   label: 'Tracker',    icon: 'inbox', view: 'tracker' }
+      { id: 'home',      label: 'Inicio',     icon: 'home',     view: 'home' },
+      { id: 'miequipo',  label: 'Mi equipo',  icon: 'users',    view: 'miequipo' },
+      { id: 'tracker',   label: 'Tracker',    icon: 'inbox',    view: 'tracker' },
+      { id: 'calendar',  label: 'Calendario', icon: 'calendar', view: 'calendar' }
     ]},
     { section: 'Operación', items: [
       { id: 'proyectos',  label: 'Proyectos',    icon: 'folder',   view: 'proyectos' },
@@ -1907,8 +1910,9 @@ var ED_NAV_BY_ROLE = {
   ],
   head: [
     { section: 'LATAM', items: [
-      { id: 'home',    label: 'Operaciones', icon: 'home',  view: 'home' },
-      { id: 'tracker', label: 'Tracker',     icon: 'inbox', view: 'tracker' }
+      { id: 'home',     label: 'Operaciones', icon: 'home',     view: 'home' },
+      { id: 'tracker',  label: 'Tracker',     icon: 'inbox',    view: 'tracker' },
+      { id: 'calendar', label: 'Calendario',  icon: 'calendar', view: 'calendar' }
     ]},
     { section: 'Personas', items: [
       { id: 'miequipo',   label: 'Equipo',     icon: 'users',  view: 'miequipo' },
@@ -2242,6 +2246,7 @@ function renderEdSidebar(role, activeViewId) {
 // Crumbs derivados del view activo (override desde mountEdShell o goEd).
 var _ED_CRUMBS_BY_VIEW = {
   home:       ['Mi día', 'Inicio'],
+  calendar:   ['Mi día', 'Calendario'],
   tracker:    ['Donde trabajo', 'Tracker'],
   proyectos:  ['Donde trabajo', 'Proyectos'],
   plantillas: ['Donde trabajo', 'Biblioteca'],
@@ -2617,7 +2622,7 @@ function _edSearchEnsureMounted() {
     +     '<button type="button" class="ed-search-close" onclick="edSearchClose()" aria-label="Cerrar">×</button>'
     +   '</div>'
     +   '<div class="ed-search-results" id="edSearchResults"></div>'
-    +   '<div class="ed-search-hint">Esc para cerrar · Enter para abrir el primero</div>'
+    +   '<div class="ed-search-hint"><kbd>↓</kbd> <kbd>↑</kbd> navegar · <kbd>Enter</kbd> abrir · <kbd>Esc</kbd> cerrar</div>'
     + '</div>';
   document.body.appendChild(ov);
   var input = ov.querySelector('#edSearchInput');
@@ -2747,9 +2752,6 @@ function _edSearchRender() {
     host.innerHTML = ''
       + '<div class="ed-search-empty">'
       +   '<div style="font-size:13px;color:var(--fg-2)">Escribí para buscar tareas, proyectos o documentos…</div>'
-      +   '<div style="font-size:11px;color:var(--fg-3);margin-top:6px">'
-      +     '<kbd>↓</kbd> <kbd>↑</kbd> navegar · <kbd>Enter</kbd> abrir · <kbd>Esc</kbd> cerrar'
-      +   '</div>'
       + '</div>';
     return;
   }
@@ -3083,6 +3085,11 @@ function goEd(viewId) {
   if (viewId === 'tracker') {
     var v2 = $('vEdTracker'); if (v2) v2.classList.add('active');
     if (typeof rEdTracker === 'function') rEdTracker(D);
+    return;
+  }
+  if (viewId === 'calendar') {
+    var vc = $('vEdCalendar'); if (vc) vc.classList.add('active');
+    if (typeof rEdCalendar === 'function') rEdCalendar(D);
     return;
   }
   // Editorial Proyectos · Index — disponible para los 3 roles (todos
@@ -9397,6 +9404,71 @@ function edBibDocLinkSave() {
       toast('Error: ' + (e && e.message || 'desconocido'), 'error');
     })
     .addBibliotecaDocLink(name, url, cat);
+}
+
+// ── Calendario (Google Calendar read-only) ──────────────────────
+var _CALEV_CACHE = null;
+function _loadCalEvents(cb) {
+  google.script.run
+    .withSuccessHandler(function(res) { _CALEV_CACHE = res || { items: [] }; cb(); })
+    .withFailureHandler(function(e) { _CALEV_CACHE = { items: [], error: (e && e.message) || 'No se pudo leer el calendario.' }; cb(); })
+    .getUpcomingCalendarEvents();
+}
+function rEdCalendar(D) {
+  var v = $('vEdCalendar'); if (!v) return;
+  if (_CALEV_CACHE == null) {
+    v.innerHTML = '<div class="pa-page"><div style="padding:32px;text-align:center;color:var(--fg-3)">Cargando calendario…</div></div>';
+    _loadCalEvents(function() { rEdCalendar(D); });
+    return;
+  }
+  var events = (_CALEV_CACHE.items) || [];
+  var err = _CALEV_CACHE.error;
+  var html = '<div class="pa-page">';
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">Calendario</span>'
+       +    '<span class="pa-page-sub">próximos 14 días</span>'
+       +    '<div class="pa-page-meta"><button class="pa-btn pa-btn-outline" onclick="_CALEV_CACHE=null;rEdCalendar(D)">' + paIcon('refresh', 12) + ' Actualizar</button></div>'
+       + '</div>';
+  html += '<div class="pa-narrative">Eventos de tu Google Calendar del equipo, acá mismo. Creá una tarea desde cualquier evento con un click — sin saltar a Calendar.</div>';
+
+  if (err) {
+    html += paEmpty('calendar', 'No pude leer el calendario.', esc(err) + ' Configurá Config!CalendarId o revisá los permisos de Calendar.');
+    html += '</div>'; v.innerHTML = html; return;
+  }
+  if (!events.length) {
+    html += paEmpty('calendar', 'Sin eventos en los próximos 14 días.', 'Cuando haya eventos vas a poder crear tareas desde acá.');
+    html += '</div>'; v.innerHTML = html; return;
+  }
+
+  html += '<div class="pa-tbl" style="margin-top:14px">'
+       +    '<div class="pa-tbl-h" style="grid-template-columns: 190px 1fr 130px"><div>Cuándo</div><div>Evento</div><div></div></div>';
+  events.forEach(function(ev) {
+    html += '<div class="pa-tbl-r" style="grid-template-columns: 190px 1fr 130px;min-height:46px;height:auto;padding-top:8px;padding-bottom:8px">'
+         +    '<div style="font-size:12px;color:var(--fg-2)">' + esc(ev.startLabel || '—') + (ev.allDay ? ' <span style="color:var(--fg-4)">· todo el día</span>' : '') + '</div>'
+         +    '<div style="min-width:0">'
+         +      '<div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(ev.title) + '">' + esc(ev.title) + '</div>'
+         +      (ev.location ? '<div style="font-size:11px;color:var(--fg-3)">' + esc(ev.location) + '</div>' : '')
+         +    '</div>'
+         +    '<div style="display:flex;justify-content:flex-end;align-items:flex-start"><button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="edCalCreateTask(\'' + esc(ev.id) + '\')">' + paIcon('plus', 11) + ' Crear tarea</button></div>'
+         + '</div>';
+  });
+  html += '</div></div>';
+  v.innerHTML = html;
+}
+function edCalCreateTask(eventId) {
+  var ev = (_CALEV_CACHE && _CALEV_CACHE.items || []).filter(function(x){ return x.id === eventId; })[0];
+  var nm = ev ? ev.title : 'este evento';
+  confirm_('¿Crear una tarea desde "' + nm + '"? Queda asignada a vos, con el plazo del evento. Podés editarla después.', function() {
+    if (typeof showLoader === 'function') showLoader();
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (typeof hideLoader === 'function') hideLoader();
+        if (res && res.success) { toast('Tarea creada desde el evento', 'success'); if (typeof reload === 'function') reload(); }
+        else toast((res && (res.error || res.message)) || 'No se pudo crear la tarea.', 'error');
+      })
+      .withFailureHandler(function(e) { if (typeof hideLoader === 'function') hideLoader(); toast('Error: ' + (e && e.message || 'desconocido'), 'error'); })
+      .createTaskFromCalendarEvent(eventId);
+  }, { confirmLabel: 'Crear tarea' });
 }
 
 
