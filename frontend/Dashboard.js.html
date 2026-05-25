@@ -2339,6 +2339,9 @@ function _badgeFor(itemId, role) {
   if (itemId === 'proyectos') return (D.projects || []).length || null;
   if (itemId === 'paises')    return (D.countries || []).length || null;
   if (itemId === 'historial') return (D.historial || []).length || null;
+  // Biblioteca: badge de propuestas pendientes de aprobar (solo para quienes
+  // aprueban — manager/head). Para specialist no es accionable.
+  if (itemId === 'plantillas') return (role !== 'specialist' && D.templatesPending) ? D.templatesPending : null;
   return null;
 }
 
