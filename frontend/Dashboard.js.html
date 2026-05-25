@@ -1869,13 +1869,11 @@ function _modKey() { return _isMac() ? '⌘' : 'Ctrl+'; }
 var ED_NAV_BY_ROLE = {
   specialist: [
     { section: 'Mi día', items: [
-      { id: 'home',      label: 'Inicio',         icon: 'home',     view: 'home' },
-      { id: 'agrupadas', label: 'Por urgencia',   icon: 'calendar', view: 'agrupadas' },
-      { id: 'mistareas', label: 'Mis tareas',     icon: 'list',     view: 'mistareas' }
+      { id: 'home',      label: 'Inicio',   icon: 'home',  view: 'home' },
+      { id: 'tracker',   label: 'Tracker',  icon: 'inbox', view: 'tracker' }
     ]},
     { section: 'Donde trabajo', items: [
-      { id: 'tracker',    label: 'Tracker',     icon: 'inbox',  view: 'tracker' },
-      { id: 'proyectos',  label: 'Proyectos',   icon: 'folder', view: 'proyectos' },
+      { id: 'proyectos',  label: 'Proyectos',  icon: 'folder', view: 'proyectos' },
       { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' }
     ]},
     { section: 'Análisis', items: [
@@ -1890,7 +1888,6 @@ var ED_NAV_BY_ROLE = {
       { id: 'tracker',   label: 'Tracker',    icon: 'inbox', view: 'tracker' }
     ]},
     { section: 'Operación', items: [
-      { id: 'agrupadas',  label: 'Por urgencia', icon: 'calendar', view: 'agrupadas' },
       { id: 'proyectos',  label: 'Proyectos',    icon: 'folder',   view: 'proyectos' },
       { id: 'plantillas', label: 'Biblioteca',   icon: 'doc',      view: 'plantillas' }
     ]},
@@ -3034,6 +3031,11 @@ document.addEventListener('keydown', function(e) {
 }, true);
 
 function goEd(viewId) {
+  // 'agrupadas' y 'mistareas' se fusionaron en el Tracker: agrupadas abre el
+  // Tracker en modo "Por urgencia"; mistareas lo abre como lista. El mapping
+  // acá mantiene vivos los deep-links y botones que aún apuntan a esas vistas.
+  if (viewId === 'agrupadas') { EDT.groupBy = 'urgency'; viewId = 'tracker'; }
+  else if (viewId === 'mistareas') { EDT.groupBy = 'none'; viewId = 'tracker'; }
   // Ocultar tooltip de hover preview del tracker (sino persiste al
   // navegar a otra vista porque el mouseleave nunca se disparó).
   var prev = $('edTkPreview');
@@ -3076,22 +3078,11 @@ function goEd(viewId) {
     if (typeof rEdTracker === 'function') rEdTracker(D);
     return;
   }
-  if (viewId === 'agrupadas') {
-    var v3 = $('vEdAgrupadas'); if (v3) v3.classList.add('active');
-    if (typeof rEdAgrupadas === 'function') rEdAgrupadas(D);
-    return;
-  }
   // Editorial Proyectos · Index — disponible para los 3 roles (todos
   // tienen el item "proyectos" en el sidebar).
   if (viewId === 'proyectos' && typeof rEdProyectosIndex === 'function') {
     var v4 = $('vEdProyectosIndex'); if (v4) v4.classList.add('active');
     rEdProyectosIndex(D);
-    return;
-  }
-  // Editorial Mis tareas — disponible para los 3 roles.
-  if (viewId === 'mistareas' && typeof rEdMisTareas === 'function') {
-    var v5 = $('vEdMisTareas'); if (v5) v5.classList.add('active');
-    rEdMisTareas(D);
     return;
   }
   // Editorial Historial — disponible para los 3 roles.
@@ -3780,7 +3771,7 @@ function rEdHomeHQ(D) {
 // 440px con detalle. Estado local EDT (filter/search/selectedId).
 // ───────────────────────────────────────────────────────────────
 
-var EDT = { filter: 'all', search: '', selectedId: null, country: null, selectedIds: [], skipCountriesView: false };
+var EDT = { filter: 'all', search: '', selectedId: null, country: null, selectedIds: [], skipCountriesView: false, groupBy: 'none' };
 
 function _etaTextFromDays(d) {
   // Wrapper para no duplicar lógica con paEtaText. Antes retornaba strings
@@ -5645,6 +5636,15 @@ function rEdTracker(D) {
          + '</div>';
   }
 
+  // VIEW MODE: lista plana vs agrupado por urgencia. "Por urgencia" reemplaza
+  // a la vieja vista del mismo nombre: ahora es un modo del Tracker.
+  var groupByUrgency = (EDT.groupBy === 'urgency' && EDT.filter !== 'closed');
+  html += '<div class="pa-tbl-viewmode" style="display:flex;gap:6px;align-items:center;margin:0 0 12px">'
+       +    '<span class="pa-meta-sm" style="margin-right:2px">' + esc(t('Ver')) + ':</span>'
+       +    '<div class="pa-chip' + (!groupByUrgency ? ' is-active' : '') + '" onclick="edTkSetGroupBy(\'none\')">' + esc(t('Lista')) + '</div>'
+       +    '<div class="pa-chip' + (groupByUrgency ? ' is-active' : '') + '" onclick="edTkSetGroupBy(\'urgency\')">' + esc(t('Por urgencia')) + '</div>'
+       + '</div>';
+
   // TABLE
   var totalRows = rows.length;
   var selN = (EDT.selectedIds || []).length;
@@ -5652,8 +5652,7 @@ function rEdTracker(D) {
   if (totalRows > 0 && selN === totalRows) masterCls += ' is-checked';
   else if (selN > 0) masterCls += ' is-indeterminate';
   var masterTitle = (selN === totalRows && totalRows > 0) ? 'Deseleccionar todo' : 'Seleccionar todo';
-  html += '<div class="pa-tbl">'
-       +    '<div class="pa-tbl-h">'
+  var tblHeader = '<div class="pa-tbl-h">'
        +      '<div onclick="edTkMasterToggle()" title="' + masterTitle + '" style="cursor:pointer;display:grid;place-items:center"><span class="' + masterCls + '"></span></div>'
        +      '<div title="Confidencialidad" aria-label="Confidencialidad"></div>'
        +      '<div>ID</div>'
@@ -5663,6 +5662,7 @@ function rEdTracker(D) {
        +      '<div>Estado</div>'
        +      '<div>ETA</div>'
        +    '</div>';
+
   if (rows.length === 0) {
     var emptyIc = cAll === 0 ? 'inbox' : 'search';
     var emptyMsg, emptyHint;
@@ -5685,45 +5685,36 @@ function rEdTracker(D) {
       ctaBtn = '<button class="pa-btn pa-btn-outline" onclick="edClearSecondaryFilters();edSetFilter(\'all\');edSetSearch(\'\')" style="margin-top:6px">Limpiar filtros</button>';
     }
     // Empty state homogéneo con resto de la app (paEmpty helper) + CTA centrado.
+    html += '<div class="pa-tbl">' + tblHeader;
     html += paEmpty(emptyIc, emptyMsg, emptyHint);
     if (ctaBtn) html += '<div style="margin-top:8px;text-align:center">' + ctaBtn + '</div>';
-  } else {
-    rows.forEach(function(t) {
-      var pn = _projNameForTask(t);
-      var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
-      // Si on hold con razón, agregar suffix con icon — manager con 8
-      // tareas on-hold puede triagear sin abrir cada panel.
-      var blockReasonSuffix = '';
-      if (t.status === 'Bloqueado' && t.blockedReason) {
-        var rsn = String(t.blockedReason).trim();
-        if (rsn) {
-          var shortRsn = rsn.length > 50 ? rsn.substring(0, 50) + '…' : rsn;
-          blockReasonSuffix = ' · <span style="color:var(--warn-fg)">' + paIcon('block', 9, '', 'opacity:.7;vertical-align:-1px') + ' ' + esc(shortRsn) + '</span>';
-        }
-      }
-      var etaTxt = t.eta || paEtaText(t.etaDays);
-      var isSel = sel && sel.id == t.id;
-      var isChecked = (EDT.selectedIds || []).indexOf(String(t.id)) >= 0;
-      var cfLvl = _confLevel(t);
-      html += '<div class="pa-tbl-r' + (isSel ? ' is-selected' : '') + '" data-task-id="' + esc(t.id) + '" onclick="edSelectTask(\'' + esc(t.id) + '\')">'
-           +    '<span onclick="event.stopPropagation();edTkToggleSelectId(\'' + esc(t.id) + '\')"><span class="pa-check' + (isChecked ? ' is-checked' : '') + '"></span></span>'
-           +    paConfDot(cfLvl)
-           +    '<span class="id mono">' + esc(t.id) + '</span>'
-           +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + blockReasonSuffix + '</span></div>';
-      if (role === 'specialist') {
-        html += '<span style="font-size:12px;color:var(--fg-2)">' + esc(pn) + '</span>';
-      } else if (t.resp) {
-        html += '<span class="resp" onclick="event.stopPropagation();edSetRespFilter(\'' + esc(t.resp) + '\')">' + paAvatar(t.resp, 18) + '<span style="font-size:12px">' + esc(t.resp) + '</span></span>';
+    html += '</div>';
+  } else if (groupByUrgency) {
+    // Modo "Por urgencia": 4 franjas (mismas que la vieja vista Agrupadas),
+    // reusando _agBuckets sobre las filas ya filtradas/buscadas.
+    var _bk = _agBuckets(rows);
+    var _ubuckets = [
+      { title: t('Vencidas'),    arr: _bk.overdue, dot: 'var(--critical)' },
+      { title: t('Vencen hoy'),  arr: _bk.today,   dot: 'var(--warn)' },
+      { title: t('Esta semana'), arr: _bk.week,    dot: 'var(--info)' },
+      { title: t('Después'),     arr: _bk.later,   dot: 'var(--fg-3)' }
+    ];
+    _ubuckets.forEach(function(bk) {
+      html += '<div class="pa-section-h"><h3><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + bk.dot + ';margin-right:8px;vertical-align:middle"></span>' + esc(bk.title) + '</h3>'
+           +    '<span class="meta">' + (bk.arr.length ? bk.arr.length + (bk.arr.length === 1 ? ' tarea' : ' tareas') : '—') + '</span></div>';
+      if (bk.arr.length === 0) {
+        html += '<div class="pa-card" style="padding:12px 16px;color:var(--fg-3);font-size:12px;margin-bottom:6px">Sin tareas en esta franja.</div>';
       } else {
-        html += '<span style="color:var(--fg-3)">—</span>';
+        html += '<div class="pa-tbl">';
+        bk.arr.forEach(function(rowTask){ html += _edTkRowHtml(rowTask, role, sel); });
+        html += '</div>';
       }
-      html += paPriorityPill(t.priority)
-           +  paStatusPill(t.status)
-           +  '<span class="eta mono' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(etaTxt) + '</span>'
-           + '</div>';
     });
+  } else {
+    html += '<div class="pa-tbl">' + tblHeader;
+    rows.forEach(function(rowTask){ html += _edTkRowHtml(rowTask, role, sel); });
+    html += '</div>';
   }
-  html += '</div>';
   html += '</div>'; // pa-page
 
   // PANEL detalle como floating si hay seleccionada
@@ -5777,6 +5768,49 @@ function edTkToggleSelectId(id) {
   if (ix >= 0) EDT.selectedIds.splice(ix, 1);
   else EDT.selectedIds.push(sid);
   rEdTracker(D);
+}
+
+// Cambia el modo de visualización del Tracker: lista plana o agrupado por
+// urgencia (las 4 franjas de la antigua vista "Por urgencia").
+function edTkSetGroupBy(mode) {
+  EDT.groupBy = (mode === 'urgency') ? 'urgency' : 'none';
+  rEdTracker(D);
+}
+
+// Markup de una fila del Tracker. Extraído para reusarlo tanto en la lista
+// plana como en los buckets del modo "Por urgencia".
+function _edTkRowHtml(t, role, sel) {
+  var pn = _projNameForTask(t);
+  var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
+  var blockReasonSuffix = '';
+  if (t.status === 'Bloqueado' && t.blockedReason) {
+    var rsn = String(t.blockedReason).trim();
+    if (rsn) {
+      var shortRsn = rsn.length > 50 ? rsn.substring(0, 50) + '…' : rsn;
+      blockReasonSuffix = ' · <span style="color:var(--warn-fg)">' + paIcon('block', 9, '', 'opacity:.7;vertical-align:-1px') + ' ' + esc(shortRsn) + '</span>';
+    }
+  }
+  var etaTxt = t.eta || paEtaText(t.etaDays);
+  var isSel = sel && sel.id == t.id;
+  var isChecked = (EDT.selectedIds || []).indexOf(String(t.id)) >= 0;
+  var cfLvl = _confLevel(t);
+  var h = '<div class="pa-tbl-r' + (isSel ? ' is-selected' : '') + '" data-task-id="' + esc(t.id) + '" onclick="edSelectTask(\'' + esc(t.id) + '\')">'
+       +    '<span onclick="event.stopPropagation();edTkToggleSelectId(\'' + esc(t.id) + '\')"><span class="pa-check' + (isChecked ? ' is-checked' : '') + '"></span></span>'
+       +    paConfDot(cfLvl)
+       +    '<span class="id mono">' + esc(t.id) + '</span>'
+       +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + blockReasonSuffix + '</span></div>';
+  if (role === 'specialist') {
+    h += '<span style="font-size:12px;color:var(--fg-2)">' + esc(pn) + '</span>';
+  } else if (t.resp) {
+    h += '<span class="resp" onclick="event.stopPropagation();edSetRespFilter(\'' + esc(t.resp) + '\')">' + paAvatar(t.resp, 18) + '<span style="font-size:12px">' + esc(t.resp) + '</span></span>';
+  } else {
+    h += '<span style="color:var(--fg-3)">—</span>';
+  }
+  h += paPriorityPill(t.priority)
+    +  paStatusPill(t.status)
+    +  '<span class="eta mono' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(etaTxt) + '</span>'
+    + '</div>';
+  return h;
 }
 
 // Render del panel detalle (sliding overlay desde la derecha)
