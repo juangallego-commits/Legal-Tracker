@@ -3097,15 +3097,16 @@ function _edSearchFilter(query) {
       }
     }
   }
-  // Documentos de la Biblioteca (sheet BibliotecaDocs). Se cargan lazy vía
-  // _loadBibDocs; si el cache está poblado los incluimos. Matchea por nombre +
-  // categoría. Mapeamos nombre→name para reusar el render de documentos.
+  // Documentos de la Biblioteca (sheet BibliotecaDocs, ya filtrados por rol en el
+  // server). Se cargan lazy vía _loadBibDocs. Matchea por nombre + tags + notas +
+  // tipo + área. El contexto muestra "Biblioteca · <tipoDoc> · <país>".
   var bibDocs = (typeof _BIBDOCS_CACHE !== 'undefined' && _BIBDOCS_CACHE) ? _BIBDOCS_CACHE : [];
   for (var bi = 0; bi < bibDocs.length && out.length < 160; bi++) {
     var bd = bibDocs[bi];
-    var bdHay = ((bd.nombre || '') + ' ' + (bd.categoria || '')).toLowerCase();
+    var bdHay = [(bd.nombre || ''), (bd.tags || ''), (bd.notas || ''), (bd.tipoDocumento || ''), (bd.areaTrabajo || '')].join(' ').toLowerCase();
     if (bdHay.indexOf(q) >= 0) {
-      out.push({ kind: 'document', item: { name: bd.nombre, url: bd.url }, biblioteca: true, bibCategoria: bd.categoria || '' });
+      var bdCtx = (bd.tipoDocumento && bd.tipoDocumento !== 'Otro' ? bd.tipoDocumento : '') + (bd.pais ? (bd.tipoDocumento && bd.tipoDocumento !== 'Otro' ? ' · ' : '') + bd.pais : '');
+      out.push({ kind: 'document', item: { name: bd.nombre, url: bd.url }, biblioteca: true, bibCategoria: bdCtx });
     }
   }
   return out;
@@ -9689,62 +9690,134 @@ function edPltDelete(tipo, estado) {
 
 // ── Biblioteca · Documentos ─────────────────────────────────────
 var _BIBDOCS_CACHE = null;
+var _BIB_CONFIG = null;          // vocabularios + país/rol del usuario (del backend)
+var _BIB_PENDING_FILE = null;    // archivo elegido, en espera de clasificar antes de subir
+var _BIB_FILTERS = (function() {
+  try { var s = JSON.parse(localStorage.getItem('lt_bib_filters') || '{}');
+    return { tipoDoc: s.tipoDoc || '', area: s.area || '', pais: s.pais || '', soloVigentes: s.soloVigentes !== false, query: '' };
+  } catch (e) { return { tipoDoc: '', area: '', pais: '', soloVigentes: true, query: '' }; }
+})();
+function _bibPersistFilters() {
+  try { localStorage.setItem('lt_bib_filters', JSON.stringify({ tipoDoc: _BIB_FILTERS.tipoDoc, area: _BIB_FILTERS.area, pais: _BIB_FILTERS.pais, soloVigentes: _BIB_FILTERS.soloVigentes })); } catch (e) {}
+}
+function _bibConfLabel(lvl) {
+  return lvl === 'confidencial' ? 'Altamente confidencial' : (lvl === 'restringido' ? 'Confidencial' : 'Normal');
+}
+function _loadBibConfig(cb) {
+  if (_BIB_CONFIG) { cb(_BIB_CONFIG); return; }
+  google.script.run
+    .withSuccessHandler(function(res) { _BIB_CONFIG = res || {}; cb(_BIB_CONFIG); })
+    .withFailureHandler(function() { _BIB_CONFIG = {}; cb(_BIB_CONFIG); })
+    .getBibliotecaConfig();
+}
 function _loadBibDocs(cb) {
   google.script.run
     .withSuccessHandler(function(res) { _BIBDOCS_CACHE = (res && res.items) || []; cb(); })
     .withFailureHandler(function() { _BIBDOCS_CACHE = []; cb(); })
     .getBibliotecaDocs();
 }
+function _bibApplyFilters(docs) {
+  var f = _BIB_FILTERS;
+  var q = (f.query || '').toString().trim().toLowerCase();
+  return docs.filter(function(d) {
+    if (f.tipoDoc && d.tipoDocumento !== f.tipoDoc) return false;
+    if (f.area && d.areaTrabajo !== f.area) return false;
+    if (f.pais && d.pais !== f.pais) return false;
+    if (f.soloVigentes && (d.vigente || 'si') === 'no') return false;
+    if (q) {
+      var hay = [(d.nombre || ''), (d.tags || ''), (d.notas || '')].join(' ').toLowerCase();
+      if (hay.indexOf(q) < 0) return false;
+    }
+    return true;
+  });
+}
+function _bibSetFacet(key, val) { _BIB_FILTERS[key] = val; _bibPersistFilters(); _rEdBibDocs(D); }
+function _bibSetVigentes(checked) { _BIB_FILTERS.soloVigentes = !!checked; _bibPersistFilters(); _rEdBibDocs(D); }
+function _bibLocalSearch(q) { _BIB_FILTERS.query = q || ''; _rEdBibDocs(D); }
+function _bibFacetSelect(key, label, options, current) {
+  var h = '<select class="cr-input" style="width:auto;min-width:120px;height:30px;font-size:12px" onchange="_bibSetFacet(\'' + key + '\', this.value)">';
+  h += '<option value="">' + esc(label) + ': Todos</option>';
+  (options || []).forEach(function(o) { h += '<option value="' + esc(o) + '"' + (o === current ? ' selected' : '') + '>' + esc(o) + '</option>'; });
+  return h + '</select>';
+}
 function _rEdBibDocs(D) {
   var v = $('vEdPlantillas'); if (!v) return;
-  if (_BIBDOCS_CACHE == null) {
+  if (_BIBDOCS_CACHE == null || _BIB_CONFIG == null) {
     v.innerHTML = '<div class="pa-page">' + _bibSubnav('documentos') + ltSkeleton(5) + '</div>';
-    _loadBibDocs(function() { _rEdBibDocs(D); });
+    _loadBibConfig(function() { _loadBibDocs(function() { _rEdBibDocs(D); }); });
     return;
   }
-  var role = _effectiveRole();
+  var cfg = _BIB_CONFIG;
+  var role = cfg.userRole || _effectiveRole();
   var canManage = (role === 'manager' || role === 'head');
   var myName = _effectiveUserName();
   function _sameName(a, b){ return (a || '').toString().trim().toLowerCase() === (b || '').toString().trim().toLowerCase(); }
-  var docs = (_BIBDOCS_CACHE || []).slice().sort(function(a, b){ return (b.fecha || '').localeCompare(a.fecha || ''); });
+  var all = (_BIBDOCS_CACHE || []).slice().sort(function(a, b){ return (b.fecha || '').localeCompare(a.fecha || ''); });
+  var docs = _bibApplyFilters(all);
 
   var html = '<div class="pa-page">' + _bibSubnav('documentos');
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">Biblioteca</span>'
-       +    '<span class="pa-page-sub">' + docs.length + ' documento' + (docs.length === 1 ? '' : 's') + '</span>'
-       +    '<div class="pa-page-meta">'
+       +    '<span class="pa-page-sub">' + docs.length + (docs.length === all.length ? '' : ' de ' + all.length) + ' documento' + (all.length === 1 ? '' : 's') + '</span>'
+       +    '<div class="pa-page-meta" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+       +      '<input type="text" class="cr-input" placeholder="Buscar en biblioteca…" value="' + esc(_BIB_FILTERS.query || '') + '" style="width:190px;height:30px;font-size:12px" oninput="_bibLocalSearch(this.value)">'
        +      '<button class="pa-btn pa-btn-outline" onclick="edBibDocLinkOpen()">' + paIcon('doc', 12) + ' Agregar enlace</button>'
        +      '<button class="pa-btn pa-btn-primary" onclick="var i=$(\'bibDocFileInput\'); if(i) i.click();">' + paIcon('plus', 12) + ' Subir archivo</button>'
        +      '<input type="file" id="bibDocFileInput" style="display:none" onchange="edBibDocUpload(this)">'
        +    '</div>'
        + '</div>';
-  html += '<div class="pa-narrative">Documentos e insumos del equipo. Cualquiera puede agregar un enlace (Drive/externo) o subir un archivo (máx. 45 MB).</div>';
+  html += '<div class="pa-narrative">Centro de conocimiento legal del equipo. Clasificá cada documento por tipo, área, país y confidencialidad para que el equipo lo encuentre.</div>';
 
-  if (docs.length === 0) {
-    html += paEmpty('folder', 'Todavía no hay documentos.', 'Agregá el primero con "Agregar enlace" o "Subir archivo".');
-    html += '</div>';
-    v.innerHTML = html;
-    return;
+  var sinClasificar = all.filter(function(d){ return d.tipoDocumento === 'Otro'; });
+  if (sinClasificar.length > 0) {
+    html += '<div class="pa-narrative" style="border-left:3px solid var(--warn);padding-left:10px;margin-bottom:12px">'
+         +    '<b>' + sinClasificar.length + '</b> documento' + (sinClasificar.length === 1 ? ' sin clasificar' : 's sin clasificar') + '. Ayudá al equipo clasificándolo' + (sinClasificar.length === 1 ? '' : 's') + ' con <b>Editar</b> en cada fila.'
+         + '</div>';
   }
 
-  html += '<div class="pa-tbl" style="margin-top:14px">'
-       +    '<div class="pa-tbl-h" style="grid-template-columns: 1fr 100px 150px 130px 130px">'
-       +      '<div>Documento</div><div>Tipo</div><div>Autor</div><div>Categoría</div><div></div>'
+  // Filtros por facetas
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px">'
+       +    _bibFacetSelect('tipoDoc', 'Tipo', cfg.tiposDocumento, _BIB_FILTERS.tipoDoc)
+       +    _bibFacetSelect('area', 'Área', cfg.areas, _BIB_FILTERS.area)
+       +    _bibFacetSelect('pais', 'País', cfg.paises, _BIB_FILTERS.pais)
+       +    '<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--fg-2);cursor:pointer"><input type="checkbox"' + (_BIB_FILTERS.soloVigentes ? ' checked' : '') + ' onchange="_bibSetVigentes(this.checked)"> Solo vigentes</label>'
+       + '</div>';
+
+  if (all.length === 0) {
+    html += paEmpty('folder', 'Todavía no hay documentos.', 'Agregá el primero con "Agregar enlace" o "Subir archivo".');
+    html += '</div>'; v.innerHTML = html; return;
+  }
+  if (docs.length === 0) {
+    html += paEmpty('search', 'Ningún documento coincide.', 'Ajustá los filtros o la búsqueda.');
+    html += '</div>'; v.innerHTML = html; return;
+  }
+
+  var GT = 'grid-template-columns: minmax(0,1fr) 125px 95px 50px 95px 120px 130px';
+  html += '<div class="pa-tbl pa-tbl-wrap" style="margin-top:4px">'
+       +    '<div class="pa-tbl-h" style="' + GT + '">'
+       +      '<div>Documento</div><div>Tipo doc</div><div>Área</div><div>País</div><div>Confid.</div><div>Autor</div><div></div>'
        +    '</div>';
   docs.forEach(function(d) {
-    var tipoPill = d.tipo === 'file'
-      ? '<span class="pa-pill pa-pill-tipo">Archivo</span>'
-      : '<span class="pa-pill pa-pill-tipo">Enlace</span>';
-    var canDel = canManage || _sameName(d.autor, myName);
-    var btns = '<div style="display:flex;gap:6px;justify-content:flex-end">'
-      +   '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="edBibDocOpen(\'' + esc(d.id) + '\')">Abrir</button>'
-      +   (canDel ? '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px;color:var(--critical-fg)" onclick="edBibDocDelete(\'' + esc(d.id) + '\')">Eliminar</button>' : '')
+    var canEdit = canManage || _sameName(d.autor, myName);
+    var noVig = (d.vigente || 'si') === 'no';
+    var confPill;
+    if (d.confidencialidad === 'restringido') confPill = '<span class="pa-pill pa-pill-warn">Confidencial</span>';
+    else if (d.confidencialidad === 'confidencial') confPill = '<span class="pa-pill" style="background:var(--critical-soft);color:var(--critical-fg)">Alto</span>';
+    else confPill = '<span style="color:var(--fg-4);font-size:11px">—</span>';
+    var tagsHtml = d.tags ? '<div style="font-size:11px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(d.tags) + '</div>' : '';
+    var repPill = noVig ? ' <span class="pa-pill" style="background:var(--bg-2);color:var(--fg-3)">Reemplazado</span>' : '';
+    var btns = '<div style="display:flex;gap:5px;justify-content:flex-end">'
+      +   '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 7px" onclick="edBibDocOpen(\'' + esc(d.id) + '\')">Abrir</button>'
+      +   (canEdit ? '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 7px" onclick="edBibDocEdit(\'' + esc(d.id) + '\')">Editar</button>' : '')
+      +   (canEdit ? '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 7px;color:var(--critical-fg)" title="Eliminar" onclick="edBibDocDelete(\'' + esc(d.id) + '\')">×</button>' : '')
       + '</div>';
-    html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr 100px 150px 130px 130px;height:46px">'
-         +    '<div style="font-size:13px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(d.nombre) + '">' + esc(d.nombre) + '</div>'
-         +    '<div>' + tipoPill + '</div>'
-         +    '<div style="font-size:12px;color:var(--fg-3)">' + esc(d.autor || '—') + '</div>'
-         +    '<div style="font-size:12px;color:var(--fg-3)">' + esc(d.categoria || '—') + '</div>'
+    html += '<div class="pa-tbl-r" style="' + GT + ';min-height:46px;align-items:center' + (noVig ? ';opacity:0.5' : '') + '">'
+         +    '<div style="min-width:0"><div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(d.nombre) + '">' + esc(d.nombre) + repPill + '</div>' + tagsHtml + '</div>'
+         +    '<div><span class="pa-pill pa-pill-tipo">' + esc(d.tipoDocumento || '—') + '</span></div>'
+         +    '<div style="font-size:12px;color:var(--fg-3)">' + esc(d.areaTrabajo || '—') + '</div>'
+         +    '<div style="font-size:12px;color:var(--fg-3)">' + esc(d.pais || '—') + '</div>'
+         +    '<div>' + confPill + '</div>'
+         +    '<div style="font-size:12px;color:var(--fg-3);min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(d.autor || '—') + '</div>' + (d.fecha ? '<div style="font-size:10px;color:var(--fg-4)">' + esc((d.fecha || '').slice(0, 10)) + '</div>' : '') + '</div>'
          +    btns
          + '</div>';
   });
@@ -9769,68 +9842,111 @@ function edBibDocDelete(id) {
 function edBibDocUpload(input) {
   var file = input && input.files && input.files[0];
   if (!file) return;
-  if (typeof showLoader === 'function') showLoader();
+  // No subimos al instante: leemos el archivo, lo dejamos pendiente y abrimos el
+  // modal de clasificación. El upload real ocurre al Guardar (con metadata).
   var reader = new FileReader();
   reader.onload = function() {
-    var base64 = String(reader.result).split(',')[1];
-    google.script.run
-      .withSuccessHandler(function(res) {
-        if (typeof hideLoader === 'function') hideLoader();
-        input.value = '';
-        if (res && res.success) { _BIBDOCS_CACHE = null; toast('Archivo subido', 'success'); _rEdBibDocs(D); }
-        else toast((res && res.error) || 'No se pudo subir.', 'error');
-      })
-      .withFailureHandler(function(e) {
-        if (typeof hideLoader === 'function') hideLoader();
-        input.value = '';
-        toast('Error: ' + (e && e.message || 'desconocido'), 'error');
-      })
-      .uploadBibliotecaDocFile({ name: file.name, mimeType: file.type, data: base64 }, '');
+    _BIB_PENDING_FILE = { name: file.name, mimeType: file.type, data: String(reader.result).split(',')[1] };
+    input.value = '';
+    _bibModalOpen('file', null);
   };
-  reader.onerror = function() { if (typeof hideLoader === 'function') hideLoader(); toast('No se pudo leer el archivo', 'error'); };
+  reader.onerror = function() { input.value = ''; toast('No se pudo leer el archivo', 'error'); };
   reader.readAsDataURL(file);
 }
-function edBibDocLinkOpen() {
-  var host = $('edPltHost');
-  if (!host) { host = document.createElement('div'); host.id = 'edPltHost'; document.body.appendChild(host); }
-  host.innerHTML = '<div class="cr-overlay" onclick="if(event.target===this)edBibDocLinkClose()">'
-    +   '<div class="cr-backdrop" onclick="edBibDocLinkClose()"></div>'
-    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Agregar enlace">'
-    +     '<div class="cr-head"><div><div class="cr-eye">— Nuevo documento</div><div class="cr-title">Agregar enlace</div></div>'
-    +       '<button type="button" class="cr-x" onclick="edBibDocLinkClose()" aria-label="Cerrar">×</button></div>'
-    +     '<div class="cr-body">'
-    +       '<div class="cr-field"><div class="cr-label">Nombre</div><input id="bibLinkName" class="cr-input" placeholder="Ej: Política de privacidad LATAM" maxlength="120"></div>'
-    +       '<div class="cr-field"><div class="cr-label">Enlace <span class="req">*</span></div><input id="bibLinkUrl" class="cr-input" placeholder="https://drive.google.com/…"></div>'
-    +       '<div class="cr-field"><div class="cr-label">Categoría</div><input id="bibLinkCat" class="cr-input" placeholder="Ej: Compliance, Plantillas Drive… (opcional)" maxlength="40"></div>'
-    +     '</div>'
-    +     '<div class="cr-foot">'
-    +       '<div class="cr-foot-info">Cualquiera del equipo puede consultarlo desde Biblioteca.</div>'
-    +       '<button type="button" class="ed-btn ghost" onclick="edBibDocLinkClose()">Cancelar</button>'
-    +       '<button type="button" class="ed-btn accent" id="bibLinkSaveBtn" onclick="edBibDocLinkSave()">Agregar</button>'
-    +     '</div>'
-    +   '</div>'
-    + '</div>';
-  setTimeout(function(){ var i = $('bibLinkUrl'); if (i) i.focus(); }, 60);
+function edBibDocEdit(id) {
+  var d = (_BIBDOCS_CACHE || []).filter(function(x){ return x.id === id; })[0];
+  if (d) _bibModalOpen('edit', d);
 }
-function edBibDocLinkClose() { var host = $('edPltHost'); if (host) host.innerHTML = ''; }
-function edBibDocLinkSave() {
-  var url = ($('bibLinkUrl') && $('bibLinkUrl').value || '').trim();
-  var name = ($('bibLinkName') && $('bibLinkName').value || '').trim();
-  var cat = ($('bibLinkCat') && $('bibLinkCat').value || '').trim();
-  if (!url) { toast('Pegá un enlace.', 'error'); return; }
-  var btn = $('bibLinkSaveBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Agregando…'; }
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Agregar'; }
-      if (res && res.success) { _BIBDOCS_CACHE = null; toast('Enlace agregado', 'success'); edBibDocLinkClose(); _rEdBibDocs(D); }
-      else toast((res && res.error) || 'No se pudo agregar.', 'error');
-    })
-    .withFailureHandler(function(e) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Agregar'; }
-      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
-    })
-    .addBibliotecaDocLink(name, url, cat);
+function edBibDocLinkOpen() { _bibModalOpen('link', null); }
+function _bibSelectField(id, label, options, current, required) {
+  var h = '<div class="cr-field"><div class="cr-label">' + esc(label) + (required ? ' <span class="req">*</span>' : '') + '</div>';
+  h += '<select id="' + id + '" class="cr-input">';
+  (options || []).forEach(function(o) { h += '<option value="' + esc(o) + '"' + (o === current ? ' selected' : '') + '>' + esc(o) + '</option>'; });
+  return h + '</select></div>';
+}
+// Modal único de clasificación. mode: 'link' | 'file' | 'edit'.
+function _bibModalOpen(mode, doc) {
+  _loadBibConfig(function(cfg) {
+    var host = $('edPltHost');
+    if (!host) { host = document.createElement('div'); host.id = 'edPltHost'; document.body.appendChild(host); }
+    var role = cfg.userRole || _effectiveRole();
+    var isEdit = mode === 'edit', isFile = mode === 'file';
+    var d = doc || {};
+    var title = isEdit ? 'Editar documento' : (isFile ? 'Clasificar archivo' : 'Agregar enlace');
+    var nameVal = d.nombre || (isFile && _BIB_PENDING_FILE ? _BIB_PENDING_FILE.name : '');
+    var confOpts = (role === 'specialist') ? ['estandar', 'restringido'] : (cfg.confidencialidad || ['estandar', 'restringido', 'confidencial']);
+    var curConf = d.confidencialidad || 'estandar';
+    var confSel = '<div class="cr-field"><div class="cr-label">Confidencialidad</div><select id="bibConf" class="cr-input">';
+    confOpts.forEach(function(lv){ confSel += '<option value="' + esc(lv) + '"' + (lv === curConf ? ' selected' : '') + '>' + esc(_bibConfLabel(lv)) + '</option>'; });
+    confSel += '</select></div>';
+
+    var fields = '<div class="cr-field"><div class="cr-label">Nombre</div><input id="bibName" class="cr-input" maxlength="120" value="' + esc(nameVal) + '"' + (isEdit ? ' disabled' : '') + ' placeholder="Ej: NDA estándar proveedores"></div>';
+    if (mode === 'link') {
+      fields += '<div class="cr-field"><div class="cr-label">Enlace <span class="req">*</span></div><input id="bibUrl" class="cr-input" placeholder="https://drive.google.com/…"></div>';
+    } else if (isEdit && d.url) {
+      fields += '<div class="cr-field"><div class="cr-label">Enlace / archivo</div><input class="cr-input" value="' + esc(d.url) + '" disabled></div>';
+    }
+    fields += _bibSelectField('bibTipoDoc', 'Tipo de documento', cfg.tiposDocumento, d.tipoDocumento || '', true);
+    fields += _bibSelectField('bibArea', 'Área de trabajo', cfg.areas, d.areaTrabajo || '', true);
+    fields += _bibSelectField('bibPais', 'País', cfg.paises, d.pais || cfg.userCountry || 'CO', true);
+    fields += confSel;
+    fields += '<div class="cr-field"><div class="cr-label">Tags</div><input id="bibTags" class="cr-input" maxlength="200" value="' + esc(d.tags || '') + '" placeholder="ej: farmacias, ads, mundial"></div>';
+    fields += '<div class="cr-field"><div class="cr-label">Notas</div><textarea id="bibNotas" class="cr-input" maxlength="300" rows="2" placeholder="Contexto breve (opcional)">' + esc(d.notas || '') + '</textarea></div>';
+
+    host.innerHTML = '<div class="cr-overlay" onclick="if(event.target===this)edBibDocLinkClose()">'
+      +   '<div class="cr-backdrop" onclick="edBibDocLinkClose()"></div>'
+      +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="' + esc(title) + '">'
+      +     '<div class="cr-head"><div><div class="cr-eye">— Biblioteca</div><div class="cr-title">' + esc(title) + '</div></div>'
+      +       '<button type="button" class="cr-x" onclick="edBibDocLinkClose()" aria-label="Cerrar">×</button></div>'
+      +     '<div class="cr-body">' + fields + '</div>'
+      +     '<div class="cr-foot">'
+      +       '<div class="cr-foot-info">Clasificá bien para que el equipo lo encuentre.</div>'
+      +       '<button type="button" class="ed-btn ghost" onclick="edBibDocLinkClose()">Cancelar</button>'
+      +       '<button type="button" class="ed-btn accent" id="bibSaveBtn" onclick="edBibDocSave(\'' + mode + '\',\'' + esc((doc && doc.id) || '') + '\')">' + (isEdit ? 'Guardar' : 'Agregar') + '</button>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+    setTimeout(function(){ var i = (mode === 'link') ? $('bibUrl') : $('bibTipoDoc'); if (i && !i.disabled) i.focus(); }, 60);
+  });
+}
+function edBibDocLinkClose() { var host = $('edPltHost'); if (host) host.innerHTML = ''; _BIB_PENDING_FILE = null; }
+function _bibCollectMeta() {
+  return {
+    tipoDocumento: ($('bibTipoDoc') && $('bibTipoDoc').value) || '',
+    areaTrabajo: ($('bibArea') && $('bibArea').value) || '',
+    pais: ($('bibPais') && $('bibPais').value) || '',
+    confidencialidad: ($('bibConf') && $('bibConf').value) || 'estandar',
+    tags: ($('bibTags') && $('bibTags').value) || '',
+    notas: ($('bibNotas') && $('bibNotas').value) || ''
+  };
+}
+function edBibDocSave(mode, docId) {
+  var meta = _bibCollectMeta();
+  var name = ($('bibName') && $('bibName').value || '').trim();
+  var btn = $('bibSaveBtn');
+  var defLabel = (mode === 'edit') ? 'Guardar' : 'Agregar';
+  function reset() { if (btn) { btn.disabled = false; btn.textContent = defLabel; } }
+  function ok(msg) { return function(res) {
+    reset();
+    if (res && res.success) { _BIBDOCS_CACHE = null; _BIB_PENDING_FILE = null; toast(msg, 'success'); edBibDocLinkClose(); _rEdBibDocs(D); }
+    else toast((res && res.error) || 'No se pudo guardar.', 'error');
+  }; }
+  function fail(e) { reset(); toast('Error: ' + (e && e.message || 'desconocido'), 'error'); }
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  if (mode === 'link') {
+    var url = ($('bibUrl') && $('bibUrl').value || '').trim();
+    if (!url) { toast('Pegá un enlace.', 'error'); reset(); return; }
+    google.script.run.withSuccessHandler(ok('Enlace agregado')).withFailureHandler(fail).addBibliotecaDocLink(name, url, meta);
+  } else if (mode === 'file') {
+    if (!_BIB_PENDING_FILE) { toast('No hay archivo. Reintentá.', 'error'); edBibDocLinkClose(); return; }
+    if (typeof showLoader === 'function') showLoader();
+    google.script.run
+      .withSuccessHandler(function(res){ if (typeof hideLoader === 'function') hideLoader(); ok('Archivo subido')(res); })
+      .withFailureHandler(function(e){ if (typeof hideLoader === 'function') hideLoader(); fail(e); })
+      .uploadBibliotecaDocFile(_BIB_PENDING_FILE, meta);
+  } else if (mode === 'edit') {
+    google.script.run.withSuccessHandler(ok('Documento actualizado')).withFailureHandler(fail).updateBibliotecaDocMeta(docId, meta);
+  }
 }
 
 // ── Calendario · vista semana (reuniones de Google + deadlines de tareas) ──

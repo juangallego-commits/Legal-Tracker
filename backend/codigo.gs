@@ -2221,63 +2221,202 @@ function _deleteTemplateImpl(tipoTrabajo, estado) {
 // ════════════════════════════════════════════════════════════════
 // BIBLIOTECA · DOCUMENTOS (enlaces + archivos en Drive)
 // ════════════════════════════════════════════════════════════════
-// Hoja BibliotecaDocs: id | nombre | tipo(link|file) | url | categoria | autor | fecha
-// Cualquiera puede agregar. Borrar: el autor, o manager/head.
+// Hoja BibliotecaDocs (v2, 16 cols):
+//  id | nombre | tipo | url | tipoDocumento | areaTrabajo | pais | confidencialidad
+//   | tags | autor | autorEmail | fecha | vigente | notas | actualizadoPor | fechaActualizado
+// Vocabularios controlados + filtrado server-side por rol/confidencialidad (igual que tareas).
+var _BIB_TIPOS_DOC = ['Contrato modelo', 'Política', 'Dictamen', 'Precedente', 'Normativa', 'Poder', 'Minuta', 'Guía / Playbook', 'Formato / Checklist', 'Otro'];
+var _BIB_AREAS = ['Contractual', 'Regulatorio', 'Contencioso', 'Privacy', 'Operativo', 'Transversal'];
+var _BIB_PAISES = ['CO', 'MX', 'BR', 'AR', 'CL', 'CR', 'PE', 'EC', 'UY', 'LATAM', 'Global'];
+var _BIB_CONFID = ['estandar', 'restringido', 'confidencial'];
+var _BIB_HEADERS = ['id', 'nombre', 'tipo', 'url', 'tipoDocumento', 'areaTrabajo', 'pais', 'confidencialidad', 'tags', 'autor', 'autorEmail', 'fecha', 'vigente', 'notas', 'actualizadoPor', 'fechaActualizado'];
+var _BIB_COLS = _BIB_HEADERS.length; // 16
+
+// Crea la hoja con 16 columnas si no existe. Si ya existe con el schema viejo
+// (7 cols) NO la toca: la migración la reordena, porque autor/fecha cambian de
+// posición (col 6/7 → col 10/12) y un simple "extender headers" las desalinearía.
 function _ensureBiblioDocsSheet(ss) {
   var ws = ss.getSheetByName(SHEET_BIBLIO_DOCS);
   if (!ws) {
     ws = ss.insertSheet(SHEET_BIBLIO_DOCS);
-    ws.getRange(1, 1, 1, 7).setValues([['id', 'nombre', 'tipo', 'url', 'categoria', 'autor', 'fecha']]);
-    ws.getRange(1, 1, 1, 7).setFontWeight('bold');
+    ws.getRange(1, 1, 1, _BIB_COLS).setValues([_BIB_HEADERS]);
+    ws.getRange(1, 1, 1, _BIB_COLS).setFontWeight('bold');
     ws.setFrozenRows(1);
   }
   return ws;
 }
 
+// Migración one-shot 7→16 cols. Correr UNA vez desde el editor (solo head).
+// Lee la data vieja en memoria, reordena (categoria→tags; autor col6→col10;
+// fecha col7→col12) y reescribe con defaults. Idempotente.
+function migrateBiblioDocsSchema(ss) {
+  ss = ss || SpreadsheetApp.openById(SHEET_ID);
+  var ctx = _getAuthContext();
+  if (ctx.role !== 'head') throw new Error('Solo un head puede migrar la Biblioteca.');
+  var ws = ss.getSheetByName(SHEET_BIBLIO_DOCS);
+  if (!ws) { _ensureBiblioDocsSheet(ss); return 'Hoja creada nueva (16 cols). Nada que migrar.'; }
+  if (ws.getLastColumn() >= _BIB_COLS) return 'Ya está en el schema de 16 columnas. Nada que hacer.';
+  var lr = ws.getLastRow();
+  var oldData = lr >= 2 ? ws.getRange(2, 1, lr - 1, 7).getValues() : [];
+  var newRows = oldData.map(function(r) {
+    return [
+      r[0], r[1], (r[2] || 'link'), r[3],
+      'Otro', 'Operativo', 'CO', 'estandar',
+      (r[4] || '').toString().trim(),   // categoria vieja → tags
+      r[5], '',                          // autor (col6 vieja), autorEmail (desconocido)
+      r[6], 'si', '', '', ''             // fecha (col7 vieja), vigente, notas, actualizadoPor, fechaActualizado
+    ];
+  });
+  ws.clear();
+  ws.getRange(1, 1, 1, _BIB_COLS).setValues([_BIB_HEADERS]);
+  ws.getRange(1, 1, 1, _BIB_COLS).setFontWeight('bold');
+  ws.setFrozenRows(1);
+  if (newRows.length) ws.getRange(2, 1, newRows.length, _BIB_COLS).setValues(newRows.map(function(rw){ return _sanitizeRow(rw); }));
+  try { CacheService.getScriptCache().remove(CACHE_KEY); } catch (e) {}
+  return 'Migrados ' + newRows.length + ' documentos al schema de 16 columnas.';
+}
+
+// Sanitiza tags: trim, lowercase, dedup, cap 5 tags × 30 chars, rejoin ", ".
+function _bibSanitizeTags(raw) {
+  var seen = {}, out = [];
+  (raw || '').toString().toLowerCase().split(',').forEach(function(t) {
+    t = t.trim().slice(0, 30);
+    if (t && !seen[t]) { seen[t] = 1; out.push(t); }
+  });
+  return out.slice(0, 5).join(', ');
+}
+
+// Valida/normaliza metadata contra los vocabularios. Aplica la restricción de
+// confidencialidad para specialist (no puede marcar 'confidencial').
+function _bibValidateMeta(meta, role) {
+  meta = meta || {};
+  var tipoDoc = (meta.tipoDocumento || '').toString().trim();
+  var area = (meta.areaTrabajo || '').toString().trim();
+  var pais = (meta.pais || '').toString().trim();
+  var conf = (meta.confidencialidad || 'estandar').toString().trim().toLowerCase();
+  if (_BIB_TIPOS_DOC.indexOf(tipoDoc) < 0) return { ok: false, error: 'Tipo de documento inválido.' };
+  if (_BIB_AREAS.indexOf(area) < 0) return { ok: false, error: 'Área de trabajo inválida.' };
+  if (_BIB_PAISES.indexOf(pais) < 0) return { ok: false, error: 'País inválido.' };
+  if (_BIB_CONFID.indexOf(conf) < 0) conf = 'estandar';
+  if (role === 'specialist' && conf === 'confidencial') {
+    return { ok: false, error: 'Solo manager o head pueden marcar un documento como Altamente confidencial.' };
+  }
+  return { ok: true, meta: {
+    tipoDocumento: tipoDoc, areaTrabajo: area, pais: pais, confidencialidad: conf,
+    tags: _bibSanitizeTags(meta.tags), notas: (meta.notas || '').toString().trim().slice(0, 300)
+  }};
+}
+
+function _bibUserCountry(ctx) { return (ctx && ctx.user && ctx.user.code) ? ctx.user.code : ''; }
+
+// Filtra docs por rol + país + confidencialidad (server-side, igual que tareas).
+//   País: specialist/manager ven su país + LATAM + Global; head ve todo.
+//   estandar → todos (del país); restringido → autor / manager del país del doc
+//   / head; confidencial → autor / head.
+function _filterBibDocsForRole(docs, ctx) {
+  var role = ctx.role;
+  var myCountry = (ctx.user && ctx.user.code) || '';
+  var myEmail = (ctx.email || '').toString().toLowerCase();
+  var equipos = ctx.equipos || [];
+  function leaderEmailFor(code) {
+    for (var i = 0; i < equipos.length; i++) {
+      if (equipos[i].code === code) return (equipos[i].leaderEmail || '').toString().toLowerCase();
+    }
+    return '';
+  }
+  return (docs || []).filter(function(d) {
+    if (role !== 'head') {
+      var p = d.pais || '';
+      if (p !== myCountry && p !== 'LATAM' && p !== 'Global') return false;
+    }
+    var conf = d.confidencialidad || 'estandar';
+    var authorEmail = (d.autorEmail || '').toString().toLowerCase();
+    if (conf === 'estandar') return true;
+    if (conf === 'restringido') {
+      return role === 'head'
+          || (!!myEmail && myEmail === authorEmail)
+          || (role === 'manager' && !!leaderEmailFor(d.pais) && leaderEmailFor(d.pais) === myEmail);
+    }
+    if (conf === 'confidencial') {
+      return role === 'head' || (!!myEmail && myEmail === authorEmail);
+    }
+    return true;
+  });
+}
+
 function getBibliotecaDocs() {
   return _telemetry('getBibliotecaDocs', function() {
-    var ss = SpreadsheetApp.openById(SHEET_ID);
-    var ws = ss.getSheetByName(SHEET_BIBLIO_DOCS);
+    var ctx = _getAuthContext();
+    var ws = ctx.ss.getSheetByName(SHEET_BIBLIO_DOCS);
     if (!ws) return { items: [] };
     var lr = ws.getLastRow();
     if (lr < 2) return { items: [] };
-    var data = ws.getRange(2, 1, lr - 1, 7).getValues();
+    var lc = ws.getLastColumn();
+    var wide = lc >= _BIB_COLS; // true = schema nuevo (16); false = viejo (7)
+    var data = ws.getRange(2, 1, lr - 1, Math.min(lc, _BIB_COLS)).getValues();
     var items = [];
     data.forEach(function(r) {
       var id = (r[0] || '').toString().trim();
       var nombre = (r[1] || '').toString().trim();
       if (!id || !nombre) return;
-      items.push({
-        id: id, nombre: nombre,
-        tipo: (r[2] || 'link').toString().trim().toLowerCase(),
-        url: (r[3] || '').toString().trim(),
-        categoria: (r[4] || '').toString().trim(),
-        autor: (r[5] || '').toString().trim(),
-        fecha: (r[6] || '').toString().trim()
-      });
+      if (wide) {
+        items.push({
+          id: id, nombre: nombre,
+          tipo: (r[2] || 'link').toString().trim().toLowerCase(),
+          url: (r[3] || '').toString().trim(),
+          tipoDocumento: (r[4] || '').toString().trim() || 'Otro',
+          areaTrabajo: (r[5] || '').toString().trim() || 'Operativo',
+          pais: (r[6] || '').toString().trim() || 'CO',
+          confidencialidad: (r[7] || '').toString().trim().toLowerCase() || 'estandar',
+          tags: (r[8] || '').toString().trim(),
+          autor: (r[9] || '').toString().trim(),
+          autorEmail: (r[10] || '').toString().trim(),
+          fecha: (r[11] || '').toString().trim(),
+          vigente: (r[12] || '').toString().trim().toLowerCase() || 'si',
+          notas: (r[13] || '').toString().trim(),
+          actualizadoPor: (r[14] || '').toString().trim(),
+          fechaActualizado: (r[15] || '').toString().trim()
+        });
+      } else {
+        // Schema viejo (7 cols): id|nombre|tipo|url|categoria|autor|fecha.
+        // Defaults seguros para que la vista funcione antes de migrar.
+        items.push({
+          id: id, nombre: nombre,
+          tipo: (r[2] || 'link').toString().trim().toLowerCase(),
+          url: (r[3] || '').toString().trim(),
+          tipoDocumento: 'Otro', areaTrabajo: 'Operativo', pais: 'CO', confidencialidad: 'estandar',
+          tags: (r[4] || '').toString().trim(), // categoria vieja
+          autor: (r[5] || '').toString().trim(), autorEmail: '',
+          fecha: (r[6] || '').toString().trim(),
+          vigente: 'si', notas: '', actualizadoPor: '', fechaActualizado: ''
+        });
+      }
     });
-    return { items: items };
+    return { items: _filterBibDocsForRole(items, ctx) };
   });
 }
 
-function addBibliotecaDocLink(nombre, url, categoria) {
+function addBibliotecaDocLink(nombre, url, metadata) {
   return _telemetry('addBibliotecaDocLink', function() {
     return _safeMutation(function() {
       var ctx = _getAuthContext();
       var u = (url || '').toString().trim();
       if (!u) return { success: false, error: 'Pegá un enlace.' };
       if (!/^https?:\/\//i.test(u)) return { success: false, error: 'El enlace debe empezar con http:// o https://' };
-      var nm = (nombre || '').toString().trim().slice(0, 120) || u.slice(0, 80);
-      var cat = (categoria || '').toString().trim().slice(0, 40);
+      var v = _bibValidateMeta(metadata, ctx.role);
+      if (!v.ok) return { success: false, error: v.error };
       var ws = _ensureBiblioDocsSheet(ctx.ss);
+      if (ws.getLastColumn() < _BIB_COLS) return { success: false, error: 'La Biblioteca necesita migración: pedile a un head que corra migrateBiblioDocsSchema().' };
+      var nm = (nombre || '').toString().trim().slice(0, 120) || u.slice(0, 80);
+      var m = v.meta, now = new Date().toISOString();
       var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);
-      ws.appendRow(_sanitizeRow([id, nm, 'link', u, cat, (ctx.user && ctx.user.name) || ctx.email || '', new Date().toISOString()]));
+      ws.appendRow(_sanitizeRow([id, nm, 'link', u, m.tipoDocumento, m.areaTrabajo, m.pais, m.confidencialidad, m.tags, (ctx.user && ctx.user.name) || ctx.email || '', ctx.email || '', now, 'si', m.notas, '', '']));
       return { success: true, id: id };
     });
   }, {});
 }
 
-function uploadBibliotecaDocFile(fileData, categoria) {
+function uploadBibliotecaDocFile(fileData, metadata) {
   return _telemetry('uploadBibliotecaDocFile', function() {
     return _safeMutation(function() {
       var ctx = _getAuthContext();
@@ -2285,14 +2424,17 @@ function uploadBibliotecaDocFile(fileData, categoria) {
       var mime = (fileData.mimeType || '').toString().trim().toLowerCase();
       if (!_UPLOAD_ALLOWED_MIME[mime]) return { success: false, error: 'Tipo de archivo no permitido' };
       if (fileData.data.length * 0.75 > _UPLOAD_MAX_BYTES) return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
+      var v = _bibValidateMeta(metadata, ctx.role);
+      if (!v.ok) return { success: false, error: v.error };
+      var ws = _ensureBiblioDocsSheet(ctx.ss);
+      if (ws.getLastColumn() < _BIB_COLS) return { success: false, error: 'La Biblioteca necesita migración: pedile a un head que corra migrateBiblioDocsSchema().' };
       var bytes = Utilities.base64Decode(fileData.data);
       if (bytes.length > _UPLOAD_MAX_BYTES) return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
       var folder = _ensureSubfolder(_getRootFolder(), 'Biblioteca');
       var file = folder.createFile(Utilities.newBlob(bytes, mime, fileData.name));
-      var cat = (categoria || '').toString().trim().slice(0, 40);
-      var ws = _ensureBiblioDocsSheet(ctx.ss);
+      var m = v.meta, now = new Date().toISOString();
       var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);
-      ws.appendRow(_sanitizeRow([id, file.getName(), 'file', file.getUrl(), cat, (ctx.user && ctx.user.name) || ctx.email || '', new Date().toISOString()]));
+      ws.appendRow(_sanitizeRow([id, file.getName(), 'file', file.getUrl(), m.tipoDocumento, m.areaTrabajo, m.pais, m.confidencialidad, m.tags, (ctx.user && ctx.user.name) || ctx.email || '', ctx.email || '', now, 'si', m.notas, '', '']));
       return { success: true, id: id, url: file.getUrl() };
     });
   }, {});
@@ -2308,20 +2450,89 @@ function deleteBibliotecaDoc(id) {
       if (!ws) return { success: false, error: 'No hay documentos.' };
       var lr = ws.getLastRow();
       if (lr < 2) return { success: false, error: 'No hay documentos.' };
-      var data = ws.getRange(2, 1, lr - 1, 6).getValues();
-      var rowIdx = -1, autor = '';
+      var lc = ws.getLastColumn();
+      var wide = lc >= _BIB_COLS;
+      var data = ws.getRange(2, 1, lr - 1, Math.min(lc, _BIB_COLS)).getValues();
+      var rowIdx = -1, autor = '', autorEmail = '', docPais = '';
       for (var i = 0; i < data.length; i++) {
-        if ((data[i][0] || '').toString().trim() === did) { rowIdx = i + 2; autor = (data[i][5] || '').toString().trim(); break; }
+        if ((data[i][0] || '').toString().trim() === did) {
+          rowIdx = i + 2;
+          autor = (data[i][wide ? 9 : 5] || '').toString().trim();
+          autorEmail = (wide ? (data[i][10] || '') : '').toString().toLowerCase();
+          docPais = (wide ? (data[i][6] || '') : '').toString().trim();
+          break;
+        }
       }
       if (rowIdx < 0) return { success: false, error: 'Documento no encontrado.' };
-      var isManager = (ctx.role === 'manager' || ctx.role === 'head');
-      if (!isManager && _normalizeName(autor) !== _normalizeName((ctx.user && ctx.user.name) || '')) {
-        return { success: false, error: 'Solo podés eliminar tus propios documentos.' };
+      var isAuthor = (ctx.email && autorEmail && ctx.email.toLowerCase() === autorEmail)
+                  || _normalizeName(autor) === _normalizeName((ctx.user && ctx.user.name) || '');
+      var isMgrOfCountry = ctx.role === 'manager' && _bibUserCountry(ctx) === docPais;
+      if (ctx.role !== 'head' && !isAuthor && !isMgrOfCountry) {
+        return { success: false, error: 'Solo el autor, el manager del país o un head pueden eliminar este documento.' };
       }
       ws.deleteRow(rowIdx); // el archivo en Drive no se borra (queda en la carpeta Biblioteca)
       return { success: true, id: did };
     });
   }, {});
+}
+
+// Edita SOLO la metadata (cols 5-9, 14-16) de un doc existente — no toca
+// id/nombre/tipo/url ni autor/fecha de creación. Permisos: autor, manager del
+// país del doc, o head.
+function updateBibliotecaDocMeta(docId, metadata) {
+  return _telemetry('updateBibliotecaDocMeta', function() {
+    return _safeMutation(function() {
+      var ctx = _getAuthContext();
+      var did = (docId || '').toString().trim();
+      if (!did) return { success: false, error: 'ID requerido.' };
+      var v = _bibValidateMeta(metadata, ctx.role);
+      if (!v.ok) return { success: false, error: v.error };
+      var ws = ctx.ss.getSheetByName(SHEET_BIBLIO_DOCS);
+      if (!ws || ws.getLastColumn() < _BIB_COLS) return { success: false, error: 'Biblioteca no disponible o sin migrar.' };
+      var lr = ws.getLastRow();
+      if (lr < 2) return { success: false, error: 'No hay documentos.' };
+      var data = ws.getRange(2, 1, lr - 1, _BIB_COLS).getValues();
+      var rowIdx = -1, row = null;
+      for (var i = 0; i < data.length; i++) {
+        if ((data[i][0] || '').toString().trim() === did) { rowIdx = i + 2; row = data[i]; break; }
+      }
+      if (rowIdx < 0) return { success: false, error: 'Documento no encontrado.' };
+      var docPais = (row[6] || '').toString().trim();
+      var docAutorEmail = (row[10] || '').toString().toLowerCase();
+      var docAutor = (row[9] || '').toString();
+      var isAuthor = (ctx.email && docAutorEmail && ctx.email.toLowerCase() === docAutorEmail)
+                  || _normalizeName(docAutor) === _normalizeName((ctx.user && ctx.user.name) || '');
+      var isMgrOfCountry = ctx.role === 'manager' && _bibUserCountry(ctx) === docPais;
+      if (ctx.role !== 'head' && !isAuthor && !isMgrOfCountry) {
+        return { success: false, error: 'No tenés permiso para editar este documento.' };
+      }
+      var m = v.meta;
+      ws.getRange(rowIdx, 5).setValue(_sanitizeCell(m.tipoDocumento));
+      ws.getRange(rowIdx, 6).setValue(_sanitizeCell(m.areaTrabajo));
+      ws.getRange(rowIdx, 7).setValue(_sanitizeCell(m.pais));
+      ws.getRange(rowIdx, 8).setValue(_sanitizeCell(m.confidencialidad));
+      ws.getRange(rowIdx, 9).setValue(_sanitizeCell(m.tags));
+      ws.getRange(rowIdx, 14).setValue(_sanitizeCell(m.notas));
+      ws.getRange(rowIdx, 15).setValue(_sanitizeCell((ctx.user && ctx.user.name) || ctx.email || ''));
+      ws.getRange(rowIdx, 16).setValue(new Date().toISOString());
+      return { success: true, id: did };
+    });
+  }, { docId: docId });
+}
+
+// Vocabularios + contexto del usuario para poblar los dropdowns del frontend.
+function getBibliotecaConfig() {
+  return _telemetry('getBibliotecaConfig', function() {
+    var ctx = _getAuthContext();
+    return {
+      tiposDocumento: _BIB_TIPOS_DOC,
+      areas: _BIB_AREAS,
+      paises: _BIB_PAISES,
+      confidencialidad: _BIB_CONFID,
+      userCountry: (ctx.user && ctx.user.code) || 'CO',
+      userRole: ctx.role
+    };
+  });
 }
 
 // ════════════════════════════════════════════════════════════════
