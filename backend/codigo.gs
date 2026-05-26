@@ -2259,6 +2259,7 @@ function uploadBibliotecaDocFile(fileData, categoria) {
       if (!fileData || !fileData.data || !fileData.name) return { success: false, error: 'Datos de archivo inválidos' };
       var mime = (fileData.mimeType || '').toString().trim().toLowerCase();
       if (!_UPLOAD_ALLOWED_MIME[mime]) return { success: false, error: 'Tipo de archivo no permitido' };
+      if (fileData.data.length * 0.75 > _UPLOAD_MAX_BYTES) return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
       var bytes = Utilities.base64Decode(fileData.data);
       if (bytes.length > _UPLOAD_MAX_BYTES) return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
       var folder = _ensureSubfolder(_getRootFolder(), 'Biblioteca');
@@ -2890,6 +2891,12 @@ function _uploadDocumentImpl(kind, itemId, fileData) {
     return { success: false, error: e.message };
   }
 
+  // Cap ANTES de decodificar: base64 infla ~33% y materializar un archivo
+  // enorme en memoria puede agotar el límite de ejecución antes del guard.
+  // data.length * 0.75 ≈ bytes reales.
+  if (fileData.data.length * 0.75 > _UPLOAD_MAX_BYTES) {
+    return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
+  }
   var bytes = Utilities.base64Decode(fileData.data);
   // Cap de tamaño para evitar agotar cuota de Drive del owner del webapp.
   if (bytes.length > _UPLOAD_MAX_BYTES) {
