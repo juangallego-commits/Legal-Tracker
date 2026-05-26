@@ -1518,7 +1518,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 .pa-next-task {
   background: var(--bg-1);
   border: 1px solid var(--line-2);
-  border-radius: 12px;
+  border-radius: var(--r-3);
   padding: 18px 20px;
   margin-bottom: 8px;
   cursor: pointer;
@@ -2604,7 +2604,7 @@ table tr:hover td { background: var(--bg-2); }
 .cr-step, .crp-step {
   flex: 1; display: flex; align-items: center; gap: 8px;
   padding: 8px 12px; border-radius: 6px;
-  background: var(--bg-2); color: var(--fg-3);
+  background: var(--bg-2); color: var(--fg-2);
   font-size: 12px; font-weight: 500;
   cursor: default;
   border: 1px solid transparent;
@@ -2749,7 +2749,7 @@ table tr:hover td { background: var(--bg-2); }
    ═══════════════════════════════════════════════════════════════ */
 .ag-tabs {
   display: flex; gap: 6px;
-  padding: 0 0 14px; margin: 16px 0 14px;
+  padding: 0 0 14px; margin: 8px 0 14px;
   border-bottom: 1px solid var(--line-1);
 }
 .ag-tab {
@@ -3354,7 +3354,7 @@ textarea.lt-invalid { border-color: var(--critical) !important; }
 
 /* ── Calendario · vista semana (reuniones + deadlines de tareas) ── */
 .cal-week { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-top:14px; align-items:stretch; }
-.cal-col { background:var(--bg-1); border:1px solid var(--line-1); border-radius:10px; display:flex; flex-direction:column; min-height:360px; overflow:hidden; }
+.cal-col { background:var(--bg-1); border:1px solid var(--line-1); border-radius:10px; display:flex; flex-direction:column; min-height:280px; overflow:hidden; }
 .cal-col.is-today { border-color:var(--accent); }
 .cal-col-h { display:flex; align-items:baseline; gap:6px; padding:8px 10px; border-bottom:1px solid var(--line-1); background:var(--bg-2); }
 .cal-col.is-today .cal-col-h { background:var(--accent-soft, var(--bg-2)); }
@@ -3519,6 +3519,19 @@ textarea.lt-invalid { border-color: var(--critical) !important; }
 
 @media (max-width: 720px) {
   .hq-summary-band { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── UI polish · Proyectos vacío: centrar verticalmente. El id real del view es
+   vEdProyectosIndex y su empty usa .pa-card (no .pa-empty), así que marcamos la
+   card con .pa-empty-projects para el :has(). Solo aplica cuando está vacío. ── */
+#vEdProyectosIndex .pa-page:has(.pa-empty-projects) {
+  display: flex;
+  flex-direction: column;
+  min-height: 70vh;
+}
+#vEdProyectosIndex .pa-page:has(.pa-empty-projects) .pa-empty-projects {
+  margin-top: auto;
+  margin-bottom: auto;
 }
 
 </style>
