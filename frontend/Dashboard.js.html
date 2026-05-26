@@ -6308,7 +6308,7 @@ function _renderTkPanel(sel) {
        +    '</div>'
        +    '</div>' // close tk-panel-sticky
        +    '<div class="tk-status-block">'
-       +      '<div class="lbl">Estado actual</div>'
+       +      '<div class="lbl">' + esc(t('Estado actual')) + '</div>'
        +      '<div class="body">' + stateBody + '</div>'
        +    '</div>'
        +    '<div class="tk-fields">';
@@ -6324,7 +6324,7 @@ function _renderTkPanel(sel) {
   ];
   fields.forEach(function(f) {
     html += '<div class="tk-field">'
-         +    '<span class="tk-field-lbl">' + paIcon(f.icon, 12) + ' ' + esc(f.l) + '</span>'
+         +    '<span class="tk-field-lbl">' + paIcon(f.icon, 12) + ' ' + esc(t(f.l)) + '</span>'
          +    '<span class="tk-field-val' + (f.warn ? ' is-warn' : '') + '"' + (f.editable ? ' onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')"' : '') + '>'
          +      '<span>' + esc(f.v) + '</span>'
          +      (f.editable ? paIcon('chevD', 10, 'caret') : '')
@@ -6335,7 +6335,7 @@ function _renderTkPanel(sel) {
 
   // Notas
   html += '<div class="tk-section">'
-       +    '<div class="tk-section-h">Notas</div>'
+       +    '<div class="tk-section-h">' + esc(t('Notas')) + '</div>'
        +    (sel.status === 'Listo'
             ? '<textarea class="tk-notes" readonly placeholder="Sin notas…" style="width:100%;border:1px solid var(--line-1);background:var(--bg-2);color:var(--fg-2);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>'
             : '<textarea class="tk-notes" data-task-id="' + esc(sel.id) + '" placeholder="Sin notas…" oninput="edPanelAutosizeNotes(this)" onblur="edPanelSaveNotes(this)" style="width:100%;border:1px solid var(--line-1);background:var(--bg-1);color:var(--fg-1);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>')
@@ -6355,17 +6355,17 @@ function _renderTkPanel(sel) {
   // Comments count se desconoce hasta que async load termine — leave dynamic
   html += '<aside class="tk-panel-rail">'
        +    '<div class="tk-panel-tabs" data-task-id="' + esc(sel.id) + '">'
-       +      '<button class="tk-panel-tab is-active" data-pane="comments" onclick="edTkPanelSwitchTab(this)">Comentarios <span class="ct" id="tkCommentsCount">· 0</span></button>'
-       +      '<button class="tk-panel-tab" data-pane="docs" onclick="edTkPanelSwitchTab(this)">Documentos <span class="ct">· ' + docsCount + '</span></button>'
+       +      '<button class="tk-panel-tab is-active" data-pane="comments" onclick="edTkPanelSwitchTab(this)">' + esc(t('Comentarios')) + ' <span class="ct" id="tkCommentsCount">· 0</span></button>'
+       +      '<button class="tk-panel-tab" data-pane="docs" onclick="edTkPanelSwitchTab(this)">' + esc(t('Documentos')) + ' <span class="ct">· ' + docsCount + '</span></button>'
        +    '</div>'
        +    '<div class="tk-panel-rail-body" data-task-id="' + esc(sel.id) + '">'
        +      '<div class="tk-pane" data-pane="comments">'
        +        '<div class="tk-comments" id="tkComments"><div style="color:var(--fg-3);font-size:12px">Cargando conversación…</div></div>'
        +      '</div>'
        +      '<div class="tk-pane" data-pane="docs" style="display:none">'
-       +        '<div class="tk-section-h" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--fg-3);margin-bottom:10px">Documentos</div>';
+       +        '<div class="tk-section-h" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--fg-3);margin-bottom:10px">' + esc(t('Documentos')) + '</div>';
   if (docs.length === 0) {
-    html += '<div style="font-size:12px;color:var(--fg-3)">Sin documentos adjuntos</div>';
+    html += '<div style="font-size:12px;color:var(--fg-3)">' + esc(t('Sin documentos adjuntos')) + '</div>';
   } else {
     docs.forEach(function(d, idx) {
       // d.url puede venir como string. d.kind = 'task' (siempre acá). Link
@@ -6394,8 +6394,8 @@ function _renderTkPanel(sel) {
     });
   }
   html += '<div style="display:flex;gap:6px;margin-top:8px">'
-       +    '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center" onclick="edTkToggleLinkForm()">' + paIcon('paperclip', 11) + ' Adjuntar enlace</button>'
-       +    '<label class="pa-btn pa-btn-outline" style="flex:1;justify-content:center;cursor:pointer">' + paIcon('save', 11) + ' Subir archivo'
+       +    '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center" onclick="edTkToggleLinkForm()">' + paIcon('paperclip', 11) + ' ' + esc(t('Adjuntar enlace')) + '</button>'
+       +    '<label class="pa-btn pa-btn-outline" style="flex:1;justify-content:center;cursor:pointer">' + paIcon('save', 11) + ' ' + esc(t('Subir archivo'))
        +      '<input type="file" id="tkDocFileInput" data-task-id="' + esc(sel.id) + '" style="display:none" onchange="edTkUploadFile(this)">'
        +    '</label>'
        + '</div>'
