@@ -2904,6 +2904,12 @@ function edSearchOpen() {
   _edSearchEnsureMounted();
   var ov = $('edSearchOv'); if (!ov) return;
   ov.classList.add('show');
+  // Cargar docs de Biblioteca (lazy) para que el buscador los encuentre aunque
+  // el usuario no haya entrado nunca a la vista Biblioteca. Al terminar,
+  // re-render si el buscador sigue abierto.
+  if (typeof _BIBDOCS_CACHE !== 'undefined' && _BIBDOCS_CACHE == null && typeof _loadBibDocs === 'function') {
+    _loadBibDocs(function(){ if ($('edSearchOv') && $('edSearchOv').classList.contains('show')) _edSearchRender(); });
+  }
   var inp = $('edSearchInput');
   if (inp) {
     inp.value = EDS.query || '';
@@ -3078,6 +3084,17 @@ function _edSearchFilter(query) {
       }
     }
   }
+  // Documentos de la Biblioteca (sheet BibliotecaDocs). Se cargan lazy vía
+  // _loadBibDocs; si el cache está poblado los incluimos. Matchea por nombre +
+  // categoría. Mapeamos nombre→name para reusar el render de documentos.
+  var bibDocs = (typeof _BIBDOCS_CACHE !== 'undefined' && _BIBDOCS_CACHE) ? _BIBDOCS_CACHE : [];
+  for (var bi = 0; bi < bibDocs.length && out.length < 160; bi++) {
+    var bd = bibDocs[bi];
+    var bdHay = ((bd.nombre || '') + ' ' + (bd.categoria || '')).toLowerCase();
+    if (bdHay.indexOf(q) >= 0) {
+      out.push({ kind: 'document', item: { name: bd.nombre, url: bd.url }, biblioteca: true, bibCategoria: bd.categoria || '' });
+    }
+  }
   return out;
 }
 
@@ -3172,6 +3189,7 @@ function _edSearchRender() {
       var url = (d.url || '#').replace(/'/g, '%27');
       var ctx = r.taskId ? ('Tarea ' + r.taskId + ' · ' + (r.taskName || ''))
               : r.projectId ? ('Proyecto · ' + (r.projectName || ''))
+              : r.biblioteca ? ('Biblioteca' + (r.bibCategoria ? ' · ' + r.bibCategoria : ''))
               : '';
       // Confidentiality indicator (solo de tareas; backend ya filtra
       // los confidenciales que el usuario no puede ver).
@@ -3180,7 +3198,7 @@ function _edSearchRender() {
         var meta = (typeof ED_CONF_LEVELS !== 'undefined' && ED_CONF_LEVELS[r.confLevel]) || { label: r.confLevel };
         confChip = '<span class="ed-search-conf ' + r.confLevel + '" title="' + esc(meta.label) + '">' + esc(meta.label) + '</span>';
       }
-      html += '<div class="ed-search-result" onclick="edSearchPickDoc(\'' + esc(url) + '\',\'' + esc(r.taskId || r.projectId || '') + '\',\'' + (r.taskId ? 'task' : 'project') + '\')">'
+      html += '<div class="ed-search-result" onclick="edSearchPickDoc(\'' + esc(url) + '\',\'' + esc(r.taskId || r.projectId || '') + '\',\'' + (r.taskId ? 'task' : (r.biblioteca ? 'biblioteca' : 'project')) + '\')">'
            +    '<span class="ed-search-r-kind">documento</span>'
            +    '<span class="ed-search-r-id">📄</span>'
            +    '<span class="ed-search-r-name">' + _edSearchHighlight(d.name || 'Documento', q) + '</span>'
