@@ -2295,13 +2295,15 @@ function deleteBibliotecaDoc(id) {
 // cual ocurre si la visibilidad interna del Workspace de Rappi permite ver los
 // detalles de los eventos entre colegas. NO se cae al calendario del owner como
 // fallback: eso filtraría los eventos del owner a todos los usuarios.
+// Devuelve { cal, reason } — reason es un código diagnóstico para entender
+// (vía el log de ejecución) en qué paso se resuelve o falla la lógica.
 function _resolveUserCalendar() {
   var email = '';
   try { email = (Session.getActiveUser().getEmail() || '').toString().trim(); } catch (e) {}
-  if (!email) return null;
-  var cal = null;
-  try { cal = CalendarApp.getCalendarById(email); } catch (e) { cal = null; }
-  if (cal) return cal;
+  if (!email) return { cal: null, reason: 'sin_email' };
+  var cal = null, calErr = '';
+  try { cal = CalendarApp.getCalendarById(email); } catch (e) { calErr = (e && e.message) || String(e); }
+  if (cal) return { cal: cal, reason: 'byId', email: email };
   // getCalendarById() a veces devuelve null para el calendario PRIMARIO propio.
   // Si el visitante es el mismo usuario efectivo bajo el que corre el script (el
   // owner del deployment), getDefaultCalendar() trae su primario de forma
@@ -2310,17 +2312,25 @@ function _resolveUserCalendar() {
   // (funciona por la visibilidad interna del Workspace).
   var effEmail = '';
   try { effEmail = (Session.getEffectiveUser().getEmail() || '').toString().trim(); } catch (e) {}
-  if (effEmail && email.toLowerCase() === effEmail.toLowerCase()) {
-    try { return CalendarApp.getDefaultCalendar(); } catch (e) {}
+  var esOwner = effEmail && email.toLowerCase() === effEmail.toLowerCase();
+  if (esOwner) {
+    try {
+      var def = CalendarApp.getDefaultCalendar();
+      if (def) return { cal: def, reason: 'default', email: email };
+      return { cal: null, reason: 'default_null;eff=' + effEmail };
+    } catch (e2) {
+      return { cal: null, reason: 'default_err:' + ((e2 && e2.message) || e2) };
+    }
   }
-  return null;
+  return { cal: null, reason: 'byId_null' + (calErr ? '_err:' + calErr : '') + ';eff=' + (effEmail || '∅') + ';owner=' + esOwner };
 }
 
 // Próximos eventos (~14 días) del calendario propio del visitante. Read-only.
 function getUpcomingCalendarEvents() {
   return _telemetry('getUpcomingCalendarEvents', function() {
-    var cal = _resolveUserCalendar();
-    if (!cal) return { items: [], error: 'No pude acceder a tu calendario. Revisá que tu calendario de Rappi sea visible para el equipo y que hayas autorizado el permiso de Calendar.' };
+    var r = _resolveUserCalendar();
+    var cal = r.cal;
+    if (!cal) return { items: [], error: 'No pude acceder a tu calendario. Revisá que tu calendario de Rappi sea visible para el equipo y que hayas autorizado el permiso de Calendar. [diag: ' + r.reason + ']' };
     var now = new Date();
     var until = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
     var tz = 'America/Bogota';
@@ -2347,7 +2357,7 @@ function getUpcomingCalendarEvents() {
 // plazo, descripción → notas, asignada al usuario actual. Reusa addTask.
 function createTaskFromCalendarEvent(eventId) {
   return _telemetry('createTaskFromCalendarEvent', function() {
-    var cal = _resolveUserCalendar();
+    var cal = _resolveUserCalendar().cal;
     if (!cal) return { success: false, error: 'No pude acceder a tu calendario.' };
     var ev = null;
     try { ev = cal.getEventById(eventId); } catch (e) {}
