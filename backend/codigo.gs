@@ -2299,7 +2299,21 @@ function _resolveUserCalendar() {
   var email = '';
   try { email = (Session.getActiveUser().getEmail() || '').toString().trim(); } catch (e) {}
   if (!email) return null;
-  try { return CalendarApp.getCalendarById(email); } catch (e) { return null; }
+  var cal = null;
+  try { cal = CalendarApp.getCalendarById(email); } catch (e) { cal = null; }
+  if (cal) return cal;
+  // getCalendarById() a veces devuelve null para el calendario PRIMARIO propio.
+  // Si el visitante es el mismo usuario efectivo bajo el que corre el script (el
+  // owner del deployment), getDefaultCalendar() trae su primario de forma
+  // confiable. NO se aplica a otros visitantes: ahí el default sería el del
+  // owner → fuga de sus eventos. Para ellos vale el getCalendarById de arriba
+  // (funciona por la visibilidad interna del Workspace).
+  var effEmail = '';
+  try { effEmail = (Session.getEffectiveUser().getEmail() || '').toString().trim(); } catch (e) {}
+  if (effEmail && email.toLowerCase() === effEmail.toLowerCase()) {
+    try { return CalendarApp.getDefaultCalendar(); } catch (e) {}
+  }
+  return null;
 }
 
 // Próximos eventos (~14 días) del calendario propio del visitante. Read-only.
