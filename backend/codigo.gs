@@ -2289,23 +2289,24 @@ function deleteBibliotecaDoc(id) {
 // ════════════════════════════════════════════════════════════════
 // GOOGLE CALENDAR (read-only) · ver eventos + crear tareas desde ellos
 // ════════════════════════════════════════════════════════════════
-// Calendario del equipo: Config!CalendarId (ID del calendario compartido).
-// Fallback al calendario primario del usuario si no está configurado.
-function _resolveTeamCalendar() {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
-  var config = readConfig(ss);
-  var calId = (config['CalendarId'] || config['calendarId'] || '').toString().trim();
-  if (calId) {
-    try { var c = CalendarApp.getCalendarById(calId); if (c) return c; } catch (e) {}
-  }
-  try { return CalendarApp.getDefaultCalendar(); } catch (e) { return null; }
+// Calendario PROPIO del visitante. El web app corre como el owner (executeAs:
+// USER_DEPLOYING), así que CalendarApp.getCalendarById(email) sólo devuelve los
+// eventos del visitante si su calendario es legible por la cuenta owner — lo
+// cual ocurre si la visibilidad interna del Workspace de Rappi permite ver los
+// detalles de los eventos entre colegas. NO se cae al calendario del owner como
+// fallback: eso filtraría los eventos del owner a todos los usuarios.
+function _resolveUserCalendar() {
+  var email = '';
+  try { email = (Session.getActiveUser().getEmail() || '').toString().trim(); } catch (e) {}
+  if (!email) return null;
+  try { return CalendarApp.getCalendarById(email); } catch (e) { return null; }
 }
 
-// Próximos eventos (~14 días) del calendario del equipo. Read-only.
+// Próximos eventos (~14 días) del calendario propio del visitante. Read-only.
 function getUpcomingCalendarEvents() {
   return _telemetry('getUpcomingCalendarEvents', function() {
-    var cal = _resolveTeamCalendar();
-    if (!cal) return { items: [], error: 'No hay calendario disponible. Configurá Config!CalendarId.' };
+    var cal = _resolveUserCalendar();
+    if (!cal) return { items: [], error: 'No pude acceder a tu calendario. Revisá que tu calendario de Rappi sea visible para el equipo y que hayas autorizado el permiso de Calendar.' };
     var now = new Date();
     var until = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
     var tz = 'America/Bogota';
@@ -2332,8 +2333,8 @@ function getUpcomingCalendarEvents() {
 // plazo, descripción → notas, asignada al usuario actual. Reusa addTask.
 function createTaskFromCalendarEvent(eventId) {
   return _telemetry('createTaskFromCalendarEvent', function() {
-    var cal = _resolveTeamCalendar();
-    if (!cal) return { success: false, error: 'No hay calendario disponible.' };
+    var cal = _resolveUserCalendar();
+    if (!cal) return { success: false, error: 'No pude acceder a tu calendario.' };
     var ev = null;
     try { ev = cal.getEventById(eventId); } catch (e) {}
     if (!ev) return { success: false, error: 'Evento no encontrado.' };

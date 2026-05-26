@@ -9790,10 +9790,10 @@ function rEdCalendar(D) {
        +    '<span class="pa-page-sub">' + esc(t('próximos 14 días')) + '</span>'
        +    '<div class="pa-page-meta"><button class="pa-btn pa-btn-outline" onclick="_CALEV_CACHE=null;rEdCalendar(D)">' + paIcon('refresh', 12) + ' ' + esc(t('Actualizar')) + '</button></div>'
        + '</div>';
-  html += '<div class="pa-narrative">' + esc(t('Eventos de tu Google Calendar del equipo, acá mismo. Creá una tarea desde cualquier evento con un click — sin saltar a Calendar.')) + '</div>';
+  html += '<div class="pa-narrative">' + esc(t('Tus eventos de Google Calendar, acá mismo. Creá una tarea desde cualquier evento con un click — sin saltar a Calendar.')) + '</div>';
 
   if (err) {
-    html += paEmpty('calendar', t('No pude leer el calendario.'), esc(err) + ' ' + esc(t('Configurá Config!CalendarId o revisá los permisos de Calendar.')));
+    html += paEmpty('calendar', t('No pude leer el calendario.'), esc(err));
     html += '</div>'; v.innerHTML = html; return;
   }
   if (!events.length) {
