@@ -2325,24 +2325,36 @@ function _resolveUserCalendar() {
   return { cal: null, reason: 'byId_null' + (calErr ? '_err:' + calErr : '') + ';eff=' + (effEmail || '∅') + ';owner=' + esOwner };
 }
 
-// Próximos eventos (~14 días) del calendario propio del visitante. Read-only.
-function getUpcomingCalendarEvents() {
+// Eventos del calendario propio del visitante en un rango. Read-only.
+// fromIso (yyyy-MM-dd) + days opcionales: por default arranca hoy y trae 14
+// días. La vista semana pide una semana puntual (fromIso = lunes, days = 7).
+function getUpcomingCalendarEvents(fromIso, days) {
   return _telemetry('getUpcomingCalendarEvents', function() {
     var r = _resolveUserCalendar();
     var cal = r.cal;
     if (!cal) return { items: [], error: 'No pude acceder a tu calendario. Revisá que tu calendario de Rappi sea visible para el equipo y que hayas autorizado el permiso de Calendar. [diag: ' + r.reason + ']' };
-    var now = new Date();
-    var until = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
     var tz = 'America/Bogota';
+    var from;
+    if (fromIso && /^\d{4}-\d{2}-\d{2}$/.test(fromIso)) {
+      var p = fromIso.split('-'); from = new Date(+p[0], +p[1] - 1, +p[2], 0, 0, 0);
+    } else {
+      from = new Date();
+    }
+    var span = (typeof days === 'number' && days > 0) ? days : 14;
+    var until = new Date(from.getTime() + span * 24 * 60 * 60 * 1000);
     var events;
-    try { events = cal.getEvents(now, until); } catch (e) { return { items: [], error: 'No pude leer el calendario (¿permisos?).' }; }
+    try { events = cal.getEvents(from, until); } catch (e) { return { items: [], error: 'No pude leer el calendario (¿permisos?).' }; }
     var items = events.map(function(ev) {
       var start = ev.getStartTime();
+      var end = ev.getEndTime();
       var allDay = ev.isAllDayEvent();
       return {
         id: ev.getId(),
         title: ev.getTitle() || '(sin título)',
         startIso: start ? Utilities.formatDate(start, tz, 'yyyy-MM-dd') : '',
+        startMs: start ? start.getTime() : null,
+        endMs: end ? end.getTime() : null,
+        timeLabel: (start && !allDay) ? Utilities.formatDate(start, tz, 'HH:mm') : '',
         startLabel: start ? Utilities.formatDate(start, tz, allDay ? 'EEE d MMM' : 'EEE d MMM · HH:mm') : '',
         allDay: allDay,
         desc: (ev.getDescription() || '').toString().slice(0, 500),
@@ -2353,8 +2365,10 @@ function getUpcomingCalendarEvents() {
   });
 }
 
-// Crea una tarea del Tracker a partir de un evento: título → nombre, fecha →
-// plazo, descripción → notas, asignada al usuario actual. Reusa addTask.
+// Crea una tarea de SEGUIMIENTO a partir de un evento (reunión). Una reunión no
+// es un entregable, así que NO se mapea 1:1: el deadline default es 2 días
+// hábiles DESPUÉS de la reunión y el evento queda como contexto en notas (no se
+// vuelca la descripción entera). Asignada al usuario actual.
 function createTaskFromCalendarEvent(eventId) {
   return _telemetry('createTaskFromCalendarEvent', function() {
     var cal = _resolveUserCalendar().cal;
@@ -2363,12 +2377,20 @@ function createTaskFromCalendarEvent(eventId) {
     try { ev = cal.getEventById(eventId); } catch (e) {}
     if (!ev) return { success: false, error: 'Evento no encontrado.' };
     var ctx = _getAuthContext();
+    var tz = 'America/Bogota';
     var start = ev.getStartTime();
+    var base = start || new Date();
+    // +2 días hábiles desde la reunión.
+    var due = new Date(base.getTime());
+    var added = 0;
+    while (added < 2) { due.setDate(due.getDate() + 1); var d = due.getDay(); if (d !== 0 && d !== 6) added++; }
+    var evTitle = (ev.getTitle() || 'reunión').toString().slice(0, 70);
+    var evDateLabel = start ? Utilities.formatDate(start, tz, 'd MMM yyyy') : '';
     var taskObj = {
-      nombre: (ev.getTitle() || 'Tarea de evento').toString().slice(0, 80),
+      nombre: ('Seguimiento: ' + evTitle).slice(0, 80),
       resp: (ctx.user && ctx.user.name) || '',
-      deadline: start ? Utilities.formatDate(start, 'America/Bogota', 'yyyy-MM-dd') : '',
-      notas: (ev.getDescription() || '').toString().slice(0, 500),
+      deadline: Utilities.formatDate(due, tz, 'yyyy-MM-dd'),
+      notas: 'Seguimiento de la reunión "' + evTitle + '"' + (evDateLabel ? ' (' + evDateLabel + ')' : '') + '.\n- ',
       priority: 'Media'
     };
     return _safeMutation(function() { return _addTaskImpl(taskObj); });

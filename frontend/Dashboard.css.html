@@ -3350,4 +3350,28 @@ textarea.lt-invalid { border-color: var(--critical) !important; }
   }
 }
 
+/* ── Calendario · vista semana (reuniones + deadlines de tareas) ── */
+.cal-week { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-top:14px; align-items:stretch; }
+.cal-col { background:var(--bg-1); border:1px solid var(--line-1); border-radius:10px; display:flex; flex-direction:column; min-height:360px; overflow:hidden; }
+.cal-col.is-today { border-color:var(--accent); }
+.cal-col-h { display:flex; align-items:baseline; gap:6px; padding:8px 10px; border-bottom:1px solid var(--line-1); background:var(--bg-2); }
+.cal-col.is-today .cal-col-h { background:var(--accent-soft, var(--bg-2)); }
+.cal-dow { font-size:11px; color:var(--fg-3); text-transform:uppercase; letter-spacing:.04em; }
+.cal-dnum { font-size:15px; font-weight:700; color:var(--fg-1); }
+.cal-col.is-today .cal-dnum { color:var(--accent); }
+.cal-col-body { display:flex; flex-direction:column; gap:5px; padding:8px; flex:1; }
+.cal-chip { display:flex; align-items:center; gap:5px; font-size:11px; line-height:1.3; padding:5px 7px; border-radius:6px; border:1px solid transparent; cursor:pointer; transition:filter .12s ease; }
+.cal-chip:hover { filter:brightness(1.08); }
+.cal-chip .cal-chip-t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.cal-chip svg { flex-shrink:0; }
+.cal-ev { background:var(--info-soft); border-color:var(--info); color:var(--fg-1); }
+.cal-ev-time { font-variant-numeric:tabular-nums; font-weight:700; color:var(--info-fg); flex-shrink:0; }
+.cal-task { font-weight:500; color:var(--fg-1); }
+.cal-task.tone-critical { background:var(--critical-soft); border-color:var(--critical); }
+.cal-task.tone-warn { background:var(--warn-soft); border-color:var(--warn); }
+.cal-task.tone-muted { background:var(--bg-2); border-color:var(--line-1); color:var(--fg-2); }
+.cal-empty { text-align:center; color:var(--fg-3); font-size:13px; padding-top:6px; user-select:none; opacity:.5; }
+@media (max-width: 920px) { .cal-week { grid-template-columns:repeat(2,1fr); } .cal-col { min-height:auto; } }
+@media (max-width: 560px) { .cal-week { grid-template-columns:1fr; } }
+
 </style>

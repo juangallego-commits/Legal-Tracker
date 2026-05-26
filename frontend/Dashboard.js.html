@@ -9767,76 +9767,116 @@ function edBibDocLinkSave() {
     .addBibliotecaDocLink(name, url, cat);
 }
 
-// ── Calendario (Google Calendar read-only) ──────────────────────
-var _CALEV_CACHE = null;
-function _loadCalEvents(cb) {
+// ── Calendario · vista semana (reuniones de Google + deadlines de tareas) ──
+var _CALEV_CACHE = null;     // { weekStart, items, error } de la semana visible
+var _CAL_WEEK_START = null;  // ISO (yyyy-MM-dd) del lunes de la semana visible
+
+function _calPad(n){ return (n < 10 ? '0' : '') + n; }
+function _calIso(d){ return d.getFullYear() + '-' + _calPad(d.getMonth()+1) + '-' + _calPad(d.getDate()); }
+function _calParse(iso){ var p = String(iso).split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }
+function _calAddDays(iso, n){ var d = _calParse(iso); d.setDate(d.getDate()+n); return _calIso(d); }
+function _calMonday(d){ var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); var dow = x.getDay(); x.setDate(x.getDate() + (dow === 0 ? -6 : 1 - dow)); return x; }
+var _CAL_DOW = (typeof LANG !== 'undefined' && LANG === 'pt')
+  ? ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'] : ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+var _CAL_MON = (typeof LANG !== 'undefined' && LANG === 'pt')
+  ? ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']
+  : ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+
+function _loadCalEvents(weekStart, cb) {
   google.script.run
-    .withSuccessHandler(function(res) { _CALEV_CACHE = res || { items: [] }; cb(); })
-    .withFailureHandler(function(e) { _CALEV_CACHE = { items: [], error: (e && e.message) || 'No se pudo leer el calendario.' }; cb(); })
-    .getUpcomingCalendarEvents();
+    .withSuccessHandler(function(res) { _CALEV_CACHE = { weekStart: weekStart, items: (res && res.items) || [], error: res && res.error }; cb(); })
+    .withFailureHandler(function(e) { _CALEV_CACHE = { weekStart: weekStart, items: [], error: (e && e.message) || 'No se pudo leer el calendario.' }; cb(); })
+    .getUpcomingCalendarEvents(weekStart, 7);
 }
+function edCalNav(deltaWeeks){ if (!_CAL_WEEK_START) return; _CAL_WEEK_START = _calAddDays(_CAL_WEEK_START, deltaWeeks*7); _CALEV_CACHE = null; rEdCalendar(D); }
+function edCalToday(){ _CAL_WEEK_START = _calIso(_calMonday(new Date())); _CALEV_CACHE = null; rEdCalendar(D); }
+function edCalRefresh(){ _CALEV_CACHE = null; rEdCalendar(D); }
+
 function rEdCalendar(D) {
   var v = $('vEdCalendar'); if (!v) return;
-  if (_CALEV_CACHE == null) {
+  if (!_CAL_WEEK_START) _CAL_WEEK_START = _calIso(_calMonday(new Date()));
+  if (_CALEV_CACHE == null || _CALEV_CACHE.weekStart !== _CAL_WEEK_START) {
     v.innerHTML = '<div class="pa-page">' + ltSkeleton(5) + '</div>';
-    _loadCalEvents(function() { rEdCalendar(D); });
+    _loadCalEvents(_CAL_WEEK_START, function() { rEdCalendar(D); });
     return;
   }
-  var events = (_CALEV_CACHE.items) || [];
+  var events = _CALEV_CACHE.items || [];
   var err = _CALEV_CACHE.error;
+  var me = (typeof _effectiveUserName === 'function') ? _effectiveUserName() : '';
+  var todayIso = _calIso(new Date());
+
+  var endIso = _calAddDays(_CAL_WEEK_START, 6);
+  var sd = _calParse(_CAL_WEEK_START), ed = _calParse(endIso);
+  var rangeLabel = sd.getDate() + ' ' + _CAL_MON[sd.getMonth()] + ' – ' + ed.getDate() + ' ' + _CAL_MON[ed.getMonth()]
+    + (sd.getFullYear() !== ed.getFullYear() ? ' ' + ed.getFullYear() : '');
+
   var html = '<div class="pa-page">';
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">' + esc(t('Calendario')) + '</span>'
-       +    '<span class="pa-page-sub">' + esc(t('próximos 14 días')) + '</span>'
-       +    '<div class="pa-page-meta"><button class="pa-btn pa-btn-outline" onclick="_CALEV_CACHE=null;rEdCalendar(D)">' + paIcon('refresh', 12) + ' ' + esc(t('Actualizar')) + '</button></div>'
+       +    '<span class="pa-page-sub">' + esc(rangeLabel) + '</span>'
+       +    '<div class="pa-page-meta" style="display:flex;gap:6px;align-items:center">'
+       +      '<button class="pa-btn pa-btn-outline" style="padding:0 10px" title="' + esc(t('Semana anterior')) + '" onclick="edCalNav(-1)">‹</button>'
+       +      '<button class="pa-btn pa-btn-outline" onclick="edCalToday()">' + esc(t('Hoy')) + '</button>'
+       +      '<button class="pa-btn pa-btn-outline" style="padding:0 10px" title="' + esc(t('Semana siguiente')) + '" onclick="edCalNav(1)">›</button>'
+       +      '<button class="pa-btn pa-btn-outline" onclick="edCalRefresh()">' + paIcon('refresh', 12) + ' ' + esc(t('Actualizar')) + '</button>'
+       +    '</div>'
        + '</div>';
-  html += '<div class="pa-narrative">' + esc(t('Tus eventos de Google Calendar, acá mismo. Creá una tarea desde cualquier evento con un click — sin saltar a Calendar.')) + '</div>';
+  html += '<div class="pa-narrative">' + esc(t('Tu semana: reuniones de Google Calendar y vencimientos de tus tareas, juntos. Clic en una reunión para agendar un seguimiento; en un vencimiento para abrir la tarea.')) + '</div>';
 
-  if (err) {
-    html += paEmpty('calendar', t('No pude leer el calendario.'), esc(err));
-    html += '</div>'; v.innerHTML = html; return;
-  }
-  if (!events.length) {
-    html += paEmpty('calendar', t('Sin eventos en los próximos 14 días.'), t('Cuando haya eventos vas a poder crear tareas desde acá.'));
-    html += '</div>'; v.innerHTML = html; return;
-  }
+  if (err) { html += paEmpty('calendar', t('No pude leer el calendario.'), esc(err)); html += '</div>'; v.innerHTML = html; return; }
 
-  html += '<div class="pa-tbl" style="margin-top:14px">'
-       +    '<div class="pa-tbl-h" style="grid-template-columns: 190px 1fr 130px"><div>' + esc(t('Cuándo')) + '</div><div>' + esc(t('Evento')) + '</div><div></div></div>';
-  events.forEach(function(ev) {
-    html += '<div class="pa-tbl-r" style="grid-template-columns: 190px 1fr 130px;min-height:46px;height:auto;padding-top:8px;padding-bottom:8px">'
-         +    '<div style="font-size:12px;color:var(--fg-2)">' + esc(ev.startLabel || '—') + (ev.allDay ? ' <span style="color:var(--fg-4)">· ' + esc(t('todo el día')) + '</span>' : '') + '</div>'
-         +    '<div style="min-width:0">'
-         +      '<div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(ev.title) + '">' + esc(ev.title) + '</div>'
-         +      (ev.location ? '<div style="font-size:11px;color:var(--fg-3)">' + esc(ev.location) + '</div>' : '')
-         +    '</div>'
-         +    '<div style="display:flex;justify-content:flex-end;align-items:flex-start">' + (ev.created
-                ? '<span class="pa-pill pa-pill-good" style="height:26px">' + paIcon('check', 11) + ' ' + esc(t('Tarea creada')) + '</span>'
-                : '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="edCalCreateTask(\'' + esc(ev.id) + '\')">' + paIcon('plus', 11) + ' ' + esc(t('Crear tarea')) + '</button>') + '</div>'
-         + '</div>';
-  });
+  html += '<div class="cal-week">';
+  for (var i = 0; i < 7; i++) {
+    var dayIso = _calAddDays(_CAL_WEEK_START, i);
+    var dd = _calParse(dayIso);
+    var isToday = dayIso === todayIso;
+    var deadlines = (D.tasks || []).filter(function(tk){ return tk.deadlineISO === dayIso && tk.status !== 'Listo' && tk.status !== 'Cancelado' && (!me || tk.resp === me); });
+    var dayEvents = events.filter(function(ev){ return ev.startIso === dayIso; });
+    var allDayEv = dayEvents.filter(function(ev){ return ev.allDay; });
+    var timedEv = dayEvents.filter(function(ev){ return !ev.allDay; }).sort(function(a,b){ return (a.startMs||0) - (b.startMs||0); });
+
+    html += '<div class="cal-col' + (isToday ? ' is-today' : '') + '">';
+    html += '<div class="cal-col-h"><span class="cal-dow">' + esc(_CAL_DOW[i]) + '</span><span class="cal-dnum">' + dd.getDate() + '</span></div>';
+    html += '<div class="cal-col-body">';
+    deadlines.forEach(function(tk){
+      var tone = tk.priority === 'Alta' ? 'critical' : (tk.priority === 'Baja' ? 'muted' : 'warn');
+      html += '<div class="cal-chip cal-task tone-' + tone + '" title="' + esc(tk.nombre) + ' · ' + esc(t('vence')) + '" onclick="edCalOpenTask(' + Number(tk.id) + ')">'
+           +    paIcon('flag', 9) + '<span class="cal-chip-t">' + esc(tk.nombre) + '</span></div>';
+    });
+    allDayEv.forEach(function(ev){
+      html += '<div class="cal-chip cal-ev" title="' + esc(ev.title) + '" onclick="edCalEventMenu(\'' + esc(ev.id) + '\')"><span class="cal-chip-t">' + esc(ev.title) + '</span></div>';
+    });
+    timedEv.forEach(function(ev){
+      html += '<div class="cal-chip cal-ev" title="' + esc(ev.title) + (ev.location ? ' · ' + esc(ev.location) : '') + '" onclick="edCalEventMenu(\'' + esc(ev.id) + '\')">'
+           +    '<span class="cal-ev-time">' + esc(ev.timeLabel) + '</span><span class="cal-chip-t">' + esc(ev.title) + '</span></div>';
+    });
+    if (!deadlines.length && !dayEvents.length) html += '<div class="cal-empty">·</div>';
+    html += '</div></div>';
+  }
   html += '</div></div>';
   v.innerHTML = html;
 }
-function edCalCreateTask(eventId) {
+
+function edCalOpenTask(id){
+  if (typeof EDT !== 'undefined') { EDT.selectedId = id; EDT.filter = 'all'; EDT.groupBy = 'none'; }
+  if (typeof goEd === 'function') goEd('tracker');
+}
+
+// Reunión → tarea de seguimiento (no 1:1). Confirm con la explicación del modelo.
+function edCalEventMenu(eventId) {
   var ev = (_CALEV_CACHE && _CALEV_CACHE.items || []).filter(function(x){ return x.id === eventId; })[0];
-  var nm = ev ? ev.title : t('este evento');
-  confirm_(t('¿Crear una tarea desde') + ' "' + nm + '"? ' + t('Queda asignada a vos, con el plazo del evento. Podés editarla después.'), function() {
+  var nm = ev ? ev.title : t('esta reunión');
+  confirm_('<b>' + esc(nm) + '</b><br>' + esc(t('¿Agendar un seguimiento de esta reunión? Crea una tarea asignada a vos con plazo 2 días hábiles después, lista para editar.')), function() {
     if (typeof showLoader === 'function') showLoader();
     google.script.run
       .withSuccessHandler(function(res) {
         if (typeof hideLoader === 'function') hideLoader();
-        if (res && res.success) {
-          // Marcar el evento como ya convertido para evitar duplicados al
-          // re-clickear (el botón pasa a estado "creada", deshabilitado).
-          if (ev) ev.created = true;
-          toast(t('Tarea creada desde el evento'), 'success');
-          if (typeof reload === 'function') reload(); // sincroniza D + re-render calendario
-        } else toast((res && (res.error || res.message)) || t('No se pudo crear la tarea.'), 'error');
+        if (res && res.success) { toast(t('Seguimiento agendado'), 'success'); if (typeof reload === 'function') reload(); }
+        else toast((res && (res.error || res.message)) || t('No se pudo crear la tarea.'), 'error');
       })
       .withFailureHandler(function(e) { if (typeof hideLoader === 'function') hideLoader(); toast(t('Error') + ': ' + (e && e.message || t('desconocido')), 'error'); })
       .createTaskFromCalendarEvent(eventId);
-  }, { confirmLabel: t('Crear tarea') });
+  }, { confirmLabel: t('Agendar seguimiento') });
 }
 
 
