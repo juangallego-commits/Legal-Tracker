@@ -2583,7 +2583,16 @@ function getUpcomingCalendarEvents(fromIso, days) {
   return _telemetry('getUpcomingCalendarEvents', function() {
     var r = _resolveUserCalendar();
     var cal = r.cal;
-    if (!cal) return { items: [], error: 'No pude acceder a tu calendario. Revisá que tu calendario de Rappi sea visible para el equipo y que hayas autorizado el permiso de Calendar. [diag: ' + r.reason + ']' };
+    if (!cal) {
+      // El diag crudo (r.reason) va al log de ejecución, no a la UI (antes se
+      // mostraba "[diag: byId_null;eff=...]", feo y filtraba el email del owner).
+      // Mensaje accionable: el visitante puede auto-resolverlo compartiendo su
+      // calendario con la cuenta que corre el app (effectiveUser = owner).
+      var _ownerEmail = '';
+      try { _ownerEmail = (Session.getEffectiveUser().getEmail() || '').toString().trim(); } catch (e) {}
+      try { console.warn('Calendar resolve failed [' + r.reason + ']'); } catch (e) {}
+      return { items: [], error: 'No pudimos acceder a tu calendario. Para verlo acá, compartí tu Google Calendar con ' + (_ownerEmail || 'la cuenta del Legal Tracker') + ' con permiso «Ver todos los detalles del evento» (Google Calendar → Configuración → Compartir con personas específicas). Si persiste, IT puede habilitar la visibilidad interna de calendarios para todo el equipo de una.' };
+    }
     var tz = 'America/Bogota';
     var from;
     if (fromIso && /^\d{4}-\d{2}-\d{2}$/.test(fromIso)) {
