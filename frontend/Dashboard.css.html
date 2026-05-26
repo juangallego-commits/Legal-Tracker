@@ -3534,4 +3534,16 @@ textarea.lt-invalid { border-color: var(--critical) !important; }
   margin-bottom: auto;
 }
 
+/* ── UI polish · Historial (Cerradas): más aire en las filas. El título de 2
+   líneas + la metadata de la derecha quedaban apretados con --row-h fijo (44px)
+   y sin column-gap. Scopeado con .pa-tbl-hist para no tocar el Tracker. ── */
+.pa-tbl-hist .pa-tbl-r {
+  height: auto;
+  min-height: 56px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  column-gap: 12px;
+}
+.pa-tbl-hist .pa-tbl-r .title { gap: 3px; }
+
 </style>
