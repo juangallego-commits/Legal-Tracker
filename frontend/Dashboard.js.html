@@ -2904,6 +2904,12 @@ function edSearchOpen() {
   _edSearchEnsureMounted();
   var ov = $('edSearchOv'); if (!ov) return;
   ov.classList.add('show');
+  // Cargar docs de Biblioteca (lazy) para que el buscador los encuentre aunque
+  // el usuario no haya entrado nunca a la vista Biblioteca. Al terminar,
+  // re-render si el buscador sigue abierto.
+  if (typeof _BIBDOCS_CACHE !== 'undefined' && _BIBDOCS_CACHE == null && typeof _loadBibDocs === 'function') {
+    _loadBibDocs(function(){ if ($('edSearchOv') && $('edSearchOv').classList.contains('show')) _edSearchRender(); });
+  }
   var inp = $('edSearchInput');
   if (inp) {
     inp.value = EDS.query || '';
@@ -3043,6 +3049,19 @@ function _edSearchFilter(query) {
     var score = primary >= 0 ? primary + 50 : secondary; // primary gana siempre
     if (score >= 0) taskMatches.push({ kind: 'task', item: t, projectName: pn, score: score });
   }
+  // Tareas CERRADAS (Historial) al MISMO ranking de tareas. Antes el índice solo
+  // cubría D.tasks (activas), así que un asunto cerrado era inencontrable salvo
+  // que supieras el ID. edSearchPickTask ya detecta historial y abre con el
+  // filtro "closed". El pill "Listo" las distingue visualmente.
+  var hist = (D && D.historial) || [];
+  for (var hi = 0; hi < hist.length; hi++) {
+    var ht = hist[hi];
+    var hpn = (ht.proyectoId && pMap[ht.proyectoId]) ? pMap[ht.proyectoId] : '';
+    var hPrimary = _edFuzzyBest([String(ht.nombre || ''), String(ht.id || '')], q);
+    var hSecondary = _edFuzzyBest([ht.resp, ht.notas, ht.tipoTrabajo, ht.pais, hpn], q);
+    var hScore = hPrimary >= 0 ? hPrimary + 50 : hSecondary;
+    if (hScore >= 0) taskMatches.push({ kind: 'task', item: ht, projectName: hpn, score: hScore, closed: true });
+  }
   taskMatches.sort(function(a, b){ return b.score - a.score; });
   for (var tm = 0; tm < taskMatches.length && out.length < 80; tm++) out.push(taskMatches[tm]);
   for (var j = 0; j < projects.length && out.length < 100; j++) {
@@ -3076,6 +3095,17 @@ function _edSearchFilter(query) {
         out.push({ kind: 'document', item: pd, projectId: pj.id, projectName: pj.nombre });
         if (out.length >= 140) break;
       }
+    }
+  }
+  // Documentos de la Biblioteca (sheet BibliotecaDocs). Se cargan lazy vía
+  // _loadBibDocs; si el cache está poblado los incluimos. Matchea por nombre +
+  // categoría. Mapeamos nombre→name para reusar el render de documentos.
+  var bibDocs = (typeof _BIBDOCS_CACHE !== 'undefined' && _BIBDOCS_CACHE) ? _BIBDOCS_CACHE : [];
+  for (var bi = 0; bi < bibDocs.length && out.length < 160; bi++) {
+    var bd = bibDocs[bi];
+    var bdHay = ((bd.nombre || '') + ' ' + (bd.categoria || '')).toLowerCase();
+    if (bdHay.indexOf(q) >= 0) {
+      out.push({ kind: 'document', item: { name: bd.nombre, url: bd.url }, biblioteca: true, bibCategoria: bd.categoria || '' });
     }
   }
   return out;
@@ -3172,6 +3202,7 @@ function _edSearchRender() {
       var url = (d.url || '#').replace(/'/g, '%27');
       var ctx = r.taskId ? ('Tarea ' + r.taskId + ' · ' + (r.taskName || ''))
               : r.projectId ? ('Proyecto · ' + (r.projectName || ''))
+              : r.biblioteca ? ('Biblioteca' + (r.bibCategoria ? ' · ' + r.bibCategoria : ''))
               : '';
       // Confidentiality indicator (solo de tareas; backend ya filtra
       // los confidenciales que el usuario no puede ver).
@@ -3180,7 +3211,7 @@ function _edSearchRender() {
         var meta = (typeof ED_CONF_LEVELS !== 'undefined' && ED_CONF_LEVELS[r.confLevel]) || { label: r.confLevel };
         confChip = '<span class="ed-search-conf ' + r.confLevel + '" title="' + esc(meta.label) + '">' + esc(meta.label) + '</span>';
       }
-      html += '<div class="ed-search-result" onclick="edSearchPickDoc(\'' + esc(url) + '\',\'' + esc(r.taskId || r.projectId || '') + '\',\'' + (r.taskId ? 'task' : 'project') + '\')">'
+      html += '<div class="ed-search-result" onclick="edSearchPickDoc(\'' + esc(url) + '\',\'' + esc(r.taskId || r.projectId || '') + '\',\'' + (r.taskId ? 'task' : (r.biblioteca ? 'biblioteca' : 'project')) + '\')">'
            +    '<span class="ed-search-r-kind">documento</span>'
            +    '<span class="ed-search-r-id">📄</span>'
            +    '<span class="ed-search-r-name">' + _edSearchHighlight(d.name || 'Documento', q) + '</span>'
@@ -3690,10 +3721,12 @@ function rEdHomeSpecialist(D) {
       { l: t('Baja'), v: me.avgBaja || '—', color: 'var(--good)' }
     ];
     rows.forEach(function(r) {
-      html += '<div style="display:grid;grid-template-columns:60px 1fr 60px;align-items:center;gap:10px;margin-bottom:6px;">'
-           +    '<span style="font-size:12px;color:var(--fg-2)">' + r.l + '</span>'
-           +    '<span style="height:6px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:60%;background:' + r.color + '"></span></span>'
-           +    '<span class="mono" style="font-size:11px;color:var(--fg-2);text-align:right">' + esc(r.v) + '</span>'
+      // Antes había una barra decorativa con width:60% fijo (no representaba el
+      // dato → engañosa en un scorecard). La reemplazamos por un punto de color
+      // por prioridad + el valor real.
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;">'
+           +    '<span style="font-size:12px;color:var(--fg-2);display:flex;align-items:center;gap:7px"><span style="width:8px;height:8px;border-radius:50%;background:' + r.color + ';display:inline-block;flex:0 0 auto"></span>' + r.l + '</span>'
+           +    '<span class="mono" style="font-size:12px;color:var(--fg-1);font-weight:600">' + esc(r.v) + '</span>'
            + '</div>';
     });
     html += '</div>';
@@ -5712,6 +5745,15 @@ function edPanelSubmitComment(taskId) {
         }
         ta.value = '';
         toast('Comentario enviado', 'success');
+        // Auto-promote: si comentar pasó la tarea de Pendiente a En curso, lo
+        // reflejamos (antes el backend lo hacía pero el pill quedaba desfasado
+        // hasta un reload manual).
+        if (res.promoted) {
+          var _tk = (D.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+          if (_tk) _tk.status = res.promoted;
+          toast(LANG === 'pt' ? 'Tarefa movida para Em andamento' : 'Tarea movida a En curso', 'info');
+          if (typeof _edScheduleReload === 'function') _edScheduleReload();
+        }
       } else {
         toast('Error: ' + ((res && res.error) || 'no se pudo enviar'), 'error');
       }
@@ -6266,7 +6308,7 @@ function _renderTkPanel(sel) {
        +    '</div>'
        +    '</div>' // close tk-panel-sticky
        +    '<div class="tk-status-block">'
-       +      '<div class="lbl">Estado actual</div>'
+       +      '<div class="lbl">' + esc(t('Estado actual')) + '</div>'
        +      '<div class="body">' + stateBody + '</div>'
        +    '</div>'
        +    '<div class="tk-fields">';
@@ -6282,7 +6324,7 @@ function _renderTkPanel(sel) {
   ];
   fields.forEach(function(f) {
     html += '<div class="tk-field">'
-         +    '<span class="tk-field-lbl">' + paIcon(f.icon, 12) + ' ' + esc(f.l) + '</span>'
+         +    '<span class="tk-field-lbl">' + paIcon(f.icon, 12) + ' ' + esc(t(f.l)) + '</span>'
          +    '<span class="tk-field-val' + (f.warn ? ' is-warn' : '') + '"' + (f.editable ? ' onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')"' : '') + '>'
          +      '<span>' + esc(f.v) + '</span>'
          +      (f.editable ? paIcon('chevD', 10, 'caret') : '')
@@ -6293,7 +6335,7 @@ function _renderTkPanel(sel) {
 
   // Notas
   html += '<div class="tk-section">'
-       +    '<div class="tk-section-h">Notas</div>'
+       +    '<div class="tk-section-h">' + esc(t('Notas')) + '</div>'
        +    (sel.status === 'Listo'
             ? '<textarea class="tk-notes" readonly placeholder="Sin notas…" style="width:100%;border:1px solid var(--line-1);background:var(--bg-2);color:var(--fg-2);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>'
             : '<textarea class="tk-notes" data-task-id="' + esc(sel.id) + '" placeholder="Sin notas…" oninput="edPanelAutosizeNotes(this)" onblur="edPanelSaveNotes(this)" style="width:100%;border:1px solid var(--line-1);background:var(--bg-1);color:var(--fg-1);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>')
@@ -6313,17 +6355,17 @@ function _renderTkPanel(sel) {
   // Comments count se desconoce hasta que async load termine — leave dynamic
   html += '<aside class="tk-panel-rail">'
        +    '<div class="tk-panel-tabs" data-task-id="' + esc(sel.id) + '">'
-       +      '<button class="tk-panel-tab is-active" data-pane="comments" onclick="edTkPanelSwitchTab(this)">Comentarios <span class="ct" id="tkCommentsCount">· 0</span></button>'
-       +      '<button class="tk-panel-tab" data-pane="docs" onclick="edTkPanelSwitchTab(this)">Documentos <span class="ct">· ' + docsCount + '</span></button>'
+       +      '<button class="tk-panel-tab is-active" data-pane="comments" onclick="edTkPanelSwitchTab(this)">' + esc(t('Comentarios')) + ' <span class="ct" id="tkCommentsCount">· 0</span></button>'
+       +      '<button class="tk-panel-tab" data-pane="docs" onclick="edTkPanelSwitchTab(this)">' + esc(t('Documentos')) + ' <span class="ct">· ' + docsCount + '</span></button>'
        +    '</div>'
        +    '<div class="tk-panel-rail-body" data-task-id="' + esc(sel.id) + '">'
        +      '<div class="tk-pane" data-pane="comments">'
        +        '<div class="tk-comments" id="tkComments"><div style="color:var(--fg-3);font-size:12px">Cargando conversación…</div></div>'
        +      '</div>'
        +      '<div class="tk-pane" data-pane="docs" style="display:none">'
-       +        '<div class="tk-section-h" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--fg-3);margin-bottom:10px">Documentos</div>';
+       +        '<div class="tk-section-h" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--fg-3);margin-bottom:10px">' + esc(t('Documentos')) + '</div>';
   if (docs.length === 0) {
-    html += '<div style="font-size:12px;color:var(--fg-3)">Sin documentos adjuntos</div>';
+    html += '<div style="font-size:12px;color:var(--fg-3)">' + esc(t('Sin documentos adjuntos')) + '</div>';
   } else {
     docs.forEach(function(d, idx) {
       // d.url puede venir como string. d.kind = 'task' (siempre acá). Link
@@ -6352,8 +6394,8 @@ function _renderTkPanel(sel) {
     });
   }
   html += '<div style="display:flex;gap:6px;margin-top:8px">'
-       +    '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center" onclick="edTkToggleLinkForm()">' + paIcon('paperclip', 11) + ' Adjuntar enlace</button>'
-       +    '<label class="pa-btn pa-btn-outline" style="flex:1;justify-content:center;cursor:pointer">' + paIcon('save', 11) + ' Subir archivo'
+       +    '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center" onclick="edTkToggleLinkForm()">' + paIcon('paperclip', 11) + ' ' + esc(t('Adjuntar enlace')) + '</button>'
+       +    '<label class="pa-btn pa-btn-outline" style="flex:1;justify-content:center;cursor:pointer">' + paIcon('save', 11) + ' ' + esc(t('Subir archivo'))
        +      '<input type="file" id="tkDocFileInput" data-task-id="' + esc(sel.id) + '" style="display:none" onchange="edTkUploadFile(this)">'
        +    '</label>'
        + '</div>'
@@ -6754,7 +6796,9 @@ function edUSubmit() {
   var fields = {};
   if (EDU.variant === 'cerrar') {
     var resumen = ($('uaResumen') && $('uaResumen').value || '').trim();
-    if (!resumen) { if (typeof toast === 'function') toast('Falta el resumen para cerrar', 'error'); return; }
+    // Mínimo 5 caracteres, igual que el cierre masivo (bulk). El resumen es el
+    // registro permanente del cierre de un asunto legal; una "x" no sirve.
+    if (resumen.length < 5) { if (typeof toast === 'function') toast(LANG === 'pt' ? 'O resumo de fechamento precisa de ao menos 5 caracteres' : 'El resumen de cierre debe tener al menos 5 caracteres', 'error'); return; }
     fields.status = 'Listo';
     // Anteponer el cierre PRESERVANDO las notas previas (checklist/contexto).
     // Antes se sobrescribía notas entero → se perdía el checklist.
