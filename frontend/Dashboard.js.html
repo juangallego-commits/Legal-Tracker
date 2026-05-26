@@ -3611,7 +3611,7 @@ function rEdHomeSpecialist(D) {
        +    '<div class="pa-kpi ' + (blocked ? 'is-critical' : '') + '" onclick="edGoTrackerFiltered(\'blocked\')">'
        +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> ' + esc(t('On hold')) + '</div>'
        +      '<div class="val">' + blocked + '</div>'
-       +      '<div class="delta">' + esc(blocked ? t('Necesitan empuje') : '—') + '</div>'
+       +      '<div class="delta">' + esc(blocked ? t('Necesitan empuje') : t('Sin bloqueos')) + '</div>'
        +    '</div>'
        + '</div>';
 
@@ -3705,7 +3705,7 @@ function rEdHomeSpecialist(D) {
        +    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">'
        +      '<div>'
        +        '<div class="pa-meta-sm">' + esc(t('Racha en tiempo')) + '</div>'
-       +        '<div class="mono" style="font-size:26px;font-weight:600;letter-spacing:-0.02em">' + (streak ? '🔥 ' + streak : '—') + ' <span style="font-size:12px;color:var(--fg-3);font-weight:400">' + esc(t('tareas')) + '</span></div>'
+       +        '<div class="mono" style="font-size:26px;font-weight:600;letter-spacing:-0.02em">' + (streak ? '🔥 ' + streak : '0') + ' <span style="font-size:12px;color:var(--fg-3);font-weight:400">' + esc(t('tareas')) + '</span></div>'
        +      '</div>'
        +      '<div>'
        +        '<div class="pa-meta-sm">' + esc(t('Cerradas este mes')) + '</div>'
@@ -6150,6 +6150,7 @@ function rEdTracker(D) {
     html += '<div class="pa-tbl">' + tblHeader;
     rows.forEach(function(rowTask){ html += _edTkRowHtml(rowTask, role, sel); });
     html += '</div>';
+    html += '<div style="text-align:center;padding:12px 0 4px;font-size:11px;color:var(--fg-4)">' + rows.length + ' ' + esc(rows.length === 1 ? t('tarea') : t('tareas')) + ' · ' + esc(t('fin de lista')) + '</div>';
   }
   html += '</div>'; // pa-page
 
@@ -6236,7 +6237,9 @@ function _edTkRowHtml(t, role, sel) {
        +    '<span class="id mono">' + esc(t.id) + '</span>'
        +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + blockReasonSuffix + '</span></div>';
   if (role === 'specialist') {
-    h += '<span style="font-size:12px;color:var(--fg-2)">' + esc(pn) + '</span>';
+    h += (pn && pn !== 'Sin proyecto')
+      ? '<span style="font-size:12px;color:var(--fg-2)">' + esc(pn) + '</span>'
+      : '<span style="color:var(--fg-4)">—</span>';
   } else if (t.resp) {
     h += '<span class="resp" onclick="event.stopPropagation();edSetRespFilter(\'' + esc(t.resp) + '\')">' + paAvatar(t.resp, 18) + '<span style="font-size:12px">' + esc(t.resp) + '</span></span>';
   } else {
@@ -7791,7 +7794,7 @@ function rEdProyectosIndex(D) {
        + '</div>';
 
   if (enriched.length === 0) {
-    html += '<div class="pa-card" style="text-align:center;padding:48px 20px">'
+    html += '<div class="pa-card pa-empty-projects" style="text-align:center;padding:48px 20px">'
          +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon('folder', 20) + '</div>'
          +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">No hay proyectos en este filtro</div>'
          +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0 14px">Cambiá el filtro o creá uno nuevo.</div>'
