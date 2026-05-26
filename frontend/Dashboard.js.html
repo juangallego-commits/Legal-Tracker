@@ -8021,7 +8021,7 @@ function rEdHistorial(D) {
     });
     var showResp = (role === 'manager' || role === 'head');
     var cols = showResp ? '20px 64px 1fr 130px 90px 110px 90px' : '20px 64px 1fr 90px 120px 110px';
-    html += '<div class="pa-tbl">';
+    html += '<div class="pa-tbl pa-tbl-hist">';
     rows.forEach(function(t) {
       var pn = _projNameForTask(t);
       var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
