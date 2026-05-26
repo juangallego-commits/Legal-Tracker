@@ -3289,9 +3289,11 @@ table tr:hover td { background: var(--bg-2); }
 .lt-toast-success { border-left: 3px solid var(--good); }
 .lt-toast-error   { border-left: 3px solid var(--critical); }
 .lt-toast-info    { border-left: 3px solid var(--info); }
+.lt-toast-warn    { border-left: 3px solid var(--warn); }
 .lt-toast-success .lt-toast-bar { background: var(--good); }
 .lt-toast-error   .lt-toast-bar { background: var(--critical); }
 .lt-toast-info    .lt-toast-bar { background: var(--info); }
+.lt-toast-warn    .lt-toast-bar { background: var(--warn); }
 .lt-toast-bar {
   position: absolute;
   left: 0; bottom: 0;
@@ -3373,5 +3375,150 @@ textarea.lt-invalid { border-color: var(--critical) !important; }
 .cal-empty { text-align:center; color:var(--fg-3); font-size:13px; padding-top:6px; user-select:none; opacity:.5; }
 @media (max-width: 920px) { .cal-week { grid-template-columns:repeat(2,1fr); } .cal-col { min-height:auto; } }
 @media (max-width: 560px) { .cal-week { grid-template-columns:1fr; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   AUDIT FIX · Batch A — estilos faltantes de superficies ya
+   construidas (Cmd+K, landing HQ del Tracker, analytics HQ/manager,
+   avatares de comentarios). El markup lo emite Dashboard.js.html pero
+   estas clases no tenían reglas → renderizaban sin estilo. Todo usa
+   tokens, así que cubre dark/light automáticamente.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Cmd+K · filas de resultado ──────────────────────────────── */
+.ed-search-result { display: flex; align-items: center; gap: 10px; }
+.ed-search-r-kind {
+  flex: 0 0 auto; min-width: 62px; text-align: center;
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--fg-4); background: var(--bg-2);
+  border: 1px solid var(--line-1); border-radius: var(--r-1); padding: 3px 6px;
+}
+.ed-search-r-id {
+  flex: 0 0 auto; min-width: 28px;
+  font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; color: var(--fg-3);
+}
+.ed-search-r-name {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 13px; font-weight: 500; color: var(--fg-1);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ed-search-r-name mark { background: var(--accent-soft); color: var(--accent); border-radius: 2px; padding: 0 1px; }
+.ed-search-r-resp {
+  flex: 0 1 auto; max-width: 180px;
+  font-size: 12px; color: var(--fg-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ed-search-r-eta { flex: 0 0 auto; min-width: 44px; text-align: right; font-size: 11px; color: var(--fg-3); }
+.ed-search-conf {
+  flex: 0 0 auto; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: var(--r-pill);
+  background: var(--critical-soft); color: var(--critical-fg);
+}
+.ed-search-conf.restringido { background: var(--warn-soft); color: var(--warn-fg); }
+
+/* ── Tracker HQ · landing countries-first ────────────────────── */
+.hq-summary-band { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+.hq-summary-stat { background: var(--bg-1); border: 1px solid var(--line-1); border-radius: var(--r-3); padding: 16px 18px; }
+.hq-summary-stat .lbl { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-3); }
+.hq-summary-stat .num { font-size: 30px; font-weight: 800; line-height: 1.05; color: var(--fg-1); margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
+.hq-summary-stat .num.crit { color: var(--critical-fg); }
+.hq-summary-stat .num.good { color: var(--good-fg); }
+.hq-summary-stat .ctx { font-size: 11px; color: var(--fg-3); }
+.hq-quick-actions { margin: 0 0 8px; }
+.hq-country-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-top: 16px; }
+.hq-card.at-risk { border-color: var(--critical); box-shadow: inset 3px 0 0 0 var(--critical); }
+.hq-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hq-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.hq-card-flag { flex: 0 0 auto; width: 40px; height: 40px; border-radius: var(--r-4); background: var(--bg-2); border: 1px solid var(--line-1); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: var(--fg-2); }
+.hq-card-meta { flex: 1 1 auto; min-width: 0; }
+.hq-card-name { font-size: 15px; font-weight: 700; color: var(--fg-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hq-card-lead { font-size: 12px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hq-card-flag-risk { flex: 0 0 auto; font-size: 16px; color: var(--critical-fg); }
+.hq-card-stats { display: flex; gap: 8px; margin-bottom: 14px; }
+.hq-card-stat { flex: 1 1 0; text-align: center; background: var(--bg-2); border-radius: var(--r-2); padding: 9px 4px; }
+.hq-card-stat .num { font-size: 19px; font-weight: 800; color: var(--fg-1); font-variant-numeric: tabular-nums; }
+.hq-card-stat .num.crit { color: var(--critical-fg); }
+.hq-card-stat .num.warn { color: var(--warn-fg); }
+.hq-card-stat .num.good { color: var(--good-fg); }
+.hq-card-stat .num.dim  { color: var(--fg-3); }
+.hq-card-stat .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .03em; color: var(--fg-3); margin-top: 3px; }
+.hq-card-spark-wrap { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; color: var(--good-fg); }
+.hq-card-spark-wrap.warn { color: var(--warn-fg); }
+.hq-card-spark-wrap.crit { color: var(--critical-fg); }
+.hq-card-spark-wrap.dim  { color: var(--fg-3); }
+.hq-card-spark-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .03em; color: var(--fg-3); }
+.hq-card-spark { width: 100%; height: 28px; display: block; }
+.hq-card-cta { font-size: 12px; font-weight: 600; color: var(--accent); }
+
+/* ── Analytics HQ · comparativa de países ────────────────────── */
+.hq-cmp-table { margin-top: 12px; border: 1px solid var(--line-1); border-radius: var(--r-3); overflow: hidden; }
+.hq-cmp-head, .hq-cmp-row { display: grid; grid-template-columns: 64px 1fr 1fr 1fr 2.2fr; align-items: center; gap: 10px; padding: 11px 14px; }
+.hq-cmp-head { background: var(--bg-2); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-4); }
+.hq-cmp-head span { text-align: right; }
+.hq-cmp-head span:first-child, .hq-cmp-head span:last-child { text-align: left; }
+.hq-cmp-row { border-top: 1px solid var(--line-1); font-size: 13px; cursor: pointer; }
+.hq-cmp-row:hover { background: var(--bg-2); }
+.hq-cmp-code { font-weight: 700; color: var(--fg-1); }
+.hq-cmp-num { text-align: right; font-variant-numeric: tabular-nums; color: var(--fg-2); }
+.hq-cmp-num.crit { color: var(--critical-fg); }
+.hq-cmp-num.warn { color: var(--warn-fg); }
+.hq-cmp-num.good { color: var(--good-fg); }
+.hq-cmp-num.dim  { color: var(--fg-3); }
+.hq-cmp-trend { color: var(--good-fg); }
+.hq-cmp-trend.warn { color: var(--warn-fg); }
+.hq-cmp-trend.crit { color: var(--critical-fg); }
+.hq-cmp-trend.dim  { color: var(--fg-3); }
+.hq-cmp-spark { width: 100%; height: 24px; display: block; }
+
+/* ── Analytics HQ · proyectos en riesgo ──────────────────────── */
+.hq-risk-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.hq-risk-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--bg-1); border: 1px solid var(--line-1); border-radius: var(--r-3); cursor: pointer; }
+.hq-risk-row:hover { border-color: var(--line-2); }
+.hq-risk-name { min-width: 0; }
+.hq-risk-title { font-size: 14px; font-weight: 600; color: var(--fg-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hq-risk-meta { font-size: 12px; color: var(--fg-3); margin-top: 2px; }
+.hq-risk-count { flex: 0 0 auto; text-align: right; font-size: 22px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.hq-risk-count em { display: block; font-size: 10px; font-weight: 600; font-style: normal; text-transform: uppercase; letter-spacing: .03em; color: var(--fg-3); margin-top: 3px; }
+
+/* ── Analytics · antigüedad de tareas (aging) ────────────────── */
+.aging-bar { display: flex; height: 30px; margin: 14px 0 12px; border-radius: var(--r-2); overflow: hidden; background: var(--bg-2); }
+.aging-seg { display: flex; align-items: center; justify-content: center; min-width: 26px; font-size: 11px; font-weight: 700; color: #fff; background: var(--info); }
+.aging-seg.crit { background: var(--critical); }
+.aging-seg.warn { background: var(--warn); }
+.aging-seg.good { background: var(--good); }
+.aging-legend { display: flex; flex-wrap: wrap; gap: 14px; }
+.aging-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-2); }
+.aging-legend-item .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--info); }
+.aging-legend-item .dot.crit { background: var(--critical); }
+.aging-legend-item .dot.warn { background: var(--warn); }
+.aging-legend-item .dot.good { background: var(--good); }
+
+/* ── Analytics · tendencia SLA 8 semanas ─────────────────────── */
+.sla-trend-grid { display: flex; align-items: flex-end; gap: 6px; margin-top: 14px; }
+.sla-trend-col { flex: 1 1 0; height: 150px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
+.sla-trend-bar { width: 100%; max-width: 34px; max-height: 108px; min-height: 4px; border-radius: 5px 5px 0 0; background: var(--good); }
+.sla-trend-bar.good { background: var(--good); }
+.sla-trend-bar.warn { background: var(--warn); }
+.sla-trend-bar.crit { background: var(--critical); }
+.sla-trend-bar.empty { background: var(--line-2); }
+.sla-trend-pct { font-size: 10px; font-weight: 700; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.sla-trend-lbl { font-size: 10px; color: var(--fg-3); }
+
+/* ── Comentarios · avatar + autor (layout flex) ──────────────── */
+.tk-comment-item { display: flex; gap: 10px; padding: 10px 0; }
+.tk-comment-item + .tk-comment-item { border-top: 1px solid var(--line-1); }
+.tk-comment-av {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: var(--accent);
+  background: var(--accent-soft); border: 1px solid var(--accent-soft-strong);
+}
+.tk-comment-item .tk-comment-body { flex: 1 1 auto; min-width: 0; padding-left: 0; }
+.tk-comment-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
+.tk-comment-author { font-size: 13px; font-weight: 600; color: var(--fg-1); }
+.tk-comment-text { font-size: 13px; color: var(--fg-2); line-height: 1.5; overflow-wrap: anywhere; }
+.tk-comment-item.mine .tk-comment-av { color: var(--accent-fg); background: var(--accent); border-color: var(--accent); }
+
+@media (max-width: 720px) {
+  .hq-summary-band { grid-template-columns: repeat(2, 1fr); }
+}
 
 </style>

@@ -92,8 +92,12 @@ function clearSampleTemplates() {
 function installDigestTrigger() {
   var who = _requireAdminEmail();
   var removed = 0;
+  // Remover triggers de AMBOS sistemas de digest (sendDailyDigest = este;
+  // sendDailyDigests = el de "Tu día"). Evita que coexistan dos triggers y cada
+  // persona reciba dos emails distintos. Solo debe haber UN digest diario activo.
   ScriptApp.getProjectTriggers().forEach(function(tg) {
-    if (tg.getHandlerFunction() === 'sendDailyDigest') { ScriptApp.deleteTrigger(tg); removed++; }
+    var h = tg.getHandlerFunction();
+    if (h === 'sendDailyDigest' || h === 'sendDailyDigests') { ScriptApp.deleteTrigger(tg); removed++; }
   });
   ScriptApp.newTrigger('sendDailyDigest').timeBased().everyDays(1).atHour(8).create();
   Logger.log('installDigestTrigger por ' + who + ': ' + removed + ' trigger(s) viejo(s) borrado(s) · 1 nuevo (diario ~8am).');

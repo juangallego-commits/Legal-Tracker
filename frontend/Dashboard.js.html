@@ -129,7 +129,7 @@ const BADGE_PRIO    = {'Alta':'b-alta','Media':'b-media','Baja':'b-baja'};
 const EMOJI_PRIO    = {'Alta':'🔴','Media':'🟡','Baja':'🟢'};
 const BADGE_STATUS  = {'Pendiente':'b-pendiente','En curso':'b-curso','En revisión':'b-revision','Bloqueado':'b-bloqueado','Listo':'b-listo'};
 const BADGE_PSTATUS = {'Activo':'ps-activo','En pausa':'ps-pausa','Completado':'ps-completado','Cancelado':'ps-cancelado'};
-const BADGE_RIESGO  = {'Legal alto':'b-riesgo-legal','Reputacional':'b-riesgo-reput','Operativo':'b-riesgo-oper'};
+const BADGE_RIESGO  = {'Legal':'b-riesgo-legal','Legal alto':'b-riesgo-legal','Reputacional':'b-riesgo-reput','Negocio':'b-riesgo-oper','Operativo':'b-riesgo-oper'};
 
 // Avatar gradients
 const AVC = [
@@ -767,7 +767,8 @@ function openEdit(id) {
   var prioOpts  = buildOptions([{value:'Alta',label:'🔴 Alta'},{value:'Media',label:'🟡 Media'},{value:'Baja',label:'🟢 Baja'}], t.priority);
   var statOpts  = buildOptions(ALL_STATUSES.map(function(s){ return {value: s, label: _statusLabel(s)}; }), t.status);
   var tipoOpts  = buildOptions(['Contencioso','Regulatorio','Contractual','Privacy','Operativo'], t.tipoTrabajo, 'Sin definir');
-  var riesgoOpts= buildOptions(['Legal alto','Reputacional','Operativo'], t.riesgo, 'Sin definir');
+  var riesgoList = (t.riesgo && _CR_RIESGOS.indexOf(t.riesgo) < 0) ? [t.riesgo].concat(_CR_RIESGOS) : _CR_RIESGOS;
+  var riesgoOpts= buildOptions(riesgoList, t.riesgo, 'Sin definir');
 
   var respField = canReassign
     ? '<div class="form-group"><label>Responsable</label><select id="eResp">' + rOpts + '</select></div>'
@@ -822,7 +823,8 @@ function openEditProj(id) {
   var prioOpts   = buildOptions([{value:'Alta',label:'🔴 Alta'},{value:'Media',label:'🟡 Media'},{value:'Baja',label:'🟢 Baja'}], p.priority);
   var statOpts   = buildOptions(['Activo','En pausa','Completado','Cancelado'], p.status);
   var tipoOpts   = buildOptions(['Contencioso','Regulatorio','Contractual','Privacy','Operativo'], p.tipoTrabajo, 'Sin definir');
-  var riesgoOpts = buildOptions(['Legal alto','Reputacional','Operativo'], p.riesgo, 'Sin definir');
+  var riesgoListP = (p.riesgo && _CR_RIESGOS.indexOf(p.riesgo) < 0) ? [p.riesgo].concat(_CR_RIESGOS) : _CR_RIESGOS;
+  var riesgoOpts = buildOptions(riesgoListP, p.riesgo, 'Sin definir');
   var partsValue = (p.participantes || []).join(', ');
 
   $('editB').innerHTML =
@@ -1169,15 +1171,18 @@ function edSpMenuClose() {
 // Tiempo relativo humano: "hoy", "ayer", "hace 3d", "hace 2 sem".
 function _relativeAgo(ms) {
   if (!ms) return '';
+  var pt = (typeof LANG !== 'undefined' && LANG === 'pt');
+  var ago = pt ? 'há ' : 'hace ';
   var diff = Date.now() - ms;
-  if (diff < 0) return 'hoy';
+  if (diff < 0) return pt ? 'hoje' : 'hoy';
   var days = Math.floor(diff / 86400000);
-  if (days < 1) return 'hoy';
-  if (days === 1) return 'ayer';
-  if (days < 7) return 'hace ' + days + 'd';
+  if (days < 1) return pt ? 'hoje' : 'hoy';
+  if (days === 1) return pt ? 'ontem' : 'ayer';
+  if (days < 7) return ago + days + 'd';
   var weeks = Math.floor(days / 7);
-  if (weeks < 5) return 'hace ' + weeks + ' sem';
+  if (weeks < 5) return ago + weeks + ' sem';
   var months = Math.floor(days / 30);
+  if (pt) return 'há ' + months + (months > 1 ? ' meses' : ' mês');
   return 'hace ' + months + ' mes' + (months > 1 ? 'es' : '');
 }
 
@@ -1366,7 +1371,8 @@ function _ltToastType(type) {
   switch ((type || '').toLowerCase()) {
     case 'success': case 'ok': case 'good': case 'done': return 'success';
     case 'error': case 'danger': case 'fail': case 'bad': return 'error';
-    default: return 'info'; // info/warn/warning/notice/'' → info
+    case 'warn': case 'warning': return 'warn';
+    default: return 'info'; // info/notice/'' → info
   }
 }
 function toast(msg, type) {
@@ -1641,7 +1647,14 @@ var ACTIONS = {
   },
   'add-tag':         function(el){ addTag(el.dataset.container, el.dataset.val); },
   'remove-tag':      function(el){ removeTag(el.dataset.container, Number(el.dataset.i)); },
-  'create-task-in-project': function(el){ openCreate('newTask', Number(el.dataset.id)); },
+  'create-task-in-project': function(el){
+    // Usar el wizard editorial (flujo único de creación), no el modal legacy.
+    var pid = el.dataset.id;
+    if (typeof edCrearOpen === 'function') {
+      edCrearOpen();
+      setTimeout(function(){ var s = $('crProj'); if (s) s.value = pid; if (typeof edCrearSetField === 'function') edCrearSetField('proyectoId', pid); }, 100);
+    } else { openCreate('newTask', Number(pid)); }
+  },
   'miq-open-person': function(el) {
     // Desde el editorial "Mi equipo / Equipos": placeholder hasta que
     // exista la vista de detalle de persona. Por ahora, toast suave.
@@ -1685,6 +1698,9 @@ document.addEventListener('click', function(e) {
 function _activeModalEl() {
   var sov = $('edSearchOv');
   if (sov && sov.classList.contains('show')) return sov.querySelector('.ed-search-modal') || sov;
+  if ($('edHelpOv') && $('edHelpOv').classList.contains('show')) return $('edHelpOv').querySelector('.ed-help-modal') || $('edHelpOv');
+  var notifEl = document.getElementById('edNotifOv');
+  if (notifEl) return notifEl.querySelector('.cr-modal') || notifEl;
   var hostIds = ['uaHost', 'crHost', 'crpHost', 'edPltHost'];
   for (var i = 0; i < hostIds.length; i++) {
     var h = $(hostIds[i]);
@@ -1716,6 +1732,9 @@ document.addEventListener('keydown', function(e) {
     if ($('edTourOv')) { if (typeof edFinishTour === 'function') edFinishTour(); return; }
     // User menu del avatar — dropdown chico, también cerrable con Esc.
     if ($('edUserMenu')) { if (typeof edUserMenuClose === 'function') edUserMenuClose(); return; }
+    // Help y Notificaciones — overlays top-level, cierran antes que el resto.
+    if ($('edHelpOv') && $('edHelpOv').classList.contains('show')) { if (typeof edHelpClose === 'function') edHelpClose(); return; }
+    if (document.getElementById('edNotifOv')) { if (typeof edNotifClose === 'function') edNotifClose(); return; }
     // Editoriales (más nuevos / más prominentes visualmente)
     if ($('uaHost') && $('uaHost').innerHTML) { if (typeof edUClose === 'function') edUClose(); return; }
     if ($('crHost') && $('crHost').innerHTML) { if (typeof edCrearClose === 'function') edCrearClose(); return; }
@@ -3293,13 +3312,9 @@ function edHelpOpen() {
   ov.innerHTML = html;
   document.body.appendChild(ov);
   ov.classList.add('show');
-  // Esc closes
-  setTimeout(function() {
-    document.addEventListener('keydown', _edHelpEscOnce, { once: true });
-  }, 0);
-}
-function _edHelpEscOnce(e) {
-  if (e.key === 'Escape') { e.stopPropagation(); edHelpClose(); }
+  // Esc se maneja en el listener global de keydown (chequea edHelpOv). Antes
+  // se registraba un listener {once:true} acá que no se re-agregaba al reabrir,
+  // así que Esc dejaba de cerrar el modal a partir de la 2da apertura.
 }
 function edHelpClose() {
   var ov = $('edHelpOv'); if (ov) ov.classList.remove('show');
@@ -3322,6 +3337,8 @@ function _anyModalOpen() {
   if ($('editOv')      && $('editOv').classList.contains('show'))      return true;
   if ($('confOv')      && $('confOv').classList.contains('show'))      return true;
   if ($('edSearchOv')  && $('edSearchOv').classList.contains('show'))  return true;
+  if ($('edHelpOv')    && $('edHelpOv').classList.contains('show'))    return true;
+  if (document.getElementById('edNotifOv'))                            return true;
   return false;
 }
 
@@ -3878,7 +3895,7 @@ function rEdHomeManager(D) {
            +    '</div>'
            +    '<div class="pa-flex-center">'
            +      '<span style="flex:1;height:6px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + Math.min(pct, 100) + '%;background:' + loadColor + '"></span></span>'
-           +      '<span class="mono" style="font-size:11px;color:' + loadFg + ';min-width:50px;text-align:right"' + (m.capacityEstimated ? ' title="' + esc(t('Capacidad estimada — configurá «Capacidad: ' + (m.name || '') + '» en Config para fijarla')) + '"' : '') + '>' + (m.load || 0) + '/' + (m.capacityEstimated ? '~' : '') + (m.capacity || 0) + '</span>'
+           +      '<span class="mono" style="font-size:11px;color:' + loadFg + ';min-width:50px;text-align:right"' + (m.capacityEstimated ? ' title="' + esc(t('Capacidad estimada — configurá «Capacidad: {n}» en Config para fijarla').replace('{n}', m.name || '')) + '"' : '') + '>' + (m.load || 0) + '/' + (m.capacityEstimated ? '~' : '') + (m.capacity || 0) + '</span>'
            +    '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.overdue || 0) ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + (m.overdue || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.blocked || 0) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + (m.blocked || 0) + '</div>'
@@ -5228,7 +5245,8 @@ function edPanelEditCell(taskId, fieldKey) {
   } else if (fieldKey === 'deadline') {
     html = '<input type="date" class="tk-pcell-edit" value="' + esc(task.deadlineISO || '') + '" ' + saveAttr + '>';
   } else if (fieldKey === 'riesgo') {
-    var risks = ['', 'Legal alto', 'Reputacional', 'Operativo'];
+    var risks = ['', 'Legal', 'Reputacional', 'Negocio'];
+    if (task.riesgo && risks.indexOf(task.riesgo) < 0) risks.push(task.riesgo); // preservar valor legacy al editar
     var opts2 = risks.map(function(r) {
       var label = r || 'Sin definir';
       return '<option value="' + esc(r) + '"' + (r === (task.riesgo || '') ? ' selected' : '') + '>' + esc(label) + '</option>';
@@ -6904,9 +6922,9 @@ function _crPrioMod(val) {
   return '';
 }
 function _crRiesgoMod(val) {
-  if (val === 'Legal alto') return 'alta';
+  if (val === 'Legal' || val === 'Legal alto') return 'alta';
   if (val === 'Reputacional') return 'media';
-  if (val === 'Operativo') return 'baja';
+  if (val === 'Negocio' || val === 'Operativo') return 'baja';
   return '';
 }
 function _crConfMod(val) {
@@ -9828,6 +9846,15 @@ function rEdCalendar(D) {
   html += '<div class="pa-narrative">' + esc(t('Tu semana: reuniones de Google Calendar y vencimientos de tus tareas, juntos. Clic en una reunión para agendar un seguimiento; en un vencimiento para abrir la tarea.')) + '</div>';
 
   if (err) { html += paEmpty('calendar', t('No pude leer el calendario.'), esc(err)); html += '</div>'; v.innerHTML = html; return; }
+
+  // Empty-state semanal: si no hay NI reuniones NI vencimientos en toda la
+  // semana, decirlo explícitamente (antes solo se veían 7 columnas con "·").
+  if (!events.length) {
+    var _weekHasDeadline = (D.tasks || []).some(function(tk){ return tk.deadlineISO >= _CAL_WEEK_START && tk.deadlineISO <= endIso && tk.status !== 'Listo' && tk.status !== 'Cancelado' && (!me || tk.resp === me); });
+    if (!_weekHasDeadline) {
+      html += '<div class="pa-narrative" style="text-align:center;color:var(--fg-3)">' + esc(t('No tenés reuniones ni vencimientos esta semana.')) + '</div>';
+    }
+  }
 
   html += '<div class="cal-week">';
   for (var i = 0; i < 7; i++) {

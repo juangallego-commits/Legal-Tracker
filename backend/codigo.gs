@@ -1765,6 +1765,14 @@ function _updateTaskFieldImpl(taskId, field, value) {
   }
 
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
+  // Guard anti-drift: no escribir en columnas que la hoja todavía no tiene
+  // (Documentos/Confidencialidad/Contraparte en deploys sin setupSheets). Sin
+  // esto Sheets auto-expande la hoja y escribe en una columna sin header, lo
+  // que desplaza cómo se interpretan todas las lecturas posteriores. addTask ya
+  // hace este guard al crear; lo replicamos acá para los updates.
+  if (col > ws.getLastColumn()) {
+    return { success: false, error: 'La hoja no tiene la columna para "' + field + '". Pedile al admin que corra setupSheets().' };
+  }
   // Normalizar proyectoId a entero (o vacío)
   if (field === 'proyectoId' || field === 'proyecto') {
     var n = parseInt(value, 10);
@@ -1840,6 +1848,10 @@ function _updateTaskFieldsImpl(taskId, fields) {
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
   var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18,'contraparte':19};
   var row = current.row;
+  // Ancho real de la hoja: si una columna opcional (Documentos/Confidencialidad/
+  // Contraparte) todavía no existe, se omite en lugar de auto-expandir la hoja
+  // sin header (evita drift de esquema). Mismo criterio que addTask.
+  var lc = ws.getLastColumn();
 
   // Lock para serializar mutaciones. moveToHistorial se llama fuera del bloque
   // (tiene su propio lock interno; evitamos asumir reentrancia).
@@ -1851,7 +1863,7 @@ function _updateTaskFieldsImpl(taskId, fields) {
     Object.keys(fields).forEach(function(k) {
       if (k === 'status') return;
       var col = fieldMap[k];
-      if (!col) return;
+      if (!col || col > lc) return; // omitir columnas inexistentes (anti-drift)
       var v = fields[k];
       if (k === 'proyectoId' || k === 'proyecto') {
         var n = parseInt(v, 10);
@@ -2247,6 +2259,7 @@ function uploadBibliotecaDocFile(fileData, categoria) {
       if (!fileData || !fileData.data || !fileData.name) return { success: false, error: 'Datos de archivo inválidos' };
       var mime = (fileData.mimeType || '').toString().trim().toLowerCase();
       if (!_UPLOAD_ALLOWED_MIME[mime]) return { success: false, error: 'Tipo de archivo no permitido' };
+      if (fileData.data.length * 0.75 > _UPLOAD_MAX_BYTES) return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
       var bytes = Utilities.base64Decode(fileData.data);
       if (bytes.length > _UPLOAD_MAX_BYTES) return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
       var folder = _ensureSubfolder(_getRootFolder(), 'Biblioteca');
@@ -2474,6 +2487,12 @@ function sendMyDigestNow(){
 // Target del trigger diario: envía a CADA persona su resumen (corre como owner).
 function sendDailyDigests(){
   return _telemetry('sendDailyDigests', function(){
+    // Skip fines de semana usando DIGEST_TZ (no la TZ del proyecto). El botón
+    // manual sendMyDigestNow NO trae este guard (el user lo pide explícitamente).
+    if (DIGEST_SKIP_WEEKENDS) {
+      var dow = parseInt(Utilities.formatDate(new Date(), DIGEST_TZ, 'u'), 10); // 6=sáb, 7=dom
+      if (dow === 6 || dow === 7) return { success: true, sent: 0, skipped: 0, weekend: true };
+    }
     var ss=SpreadsheetApp.openById(SHEET_ID);
     var allow=buildEmailAllowlist(readEquipos(ss)); // email -> {name,...}
     var allTasks=readTasks(ss.getSheetByName(SHEET_ACTIVO));
@@ -2492,7 +2511,9 @@ function sendDailyDigests(){
 // Correr UNA vez en el editor para programar el envío diario (7am hora del
 // proyecto). Quita triggers previos para no duplicar.
 function setupDailyDigestTrigger(){
-  ScriptApp.getProjectTriggers().forEach(function(tr){ if(tr.getHandlerFunction()==='sendDailyDigests') ScriptApp.deleteTrigger(tr); });
+  // Remover triggers de AMBOS sistemas (sendDailyDigests = este; sendDailyDigest
+  // = el split specialist/manager) para que no coexistan dos triggers → doble email.
+  ScriptApp.getProjectTriggers().forEach(function(tr){ var h=tr.getHandlerFunction(); if(h==='sendDailyDigests'||h==='sendDailyDigest') ScriptApp.deleteTrigger(tr); });
   ScriptApp.newTrigger('sendDailyDigests').timeBased().everyDays(1).atHour(7).create();
   return 'OK: resumen diario programado a las 7am. Cada persona lo recibe si tiene tareas o reuniones.';
 }
@@ -2870,6 +2891,12 @@ function _uploadDocumentImpl(kind, itemId, fileData) {
     return { success: false, error: e.message };
   }
 
+  // Cap ANTES de decodificar: base64 infla ~33% y materializar un archivo
+  // enorme en memoria puede agotar el límite de ejecución antes del guard.
+  // data.length * 0.75 ≈ bytes reales.
+  if (fileData.data.length * 0.75 > _UPLOAD_MAX_BYTES) {
+    return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
+  }
   var bytes = Utilities.base64Decode(fileData.data);
   // Cap de tamaño para evitar agotar cuota de Drive del owner del webapp.
   if (bytes.length > _UPLOAD_MAX_BYTES) {
@@ -3644,8 +3671,13 @@ function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
 
   var raw = _cachedRawData();
   var equipos = raw.equipos || [];
-  var allActive = raw.tasks || [];
-  var allHist   = raw.historial || [];
+  // CONFIDENCIALIDAD: filtrar por rol ANTES de armar el PDF. Antes el export
+  // usaba raw.tasks/raw.historial SIN filtrar y solo recortaba por país, así que
+  // un manager veía en el PDF tareas confidenciales/restringidas de su país que
+  // la UI le oculta. filterTasksForRole replica exactamente la visibilidad del
+  // rol (head ve todo; manager ve lo permitido por confidencialidad).
+  var allActive = filterTasksForRole(raw.tasks || [], ctx.role, ctx.user, equipos);
+  var allHist   = filterTasksForRole(raw.historial || [], ctx.role, ctx.user, equipos);
 
   function inCountry(t) {
     var cc = t.pais || getCountryForMember(t.resp, equipos);
