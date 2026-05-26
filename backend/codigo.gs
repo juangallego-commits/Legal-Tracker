@@ -1036,7 +1036,28 @@ function _readTaskById(ss, taskId) {
   var data = ws.getRange(4, 1, lr - 3, Math.min(ws.getLastColumn(), TASK_COLS)).getValues();
   for (var i = 0; i < data.length; i++) {
     if (data[i][0] == taskId) {
-      return { row: i + 4, resp: data[i][2], pais: (data[i][12] || '').toString().trim() };
+      // Devolvemos también status + campos editables. Antes solo row/resp/pais,
+      // lo que dejaba current.status === undefined: (a) los auto-promote a
+      // "En curso" (al comentar/editar una tarea Pendiente) NUNCA disparaban, y
+      // (b) el activity log registraba old_value vacío. Esto los revive.
+      return {
+        row: i + 4,
+        resp: data[i][2],
+        pais: (data[i][12] || '').toString().trim(),
+        status: (data[i][6] || '').toString().trim(),
+        nombre: data[i][1],
+        acc: data[i][3],
+        deadline: data[i][4],
+        priority: (data[i][5] || '').toString().trim(),
+        notas: data[i][10],
+        proyecto: data[i][11],
+        proyectoId: data[i][11],
+        lider: data[i][13],
+        tipoTrabajo: data[i][14],
+        riesgo: data[i][15],
+        confidencialidad: (data[i][17] || '').toString().trim(),
+        contraparte: data[i][18]
+      };
     }
   }
   return null;
@@ -1709,11 +1730,14 @@ function _addTaskCommentImpl(taskId, body) {
   var ws = _commentsSheet(ctx.ss);
   // Auto-promote: si el comentario lo agrega el responsable de una tarea
   // 'Pendiente', promovemos a 'En curso'. Señal clara de que ya empezó.
+  var promotedStatus = null;
   var taskForPromote = _readTaskById(ctx.ss, taskId);
-  if (taskForPromote && taskForPromote.status === 'Pendiente' && taskForPromote.resp === authorName) {
+  if (taskForPromote && taskForPromote.status === 'Pendiente'
+      && _normalizeName(taskForPromote.resp) === _normalizeName(authorName)) {
     try {
       var ws_a = ctx.ss.getSheetByName(SHEET_ACTIVO);
       ws_a.getRange(taskForPromote.row, 7).setValue('En curso');
+      promotedStatus = 'En curso';
     } catch (e) { Logger.log('auto-promote on comment skipped: ' + ((e && e.message) || e)); }
   }
   var lock = LockService.getScriptLock();
@@ -1726,6 +1750,7 @@ function _addTaskCommentImpl(taskId, body) {
     _logActivity(ctx, taskId, 'comment', 'comment', '', trimmed.substring(0, 100));
     return {
       success: true,
+      promoted: promotedStatus, // 'En curso' si el comentario promovió la tarea; sino null
       comment: {
         id: newId,
         task_id: taskId,

@@ -3049,6 +3049,19 @@ function _edSearchFilter(query) {
     var score = primary >= 0 ? primary + 50 : secondary; // primary gana siempre
     if (score >= 0) taskMatches.push({ kind: 'task', item: t, projectName: pn, score: score });
   }
+  // Tareas CERRADAS (Historial) al MISMO ranking de tareas. Antes el índice solo
+  // cubría D.tasks (activas), así que un asunto cerrado era inencontrable salvo
+  // que supieras el ID. edSearchPickTask ya detecta historial y abre con el
+  // filtro "closed". El pill "Listo" las distingue visualmente.
+  var hist = (D && D.historial) || [];
+  for (var hi = 0; hi < hist.length; hi++) {
+    var ht = hist[hi];
+    var hpn = (ht.proyectoId && pMap[ht.proyectoId]) ? pMap[ht.proyectoId] : '';
+    var hPrimary = _edFuzzyBest([String(ht.nombre || ''), String(ht.id || '')], q);
+    var hSecondary = _edFuzzyBest([ht.resp, ht.notas, ht.tipoTrabajo, ht.pais, hpn], q);
+    var hScore = hPrimary >= 0 ? hPrimary + 50 : hSecondary;
+    if (hScore >= 0) taskMatches.push({ kind: 'task', item: ht, projectName: hpn, score: hScore, closed: true });
+  }
   taskMatches.sort(function(a, b){ return b.score - a.score; });
   for (var tm = 0; tm < taskMatches.length && out.length < 80; tm++) out.push(taskMatches[tm]);
   for (var j = 0; j < projects.length && out.length < 100; j++) {
@@ -3708,10 +3721,12 @@ function rEdHomeSpecialist(D) {
       { l: t('Baja'), v: me.avgBaja || '—', color: 'var(--good)' }
     ];
     rows.forEach(function(r) {
-      html += '<div style="display:grid;grid-template-columns:60px 1fr 60px;align-items:center;gap:10px;margin-bottom:6px;">'
-           +    '<span style="font-size:12px;color:var(--fg-2)">' + r.l + '</span>'
-           +    '<span style="height:6px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:60%;background:' + r.color + '"></span></span>'
-           +    '<span class="mono" style="font-size:11px;color:var(--fg-2);text-align:right">' + esc(r.v) + '</span>'
+      // Antes había una barra decorativa con width:60% fijo (no representaba el
+      // dato → engañosa en un scorecard). La reemplazamos por un punto de color
+      // por prioridad + el valor real.
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;">'
+           +    '<span style="font-size:12px;color:var(--fg-2);display:flex;align-items:center;gap:7px"><span style="width:8px;height:8px;border-radius:50%;background:' + r.color + ';display:inline-block;flex:0 0 auto"></span>' + r.l + '</span>'
+           +    '<span class="mono" style="font-size:12px;color:var(--fg-1);font-weight:600">' + esc(r.v) + '</span>'
            + '</div>';
     });
     html += '</div>';
@@ -5730,6 +5745,15 @@ function edPanelSubmitComment(taskId) {
         }
         ta.value = '';
         toast('Comentario enviado', 'success');
+        // Auto-promote: si comentar pasó la tarea de Pendiente a En curso, lo
+        // reflejamos (antes el backend lo hacía pero el pill quedaba desfasado
+        // hasta un reload manual).
+        if (res.promoted) {
+          var _tk = (D.tasks || []).find(function(x){ return String(x.id) === String(taskId); });
+          if (_tk) _tk.status = res.promoted;
+          toast(LANG === 'pt' ? 'Tarefa movida para Em andamento' : 'Tarea movida a En curso', 'info');
+          if (typeof _edScheduleReload === 'function') _edScheduleReload();
+        }
       } else {
         toast('Error: ' + ((res && res.error) || 'no se pudo enviar'), 'error');
       }
@@ -6772,7 +6796,9 @@ function edUSubmit() {
   var fields = {};
   if (EDU.variant === 'cerrar') {
     var resumen = ($('uaResumen') && $('uaResumen').value || '').trim();
-    if (!resumen) { if (typeof toast === 'function') toast('Falta el resumen para cerrar', 'error'); return; }
+    // Mínimo 5 caracteres, igual que el cierre masivo (bulk). El resumen es el
+    // registro permanente del cierre de un asunto legal; una "x" no sirve.
+    if (resumen.length < 5) { if (typeof toast === 'function') toast(LANG === 'pt' ? 'O resumo de fechamento precisa de ao menos 5 caracteres' : 'El resumen de cierre debe tener al menos 5 caracteres', 'error'); return; }
     fields.status = 'Listo';
     // Anteponer el cierre PRESERVANDO las notas previas (checklist/contexto).
     // Antes se sobrescribía notas entero → se perdía el checklist.
