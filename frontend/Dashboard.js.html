@@ -9866,11 +9866,53 @@ function edCalOpenTask(id){
   if (typeof goEd === 'function') goEd('tracker');
 }
 
-// Reunión → tarea de seguimiento (no 1:1). Confirm con la explicación del modelo.
+// Prep de reunión: cruza el título del evento con el tracker para mostrar
+// contexto legal (tareas por contraparte + proyectos por nombre). Substring
+// case-insensitive, umbral de longitud para evitar falsos positivos.
+function _calRelatedToEvent(ev) {
+  var out = [];
+  if (!ev || !ev.title) return out;
+  var title = ' ' + ev.title.toLowerCase() + ' ';
+  var seen = {};
+  (D.tasks || []).forEach(function(tk){
+    if (tk.status === 'Listo' || tk.status === 'Cancelado') return;
+    var cp = (tk.contraparte || '').trim().toLowerCase();
+    if (cp && cp.length >= 3 && title.indexOf(cp) >= 0 && !seen['t'+tk.id]) {
+      seen['t'+tk.id] = 1;
+      out.push({ icon: 'flag', name: tk.nombre, sub: (tk.contraparte || '') + ' · ' + tk.status });
+    }
+  });
+  (D.projects || []).forEach(function(pj){
+    var nm = (pj.nombre || '').trim().toLowerCase();
+    if (nm && nm.length >= 4 && title.indexOf(nm) >= 0 && !seen['p'+pj.id]) {
+      seen['p'+pj.id] = 1;
+      out.push({ icon: 'folder', name: pj.nombre, sub: (pj.pais || '') });
+    }
+  });
+  return out.slice(0, 6);
+}
+
+// Reunión → tarea de seguimiento (no 1:1) + prep con contexto legal relacionado.
 function edCalEventMenu(eventId) {
   var ev = (_CALEV_CACHE && _CALEV_CACHE.items || []).filter(function(x){ return x.id === eventId; })[0];
   var nm = ev ? ev.title : t('esta reunión');
-  confirm_('<b>' + esc(nm) + '</b><br>' + esc(t('¿Agendar un seguimiento de esta reunión? Crea una tarea asignada a vos con plazo 2 días hábiles después, lista para editar.')), function() {
+  var related = _calRelatedToEvent(ev);
+  var ctxHtml = '';
+  if (related.length) {
+    ctxHtml = '<div style="margin-top:12px;text-align:left;background:var(--bg-2);border:1px solid var(--line-1);border-radius:8px;padding:10px 12px">'
+      + '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--fg-3);margin-bottom:6px">' + esc(t('Contexto legal relacionado')) + '</div>'
+      + related.map(function(r){
+          return '<div style="font-size:12px;color:var(--fg-1);padding:3px 0;display:flex;gap:6px;align-items:center;min-width:0">'
+            + paIcon(r.icon, 10)
+            + '<span style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(r.name) + '</span>'
+            + (r.sub ? '<span style="color:var(--fg-3);white-space:nowrap">· ' + esc(r.sub) + '</span>' : '')
+            + '</div>';
+        }).join('')
+      + '</div>';
+  }
+  var head = '<b>' + esc(nm) + '</b>'
+    + (ev && ev.startLabel ? '<br><span style="color:var(--fg-3);font-size:12px">' + esc(ev.startLabel) + (ev.location ? ' · ' + esc(ev.location) : '') + '</span>' : '');
+  confirm_(head + ctxHtml + '<div style="margin-top:12px">' + esc(t('¿Agendar un seguimiento de esta reunión? Crea una tarea asignada a vos con plazo 2 días hábiles después, lista para editar.')) + '</div>', function() {
     if (typeof showLoader === 'function') showLoader();
     google.script.run
       .withSuccessHandler(function(res) {
