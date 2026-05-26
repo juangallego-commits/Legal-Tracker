@@ -2486,6 +2486,12 @@ function sendMyDigestNow(){
 // Target del trigger diario: envía a CADA persona su resumen (corre como owner).
 function sendDailyDigests(){
   return _telemetry('sendDailyDigests', function(){
+    // Skip fines de semana usando DIGEST_TZ (no la TZ del proyecto). El botón
+    // manual sendMyDigestNow NO trae este guard (el user lo pide explícitamente).
+    if (DIGEST_SKIP_WEEKENDS) {
+      var dow = parseInt(Utilities.formatDate(new Date(), DIGEST_TZ, 'u'), 10); // 6=sáb, 7=dom
+      if (dow === 6 || dow === 7) return { success: true, sent: 0, skipped: 0, weekend: true };
+    }
     var ss=SpreadsheetApp.openById(SHEET_ID);
     var allow=buildEmailAllowlist(readEquipos(ss)); // email -> {name,...}
     var allTasks=readTasks(ss.getSheetByName(SHEET_ACTIVO));
@@ -2504,7 +2510,9 @@ function sendDailyDigests(){
 // Correr UNA vez en el editor para programar el envío diario (7am hora del
 // proyecto). Quita triggers previos para no duplicar.
 function setupDailyDigestTrigger(){
-  ScriptApp.getProjectTriggers().forEach(function(tr){ if(tr.getHandlerFunction()==='sendDailyDigests') ScriptApp.deleteTrigger(tr); });
+  // Remover triggers de AMBOS sistemas (sendDailyDigests = este; sendDailyDigest
+  // = el split specialist/manager) para que no coexistan dos triggers → doble email.
+  ScriptApp.getProjectTriggers().forEach(function(tr){ var h=tr.getHandlerFunction(); if(h==='sendDailyDigests'||h==='sendDailyDigest') ScriptApp.deleteTrigger(tr); });
   ScriptApp.newTrigger('sendDailyDigests').timeBased().everyDays(1).atHour(7).create();
   return 'OK: resumen diario programado a las 7am. Cada persona lo recibe si tiene tareas o reuniones.';
 }
