@@ -2639,8 +2639,13 @@ function createTaskFromCalendarEvent(eventId) {
     var ctx = _getAuthContext();
     var tz = 'America/Bogota';
     var start = ev.getStartTime();
-    var base = start || new Date();
-    // +2 días hábiles desde la reunión.
+    var now = new Date();
+    // Base del seguimiento: la reunión si es futura; si ya pasó (o es hoy) se
+    // cuenta desde HOY. Antes era siempre desde la reunión, y para una reunión
+    // pasada el plazo (+2 hábiles) caía en el pasado → _addTaskImpl lo rechazaba
+    // con "El plazo no puede estar en el pasado".
+    var base = (start && start.getTime() > now.getTime()) ? new Date(start.getTime()) : new Date(now.getTime());
+    // +2 días hábiles desde la base.
     var due = new Date(base.getTime());
     var added = 0;
     while (added < 2) { due.setDate(due.getDate() + 1); var d = due.getDay(); if (d !== 0 && d !== 6) added++; }

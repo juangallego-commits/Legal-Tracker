@@ -2385,7 +2385,7 @@ function renderEdSidebar(role, activeViewId) {
     + '<div class="pa-sb-top">'
     +   '<div class="pa-sb-logo">M</div>'
     +   '<div class="pa-sb-name">MyDash</div>'
-    +   '<div class="pa-sb-version">v3.6</div>'
+    +   '<div class="pa-sb-version">Beta · v3.6</div>'
     + '</div>'
     + '<div class="pa-sb-workspace' + wsClickable + '"' + wsHandler + '>'
     +   '<div class="pa-sb-ws-av">R+</div>'
@@ -2537,7 +2537,8 @@ function _tourStepsForRole(role) {
       eye: 'Bienvenido',
       title: 'Hola ' + esc(firstName) + ', te muestro MyDash',
       body: '<p>Es la herramienta del equipo legal para hacer seguimiento de tareas y proyectos por país. Reemplaza el Excel viejo.</p>'
-          + '<p>Te lo explico en 6 pasos rápidos. Podés saltarlo con <kbd>Esc</kbd> en cualquier momento.</p>'
+          + '<p style="background:var(--warn-soft);border:1px solid var(--warn);border-radius:8px;padding:8px 10px;color:var(--fg-1)"><b>🧪 Está en Beta (en pruebas).</b> Puede tener detalles por pulir — tu feedback nos ayuda muchísimo a mejorarla.</p>'
+          + '<p>Te lo explico en unos pasos rápidos. Podés saltarlo con <kbd>Esc</kbd> en cualquier momento.</p>'
     },
     {
       eye: 'Navegación',
@@ -10068,6 +10069,21 @@ function rEdCalendar(D) {
        +    '</div>'
        + '</div>';
   html += '<div class="pa-narrative">' + esc(t('Tu semana: reuniones de Google Calendar y vencimientos de tus tareas, juntos. Clic en una reunión para agendar un seguimiento; en un vencimiento para abrir la tarea.')) + '</div>';
+  // Nota plegable: limitación actual (Beta) + cómo hacer que aparezcan las
+  // reuniones (acá y en el correo diario). Colapsada por default para no estorbar.
+  html += '<details style="margin:0 0 14px">'
+       +    '<summary style="cursor:pointer;font-size:12px;color:var(--fg-3);user-select:none">ℹ️ ¿No ves tus reuniones acá o en el correo diario?</summary>'
+       +    '<div style="font-size:12px;color:var(--fg-2);line-height:1.6;margin-top:8px;background:var(--bg-2);border:1px solid var(--line-1);border-radius:8px;padding:10px 12px">'
+       +      '<b>El calendario está en Beta.</b> Por ahora lee tus reuniones solo si compartís tu Google Calendar con la cuenta del Legal Tracker (<b>juan.gallego@rappi.com</b>). Se hace una sola vez:'
+       +      '<ol style="margin:6px 0 4px;padding-left:18px">'
+       +        '<li>Google Calendar → pasá el mouse sobre tu calendario → <b>⋮ → Configuración y uso compartido</b>.</li>'
+       +        '<li><b>Compartir con personas o grupos específicos</b> → agregá <b>juan.gallego@rappi.com</b>.</li>'
+       +        '<li>Permiso: <b>«Ver todos los detalles del evento»</b> → Guardar.</li>'
+       +        '<li>Volvé acá y tocá <b>Actualizar</b> (puede tardar unos minutos en propagar).</li>'
+       +      '</ol>'
+       +      'Eso también hace que tus reuniones del día aparezcan en el <b>correo diario</b>.'
+       +    '</div>'
+       +  '</details>';
 
   if (err) { html += paEmpty('calendar', t('No pude leer el calendario.'), esc(err)); html += '</div>'; v.innerHTML = html; return; }
 
