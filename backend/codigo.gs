@@ -1765,6 +1765,14 @@ function _updateTaskFieldImpl(taskId, field, value) {
   }
 
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
+  // Guard anti-drift: no escribir en columnas que la hoja todavía no tiene
+  // (Documentos/Confidencialidad/Contraparte en deploys sin setupSheets). Sin
+  // esto Sheets auto-expande la hoja y escribe en una columna sin header, lo
+  // que desplaza cómo se interpretan todas las lecturas posteriores. addTask ya
+  // hace este guard al crear; lo replicamos acá para los updates.
+  if (col > ws.getLastColumn()) {
+    return { success: false, error: 'La hoja no tiene la columna para "' + field + '". Pedile al admin que corra setupSheets().' };
+  }
   // Normalizar proyectoId a entero (o vacío)
   if (field === 'proyectoId' || field === 'proyecto') {
     var n = parseInt(value, 10);
@@ -1840,6 +1848,10 @@ function _updateTaskFieldsImpl(taskId, fields) {
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
   var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18,'contraparte':19};
   var row = current.row;
+  // Ancho real de la hoja: si una columna opcional (Documentos/Confidencialidad/
+  // Contraparte) todavía no existe, se omite en lugar de auto-expandir la hoja
+  // sin header (evita drift de esquema). Mismo criterio que addTask.
+  var lc = ws.getLastColumn();
 
   // Lock para serializar mutaciones. moveToHistorial se llama fuera del bloque
   // (tiene su propio lock interno; evitamos asumir reentrancia).
@@ -1851,7 +1863,7 @@ function _updateTaskFieldsImpl(taskId, fields) {
     Object.keys(fields).forEach(function(k) {
       if (k === 'status') return;
       var col = fieldMap[k];
-      if (!col) return;
+      if (!col || col > lc) return; // omitir columnas inexistentes (anti-drift)
       var v = fields[k];
       if (k === 'proyectoId' || k === 'proyecto') {
         var n = parseInt(v, 10);
@@ -3644,8 +3656,13 @@ function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
 
   var raw = _cachedRawData();
   var equipos = raw.equipos || [];
-  var allActive = raw.tasks || [];
-  var allHist   = raw.historial || [];
+  // CONFIDENCIALIDAD: filtrar por rol ANTES de armar el PDF. Antes el export
+  // usaba raw.tasks/raw.historial SIN filtrar y solo recortaba por país, así que
+  // un manager veía en el PDF tareas confidenciales/restringidas de su país que
+  // la UI le oculta. filterTasksForRole replica exactamente la visibilidad del
+  // rol (head ve todo; manager ve lo permitido por confidencialidad).
+  var allActive = filterTasksForRole(raw.tasks || [], ctx.role, ctx.user, equipos);
+  var allHist   = filterTasksForRole(raw.historial || [], ctx.role, ctx.user, equipos);
 
   function inCountry(t) {
     var cc = t.pais || getCountryForMember(t.resp, equipos);
