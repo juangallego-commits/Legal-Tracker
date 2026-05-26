@@ -2430,7 +2430,9 @@ function uploadBibliotecaDocFile(fileData, metadata) {
       if (ws.getLastColumn() < _BIB_COLS) return { success: false, error: 'La Biblioteca necesita migración: pedile a un head que corra migrateBiblioDocsSchema().' };
       var bytes = Utilities.base64Decode(fileData.data);
       if (bytes.length > _UPLOAD_MAX_BYTES) return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
-      var folder = _ensureSubfolder(_getRootFolder(), 'Biblioteca');
+      // Fase 2: organizar por taxonomía en Drive (/Biblioteca/<país>/<área>) en
+      // vez de una carpeta plana. _ensureSubfolder es get-or-create idempotente.
+      var folder = _ensureSubfolder(_ensureSubfolder(_ensureSubfolder(_getRootFolder(), 'Biblioteca'), v.meta.pais), v.meta.areaTrabajo);
       var file = folder.createFile(Utilities.newBlob(bytes, mime, fileData.name));
       var m = v.meta, now = new Date().toISOString();
       var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);

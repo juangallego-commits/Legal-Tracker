@@ -6394,9 +6394,10 @@ function _renderTkPanel(sel) {
            + '</div>';
     });
   }
-  html += '<div style="display:flex;gap:6px;margin-top:8px">'
-       +    '<button class="pa-btn pa-btn-outline" style="flex:1;justify-content:center" onclick="edTkToggleLinkForm()">' + paIcon('paperclip', 11) + ' ' + esc(t('Adjuntar enlace')) + '</button>'
-       +    '<label class="pa-btn pa-btn-outline" style="flex:1;justify-content:center;cursor:pointer">' + paIcon('save', 11) + ' ' + esc(t('Subir archivo'))
+  html += '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'
+       +    '<button class="pa-btn pa-btn-outline" style="flex:1 1 30%;justify-content:center;min-width:92px" title="Adjuntar un documento existente de la Biblioteca" onclick="edTkBibPickerOpen(\'' + esc(sel.id) + '\')">' + paIcon('folder', 11) + ' ' + esc(t('Biblioteca')) + '</button>'
+       +    '<button class="pa-btn pa-btn-outline" style="flex:1 1 30%;justify-content:center;min-width:92px" onclick="edTkToggleLinkForm()">' + paIcon('paperclip', 11) + ' ' + esc(t('Adjuntar enlace')) + '</button>'
+       +    '<label class="pa-btn pa-btn-outline" style="flex:1 1 30%;justify-content:center;cursor:pointer;min-width:92px">' + paIcon('save', 11) + ' ' + esc(t('Subir archivo'))
        +      '<input type="file" id="tkDocFileInput" data-task-id="' + esc(sel.id) + '" style="display:none" onchange="edTkUploadFile(this)">'
        +    '</label>'
        + '</div>'
@@ -9947,6 +9948,66 @@ function edBibDocSave(mode, docId) {
   } else if (mode === 'edit') {
     google.script.run.withSuccessHandler(ok('Documento actualizado')).withFailureHandler(fail).updateBibliotecaDocMeta(docId, meta);
   }
+}
+
+// ── Fase 2: Adjuntar un documento de la Biblioteca a una tarea ──────────
+// Enlaza (no re-sube) un doc existente: usa el attachDocumentLink del tracker
+// con la URL del doc de Biblioteca. Reusa _BIBDOCS_CACHE (ya filtrado por rol).
+var _BIB_PICKER_TASK = null;
+var _BIB_PICKER_Q = '';
+function _bibPickerRows() {
+  if (_BIBDOCS_CACHE == null) return '<div style="padding:20px;color:var(--fg-3);font-size:13px">Cargando biblioteca…</div>';
+  var q = (_BIB_PICKER_Q || '').toLowerCase();
+  var docs = (_BIBDOCS_CACHE || []).filter(function(d) {
+    if (!q) return true;
+    return [(d.nombre || ''), (d.tags || ''), (d.tipoDocumento || ''), (d.pais || '')].join(' ').toLowerCase().indexOf(q) >= 0;
+  });
+  if (docs.length === 0) return '<div style="padding:20px;color:var(--fg-3);font-size:13px">Sin documentos' + (q ? ' para esa búsqueda.' : ' en la biblioteca.') + '</div>';
+  return docs.slice(0, 60).map(function(d) {
+    var meta = (d.tipoDocumento && d.tipoDocumento !== 'Otro' ? d.tipoDocumento : '') + (d.pais ? (d.tipoDocumento && d.tipoDocumento !== 'Otro' ? ' · ' : '') + d.pais : '');
+    return '<div class="tk-doc pa-flex-center" style="justify-content:space-between;gap:10px">'
+      +   '<div style="min-width:0"><div style="font-size:13px;color:var(--fg-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(d.nombre) + '">' + esc(d.nombre) + '</div>'
+      +     (meta ? '<div style="font-size:11px;color:var(--fg-3)">' + esc(meta) + '</div>' : '') + '</div>'
+      +   '<button class="pa-btn pa-btn-outline" style="height:26px;font-size:11px;padding:0 9px;flex:0 0 auto" onclick="edTkBibPickerAttach(\'' + esc(d.id) + '\')">Adjuntar</button>'
+      + '</div>';
+  }).join('');
+}
+function edTkBibPickerOpen(taskId) {
+  _BIB_PICKER_TASK = taskId; _BIB_PICKER_Q = '';
+  var host = $('edPltHost');
+  if (!host) { host = document.createElement('div'); host.id = 'edPltHost'; document.body.appendChild(host); }
+  host.innerHTML = '<div class="cr-overlay" onclick="if(event.target===this)edTkBibPickerClose()">'
+    +   '<div class="cr-backdrop" onclick="edTkBibPickerClose()"></div>'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Adjuntar desde Biblioteca">'
+    +     '<div class="cr-head"><div><div class="cr-eye">— Biblioteca</div><div class="cr-title">Adjuntar a la tarea</div></div>'
+    +       '<button type="button" class="cr-x" onclick="edTkBibPickerClose()" aria-label="Cerrar">×</button></div>'
+    +     '<div class="cr-body">'
+    +       '<input type="text" id="bibPickerSearch" class="cr-input" placeholder="Buscar documento…" oninput="_bibPickerFilter(this.value)">'
+    +       '<div id="bibPickerList" style="margin-top:10px;max-height:50vh;overflow-y:auto">' + _bibPickerRows() + '</div>'
+    +     '</div>'
+    +     '<div class="cr-foot"><div class="cr-foot-info">Enlaza un documento existente sin re-subirlo.</div>'
+    +       '<button type="button" class="ed-btn ghost" onclick="edTkBibPickerClose()">Cerrar</button></div>'
+    +   '</div>'
+    + '</div>';
+  if (_BIBDOCS_CACHE == null) _loadBibDocs(function() { var l = $('bibPickerList'); if (l) l.innerHTML = _bibPickerRows(); });
+  setTimeout(function() { var i = $('bibPickerSearch'); if (i) i.focus(); }, 60);
+}
+function _bibPickerFilter(q) { _BIB_PICKER_Q = q || ''; var l = $('bibPickerList'); if (l) l.innerHTML = _bibPickerRows(); }
+function edTkBibPickerClose() { var h = $('edPltHost'); if (h) h.innerHTML = ''; }
+function edTkBibPickerAttach(docId) {
+  var d = (_BIBDOCS_CACHE || []).filter(function(x){ return x.id === docId; })[0];
+  if (!d || !d.url) { toast('Ese documento no tiene URL para adjuntar.', 'error'); return; }
+  var taskId = _BIB_PICKER_TASK;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        toast('Documento adjuntado a la tarea', 'success');
+        edTkBibPickerClose();
+        if (typeof _edScheduleReload === 'function') _edScheduleReload();
+      } else { toast((res && res.error) || 'No se pudo adjuntar.', 'error'); }
+    })
+    .withFailureHandler(function(e) { toast('Error: ' + (e && e.message || 'desconocido'), 'error'); })
+    .attachDocumentLink('task', taskId, { url: d.url, name: d.nombre });
 }
 
 // ── Calendario · vista semana (reuniones de Google + deadlines de tareas) ──
