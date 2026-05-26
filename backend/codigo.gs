@@ -2396,6 +2396,110 @@ function createTaskFromCalendarEvent(eventId) {
     return _safeMutation(function() { return _addTaskImpl(taskObj); });
   }, { eventId: eventId });
 }
+
+// ════════════════════════════════════════════════════════════════
+// RESUMEN DIARIO POR CORREO (usa el scope script.send_mail existente)
+// ════════════════════════════════════════════════════════════════
+function _htmlEsc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _isoPlusDays(iso, n){ var p=String(iso).split('-'); var d=new Date(+p[0],+p[1]-1,+p[2]); d.setDate(d.getDate()+n); return Utilities.formatDate(d,'America/Bogota','yyyy-MM-dd'); }
+
+function _digestTaskRow(t, tone){
+  var color = tone==='crit' ? '#d04848' : (tone==='warn' ? '#c98a2e' : '#3a7ec2');
+  return '<tr><td style="padding:7px 0;border-bottom:1px solid #eee;font:14px -apple-system,Segoe UI,Roboto,sans-serif;color:#222">'
+    + '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+color+';margin-right:9px"></span>'
+    + _htmlEsc(t.nombre)
+    + '<span style="color:#999;font-size:12px"> · '+_htmlEsc(t.priority||'Media')+(t.pais?' · '+_htmlEsc(t.pais):'')+'</span>'
+    + '</td></tr>';
+}
+
+// Digest de UNA persona: sus tareas (vencidas / hoy / semana) + reuniones de hoy.
+// Devuelve { hasContent, html, subject }. Best-effort en calendario (try/catch).
+function _buildDigestForMember(memberName, memberEmail, allTasks, todayISO, webUrl){
+  var mine = allTasks.filter(function(t){ return t.resp===memberName && t.status!=='Listo' && t.status!=='Cancelado'; });
+  var overdue=[], today=[], week=[]; var weekEnd=_isoPlusDays(todayISO,7);
+  mine.forEach(function(t){
+    if(!t.deadlineISO) return;
+    if(t.deadlineISO < todayISO) overdue.push(t);
+    else if(t.deadlineISO === todayISO) today.push(t);
+    else if(t.deadlineISO <= weekEnd) week.push(t);
+  });
+  var meetings=[];
+  try{
+    var cal=CalendarApp.getCalendarById(memberEmail);
+    if(cal){
+      var p=todayISO.split('-'); var from=new Date(+p[0],+p[1]-1,+p[2],0,0,0); var to=new Date(from.getTime()+86400000);
+      meetings=cal.getEvents(from,to).map(function(ev){ var s=ev.getStartTime(); return {time:(s&&!ev.isAllDayEvent())?Utilities.formatDate(s,'America/Bogota','HH:mm'):'', title:ev.getTitle()||'(sin título)'}; })
+        .sort(function(a,b){ return (a.time||'99')<(b.time||'99')?-1:1; });
+    }
+  }catch(e){}
+  if(!(overdue.length||today.length||week.length||meetings.length)) return {hasContent:false};
+
+  function section(title, rowsHtml, sub){
+    return '<div style="margin:18px 0 4px;font:600 13px -apple-system,Segoe UI,Roboto,sans-serif;color:#111;text-transform:uppercase;letter-spacing:.03em">'+title+(sub?' <span style="color:#999;font-weight:400">'+sub+'</span>':'')+'</div>'
+      +'<table style="width:100%;border-collapse:collapse">'+rowsHtml+'</table>';
+  }
+  var body='';
+  if(overdue.length) body+=section('Vencidas', overdue.map(function(t){return _digestTaskRow(t,'crit');}).join(''), '('+overdue.length+')');
+  if(today.length) body+=section('Vencen hoy', today.map(function(t){return _digestTaskRow(t,'warn');}).join(''), '('+today.length+')');
+  if(week.length) body+=section('Esta semana', week.map(function(t){return _digestTaskRow(t,'info');}).join(''), '('+week.length+')');
+  if(meetings.length){
+    var mr=meetings.map(function(m){ return '<tr><td style="padding:7px 0;border-bottom:1px solid #eee;font:14px -apple-system,Segoe UI,Roboto,sans-serif;color:#222">'+(m.time?'<b style="color:#3a7ec2">'+_htmlEsc(m.time)+'</b>&nbsp;&nbsp;':'')+_htmlEsc(m.title)+'</td></tr>'; }).join('');
+    body+=section('Reuniones de hoy', mr, '('+meetings.length+')');
+  }
+  var btn = webUrl ? '<a href="'+webUrl+'" style="display:inline-block;margin-top:22px;background:#ED4519;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font:600 14px -apple-system,Segoe UI,Roboto,sans-serif">Abrir el tracker &rarr;</a>' : '';
+  var html='<div style="max-width:560px;margin:0 auto;padding:24px;background:#fff">'
+    +'<div style="font:700 20px -apple-system,Segoe UI,Roboto,sans-serif;color:#111">Tu día · Legal Tracker</div>'
+    +'<div style="font:13px -apple-system,Segoe UI,Roboto,sans-serif;color:#999;margin-top:2px">Hola '+_htmlEsc((memberName||'').split(' ')[0])+' — esto tenés en el radar.</div>'
+    +body+btn
+    +'<div style="margin-top:24px;font:12px -apple-system,Segoe UI,Roboto,sans-serif;color:#bbb">Legal Tracker · Rappi</div>'
+    +'</div>';
+  var subject='Tu día · '+overdue.length+' vencidas · '+today.length+' hoy · '+meetings.length+' reuniones';
+  return {hasContent:true, html:html, subject:subject};
+}
+
+// A demanda: envía el resumen al usuario actual (botón en el menú). Callable.
+function sendMyDigestNow(){
+  return _telemetry('sendMyDigestNow', function(){
+    var ctx=_getAuthContext();
+    var allTasks=readTasks(ctx.ss.getSheetByName(SHEET_ACTIVO));
+    var todayISO=Utilities.formatDate(new Date(),'America/Bogota','yyyy-MM-dd');
+    var webUrl=''; try{ webUrl=ScriptApp.getService().getUrl()||''; }catch(e){}
+    var d=_buildDigestForMember(ctx.user.name, ctx.email, allTasks, todayISO, webUrl);
+    if(!d.hasContent) return {success:true, sent:false};
+    MailApp.sendEmail({to:ctx.email, subject:d.subject, htmlBody:d.html});
+    return {success:true, sent:true};
+  });
+}
+
+// Target del trigger diario: envía a CADA persona su resumen (corre como owner).
+function sendDailyDigests(){
+  return _telemetry('sendDailyDigests', function(){
+    var ss=SpreadsheetApp.openById(SHEET_ID);
+    var allow=buildEmailAllowlist(readEquipos(ss)); // email -> {name,...}
+    var allTasks=readTasks(ss.getSheetByName(SHEET_ACTIVO));
+    var todayISO=Utilities.formatDate(new Date(),'America/Bogota','yyyy-MM-dd');
+    var webUrl=''; try{ webUrl=ScriptApp.getService().getUrl()||''; }catch(e){}
+    var sent=0, skipped=0;
+    Object.keys(allow).forEach(function(email){
+      var d=_buildDigestForMember(allow[email].name, email, allTasks, todayISO, webUrl);
+      if(!d.hasContent){ skipped++; return; }
+      try{ MailApp.sendEmail({to:email, subject:d.subject, htmlBody:d.html}); sent++; }catch(e){ skipped++; }
+    });
+    return {success:true, sent:sent, skipped:skipped};
+  });
+}
+
+// Correr UNA vez en el editor para programar el envío diario (7am hora del
+// proyecto). Quita triggers previos para no duplicar.
+function setupDailyDigestTrigger(){
+  ScriptApp.getProjectTriggers().forEach(function(tr){ if(tr.getHandlerFunction()==='sendDailyDigests') ScriptApp.deleteTrigger(tr); });
+  ScriptApp.newTrigger('sendDailyDigests').timeBased().everyDays(1).atHour(7).create();
+  return 'OK: resumen diario programado a las 7am. Cada persona lo recibe si tiene tareas o reuniones.';
+}
+function removeDailyDigestTrigger(){
+  var n=0; ScriptApp.getProjectTriggers().forEach(function(tr){ if(tr.getHandlerFunction()==='sendDailyDigests'){ ScriptApp.deleteTrigger(tr); n++; } });
+  return 'Triggers de resumen removidos: '+n;
+}
 // O(1) en lugar del while-day-by-day. Para historial extenso (años),
 // el loop original disparaba miles de iteraciones por entry × cientos
 // de entries → segundos de CPU. Algoritmo: total días entre fechas,

@@ -1916,7 +1916,8 @@ var PA_ICONS = {
   download: 'M8 2v9 M4 8l4 4 4-4 M3 14h10',
   msg: 'M2 4a1 1 0 011-1h10a1 1 0 011 1v6a1 1 0 01-1 1H6l-3 3v-3a1 1 0 01-1-1V4z',
   doc: 'M3 2h7l3 3v9H3V2z M10 2v3h3',
-  info: 'M8 14A6 6 0 108 2a6 6 0 000 12z M8 7v4 M8 5h.01'
+  info: 'M8 14A6 6 0 108 2a6 6 0 000 12z M8 7v4 M8 5h.01',
+  mail: 'M2 4h12v8H2z M2 4l6 5 6-5'
 };
 function paIcon(name, size, cls, style) {
   size = size || 16;
@@ -2736,6 +2737,9 @@ function edUserMenuToggle(ev) {
     + '<button class="ed-user-menu-item" onclick="edNotifOpen()">'
     +   paIcon('bell', 14) + ' ' + esc(LANG === 'pt' ? 'Atividade recente' : 'Actividad reciente')
     +   (_NOTIF_RECENT && _NOTIF_RECENT.length ? ' <span style="margin-left:auto;background:var(--critical);color:#fff;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9px">' + _NOTIF_RECENT.length + '</span>' : '')
+    + '</button>'
+    + '<button class="ed-user-menu-item" onclick="edUserMenuClose();edSendMyDigest()">'
+    +   paIcon('mail', 14) + ' ' + esc(t('Enviarme mi resumen ahora'))
     + '</button>'
     + (canSwitch
       ? '<button class="ed-user-menu-item" onclick="edUserMenuClose();edToggleDemoDropdown(event)">'
@@ -9877,6 +9881,19 @@ function edCalEventMenu(eventId) {
       .withFailureHandler(function(e) { if (typeof hideLoader === 'function') hideLoader(); toast(t('Error') + ': ' + (e && e.message || t('desconocido')), 'error'); })
       .createTaskFromCalendarEvent(eventId);
   }, { confirmLabel: t('Agendar seguimiento') });
+}
+
+// Envía a demanda el resumen del día al correo del usuario actual.
+function edSendMyDigest() {
+  if (typeof toast === 'function') toast(t('Enviando tu resumen…'), 'info');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        toast(res.sent ? t('Te enviamos tu resumen por correo ✉️') : t('Hoy no tenés tareas ni reuniones para resumir'), res.sent ? 'success' : 'info');
+      } else toast((res && res.error) || t('No se pudo enviar el resumen'), 'error');
+    })
+    .withFailureHandler(function(e) { toast(t('Error') + ': ' + (e && e.message || t('desconocido')), 'error'); })
+    .sendMyDigestNow();
 }
 
 
