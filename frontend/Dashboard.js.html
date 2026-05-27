@@ -10014,6 +10014,65 @@ function edTkBibPickerAttach(docId) {
     .attachDocumentLink('task', taskId, { url: d.url, name: d.nombre });
 }
 
+// ── Beta · feedback in-app (escribe a la hoja Feedback) ─────────────────
+function _fbCurrentView() {
+  var crumb = document.querySelector('.pa-hd-crumbs');
+  if (crumb && crumb.textContent) return crumb.textContent.replace(/\s+/g, ' ').trim().slice(0, 40);
+  var av = document.querySelector('.view.active');
+  return (av && av.id) ? av.id : '';
+}
+var _FB_SENT = '';
+function edFbSent(val, el) {
+  _FB_SENT = (_FB_SENT === val) ? '' : val;
+  var row = el.parentNode;
+  Array.prototype.forEach.call(row.children, function(b){ b.classList.remove('is-on'); });
+  if (_FB_SENT) el.classList.add('is-on');
+}
+function edFeedbackOpen() {
+  if (typeof edUserMenuClose === 'function') edUserMenuClose();
+  var host = $('edPltHost');
+  if (!host) { host = document.createElement('div'); host.id = 'edPltHost'; document.body.appendChild(host); }
+  _FB_SENT = '';
+  var viewName = _fbCurrentView();
+  host.innerHTML = '<div class="cr-overlay" onclick="if(event.target===this)edFeedbackClose()">'
+    +   '<div class="cr-backdrop" onclick="edFeedbackClose()"></div>'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="Enviar feedback">'
+    +     '<div class="cr-head"><div><div class="cr-eye">— Beta</div><div class="cr-title">Tu feedback</div></div>'
+    +       '<button type="button" class="cr-x" onclick="edFeedbackClose()" aria-label="Cerrar">×</button></div>'
+    +     '<div class="cr-body">'
+    +       '<div style="font-size:12px;color:var(--fg-2);line-height:1.5;margin-bottom:12px">Estamos en pruebas y tu opinión nos ayuda un montón. Contanos qué mejorar, qué te confunde, o qué te gustó.' + (viewName ? ' <span style="color:var(--fg-3)">· vista: ' + esc(viewName) + '</span>' : '') + '</div>'
+    +       '<div style="display:flex;gap:8px;margin-bottom:10px">'
+    +         '<button type="button" class="fb-sent-btn" title="Algo no va" onclick="edFbSent(\'malo\', this)">😕</button>'
+    +         '<button type="button" class="fb-sent-btn" title="Neutral" onclick="edFbSent(\'neutral\', this)">😐</button>'
+    +         '<button type="button" class="fb-sent-btn" title="Me gusta" onclick="edFbSent(\'bueno\', this)">😄</button>'
+    +       '</div>'
+    +       '<textarea id="fbText" class="cr-input" rows="4" maxlength="4000" placeholder="Tu comentario, idea, o lo que encontraste…"></textarea>'
+    +     '</div>'
+    +     '<div class="cr-foot">'
+    +       '<div class="cr-foot-info">Llega al equipo con tu nombre y la vista actual.</div>'
+    +       '<button type="button" class="ed-btn ghost" onclick="edFeedbackClose()">Cancelar</button>'
+    +       '<button type="button" class="ed-btn accent" id="fbSendBtn" onclick="edFeedbackSubmit()">Enviar</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+  setTimeout(function(){ var ta = $('fbText'); if (ta) ta.focus(); }, 60);
+}
+function edFeedbackClose() { var h = $('edPltHost'); if (h) h.innerHTML = ''; }
+function edFeedbackSubmit() {
+  var txt = ($('fbText') && $('fbText').value || '').trim();
+  if (!txt) { toast('Escribí algo primero 🙂', 'error'); return; }
+  var btn = $('fbSendBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Enviar'; }
+      if (res && res.success) { toast('¡Gracias! Tu feedback llegó 🙌', 'success'); edFeedbackClose(); }
+      else toast((res && res.error) || 'No se pudo enviar.', 'error');
+    })
+    .withFailureHandler(function(e) { if (btn) { btn.disabled = false; btn.textContent = 'Enviar'; } toast('Error: ' + (e && e.message || 'desconocido'), 'error'); })
+    .submitFeedback(txt, { view: _fbCurrentView(), sentiment: _FB_SENT });
+}
+
 // ── Calendario · vista semana (reuniones de Google + deadlines de tareas) ──
 var _CALEV_CACHE = null;     // { weekStart, items, error } de la semana visible
 var _CAL_WEEK_START = null;  // ISO (yyyy-MM-dd) del lunes de la semana visible

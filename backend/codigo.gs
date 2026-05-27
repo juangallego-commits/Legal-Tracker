@@ -2538,6 +2538,43 @@ function getBibliotecaConfig() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// FEEDBACK (Beta) · captura comentarios del equipo a la hoja 'Feedback'
+// ════════════════════════════════════════════════════════════════
+// Auto-captura: quién (email/nombre/rol), en qué vista y con qué sentimiento.
+// No usa _safeMutation a propósito (no debe invalidar el cache del tracker por
+// un write no relacionado). Lock propio para el append.
+function submitFeedback(text, meta) {
+  return _telemetry('submitFeedback', function() {
+    var ctx = _getAuthContext();
+    var msg = (text || '').toString().trim();
+    if (!msg) return { success: false, error: 'Escribí tu feedback primero.' };
+    if (msg.length > 4000) msg = msg.slice(0, 4000);
+    meta = meta || {};
+    var ws = ctx.ss.getSheetByName('Feedback');
+    if (!ws) {
+      ws = ctx.ss.insertSheet('Feedback');
+      ws.getRange(1, 1, 1, 7).setValues([['ts', 'email', 'nombre', 'rol', 'vista', 'sentimiento', 'mensaje']]);
+      ws.getRange(1, 1, 1, 7).setFontWeight('bold');
+      ws.setFrozenRows(1);
+    }
+    var lock = LockService.getScriptLock();
+    try { lock.waitLock(8000); } catch (e) {}
+    try {
+      ws.appendRow(_sanitizeRow([
+        new Date().toISOString(),
+        ctx.email || '',
+        (ctx.user && ctx.user.name) || '',
+        ctx.role || '',
+        (meta.view || '').toString().slice(0, 40),
+        (meta.sentiment || '').toString().slice(0, 16),
+        msg
+      ]));
+    } finally { try { lock.releaseLock(); } catch (e) {} }
+    return { success: true };
+  }, {});
+}
+
+// ════════════════════════════════════════════════════════════════
 // GOOGLE CALENDAR (read-only) · ver eventos + crear tareas desde ellos
 // ════════════════════════════════════════════════════════════════
 // Calendario PROPIO del visitante. El web app corre como el owner (executeAs:
