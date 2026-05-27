@@ -22,11 +22,13 @@ Cosas que **no se pueden automatizar desde el código** y hay que hacer a mano
 
 | # | Qué | Cómo | Por qué |
 |---|-----|------|---------|
-| 5 | **Correr `setupSheets()`** | Editor → `setupSheets` → Run | Crea/migra hojas y columnas (Feriados, Templates, col 18 Confidencialidad, col 19 Contraparte, etc.). **Prerrequisito**: aunque agregué un guard que evita corromper el esquema, sin las columnas no se puede guardar confidencialidad/contraparte. |
+| 5 | **Correr `setupSheets()`** | Editor → `setupSheets` → Run | Crea/migra hojas y columnas (Feriados, Templates, col 18 Confidencialidad, col 19 Contraparte, **col 20 AreaSolicitante**, etc.). **Prerrequisito** del campo "Área solicitante" en tareas: sin la col 20 no se guarda (hay guard anti-corrupción). |
 | 6 | **Borrar las 3 plantillas de ejemplo** | Correr `clearSampleTemplates()` | Data sembrada que se ve "inventada". |
 | 7 | **Encender el digest diario** | Correr `installDigestTrigger()` | Instala el trigger diario ~8am. **Nota:** consolidé los dos sistemas de digest que existían — ahora cualquiera de los dos installers borra los triggers del otro, así que es imposible que manden doble email. Corré **solo uno**. |
 | 8 | **Configurar `Config!DriveFolder`** | Hoja `Config`, key `DriveFolder` = URL/ID de la carpeta raíz de Drive | Necesario para **subir archivos** (Biblioteca y adjuntos de tareas). Los *enlaces* funcionan sin esto. |
 | 9 | **Configurar `Config!CalendarId`** | Hoja `Config`, key `CalendarId` = ID del calendario del equipo | Define qué calendario muestra la vista **Calendario**. Si no se setea, usa el primario del usuario. |
+| 10 | **Definir `Config!ClientesInternos`** | Hoja `Config`, key `ClientesInternos` = CSV (ej. `Restaurantes, Finanzas, Tesorería, Monetization, …`) | Lista del eje **"Área solicitante"** (cliente interno) en tareas y biblioteca. Editable sin tocar código. Si está vacía, cae a esos 4 por default. |
+| 11 | **Biblioteca: asegurar col 17** | Correr `migrateBiblioDocsSchema()` una vez (o se auto-agrega al crear/editar el primer doc) | El campo "Área solicitante" en documentos vive en la col 17 de `BibliotecaDocs`; `_ensureBiblioDocsSheet` la agrega sola en el primer write, pero correr migrate la asegura ya. |
 
 ---
 
