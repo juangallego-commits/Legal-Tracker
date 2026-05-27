@@ -9721,11 +9721,11 @@ var _BIB_CONFIG = null;          // vocabularios + país/rol del usuario (del ba
 var _BIB_PENDING_FILE = null;    // archivo elegido, en espera de clasificar antes de subir
 var _BIB_FILTERS = (function() {
   try { var s = JSON.parse(localStorage.getItem('lt_bib_filters') || '{}');
-    return { tipoDoc: s.tipoDoc || '', area: s.area || '', pais: s.pais || '', soloVigentes: s.soloVigentes !== false, query: '' };
-  } catch (e) { return { tipoDoc: '', area: '', pais: '', soloVigentes: true, query: '' }; }
+    return { tipoDoc: s.tipoDoc || '', area: s.area || '', pais: s.pais || '', cliente: s.cliente || '', soloVigentes: s.soloVigentes !== false, query: '' };
+  } catch (e) { return { tipoDoc: '', area: '', pais: '', cliente: '', soloVigentes: true, query: '' }; }
 })();
 function _bibPersistFilters() {
-  try { localStorage.setItem('lt_bib_filters', JSON.stringify({ tipoDoc: _BIB_FILTERS.tipoDoc, area: _BIB_FILTERS.area, pais: _BIB_FILTERS.pais, soloVigentes: _BIB_FILTERS.soloVigentes })); } catch (e) {}
+  try { localStorage.setItem('lt_bib_filters', JSON.stringify({ tipoDoc: _BIB_FILTERS.tipoDoc, area: _BIB_FILTERS.area, pais: _BIB_FILTERS.pais, cliente: _BIB_FILTERS.cliente, soloVigentes: _BIB_FILTERS.soloVigentes })); } catch (e) {}
 }
 function _bibConfLabel(lvl) {
   return lvl === 'confidencial' ? 'Altamente confidencial' : (lvl === 'restringido' ? 'Confidencial' : 'Normal');
@@ -9750,6 +9750,7 @@ function _bibApplyFilters(docs) {
     if (f.tipoDoc && d.tipoDocumento !== f.tipoDoc) return false;
     if (f.area && d.areaTrabajo !== f.area) return false;
     if (f.pais && d.pais !== f.pais) return false;
+    if (f.cliente && (d.areaSolicitante || '') !== f.cliente) return false;
     if (f.soloVigentes && (d.vigente || 'si') === 'no') return false;
     if (q) {
       var hay = [(d.nombre || ''), (d.tags || ''), (d.notas || '')].join(' ').toLowerCase();
@@ -9807,6 +9808,7 @@ function _rEdBibDocs(D) {
        +    _bibFacetSelect('tipoDoc', 'Tipo', cfg.tiposDocumento, _BIB_FILTERS.tipoDoc)
        +    _bibFacetSelect('area', 'Área', cfg.areas, _BIB_FILTERS.area)
        +    _bibFacetSelect('pais', 'País', cfg.paises, _BIB_FILTERS.pais)
+       +    _bibFacetSelect('cliente', 'Cliente', cfg.clientesInternos, _BIB_FILTERS.cliente)
        +    '<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--fg-2);cursor:pointer"><input type="checkbox"' + (_BIB_FILTERS.soloVigentes ? ' checked' : '') + ' onchange="_bibSetVigentes(this.checked)"> Solo vigentes</label>'
        + '</div>';
 
@@ -9892,6 +9894,15 @@ function _bibSelectField(id, label, options, current, required) {
   return h + '</select></div>';
 }
 // Modal único de clasificación. mode: 'link' | 'file' | 'edit'.
+// Select de "Área solicitante" (cliente interno) con opción "Sin definir" +
+// preservación de un valor legacy que ya no esté en la lista de Config.
+function _bibClienteSelect(current, clientes) {
+  var sel = current || '', found = false;
+  var opts = '<option value=""' + (!sel ? ' selected' : '') + '>Sin definir</option>';
+  (clientes || []).forEach(function(c){ var on = (c === sel); if (on) found = true; opts += '<option value="' + esc(c) + '"' + (on ? ' selected' : '') + '>' + esc(c) + '</option>'; });
+  if (sel && !found) opts += '<option value="' + esc(sel) + '" selected>' + esc(sel) + '</option>';
+  return '<div class="cr-field"><div class="cr-label">Área solicitante <span style="font-weight:400;color:var(--fg-3)">(cliente interno)</span></div><select id="bibAreaSol" class="cr-input">' + opts + '</select></div>';
+}
 function _bibModalOpen(mode, doc) {
   _loadBibConfig(function(cfg) {
     var host = $('edPltHost');
@@ -9916,6 +9927,7 @@ function _bibModalOpen(mode, doc) {
     fields += _bibSelectField('bibTipoDoc', 'Tipo de documento', cfg.tiposDocumento, d.tipoDocumento || '', true);
     fields += _bibSelectField('bibArea', 'Área de trabajo', cfg.areas, d.areaTrabajo || '', true);
     fields += _bibSelectField('bibPais', 'País', cfg.paises, d.pais || cfg.userCountry || 'CO', true);
+    fields += _bibClienteSelect(d.areaSolicitante, cfg.clientesInternos);
     fields += confSel;
     fields += '<div class="cr-field"><div class="cr-label">Tags</div><input id="bibTags" class="cr-input" maxlength="200" value="' + esc(d.tags || '') + '" placeholder="ej: farmacias, ads, mundial"></div>';
     fields += '<div class="cr-field"><div class="cr-label">Notas</div><textarea id="bibNotas" class="cr-input" maxlength="300" rows="2" placeholder="Contexto breve (opcional)">' + esc(d.notas || '') + '</textarea></div>';
@@ -9944,7 +9956,8 @@ function _bibCollectMeta() {
     pais: ($('bibPais') && $('bibPais').value) || '',
     confidencialidad: ($('bibConf') && $('bibConf').value) || 'estandar',
     tags: ($('bibTags') && $('bibTags').value) || '',
-    notas: ($('bibNotas') && $('bibNotas').value) || ''
+    notas: ($('bibNotas') && $('bibNotas').value) || '',
+    areaSolicitante: ($('bibAreaSol') && $('bibAreaSol').value) || ''
   };
 }
 function edBibDocSave(mode, docId) {

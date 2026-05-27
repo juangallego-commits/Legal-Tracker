@@ -2235,8 +2235,9 @@ var _BIB_TIPOS_DOC = ['Contrato modelo', 'Política', 'Dictamen', 'Precedente', 
 var _BIB_AREAS = ['Contractual', 'Regulatorio', 'Contencioso', 'Privacy', 'Operativo', 'Transversal'];
 var _BIB_PAISES = ['CO', 'MX', 'BR', 'AR', 'CL', 'CR', 'PE', 'EC', 'UY', 'LATAM', 'Global'];
 var _BIB_CONFID = ['estandar', 'restringido', 'confidencial'];
-var _BIB_HEADERS = ['id', 'nombre', 'tipo', 'url', 'tipoDocumento', 'areaTrabajo', 'pais', 'confidencialidad', 'tags', 'autor', 'autorEmail', 'fecha', 'vigente', 'notas', 'actualizadoPor', 'fechaActualizado'];
-var _BIB_COLS = _BIB_HEADERS.length; // 16
+var _BIB_HEADERS = ['id', 'nombre', 'tipo', 'url', 'tipoDocumento', 'areaTrabajo', 'pais', 'confidencialidad', 'tags', 'autor', 'autorEmail', 'fecha', 'vigente', 'notas', 'actualizadoPor', 'fechaActualizado', 'areaSolicitante'];
+var _BIB_COLS = _BIB_HEADERS.length; // 17 (col 17 = areaSolicitante / cliente interno)
+var _BIB_COLS_V2 = 16; // base v2 (sin areaSolicitante); para distinguir el 7-col viejo de v2+
 
 // Crea la hoja con 16 columnas si no existe. Si ya existe con el schema viejo
 // (7 cols) NO la toca: la migración la reordena, porque autor/fecha cambian de
@@ -2248,6 +2249,11 @@ function _ensureBiblioDocsSheet(ss) {
     ws.getRange(1, 1, 1, _BIB_COLS).setValues([_BIB_HEADERS]);
     ws.getRange(1, 1, 1, _BIB_COLS).setFontWeight('bold');
     ws.setFrozenRows(1);
+  } else if (ws.getLastColumn() === _BIB_COLS_V2) {
+    // Sheet v2 (16 cols): agregar la col 17 'areaSolicitante' como trailing (no
+    // reordena nada; las filas viejas quedan con área vacía hasta editarse).
+    ws.getRange(1, _BIB_COLS).setValue(_BIB_HEADERS[_BIB_COLS - 1]);
+    ws.getRange(1, _BIB_COLS).setFontWeight('bold');
   }
   return ws;
 }
@@ -2261,7 +2267,7 @@ function migrateBiblioDocsSchema(ss) {
   if (ctx.role !== 'head') throw new Error('Solo un head puede migrar la Biblioteca.');
   var ws = ss.getSheetByName(SHEET_BIBLIO_DOCS);
   if (!ws) { _ensureBiblioDocsSheet(ss); return 'Hoja creada nueva (16 cols). Nada que migrar.'; }
-  if (ws.getLastColumn() >= _BIB_COLS) return 'Ya está en el schema de 16 columnas. Nada que hacer.';
+  if (ws.getLastColumn() >= _BIB_COLS_V2) { _ensureBiblioDocsSheet(ss); return 'Ya está en schema v2+; columna areaSolicitante asegurada.'; }
   var lr = ws.getLastRow();
   var oldData = lr >= 2 ? ws.getRange(2, 1, lr - 1, 7).getValues() : [];
   var newRows = oldData.map(function(r) {
@@ -2270,7 +2276,8 @@ function migrateBiblioDocsSchema(ss) {
       'Otro', 'Operativo', 'CO', 'estandar',
       (r[4] || '').toString().trim(),   // categoria vieja → tags
       r[5], '',                          // autor (col6 vieja), autorEmail (desconocido)
-      r[6], 'si', '', '', ''             // fecha (col7 vieja), vigente, notas, actualizadoPor, fechaActualizado
+      r[6], 'si', '', '', '',            // fecha (col7 vieja), vigente, notas, actualizadoPor, fechaActualizado
+      ''                                  // areaSolicitante (col 17)
     ];
   });
   ws.clear();
@@ -2309,7 +2316,8 @@ function _bibValidateMeta(meta, role) {
   }
   return { ok: true, meta: {
     tipoDocumento: tipoDoc, areaTrabajo: area, pais: pais, confidencialidad: conf,
-    tags: _bibSanitizeTags(meta.tags), notas: (meta.notas || '').toString().trim().slice(0, 300)
+    tags: _bibSanitizeTags(meta.tags), notas: (meta.notas || '').toString().trim().slice(0, 300),
+    areaSolicitante: (meta.areaSolicitante || '').toString().trim().slice(0, 40) // cliente interno (opcional)
   }};
 }
 
@@ -2358,7 +2366,7 @@ function getBibliotecaDocs() {
     var lr = ws.getLastRow();
     if (lr < 2) return { items: [] };
     var lc = ws.getLastColumn();
-    var wide = lc >= _BIB_COLS; // true = schema nuevo (16); false = viejo (7)
+    var wide = lc >= _BIB_COLS_V2; // true = v2+ (16/17 cols); false = viejo (7)
     var data = ws.getRange(2, 1, lr - 1, Math.min(lc, _BIB_COLS)).getValues();
     var items = [];
     data.forEach(function(r) {
@@ -2381,7 +2389,8 @@ function getBibliotecaDocs() {
           vigente: (r[12] || '').toString().trim().toLowerCase() || 'si',
           notas: (r[13] || '').toString().trim(),
           actualizadoPor: (r[14] || '').toString().trim(),
-          fechaActualizado: (r[15] || '').toString().trim()
+          fechaActualizado: (r[15] || '').toString().trim(),
+          areaSolicitante: (r[16] || '').toString().trim() // col 17; '' en sheets v2 (16)
         });
       } else {
         // Schema viejo (7 cols): id|nombre|tipo|url|categoria|autor|fecha.
@@ -2394,7 +2403,7 @@ function getBibliotecaDocs() {
           tags: (r[4] || '').toString().trim(), // categoria vieja
           autor: (r[5] || '').toString().trim(), autorEmail: '',
           fecha: (r[6] || '').toString().trim(),
-          vigente: 'si', notas: '', actualizadoPor: '', fechaActualizado: ''
+          vigente: 'si', notas: '', actualizadoPor: '', fechaActualizado: '', areaSolicitante: ''
         });
       }
     });
@@ -2416,7 +2425,7 @@ function addBibliotecaDocLink(nombre, url, metadata) {
       var nm = (nombre || '').toString().trim().slice(0, 120) || u.slice(0, 80);
       var m = v.meta, now = new Date().toISOString();
       var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);
-      ws.appendRow(_sanitizeRow([id, nm, 'link', u, m.tipoDocumento, m.areaTrabajo, m.pais, m.confidencialidad, m.tags, (ctx.user && ctx.user.name) || ctx.email || '', ctx.email || '', now, 'si', m.notas, '', '']));
+      ws.appendRow(_sanitizeRow([id, nm, 'link', u, m.tipoDocumento, m.areaTrabajo, m.pais, m.confidencialidad, m.tags, (ctx.user && ctx.user.name) || ctx.email || '', ctx.email || '', now, 'si', m.notas, '', '', m.areaSolicitante]));
       return { success: true, id: id };
     });
   }, {});
@@ -2442,7 +2451,7 @@ function uploadBibliotecaDocFile(fileData, metadata) {
       var file = folder.createFile(Utilities.newBlob(bytes, mime, fileData.name));
       var m = v.meta, now = new Date().toISOString();
       var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);
-      ws.appendRow(_sanitizeRow([id, file.getName(), 'file', file.getUrl(), m.tipoDocumento, m.areaTrabajo, m.pais, m.confidencialidad, m.tags, (ctx.user && ctx.user.name) || ctx.email || '', ctx.email || '', now, 'si', m.notas, '', '']));
+      ws.appendRow(_sanitizeRow([id, file.getName(), 'file', file.getUrl(), m.tipoDocumento, m.areaTrabajo, m.pais, m.confidencialidad, m.tags, (ctx.user && ctx.user.name) || ctx.email || '', ctx.email || '', now, 'si', m.notas, '', '', m.areaSolicitante]));
       return { success: true, id: id, url: file.getUrl() };
     });
   }, {});
@@ -2459,7 +2468,7 @@ function deleteBibliotecaDoc(id) {
       var lr = ws.getLastRow();
       if (lr < 2) return { success: false, error: 'No hay documentos.' };
       var lc = ws.getLastColumn();
-      var wide = lc >= _BIB_COLS;
+      var wide = lc >= _BIB_COLS_V2;
       var data = ws.getRange(2, 1, lr - 1, Math.min(lc, _BIB_COLS)).getValues();
       var rowIdx = -1, autor = '', autorEmail = '', docPais = '';
       for (var i = 0; i < data.length; i++) {
@@ -2495,7 +2504,7 @@ function updateBibliotecaDocMeta(docId, metadata) {
       if (!did) return { success: false, error: 'ID requerido.' };
       var v = _bibValidateMeta(metadata, ctx.role);
       if (!v.ok) return { success: false, error: v.error };
-      var ws = ctx.ss.getSheetByName(SHEET_BIBLIO_DOCS);
+      var ws = _ensureBiblioDocsSheet(ctx.ss); // asegura col 17 (areaSolicitante) en sheets v2
       if (!ws || ws.getLastColumn() < _BIB_COLS) return { success: false, error: 'Biblioteca no disponible o sin migrar.' };
       var lr = ws.getLastRow();
       if (lr < 2) return { success: false, error: 'No hay documentos.' };
@@ -2520,6 +2529,7 @@ function updateBibliotecaDocMeta(docId, metadata) {
       ws.getRange(rowIdx, 7).setValue(_sanitizeCell(m.pais));
       ws.getRange(rowIdx, 8).setValue(_sanitizeCell(m.confidencialidad));
       ws.getRange(rowIdx, 9).setValue(_sanitizeCell(m.tags));
+      ws.getRange(rowIdx, 17).setValue(_sanitizeCell(m.areaSolicitante));
       ws.getRange(rowIdx, 14).setValue(_sanitizeCell(m.notas));
       ws.getRange(rowIdx, 15).setValue(_sanitizeCell((ctx.user && ctx.user.name) || ctx.email || ''));
       ws.getRange(rowIdx, 16).setValue(new Date().toISOString());
@@ -2532,11 +2542,14 @@ function updateBibliotecaDocMeta(docId, metadata) {
 function getBibliotecaConfig() {
   return _telemetry('getBibliotecaConfig', function() {
     var ctx = _getAuthContext();
+    var cfg = readConfig(ctx.ss);
+    var clientes = (cfg.ClientesInternos || 'Restaurantes, Finanzas, Tesorería, Monetization').toString().split(',').map(function(s){ return s.trim(); }).filter(Boolean);
     return {
       tiposDocumento: _BIB_TIPOS_DOC,
       areas: _BIB_AREAS,
       paises: _BIB_PAISES,
       confidencialidad: _BIB_CONFID,
+      clientesInternos: clientes,
       userCountry: (ctx.user && ctx.user.code) || 'CO',
       userRole: ctx.role
     };
