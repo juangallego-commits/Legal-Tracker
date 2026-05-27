@@ -31,10 +31,11 @@ const DIGEST_SKIP_WEEKENDS = true; // En sáb/dom el trigger corre pero hace ear
 // los nuevos updates se persisten ahí.
 // NOTA MIGRACIÓN: las columnas TASK col 19 (Contraparte) y PROJ col 17 (ContrapartesConflicto)
 // deben agregarse manualmente al sheet antes de usar; sin la columna se defaultean a vacío.
-const TASK_COLS = 19;
+const TASK_COLS = 20;
 const TASK_DOCS_COL = 17; // 1-indexed
 const TASK_CONF_COL = 18; // 1-indexed
 const TASK_CONTRAPARTE_COL = 19; // 1-indexed
+const TASK_AREASOL_COL = 20; // 1-indexed · "Área solicitante" (cliente interno)
 // Projects: 17 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana,Participantes,TipoTrabajo,Riesgo,Documentos,ContrapartesConflicto
 const PROJ_COLS = 17;
 const PROJ_DOCS_COL = 16; // 1-indexed
@@ -1056,7 +1057,8 @@ function _readTaskById(ss, taskId) {
         tipoTrabajo: data[i][14],
         riesgo: data[i][15],
         confidencialidad: (data[i][17] || '').toString().trim(),
-        contraparte: data[i][18]
+        contraparte: data[i][18],
+        areaSolicitante: (data[i][19] || '').toString().trim()
       };
     }
   }
@@ -1263,7 +1265,9 @@ function readTasks(ws) {
       documentos: _parseDocs(row[16]),
       confidencialidad: ((row[17] || 'estandar').toString().trim().toLowerCase()) || 'estandar',
       // Col 19 (índice 18): single text. Default '' si la columna aún no existe.
-      contraparte: (row[18] || '').toString().trim()
+      contraparte: (row[18] || '').toString().trim(),
+      // Col 20 (índice 19): área solicitante (cliente interno). Default '' si no existe.
+      areaSolicitante: (row[19] || '').toString().trim()
     });
   });
   tasks.sort(function(a,b){return (PRIO_ORDER[a.priority]||1)-(PRIO_ORDER[b.priority]||1)||(STATUS_ORDER[a.status]||2)-(STATUS_ORDER[b.status]||2)});
@@ -1344,6 +1348,7 @@ function _addTaskImpl(taskObj) {
       } catch (e) { Logger.log('addTask: template prefill skipped: ' + ((e && e.message) || e)); }
     }
     var contraparte = (taskObj.contraparte || '').toString().trim();
+    var areaSolicitante = (taskObj.areaSolicitante || '').toString().trim();
     // Construimos la fila al ancho real del sheet: si el usuario aún no agregó
     // la columna 17 (Documentos), 18 (Confidencialidad) o 19 (Contraparte), no las
     // escribimos (no podemos crear columnas desde acá). Si existen, se llenan default.
@@ -1359,6 +1364,7 @@ function _addTaskImpl(taskObj) {
     if (lc >= 17) rowVals.push(''); // Documentos
     if (lc >= 18) rowVals.push(conf); // Confidencialidad
     if (lc >= TASK_CONTRAPARTE_COL) rowVals.push(contraparte); // Contraparte
+    if (lc >= TASK_AREASOL_COL) rowVals.push(areaSolicitante); // Área solicitante
     ws.appendRow(_sanitizeRow(rowVals));
     _logActivity(ctx, newId, 'create', '', '', taskObj.nombre || '');
     return {success:true, id:newId};
@@ -1772,7 +1778,7 @@ function _updateTaskFieldImpl(taskId, field, value) {
   if (!current) return { success: false, error: 'Task #' + taskId + ' not found' };
   _authorizeTaskWrite(ctx, current);
 
-  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18,'contraparte':19};
+  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18,'contraparte':19,'areaSolicitante':20};
   var col = fieldMap[field];
   if (!col) return { success: false, error: 'Invalid field: ' + field };
 
@@ -1871,7 +1877,7 @@ function _updateTaskFieldsImpl(taskId, fields) {
   }
 
   var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
-  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18,'contraparte':19};
+  var fieldMap = {'nombre':2,'resp':3,'acc':4,'deadline':5,'priority':6,'status':7,'notas':11,'proyecto':12,'proyectoId':12,'pais':13,'lider':14,'tipoTrabajo':15,'riesgo':16,'confidencialidad':18,'contraparte':19,'areaSolicitante':20};
   var row = current.row;
   // Ancho real de la hoja: si una columna opcional (Documentos/Confidencialidad/
   // Contraparte) todavía no existe, se omite en lugar de auto-expandir la hoja

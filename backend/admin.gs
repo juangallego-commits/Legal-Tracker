@@ -230,6 +230,21 @@ function setupSheets() {
     log('⚠ Hoja Tracking Activo no encontrada');
   }
 
+  // ── 3b. Tracking Activo: col 20 = AreaSolicitante (cliente interno, header row 3) ──
+  if (tk) {
+    var lastColAs = tk.getLastColumn();
+    var hdrAs = lastColAs >= TASK_AREASOL_COL ? tk.getRange(3, TASK_AREASOL_COL).getValue() : '';
+    if (!hdrAs) {
+      tk.getRange(3, TASK_AREASOL_COL).setValue('AreaSolicitante');
+      tk.getRange(3, TASK_AREASOL_COL).setFontWeight('bold');
+      log('✓ Tracking Activo: agregada columna ' + TASK_AREASOL_COL + ' = AreaSolicitante (row 3)');
+    } else if (hdrAs === 'AreaSolicitante') {
+      log('· Tracking Activo ya tenía columna AreaSolicitante');
+    } else {
+      log('⚠ Tracking Activo col ' + TASK_AREASOL_COL + ' tiene "' + hdrAs + '" — revisión manual');
+    }
+  }
+
   // ── 4. Proyectos: col 17 = ContrapartesConflicto (header en row 1)
   var pj = ss.getSheetByName(SHEET_PROYECTOS);
   if (pj) {

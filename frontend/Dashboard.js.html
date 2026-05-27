@@ -769,6 +769,9 @@ function openEdit(id) {
   var tipoOpts  = buildOptions(['Contencioso','Regulatorio','Contractual','Privacy','Operativo'], t.tipoTrabajo, 'Sin definir');
   var riesgoList = (t.riesgo && _CR_RIESGOS.indexOf(t.riesgo) < 0) ? [t.riesgo].concat(_CR_RIESGOS) : _CR_RIESGOS;
   var riesgoOpts= buildOptions(riesgoList, t.riesgo, 'Sin definir');
+  var areaList = _clientesInternos();
+  if (t.areaSolicitante && areaList.indexOf(t.areaSolicitante) < 0) areaList = [t.areaSolicitante].concat(areaList);
+  var areaOpts  = buildOptions(areaList, t.areaSolicitante, 'Sin definir');
 
   var respField = canReassign
     ? '<div class="form-group"><label>Responsable</label><select id="eResp">' + rOpts + '</select></div>'
@@ -798,8 +801,11 @@ function openEdit(id) {
       '<div class="form-group"><label>Acción</label><input type="text" id="eAcc" value="' + esc(t.acc || '') + '"></div>' +
       '<div class="form-group"><label>Notas</label><input type="text" id="eNot" value="' + esc(t.notas || '') + '"></div>' +
     '</div>' +
-    '<div class="form-group" style="margin-bottom:14px"><label>Contraparte</label>' +
-      '<input type="text" id="eContraparte" value="' + esc(t.contraparte || '') + '" maxlength="120" placeholder="Contraparte (opcional)"></div>' +
+    '<div class="form-grid" style="margin-bottom:14px">' +
+      '<div class="form-group"><label>Contraparte</label>' +
+        '<input type="text" id="eContraparte" value="' + esc(t.contraparte || '') + '" maxlength="120" placeholder="Contraparte (opcional)"></div>' +
+      '<div class="form-group"><label>Área solicitante</label><select id="eAreaSol">' + areaOpts + '</select></div>' +
+    '</div>' +
     renderDocsSection('task', id, t.documentos || []);
   $('editOv').classList.add('show');
   // Validación en vivo: el nombre de la tarea es obligatorio.
@@ -892,7 +898,8 @@ function saveEditTask() {
     deadline: $('eDl').value, acc: $('eAcc').value,
     notas: $('eNot').value,
     tipoTrabajo: $('eTipo').value, riesgo: $('eRiesgo').value,
-    contraparte: ($('eContraparte') ? $('eContraparte').value : '')
+    contraparte: ($('eContraparte') ? $('eContraparte').value : ''),
+    areaSolicitante: ($('eAreaSol') ? $('eAreaSol').value : '')
   };
   var id = EDIT_ID;
   // "Listo" dispara confirmación y mueve al historial — cerramos el modal
@@ -6219,7 +6226,7 @@ function edTkSetGroupBy(mode) {
 // plana como en los buckets del modo "Por urgencia".
 function _edTkRowHtml(t, role, sel) {
   var pn = _projNameForTask(t);
-  var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
+  var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '') + (t.areaSolicitante ? ' · ' + t.areaSolicitante : '');
   var blockReasonSuffix = '';
   if (t.status === 'Bloqueado' && t.blockedReason) {
     var rsn = String(t.blockedReason).trim();
@@ -6324,7 +6331,8 @@ function _renderTkPanel(sel) {
     { l: 'SLA objetivo', v: sel.slaTarget || '—', icon: 'flag' },
     { l: 'Riesgo', v: sel.riesgo || '—', icon: 'alert', editable: true, key: 'riesgo' },
     { l: 'Proyecto', v: pn, icon: 'folder', editable: true, key: 'proyectoId' },
-    { l: 'Contraparte', v: sel.contraparte || '—', icon: 'globe', editable: true, key: 'contraparte' }
+    { l: 'Contraparte', v: sel.contraparte || '—', icon: 'globe', editable: true, key: 'contraparte' },
+    { l: 'Área solicitante', v: sel.areaSolicitante || '—', icon: 'users', editable: true, key: 'areaSolicitante' }
     // Tipo de trabajo vive en la pillrow superior (línea ~6079), no duplicar acá.
   ];
   fields.forEach(function(f) {
@@ -6896,7 +6904,8 @@ var EDC = {
     resp: '',
     deadline: '',
     proyectoId: '',
-    confidencialidad: 'estandar'
+    confidencialidad: 'estandar',
+    areaSolicitante: ''
   }
 };
 
@@ -7073,6 +7082,12 @@ function _crRenderStep1() {
     + '</div>';
 }
 
+// Lista de clientes internos / áreas solicitantes. Editable desde la hoja Config
+// (key "ClientesInternos" = CSV). Si está vacía, cae a un default razonable.
+function _clientesInternos() {
+  var raw = (D && D.config && D.config.ClientesInternos) || 'Restaurantes, Finanzas, Tesorería, Monetization';
+  return raw.toString().split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+}
 function _crRenderStep2() {
   var v = EDC.values;
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
@@ -7123,9 +7138,15 @@ function _crRenderStep2() {
     +     _crErr('deadline')
     +   '</div>'
     + '</div>'
-    + '<div class="cr-field">'
-    +   '<div class="cr-label">Ligar a proyecto</div>'
-    +   _crSelectHtml('crProj', projs, v.proyectoId, 'Sin proyecto').replace('<select id="crProj"', '<select id="crProj" onchange="edCrearSetField(\'proyectoId\', this.value)"')
+    + '<div class="cr-grid2">'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Ligar a proyecto</div>'
+    +     _crSelectHtml('crProj', projs, v.proyectoId, 'Sin proyecto').replace('<select id="crProj"', '<select id="crProj" onchange="edCrearSetField(\'proyectoId\', this.value)"')
+    +   '</div>'
+    +   '<div class="cr-field">'
+    +     '<div class="cr-label">Área solicitante <span style="font-weight:400;color:var(--fg-3)">(cliente interno)</span></div>'
+    +     _crSelectHtml('crAreaSol', _clientesInternos().map(function(c){ return { value: c, label: c }; }), v.areaSolicitante, 'Sin definir').replace('<select id="crAreaSol"', '<select id="crAreaSol" onchange="edCrearSetField(\'areaSolicitante\', this.value)"')
+    +   '</div>'
     + '</div>'
     // Confidencialidad solo para manager/head — consistente con backend que
     // valida el rol en updateTaskField. Specialist no la ve; queda en 'estandar'
@@ -7384,7 +7405,8 @@ function edCrearSubmit() {
       deadline: v.deadline || '',
       acc: '',
       notas: (v.descripcion || '').trim(),
-      confidencialidad: v.confidencialidad || 'estandar'
+      confidencialidad: v.confidencialidad || 'estandar',
+      areaSolicitante: v.areaSolicitante || ''
     });
 }
 
@@ -8025,7 +8047,7 @@ function rEdHistorial(D) {
     html += '<div class="pa-tbl pa-tbl-hist">';
     rows.forEach(function(t) {
       var pn = _projNameForTask(t);
-      var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
+      var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '') + (t.areaSolicitante ? ' · ' + t.areaSolicitante : '');
       var dvs = _edDaysVsSla(t);
       var conf = _confLevel(t);
       var slaTxt, slaCls;
