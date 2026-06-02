@@ -2662,6 +2662,8 @@ function _tourStepsForRole(role) {
           + '<li><kbd>/</kbd> — foco en el search del tracker</li>'
           + '<li><kbd>Esc</kbd> — cierra cualquier modal/panel abierto</li>'
           + '</ul>'
+          + '<div class="tour-try"><span class="ico">💡</span><div><b>Probalo ahora:</b> apretá <kbd>' + kbd + 'K</kbd> — abre la búsqueda y avanzo al siguiente paso solo.</div></div>',
+      interactive: 'cmdk'
     }
   ];
   var bySpecialist = [
@@ -2720,9 +2722,12 @@ function _tourStepsForRole(role) {
     {
       eye: 'Listo',
       title: 'Ya está. A trabajar.',
-      body: '<p>Si necesitás re-ver esto, andá al <b>avatar</b> arriba a la derecha → <i>Tour de la herramienta</i>.</p>'
-          + '<p>Cualquier bug o duda, usá el botón <b>Feedback</b> abajo a la derecha — me llega directo.</p>'
-          + '<p><b>¡A trabajar!</b></p>'
+      body: '<div class="tour-celebrate">'
+          +   '<div class="tour-celebrate-check">✓</div>'
+          +   '<div class="tour-celebrate-msg">¡Tour completado!</div>'
+          + '</div>'
+          + '<p style="text-align:center">Si necesitás re-ver esto, andá al <b>avatar</b> arriba a la derecha → <i>Tour de la herramienta</i>.</p>'
+          + '<p style="text-align:center">Cualquier bug o duda, usá el botón <b>Feedback</b> abajo a la derecha — me llega directo.</p>'
     }
   ];
   if (role === 'specialist') return common.concat(bySpecialist).concat(tail);
@@ -2745,6 +2750,11 @@ function _tourRender() {
   var cur = TOUR_STATE.step + 1;
   // Limpiar cualquier spotlight previo antes de re-renderizar (al cambiar step).
   document.querySelectorAll('.tour-spotlight').forEach(function(el) { el.classList.remove('tour-spotlight'); });
+  // Limpiar listener interactivo previo (si el step anterior tenía interactive).
+  if (TOUR_STATE._listener) {
+    document.removeEventListener('keydown', TOUR_STATE._listener);
+    TOUR_STATE._listener = null;
+  }
   var existing = $('edTourOv'); if (existing) existing.remove();
   var ov = document.createElement('div');
   ov.id = 'edTourOv';
@@ -2782,6 +2792,17 @@ function _tourRender() {
       if (targetEl) targetEl.classList.add('tour-spotlight');
     } catch (e) {}
   }
+  // Step interactivo: escucha al user ejecutar el atajo y avanza solo.
+  // Hoy soporta 'cmdk' — el handler global existente abre la búsqueda; nosotros
+  // solo escuchamos para avanzar (no preventDefault).
+  if (s.interactive === 'cmdk') {
+    TOUR_STATE._listener = function(e) {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        setTimeout(function() { edTourNext(); }, 250);
+      }
+    };
+    document.addEventListener('keydown', TOUR_STATE._listener);
+  }
 }
 function edTourNext() {
   TOUR_STATE.step = Math.min(TOUR_STATE.step + 1, TOUR_STATE.steps.length - 1);
@@ -2794,6 +2815,10 @@ function edTourPrev() {
 function edFinishTour() {
   var ov = $('edTourOv'); if (ov) ov.remove();
   document.querySelectorAll('.tour-spotlight').forEach(function(el) { el.classList.remove('tour-spotlight'); });
+  if (TOUR_STATE._listener) {
+    document.removeEventListener('keydown', TOUR_STATE._listener);
+    TOUR_STATE._listener = null;
+  }
   try { localStorage.setItem(TOUR_FLAG, '1'); } catch(e){}
 }
 
