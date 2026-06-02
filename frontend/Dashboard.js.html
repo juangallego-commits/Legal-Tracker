@@ -8475,6 +8475,49 @@ function _edaAgingSection(tasks) {
 
 // SLA compliance trend: % on-time por semana, últimas 8 semanas.
 // Usa historial filtrado por rol/país.
+// Distribución de carga por área solicitante (cliente interno). Responde la
+// pregunta política del head: "¿cuánto del trabajo de Legal va a cada área del
+// negocio?". Click en una barra filtra el tracker por ese cliente.
+function _edaAreaSolicitanteSection(tasks) {
+  var activas = (tasks || []).filter(function(t){ return t.status !== 'Listo'; });
+  if (!activas.length) return '';
+  var buckets = {}, sinTag = 0;
+  activas.forEach(function(t){
+    var k = (t.areaSolicitante || '').toString().trim();
+    if (!k) { sinTag++; return; }
+    buckets[k] = (buckets[k] || 0) + 1;
+  });
+  var rows = Object.keys(buckets).map(function(k){ return { name: k, count: buckets[k] }; });
+  if (!rows.length && !sinTag) return '';
+  rows.sort(function(a, b){ return b.count - a.count; });
+  var total = activas.length;
+  var max = rows.length ? rows[0].count : Math.max(sinTag, 1);
+  var html = '<div class="pa-section-h"><h3>Carga por área solicitante</h3>'
+           + '<span class="meta">' + total + ' activas · ' + rows.length + (rows.length === 1 ? ' cliente' : ' clientes') + '</span></div>'
+           + '<div class="pa-card" style="padding:14px 18px">';
+  rows.forEach(function(r){
+    var pct = Math.round((r.count / total) * 100);
+    var barPct = Math.round((r.count / max) * 100);
+    html += '<div style="display:grid;grid-template-columns:160px 1fr 80px;gap:10px;align-items:center;padding:6px 0;cursor:pointer;border-radius:4px" '
+         +   'onmouseover="this.style.background=\'var(--accent-soft)\'" onmouseout="this.style.background=\'transparent\'" '
+         +   'onclick="edSetClienteFilter(\'' + esc(r.name) + '\');goEd(\'tracker\')" title="Ver tareas de ' + esc(r.name) + ' en el tracker">'
+         +    '<div style="font-size:13px;color:var(--fg-1);padding-left:6px">' + esc(r.name) + '</div>'
+         +    '<div style="background:var(--accent-soft);border-radius:4px;height:8px;overflow:hidden"><div style="background:var(--accent);height:100%;width:' + barPct + '%"></div></div>'
+         +    '<div style="text-align:right;font-size:12px;color:var(--fg-2);padding-right:6px"><b>' + r.count + '</b> · ' + pct + '%</div>'
+         + '</div>';
+  });
+  if (sinTag) {
+    var pctST = Math.round((sinTag / total) * 100);
+    var barST = Math.round((sinTag / max) * 100);
+    html += '<div style="display:grid;grid-template-columns:160px 1fr 80px;gap:10px;align-items:center;padding:8px 0 6px;border-top:1px dashed var(--border);margin-top:6px">'
+         +    '<div style="font-size:13px;color:var(--fg-3);font-style:italic;padding-left:6px">Sin definir</div>'
+         +    '<div style="background:var(--bg-2);border-radius:4px;height:8px;overflow:hidden"><div style="background:var(--fg-3);height:100%;width:' + barST + '%;opacity:0.4"></div></div>'
+         +    '<div style="text-align:right;font-size:12px;color:var(--fg-3);padding-right:6px"><b>' + sinTag + '</b> · ' + pctST + '%</div>'
+         + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
 function _edaSlaTrendSection(D, currentTasks, role, userCode) {
   var hist = (D && D.historial) || [];
   if (role === 'manager' && userCode) {
@@ -8632,6 +8675,7 @@ function rEdAnalytics(D) {
   // Aging + SLA trend (manager + HQ)
   html += _edaAgingSection(tasks);
   html += _edaSlaTrendSection(D, tasks, role, userCode);
+  html += _edaAreaSolicitanteSection(tasks);
 
   // Charts: prioridad + estado por responsable
   html += '<div class="pa-section-h"><h3>' + (role === 'head' ? 'Carga por prioridad' : 'Distribución por prioridad') + '</h3><span class="meta">tareas activas</span></div>'
