@@ -2560,90 +2560,119 @@ function renderEdHead(viewId) {
 //
 // El user puede saltar con Esc o el botón Cerrar. Al terminar se
 // marca lt-tour-done para no volver a aparecer.
-var TOUR_FLAG = 'lt-tour-done-v1';
+var TOUR_FLAG = 'lt-tour-done-v2';
 var TOUR_STATE = { step: 0, steps: [], role: null };
 
 function _tourStepsForRole(role) {
   var name = _effectiveUserName() || '';
   var firstName = name ? name.split(/\s+/)[0] : '';
+  var kbd = _isMac() ? '⌘' : 'Ctrl+';
   var common = [
     {
       eye: 'Bienvenido',
       title: 'Hola ' + esc(firstName) + ', te muestro MyDash',
-      body: '<p>Es la herramienta del equipo legal para hacer seguimiento de tareas y proyectos por país. Reemplaza el Excel viejo.</p>'
-          + '<p style="background:var(--warn-soft);border:1px solid var(--warn);border-radius:8px;padding:8px 10px;color:var(--fg-1)"><b>🧪 Está en Beta (en pruebas).</b> Puede tener detalles por pulir — tu feedback nos ayuda muchísimo a mejorarla.</p>'
-          + '<p>Te lo explico en unos pasos rápidos. Podés saltarlo con <kbd>Esc</kbd> en cualquier momento.</p>'
+      body: '<p>Es la herramienta del equipo legal para hacer seguimiento de tareas, proyectos, biblioteca de documentos y calendario por país. Reemplaza el Excel viejo.</p>'
+          + '<p style="background:var(--warn-soft);border:1px solid var(--warn);border-radius:8px;padding:8px 10px;color:var(--fg-1)"><b>🧪 Está en Beta.</b> Si algo se rompe o no entendés algo, hay un botón <b>Feedback</b> abajo a la derecha — me llega directo.</p>'
+          + '<p>Te lo explico en pasos rápidos. Podés saltarlo con <kbd>Esc</kbd> en cualquier momento.</p>'
     },
     {
       eye: 'Navegación',
       title: 'El sidebar es tu mapa',
       body: '<p>Cada sección agrupa cosas que pertenecen juntas:</p>'
           + '<ul>'
-          + '<li><b>Mi día</b> — lo que tenés que hacer hoy</li>'
-          + '<li><b>Donde trabajo</b> — tracker, proyectos, plantillas</li>'
-          + '<li><b>Análisis</b> — tu desempeño y tareas cerradas</li>'
+          + '<li><b>Mi día</b> — Inicio, Tracker, Calendario</li>'
+          + '<li><b>Donde trabajo / Operación / Personas</b> — Proyectos, Biblioteca (según tu rol)</li>'
+          + '<li><b>Análisis</b> — Mi desempeño / Métricas + Cerradas</li>'
           + '</ul>'
           + '<p>El número al lado de cada item es el count de pendientes.</p>'
     },
     {
       eye: 'Tracker',
       title: 'Acá viven tus tareas',
-      body: '<p>El <b>Tracker</b> es la vista más usada. Tiene filtros rápidos en la parte de arriba:</p>'
-          + '<ul>'
-          + '<li><b>Activas</b> — todo lo no cerrado</li>'
-          + '<li><b>Vencidas</b> — pasaron de su plazo (rojo)</li>'
-          + '<li><b>Cerradas</b> — historial completo de tu trabajo</li>'
-          + '</ul>'
-          + '<p>Click en una fila abre el panel detalle. <kbd>↓</kbd>/<kbd>↑</kbd> navegan filas con teclado.</p>',
-      action: { label: 'Ir al Tracker', fnCode: "edFinishTour();goEd('tracker')" }
+      body: '<p>La vista más usada. Arriba tenés filtros rápidos: <b>Activas</b> · Vencidas · Hoy · Bloqueadas · Cerradas.</p>'
+          + '<p>Y dropdowns secundarios: <b>Proyecto</b> · <b>Responsable</b> · <b>Confidencialidad</b> · <b>Cliente</b> (área solicitante). Todos se acumulan y persisten entre sesiones.</p>'
+          + '<p>En cada fila, los chips de <b>proyecto</b> y <b>cliente</b> (debajo del nombre) son clickeables → filtran el tracker al toque.</p>'
+          + '<p><kbd>↓</kbd>/<kbd>↑</kbd> navegan filas con teclado · <kbd>Enter</kbd> avanza el estado.</p>',
+      action: { label: 'Ir al Tracker', fnCode: "edFinishTour();goEd('tracker')" },
+      target: '.pa-sb-item[data-viewid="tracker"]'
     },
     {
       eye: 'Panel detalle',
       title: 'El centro de control de cada tarea',
-      body: '<p>Al hacer click en una tarea ves todos sus datos: prioridad, plazo, responsable, riesgo, contraparte, etc.</p>'
-          + '<p><b>Para cambiar algo</b>: click en el valor de la celda (responsable, plazo, etc.) → editor inline.</p>'
-          + '<p>Doble-click en el título para renombrarla.</p>'
-          + '<p>Las <b>notas</b> se autoguardan cuando salís del campo.</p>'
+      body: '<p>Click en una tarea abre el panel a la derecha con todos sus datos: prioridad, plazo, responsable, riesgo, contraparte, área solicitante, etc.</p>'
+          + '<p><b>Para cambiar algo</b>: click en el valor de la celda → editor inline.</p>'
+          + '<p><b>Doble-click</b> en el título para renombrarla.</p>'
+          + '<p>Las <b>notas</b> autoguardan al salir del campo.</p>'
     },
     {
       eye: 'Comentarios + Docs',
-      title: 'Colabora dentro de la tarea',
-      body: '<p>En el panel detalle, la columna derecha tiene dos tabs:</p>'
+      title: 'Colaboración dentro de la tarea',
+      body: '<p>En el panel detalle, la columna derecha tiene 2 tabs:</p>'
           + '<ul>'
-          + '<li><b>Comentarios</b> — hilo con tu equipo. <kbd>' + (_isMac()?'⌘':'Ctrl+') + 'Enter</kbd> envía rápido. Podés editar/eliminar tus propios.</li>'
+          + '<li><b>Comentarios</b> — hilo con tu equipo. <kbd>' + kbd + 'Enter</kbd> envía rápido. Podés editar/eliminar los tuyos.</li>'
           + '<li><b>Documentos</b> — subí archivos al Drive (auto-organizados por tipo/país/proyecto) o adjuntá links externos.</li>'
           + '</ul>'
     },
     {
       eye: 'Cerrar tarea',
       title: 'Cuando terminás una tarea',
-      body: '<p>En la barra inferior del panel:</p>'
+      body: '<p>Barra inferior del panel:</p>'
           + '<ul>'
           + '<li><b>Avanzar →</b> mueve al siguiente estado (Pendiente → En curso → En revisión → Listo)</li>'
           + '<li><b>Cerrar como ✓ Listo</b> pide un resumen y la mueve al historial</li>'
           + '<li><b>Bloquear</b> si dependés de algo externo; pide razón</li>'
           + '</ul>'
-          + '<p>Las cerradas siempre podés volver a verlas en <b>Cerradas</b> del sidebar.</p>'
+          + '<p>Las cerradas siempre podés revisar en <b>Cerradas</b> del sidebar.</p>'
+    },
+    {
+      eye: 'Biblioteca',
+      title: 'El repositorio del equipo',
+      body: '<p>En <b>Biblioteca</b> hay 2 cosas:</p>'
+          + '<ul>'
+          + '<li><b>Plantillas</b> — checklists por tipo de trabajo (NDA, derecho de petición, etc.). Al crear una tarea con ese tipo, las notas se prellenan automáticamente.</li>'
+          + '<li><b>Documentos</b> — contratos modelo, políticas, dictámenes. Cada uno es una <b>card</b> clickeable.</li>'
+          + '</ul>'
+          + '<p>En cada card de documento:</p>'
+          + '<ul>'
+          + '<li>Click en el <b>cuerpo</b> → abre el doc.</li>'
+          + '<li><b>Chips de clasificación</b> (tipo · área · país · cliente) → click filtra la biblioteca por ese facet.</li>'
+          + '<li><b>Tags</b> → click setea la búsqueda.</li>'
+          + '<li><b>Ribbon de color</b> izquierdo = confidencialidad (amarillo = sensible · rojo = altamente confidencial).</li>'
+          + '<li>Hover → aparecen <b>✎ Editar</b> y <b>× Eliminar</b> arriba a la derecha.</li>'
+          + '</ul>'
+          + '<p>Botones arriba: <b>Agregar enlace</b> (URL externa) o <b>Subir archivo</b> (al Drive).</p>',
+      action: { label: 'Ir a Biblioteca', fnCode: "edFinishTour();goEd('plantillas')" },
+      target: '.pa-sb-item[data-viewid="plantillas"]'
+    },
+    {
+      eye: 'Calendario',
+      title: 'Tus deadlines en el mes',
+      body: '<p>La vista <b>Calendario</b> te muestra los deadlines de tus tareas como eventos en un mes.</p>'
+          + '<p>Si tu equipo configuró <code>Config!CalendarId</code>, también ves eventos del calendario del equipo (reuniones, feriados, etc.) intercalados.</p>',
+      target: '.pa-sb-item[data-viewid="calendar"]'
+    },
+    {
+      eye: 'Atajos',
+      title: 'Acelerá con teclado',
+      body: '<p>Globales (funcionan en cualquier vista):</p>'
+          + '<ul>'
+          + '<li><kbd>' + kbd + 'K</kbd> — búsqueda global (tareas + proyectos + docs + acciones)</li>'
+          + '<li><kbd>?</kbd> — ayuda con todos los atajos</li>'
+          + '<li><kbd>N</kbd> — nueva tarea desde cualquier vista</li>'
+          + '<li><kbd>/</kbd> — foco en el search del tracker</li>'
+          + '<li><kbd>Esc</kbd> — cierra cualquier modal/panel abierto</li>'
+          + '</ul>'
+          + '<div class="tour-try"><span class="ico">💡</span><div><b>Probalo ahora:</b> apretá <kbd>' + kbd + 'K</kbd> — abre la búsqueda y avanzo al siguiente paso solo.</div></div>',
+      interactive: 'cmdk'
     }
   ];
   var bySpecialist = [
     {
-      eye: 'Búsqueda global',
-      title: '<kbd>' + (_isMac()?'⌘':'Ctrl+') + 'K</kbd> abre todo',
-      body: '<p>Buscador global: encuentra tareas, proyectos y documentos por nombre, ID, persona o tipo.</p>'
-          + '<p>Navegá con <kbd>↓</kbd>/<kbd>↑</kbd> y <kbd>Enter</kbd> abre el resultado.</p>'
-    },
-    {
-      eye: 'Listo',
-      title: 'Ya está. Te dejo trabajar.',
-      body: '<p>Si en algún momento necesitás re-ver esto, andá al <b>avatar</b> arriba a la derecha → <i>Tour de la herramienta</i>.</p>'
-          + '<p>Otros atajos útiles:</p>'
-          + '<ul>'
-          + '<li><kbd>?</kbd> abre la ayuda con todos los atajos</li>'
-          + '<li><kbd>N</kbd> nueva tarea desde cualquier vista</li>'
-          + '<li><kbd>/</kbd> foco en el search del tracker</li>'
-          + '</ul>'
-          + '<p>¡A trabajar!</p>'
+      eye: 'Mi desempeño',
+      title: 'Tu scorecard personal',
+      body: '<p>En <b>Análisis → Mi desempeño</b> ves tu racha de cumplimiento, tareas cerradas en el mes, mix por tipo y tiempo promedio.</p>'
+          + '<p>Útil para 1:1s con tu líder o para entender en qué se va tu semana.</p>',
+      target: '.pa-sb-item[data-viewid="analytics"]'
     }
   ];
   var byManager = [
@@ -2651,49 +2680,54 @@ function _tourStepsForRole(role) {
       eye: 'Tu equipo',
       title: 'Visibilidad del equipo',
       body: '<p>En <b>Mi equipo</b> ves todos los miembros de tu país con su carga, vencidas, bloqueadas y SLA del mes.</p>'
-          + '<p>Click en "Ver tareas →" filtra el tracker por esa persona — útil para 1:1s o re-balancear.</p>'
+          + '<p>Click en "Ver tareas →" filtra el tracker por esa persona — útil para 1:1s o re-balancear carga.</p>',
+      target: '.pa-sb-item[data-viewid="miequipo"]'
     },
     {
       eye: 'Reasignar',
       title: 'Mover tareas entre el equipo',
-      body: '<p>En el panel detalle (manager/head), botón <b>Reasignar</b> abre un picker visual con la carga actual de cada miembro.</p>'
-          + '<p>También podés hacer <b>bulk reasignar</b>: seleccionás varias tareas con checkbox → botón Reasignar en la barra sticky → un click para todas.</p>'
+      body: '<p>En el panel detalle, botón <b>Reasignar</b> abre un picker visual con la carga actual de cada miembro.</p>'
+          + '<p><b>Bulk reasignar</b>: seleccionás varias tareas con checkbox → botón Reasignar en la barra sticky → un click para todas.</p>'
     },
     {
       eye: 'Métricas',
       title: 'KPIs y tendencias',
-      body: '<p>En <b>Métricas</b> ves charts: SLA del país, distribución por prioridad, top performers, aging buckets, tendencia SLA 8 semanas.</p>'
-          + '<p>El export PDF mensual te da un resumen listo para reportar arriba.</p>'
+      body: '<p>En <b>Métricas</b> ves charts: SLA del país, distribución por prioridad, top performers, aging buckets, tendencia SLA 8 semanas, y <b>Carga por área solicitante</b> (cuánto trabajo va a cada cliente interno).</p>'
+          + '<p>Export PDF mensual te da un resumen listo para reportar arriba.</p>',
+      target: '.pa-sb-item[data-viewid="analytics"]'
     }
   ];
   var byHead = [
     {
-      eye: 'LATAM dashboard',
-      title: 'Operaciones globales',
+      eye: 'Operaciones LATAM',
+      title: 'Toda LATAM de un vistazo',
       body: '<p>En <b>Inicio</b> ves los 4 KPIs LATAM y la tabla "Por país" con sparkline 12 semanas.</p>'
-          + '<p>Click en una fila de país te lleva al tracker filtrado por ese país. Click en KPI te filtra global.</p>'
+          + '<p>Click en una fila de país → tracker filtrado por ese país. Click en un KPI → filtra global.</p>'
     },
     {
-      eye: 'Drill-down',
-      title: 'Selector país-por-país',
-      body: '<p>En el tracker hay un <b>dropdown de país</b> que te permite saltar entre países sin volver al grid.</p>'
-          + '<p>"Todos los países" muestra la lista LATAM completa.</p>'
-          + '<p>El botón <b>Volver a países</b> regresa al grid de cards.</p>'
+      eye: 'Por país',
+      title: 'Grid de países',
+      body: '<p>La vista <b>Por país</b> (sidebar LATAM) te muestra todos los países como cards con sus KPIs.</p>'
+          + '<p>En el tracker hay un dropdown de país para saltar entre países sin volver al grid.</p>',
+      target: '.pa-sb-item[data-viewid="paises"]'
     },
     {
       eye: 'Demo mode',
       title: 'Ver como Specialist o Manager',
-      body: '<p>Como head, podés simular la vista de un specialist o manager desde el avatar → "Ver app como…". Útil para QA o entender qué ven tus equipos.</p>'
+      body: '<p>Como head, podés simular la vista de un specialist o manager desde el <b>avatar</b> → "Ver app como…". Útil para QA o entender qué ven tus equipos.</p>'
           + '<p>Las mutaciones siguen registrándose con tu identidad real.</p>'
     }
   ];
   var tail = [
     {
-      eye: 'Plantillas',
-      title: 'Acelera la creación',
-      body: '<p>En <b>Plantillas</b> definís checklists por tipo de trabajo (ej. NDA, derecho de petición, etc.).</p>'
-          + '<p>Cuando alguien crea una tarea con ese tipo, el campo Notas se prellena con el checklist.</p>'
-          + (role === 'specialist' ? '<p><i>Solo manager/Global pueden crear plantillas; vos las ves read-only.</i></p>' : '<p>Como manager/head podés crear, editar y eliminar plantillas.</p>')
+      eye: 'Listo',
+      title: 'Ya está. A trabajar.',
+      body: '<div class="tour-celebrate">'
+          +   '<div class="tour-celebrate-check">✓</div>'
+          +   '<div class="tour-celebrate-msg">¡Tour completado!</div>'
+          + '</div>'
+          + '<p style="text-align:center">Si necesitás re-ver esto, andá al <b>avatar</b> arriba a la derecha → <i>Tour de la herramienta</i>.</p>'
+          + '<p style="text-align:center">Cualquier bug o duda, usá el botón <b>Feedback</b> abajo a la derecha — me llega directo.</p>'
     }
   ];
   if (role === 'specialist') return common.concat(bySpecialist).concat(tail);
@@ -2714,6 +2748,13 @@ function _tourRender() {
   if (!s) { edFinishTour(); return; }
   var total = TOUR_STATE.steps.length;
   var cur = TOUR_STATE.step + 1;
+  // Limpiar cualquier spotlight previo antes de re-renderizar (al cambiar step).
+  document.querySelectorAll('.tour-spotlight').forEach(function(el) { el.classList.remove('tour-spotlight'); });
+  // Limpiar listener interactivo previo (si el step anterior tenía interactive).
+  if (TOUR_STATE._listener) {
+    document.removeEventListener('keydown', TOUR_STATE._listener);
+    TOUR_STATE._listener = null;
+  }
   var existing = $('edTourOv'); if (existing) existing.remove();
   var ov = document.createElement('div');
   ov.id = 'edTourOv';
@@ -2742,6 +2783,26 @@ function _tourRender() {
     +   '</div>'
     + '</div>';
   document.body.appendChild(ov);
+  // Aplicar spotlight si el step apunta a un elemento (e.g. item del sidebar).
+  // El elemento se eleva sobre el overlay (z-index 96 > 95) y pulsea con un
+  // anillo accent — visualmente "iluminado" mientras el resto queda dimmed.
+  if (s.target) {
+    try {
+      var targetEl = document.querySelector(s.target);
+      if (targetEl) targetEl.classList.add('tour-spotlight');
+    } catch (e) {}
+  }
+  // Step interactivo: escucha al user ejecutar el atajo y avanza solo.
+  // Hoy soporta 'cmdk' — el handler global existente abre la búsqueda; nosotros
+  // solo escuchamos para avanzar (no preventDefault).
+  if (s.interactive === 'cmdk') {
+    TOUR_STATE._listener = function(e) {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        setTimeout(function() { edTourNext(); }, 250);
+      }
+    };
+    document.addEventListener('keydown', TOUR_STATE._listener);
+  }
 }
 function edTourNext() {
   TOUR_STATE.step = Math.min(TOUR_STATE.step + 1, TOUR_STATE.steps.length - 1);
@@ -2753,6 +2814,11 @@ function edTourPrev() {
 }
 function edFinishTour() {
   var ov = $('edTourOv'); if (ov) ov.remove();
+  document.querySelectorAll('.tour-spotlight').forEach(function(el) { el.classList.remove('tour-spotlight'); });
+  if (TOUR_STATE._listener) {
+    document.removeEventListener('keydown', TOUR_STATE._listener);
+    TOUR_STATE._listener = null;
+  }
   try { localStorage.setItem(TOUR_FLAG, '1'); } catch(e){}
 }
 
