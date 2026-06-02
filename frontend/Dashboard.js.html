@@ -6254,7 +6254,17 @@ function edTkSetGroupBy(mode) {
 // plana como en los buckets del modo "Por urgencia".
 function _edTkRowHtml(t, role, sel) {
   var pn = _projNameForTask(t);
-  var meta = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '') + (t.areaSolicitante ? ' · ' + t.areaSolicitante : '');
+  // Meta = "tipo · país" como contexto pasivo + chips clickeables para
+  // proyecto y cliente (filtran el tracker al clickear). Tag-able y accionable
+  // sin saturar la fila como hacía el bullet-separated text de 4 dimensiones.
+  var metaTxt = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—');
+  var chips = '';
+  if (pn && pn !== 'Sin proyecto') {
+    chips += '<span class="pa-meta-chip" onclick="event.stopPropagation();edSetProjectFilter(\'' + esc(String(t.proyectoId || '')) + '\')" title="Filtrar el tracker por este proyecto">' + paIcon('folder', 10, '', 'opacity:.7') + ' ' + esc(pn) + '</span>';
+  }
+  if (t.areaSolicitante) {
+    chips += '<span class="pa-meta-chip" onclick="event.stopPropagation();edSetClienteFilter(\'' + esc(t.areaSolicitante) + '\')" title="Filtrar el tracker por este cliente">' + paIcon('users', 10, '', 'opacity:.7') + ' ' + esc(t.areaSolicitante) + '</span>';
+  }
   var blockReasonSuffix = '';
   if (t.status === 'Bloqueado' && t.blockedReason) {
     var rsn = String(t.blockedReason).trim();
@@ -6271,7 +6281,7 @@ function _edTkRowHtml(t, role, sel) {
        +    '<span onclick="event.stopPropagation();edTkToggleSelectId(\'' + esc(t.id) + '\')"><span class="pa-check' + (isChecked ? ' is-checked' : '') + '"></span></span>'
        +    paConfDot(cfLvl)
        +    '<span class="id mono">' + esc(t.id) + '</span>'
-       +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + blockReasonSuffix + '</span></div>';
+       +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(metaTxt) + chips + blockReasonSuffix + '</span></div>';
   if (role === 'specialist') {
     h += (pn && pn !== 'Sin proyecto')
       ? '<span style="font-size:12px;color:var(--fg-2)">' + esc(pn) + '</span>'

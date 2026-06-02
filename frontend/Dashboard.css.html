@@ -936,6 +936,27 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 }
 .pa-pill .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 
+/* Mini-chip de meta-fila clickeable (proyecto/cliente en el tracker). Discreto
+   por default; el hover indica que es accionable (filtra el tracker). Separa
+   visualmente "contexto pasivo" (tipo + país) de "tags accionables". */
+.pa-meta-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  height: 16px; padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 10.5px; font-weight: 500;
+  color: var(--fg-2);
+  margin-left: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+.pa-meta-chip:hover {
+  background: var(--accent-soft);
+  border-color: color-mix(in oklab, var(--accent) 35%, transparent);
+  color: var(--fg-1);
+}
+
 /* Pills de prioridad — peso visual liviano: fondo translúcido tenue + borde
    muy fino. El color/contraste lo lleva el texto (fg semántico) y el dot.
    Antes el de Media (warn-soft 0.14 + borde 22%) se veía marrón/pesado en dark. */
