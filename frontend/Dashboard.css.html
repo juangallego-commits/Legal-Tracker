@@ -957,6 +957,168 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   color: var(--fg-1);
 }
 
+/* ── Biblioteca · Documentos · card grid ─────────────────────────────
+   Reemplazo de la tabla densa de 7 columnas por un grid de cards. Cada doc
+   es una unidad visual con jerarquía: nombre grande > tags > clasificación
+   > autor + fecha. El cuerpo de la card es clickeable → Abrir. Editar/Eliminar
+   aparecen en hover (anti mis-click). Ribbon izquierdo = confidencialidad.   */
+.bib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 4px;
+}
+.bib-card {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.bib-card:hover {
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--border));
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px color-mix(in oklab, var(--accent) 8%, transparent);
+}
+.bib-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.bib-card.is-restringido { border-left: 3px solid var(--warn); }
+.bib-card.is-confidencial { border-left: 3px solid var(--critical); }
+.bib-card.is-noVigente { opacity: 0.55; }
+.bib-card-h {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.bib-card-icon {
+  display: inline-flex;
+  width: 32px; height: 32px;
+  background: var(--accent-soft);
+  border-radius: var(--r-2);
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.bib-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-1);
+  line-height: 1.3;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+.bib-card-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+}
+.bib-card:hover .bib-card-actions,
+.bib-card:focus-within .bib-card-actions { opacity: 1; }
+.bib-card-act {
+  background: none;
+  border: none;
+  color: var(--fg-3);
+  cursor: pointer;
+  padding: 4px 7px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.bib-card-act:hover { background: var(--bg-2); color: var(--fg-1); }
+.bib-card-act.del:hover {
+  background: color-mix(in oklab, var(--critical) 14%, transparent);
+  color: var(--critical-fg);
+}
+.bib-card-badges {
+  display: flex; gap: 5px; flex-wrap: wrap;
+}
+.bib-card-badge {
+  display: inline-flex;
+  padding: 1px 7px;
+  border-radius: 3px;
+  background: var(--bg-2);
+  color: var(--fg-3);
+  font-size: 10px;
+  font-weight: 500;
+}
+.bib-card-tags {
+  display: flex; gap: 4px; flex-wrap: wrap;
+}
+.bib-tag {
+  display: inline-flex;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 9px;
+  font-size: 11px;
+  background: var(--bg-2);
+  color: var(--fg-2);
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.bib-tag:hover { background: var(--accent-soft); color: var(--fg-1); }
+.bib-card-class {
+  display: flex; gap: 5px; flex-wrap: wrap;
+}
+.bib-chip {
+  display: inline-flex;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--fg-2);
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.bib-chip:hover {
+  background: var(--accent-soft);
+  border-color: color-mix(in oklab, var(--accent) 35%, transparent);
+  color: var(--fg-1);
+}
+.bib-card-f {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
+  font-size: 11px;
+  color: var(--fg-3);
+}
+.bib-card-f .author {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bib-card-f .open-hint {
+  color: var(--fg-4);
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  transition: color 0.12s ease;
+}
+.bib-card:hover .bib-card-f .open-hint { color: var(--accent); }
+
 /* Pills de prioridad — peso visual liviano: fondo translúcido tenue + borde
    muy fino. El color/contraste lo lleva el texto (fg semántico) y el dot.
    Antes el de Media (warn-soft 0.14 + borde 22%) se veía marrón/pesado en dark. */
