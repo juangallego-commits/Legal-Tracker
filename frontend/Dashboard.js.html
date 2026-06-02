@@ -9839,6 +9839,26 @@ function _bibPersistFilters() {
 function _bibConfLabel(lvl) {
   return lvl === 'confidencial' ? 'Altamente confidencial' : (lvl === 'restringido' ? 'Confidencial' : 'Normal');
 }
+// Fecha relativa para la card de biblioteca ("hace 3 días", "hace 2 sem").
+// Cognitivamente más útil que el ISO crudo (YYYY-MM-DD). Fallback al slice si
+// no parsea.
+function _bibRelTime(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+  var diffMs = Date.now() - d.getTime();
+  var min = Math.floor(diffMs / 60000);
+  if (min < 1) return 'recién';
+  if (min < 60) return 'hace ' + min + ' min';
+  var h = Math.floor(min / 60);
+  if (h < 24) return 'hace ' + h + (h === 1 ? ' hora' : ' horas');
+  var d2 = Math.floor(h / 24);
+  if (d2 < 7) return 'hace ' + d2 + (d2 === 1 ? ' día' : ' días');
+  if (d2 < 30) { var sem = Math.floor(d2 / 7); return 'hace ' + sem + ' sem'; }
+  if (d2 < 365) { var mes = Math.floor(d2 / 30); return 'hace ' + mes + (mes === 1 ? ' mes' : ' meses'); }
+  var anos = Math.floor(d2 / 365);
+  return 'hace ' + anos + (anos === 1 ? ' año' : ' años');
+}
 function _loadBibConfig(cb) {
   if (_BIB_CONFIG) { cb(_BIB_CONFIG); return; }
   google.script.run
@@ -9930,36 +9950,83 @@ function _rEdBibDocs(D) {
     html += '</div>'; v.innerHTML = html; return;
   }
 
-  var GT = 'grid-template-columns: minmax(0,1fr) 125px 95px 50px 95px 120px 130px';
-  html += '<div class="pa-tbl pa-tbl-wrap" style="margin-top:4px">'
-       +    '<div class="pa-tbl-h" style="' + GT + '">'
-       +      '<div>Documento</div><div>Tipo doc</div><div>Área</div><div>País</div><div>Confid.</div><div>Autor</div><div></div>'
-       +    '</div>';
+  // Card grid: cada doc es una unidad visual con jerarquía clara. El cuerpo
+  // de la card es clickeable → Abrir. Chips de clasificación filtran al click.
+  // Tags clickeables setean búsqueda. Editar/Eliminar aparecen en hover.
+  html += '<div class="bib-grid">';
   docs.forEach(function(d) {
     var canEdit = canManage || _sameName(d.autor, myName);
     var noVig = (d.vigente || 'si') === 'no';
-    var confPill;
-    if (d.confidencialidad === 'restringido') confPill = '<span class="pa-pill pa-pill-warn">Confidencial</span>';
-    else if (d.confidencialidad === 'confidencial') confPill = '<span class="pa-pill" style="background:var(--critical-soft);color:var(--critical-fg)">Alto</span>';
-    else confPill = '<span style="color:var(--fg-4);font-size:11px">—</span>';
-    var tagsHtml = d.tags ? '<div style="font-size:11px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(d.tags) + '</div>' : '';
-    var repPill = noVig ? ' <span class="pa-pill" style="background:var(--bg-2);color:var(--fg-3)">Reemplazado</span>' : '';
-    var btns = '<div style="display:flex;gap:5px;justify-content:flex-end">'
-      +   '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 7px" onclick="edBibDocOpen(\'' + esc(d.id) + '\')">Abrir</button>'
-      +   (canEdit ? '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 7px" onclick="edBibDocEdit(\'' + esc(d.id) + '\')">Editar</button>' : '')
-      +   (canEdit ? '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 7px;color:var(--critical-fg)" title="Eliminar" onclick="edBibDocDelete(\'' + esc(d.id) + '\')">×</button>' : '')
-      + '</div>';
-    html += '<div class="pa-tbl-r" style="' + GT + ';min-height:46px;align-items:center' + (noVig ? ';opacity:0.5' : '') + '">'
-         +    '<div style="min-width:0"><div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(d.nombre) + '">' + esc(d.nombre) + repPill + '</div>' + tagsHtml + '</div>'
-         +    '<div><span class="pa-pill pa-pill-tipo">' + esc(d.tipoDocumento || '—') + '</span></div>'
-         +    '<div style="font-size:12px;color:var(--fg-3)">' + esc(d.areaTrabajo || '—') + '</div>'
-         +    '<div style="font-size:12px;color:var(--fg-3)">' + esc(d.pais || '—') + '</div>'
-         +    '<div>' + confPill + '</div>'
-         +    '<div style="font-size:12px;color:var(--fg-3);min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(d.autor || '—') + '</div>' + (d.fecha ? '<div style="font-size:10px;color:var(--fg-4)">' + esc((d.fecha || '').slice(0, 10)) + '</div>' : '') + '</div>'
-         +    btns
+    var confCls = '';
+    if (d.confidencialidad === 'restringido') confCls += ' is-restringido';
+    else if (d.confidencialidad === 'confidencial') confCls += ' is-confidencial';
+    if (noVig) confCls += ' is-noVigente';
+
+    // Tags como chips clickeables (cada tag setea la búsqueda al click).
+    var tagsHtml = '';
+    if (d.tags) {
+      var tags = d.tags.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+      if (tags.length) {
+        tagsHtml = '<div class="bib-card-tags">';
+        tags.forEach(function(tag) {
+          tagsHtml += '<span class="bib-tag" onclick="event.stopPropagation();_bibLocalSearch(\'' + esc(tag) + '\')" title="Buscar &quot;' + esc(tag) + '&quot;">' + esc(tag) + '</span>';
+        });
+        tagsHtml += '</div>';
+      }
+    }
+
+    // Clasificación: chips de tipo / área / país / cliente. Click → facet filter.
+    var chipsHtml = '<div class="bib-card-class">';
+    if (d.tipoDocumento && d.tipoDocumento !== 'Otro') {
+      chipsHtml += '<span class="bib-chip" onclick="event.stopPropagation();_bibSetFacet(\'tipoDoc\', \'' + esc(d.tipoDocumento) + '\')" title="Filtrar tipo: ' + esc(d.tipoDocumento) + '">' + esc(d.tipoDocumento) + '</span>';
+    }
+    if (d.areaTrabajo) {
+      chipsHtml += '<span class="bib-chip" onclick="event.stopPropagation();_bibSetFacet(\'area\', \'' + esc(d.areaTrabajo) + '\')" title="Filtrar área: ' + esc(d.areaTrabajo) + '">' + esc(d.areaTrabajo) + '</span>';
+    }
+    if (d.pais) {
+      chipsHtml += '<span class="bib-chip" onclick="event.stopPropagation();_bibSetFacet(\'pais\', \'' + esc(d.pais) + '\')" title="Filtrar país: ' + esc(d.pais) + '">' + esc(d.pais) + '</span>';
+    }
+    if (d.areaSolicitante) {
+      chipsHtml += '<span class="bib-chip" onclick="event.stopPropagation();_bibSetFacet(\'cliente\', \'' + esc(d.areaSolicitante) + '\')" title="Filtrar cliente: ' + esc(d.areaSolicitante) + '">' + paIcon('users', 10, '', 'opacity:.7') + ' ' + esc(d.areaSolicitante) + '</span>';
+    }
+    chipsHtml += '</div>';
+
+    // Badges en fila propia (sin clasificar / reemplazado) para no romper el
+    // line-clamp del título.
+    var badgesHtml = '';
+    if (d.tipoDocumento === 'Otro' || noVig) {
+      badgesHtml = '<div class="bib-card-badges">';
+      if (d.tipoDocumento === 'Otro') badgesHtml += '<span class="bib-card-badge" style="background:color-mix(in oklab, var(--warn) 18%, transparent);color:var(--warn-fg)">Sin clasificar</span>';
+      if (noVig) badgesHtml += '<span class="bib-card-badge">Reemplazado</span>';
+      badgesHtml += '</div>';
+    }
+
+    var actionsHtml = canEdit
+      ? '<div class="bib-card-actions">'
+        + '<button type="button" class="bib-card-act" onclick="event.stopPropagation();edBibDocEdit(\'' + esc(d.id) + '\')" title="Editar" aria-label="Editar" style="font-size:13px">✎</button>'
+        + '<button type="button" class="bib-card-act del" onclick="event.stopPropagation();edBibDocDelete(\'' + esc(d.id) + '\')" title="Eliminar" aria-label="Eliminar" style="font-size:15px;line-height:1">×</button>'
+        + '</div>'
+      : '';
+
+    var autorStr = d.autor ? 'Por ' + d.autor : 'Sin autor';
+    var fechaStr = d.fecha ? ' · ' + _bibRelTime(d.fecha) : '';
+
+    html += '<div class="bib-card' + confCls + '" onclick="edBibDocOpen(\'' + esc(d.id) + '\')" role="button" tabindex="0" title="' + esc(d.nombre) + '">'
+         +    '<div class="bib-card-h">'
+         +      '<span class="bib-card-icon">' + paIcon('doc', 16) + '</span>'
+         +      '<div class="bib-card-title">' + esc(d.nombre) + '</div>'
+         +      actionsHtml
+         +    '</div>'
+         +    badgesHtml
+         +    tagsHtml
+         +    chipsHtml
+         +    '<div class="bib-card-f">'
+         +      '<span class="author">' + esc(autorStr) + esc(fechaStr) + '</span>'
+         +      '<span class="open-hint">↗ Abrir</span>'
+         +    '</div>'
          + '</div>';
   });
-  html += '</div></div>';
+  html += '</div>';
   v.innerHTML = html;
 }
 function edBibDocOpen(id) {
