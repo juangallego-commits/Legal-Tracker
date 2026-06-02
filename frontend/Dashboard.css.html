@@ -591,6 +591,29 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   background: var(--bg-0);
 }
 
+/* Tour · spotlight: el elemento referido por step.target se eleva sobre el
+   overlay (z-index 96 > overlay 95) y pulsea con un anillo accent. Aparece
+   "iluminado" mientras el resto de la UI queda dimmed. Clickeable (el user
+   puede navegar al item desde la spotlight directamente). */
+.tour-spotlight {
+  position: relative;
+  z-index: 96;
+  /* el border-radius lo hereda del elemento; el box-shadow del pulse lo respeta */
+  animation: tour-pulse 1.8s ease-in-out infinite;
+}
+@keyframes tour-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0 color-mix(in oklab, var(--accent) 55%, transparent),
+      0 0 0 0 color-mix(in oklab, var(--accent) 18%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px color-mix(in oklab, var(--accent) 65%, transparent),
+      0 0 0 10px color-mix(in oklab, var(--accent) 22%, transparent);
+  }
+}
+
 /* Wizard Crear · Paso 3 (Resumen / "Lista para publicar") */
 .cr-conf-banner {
   display: flex; align-items: center; gap: 12px;

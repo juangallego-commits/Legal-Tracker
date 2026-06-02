@@ -2593,7 +2593,8 @@ function _tourStepsForRole(role) {
           + '<p>Y dropdowns secundarios: <b>Proyecto</b> · <b>Responsable</b> · <b>Confidencialidad</b> · <b>Cliente</b> (área solicitante). Todos se acumulan y persisten entre sesiones.</p>'
           + '<p>En cada fila, los chips de <b>proyecto</b> y <b>cliente</b> (debajo del nombre) son clickeables → filtran el tracker al toque.</p>'
           + '<p><kbd>↓</kbd>/<kbd>↑</kbd> navegan filas con teclado · <kbd>Enter</kbd> avanza el estado.</p>',
-      action: { label: 'Ir al Tracker', fnCode: "edFinishTour();goEd('tracker')" }
+      action: { label: 'Ir al Tracker', fnCode: "edFinishTour();goEd('tracker')" },
+      target: '.pa-sb-item[data-viewid="tracker"]'
     },
     {
       eye: 'Panel detalle',
@@ -2640,13 +2641,15 @@ function _tourStepsForRole(role) {
           + '<li>Hover → aparecen <b>✎ Editar</b> y <b>× Eliminar</b> arriba a la derecha.</li>'
           + '</ul>'
           + '<p>Botones arriba: <b>Agregar enlace</b> (URL externa) o <b>Subir archivo</b> (al Drive).</p>',
-      action: { label: 'Ir a Biblioteca', fnCode: "edFinishTour();goEd('plantillas')" }
+      action: { label: 'Ir a Biblioteca', fnCode: "edFinishTour();goEd('plantillas')" },
+      target: '.pa-sb-item[data-viewid="plantillas"]'
     },
     {
       eye: 'Calendario',
       title: 'Tus deadlines en el mes',
       body: '<p>La vista <b>Calendario</b> te muestra los deadlines de tus tareas como eventos en un mes.</p>'
-          + '<p>Si tu equipo configuró <code>Config!CalendarId</code>, también ves eventos del calendario del equipo (reuniones, feriados, etc.) intercalados.</p>'
+          + '<p>Si tu equipo configuró <code>Config!CalendarId</code>, también ves eventos del calendario del equipo (reuniones, feriados, etc.) intercalados.</p>',
+      target: '.pa-sb-item[data-viewid="calendar"]'
     },
     {
       eye: 'Atajos',
@@ -2666,7 +2669,8 @@ function _tourStepsForRole(role) {
       eye: 'Mi desempeño',
       title: 'Tu scorecard personal',
       body: '<p>En <b>Análisis → Mi desempeño</b> ves tu racha de cumplimiento, tareas cerradas en el mes, mix por tipo y tiempo promedio.</p>'
-          + '<p>Útil para 1:1s con tu líder o para entender en qué se va tu semana.</p>'
+          + '<p>Útil para 1:1s con tu líder o para entender en qué se va tu semana.</p>',
+      target: '.pa-sb-item[data-viewid="analytics"]'
     }
   ];
   var byManager = [
@@ -2674,7 +2678,8 @@ function _tourStepsForRole(role) {
       eye: 'Tu equipo',
       title: 'Visibilidad del equipo',
       body: '<p>En <b>Mi equipo</b> ves todos los miembros de tu país con su carga, vencidas, bloqueadas y SLA del mes.</p>'
-          + '<p>Click en "Ver tareas →" filtra el tracker por esa persona — útil para 1:1s o re-balancear carga.</p>'
+          + '<p>Click en "Ver tareas →" filtra el tracker por esa persona — útil para 1:1s o re-balancear carga.</p>',
+      target: '.pa-sb-item[data-viewid="miequipo"]'
     },
     {
       eye: 'Reasignar',
@@ -2686,7 +2691,8 @@ function _tourStepsForRole(role) {
       eye: 'Métricas',
       title: 'KPIs y tendencias',
       body: '<p>En <b>Métricas</b> ves charts: SLA del país, distribución por prioridad, top performers, aging buckets, tendencia SLA 8 semanas, y <b>Carga por área solicitante</b> (cuánto trabajo va a cada cliente interno).</p>'
-          + '<p>Export PDF mensual te da un resumen listo para reportar arriba.</p>'
+          + '<p>Export PDF mensual te da un resumen listo para reportar arriba.</p>',
+      target: '.pa-sb-item[data-viewid="analytics"]'
     }
   ];
   var byHead = [
@@ -2700,7 +2706,8 @@ function _tourStepsForRole(role) {
       eye: 'Por país',
       title: 'Grid de países',
       body: '<p>La vista <b>Por país</b> (sidebar LATAM) te muestra todos los países como cards con sus KPIs.</p>'
-          + '<p>En el tracker hay un dropdown de país para saltar entre países sin volver al grid.</p>'
+          + '<p>En el tracker hay un dropdown de país para saltar entre países sin volver al grid.</p>',
+      target: '.pa-sb-item[data-viewid="paises"]'
     },
     {
       eye: 'Demo mode',
@@ -2736,6 +2743,8 @@ function _tourRender() {
   if (!s) { edFinishTour(); return; }
   var total = TOUR_STATE.steps.length;
   var cur = TOUR_STATE.step + 1;
+  // Limpiar cualquier spotlight previo antes de re-renderizar (al cambiar step).
+  document.querySelectorAll('.tour-spotlight').forEach(function(el) { el.classList.remove('tour-spotlight'); });
   var existing = $('edTourOv'); if (existing) existing.remove();
   var ov = document.createElement('div');
   ov.id = 'edTourOv';
@@ -2764,6 +2773,15 @@ function _tourRender() {
     +   '</div>'
     + '</div>';
   document.body.appendChild(ov);
+  // Aplicar spotlight si el step apunta a un elemento (e.g. item del sidebar).
+  // El elemento se eleva sobre el overlay (z-index 96 > 95) y pulsea con un
+  // anillo accent — visualmente "iluminado" mientras el resto queda dimmed.
+  if (s.target) {
+    try {
+      var targetEl = document.querySelector(s.target);
+      if (targetEl) targetEl.classList.add('tour-spotlight');
+    } catch (e) {}
+  }
 }
 function edTourNext() {
   TOUR_STATE.step = Math.min(TOUR_STATE.step + 1, TOUR_STATE.steps.length - 1);
@@ -2775,6 +2793,7 @@ function edTourPrev() {
 }
 function edFinishTour() {
   var ov = $('edTourOv'); if (ov) ov.remove();
+  document.querySelectorAll('.tour-spotlight').forEach(function(el) { el.classList.remove('tour-spotlight'); });
   try { localStorage.setItem(TOUR_FLAG, '1'); } catch(e){}
 }
 
