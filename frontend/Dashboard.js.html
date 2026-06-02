@@ -4186,7 +4186,7 @@ function rEdHomeHQ(D) {
 // 440px con detalle. Estado local EDT (filter/search/selectedId).
 // ───────────────────────────────────────────────────────────────
 
-var EDT = { filter: 'all', search: '', selectedId: null, country: null, selectedIds: [], skipCountriesView: false, groupBy: 'none' };
+var EDT = { filter: 'all', search: '', selectedId: null, country: null, selectedIds: [], skipCountriesView: false, groupBy: 'none', clienteFilter: null };
 
 function _etaTextFromDays(d) {
   // Wrapper para no duplicar lógica con paEtaText. Antes retornaba strings
@@ -4259,6 +4259,10 @@ function _edApplySecondaryFilters(tasks) {
   if (EDT.confFilter) {
     tasks = tasks.filter(function(t){ return _confLevel(t) === EDT.confFilter; });
   }
+  if (EDT.clienteFilter) {
+    var cf = EDT.clienteFilter;
+    tasks = tasks.filter(function(t){ return (t.areaSolicitante || '') === cf; });
+  }
   return tasks;
 }
 function edSetProjectFilter(id) {
@@ -4279,10 +4283,17 @@ function edSetConfFilter(level) {
   _edPersistEDT();
   if (D) rEdTracker(D);
 }
+function edSetClienteFilter(name) {
+  EDT.clienteFilter = name || null;
+  EDT.selectedId = null;
+  _edPersistEDT();
+  if (D) rEdTracker(D);
+}
 function edClearSecondaryFilters() {
   EDT.projectFilter = null;
   EDT.respFilter = null;
   EDT.confFilter = null;
+  EDT.clienteFilter = null;
   _edPersistEDT();
   if (D) rEdTracker(D);
 }
@@ -4321,7 +4332,8 @@ function _edPersistEDT() {
       skipCountriesView: EDT.skipCountriesView,
       projectFilter: EDT.projectFilter,
       respFilter: EDT.respFilter,
-      confFilter: EDT.confFilter
+      confFilter: EDT.confFilter,
+      clienteFilter: EDT.clienteFilter
     }));
   } catch(e) {}
 }
@@ -4338,6 +4350,7 @@ function _edRestoreEDT() {
       if (s.projectFilter) EDT.projectFilter = s.projectFilter;
       if (s.respFilter) EDT.respFilter = s.respFilter;
       if (s.confFilter) EDT.confFilter = s.confFilter;
+      if (s.clienteFilter) EDT.clienteFilter = s.clienteFilter;
     }
   } catch(e) {}
 }
@@ -6022,6 +6035,18 @@ function rEdTracker(D) {
          +    '<option value="">' + esc(t('Todos los proyectos')) + '</option>' + projOpts
          + '</select>';
   }
+  // Cliente (área solicitante) select — usa Config.ClientesInternos. Mostramos
+  // siempre la lista entera (no solo los que tienen tareas) para que la dimensión
+  // sea descubrible aunque no haya tareas taggeadas todavía.
+  var clienteOpts = _clientesInternos().map(function(c) {
+    var sel = (EDT.clienteFilter === c) ? ' selected' : '';
+    return '<option value="' + esc(c) + '"' + sel + '>' + esc(c) + '</option>';
+  }).join('');
+  if (clienteOpts) {
+    html += '<select class="pa-select" style="width:auto;height:26px;font-size:12px;padding:0 28px 0 10px" onchange="edSetClienteFilter(this.value)">'
+         +    '<option value="">' + esc(t('Todos los clientes')) + '</option>' + clienteOpts
+         + '</select>';
+  }
   html += '</div></div>';
 
   // Indicador de filtro principal activo (no-default): cuando un user vuelve
@@ -6044,7 +6069,7 @@ function rEdTracker(D) {
   }
 
   // Active secondary filters (proyecto, resp, conf)
-  if (EDT.projectFilter || EDT.respFilter || EDT.confFilter) {
+  if (EDT.projectFilter || EDT.respFilter || EDT.confFilter || EDT.clienteFilter) {
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;align-items:center">';
     if (EDT.projectFilter) {
       var pName2 = (D && D.projects || []).find(function(p){ return String(p.id) === String(EDT.projectFilter); });
@@ -6057,6 +6082,9 @@ function rEdTracker(D) {
     if (EDT.confFilter) {
       var cfMeta3 = (typeof ED_CONF_LEVELS !== 'undefined' && ED_CONF_LEVELS[EDT.confFilter]) || { label: EDT.confFilter };
       html += '<span class="pa-pill pa-pill-tipo">Conf: ' + esc(cfMeta3.label) + ' <span style="cursor:pointer;margin-left:4px" onclick="edSetConfFilter(null)">×</span></span>';
+    }
+    if (EDT.clienteFilter) {
+      html += '<span class="pa-pill pa-pill-tipo">Cliente: ' + esc(EDT.clienteFilter) + ' <span style="cursor:pointer;margin-left:4px" onclick="edSetClienteFilter(null)">×</span></span>';
     }
     html += '<button class="pa-btn pa-btn-ghost" style="font-size:11px;height:22px" onclick="edClearSecondaryFilters()">Limpiar</button>';
     html += '</div>';
