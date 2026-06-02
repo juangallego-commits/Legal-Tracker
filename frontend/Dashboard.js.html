@@ -920,7 +920,7 @@ function saveEditTask() {
         closeEdit();
         reload();
       } else {
-        toast('Error: ' + ((r && r.error) || ''), 'error');
+        toast(_friendlyError(r, 'No se pudo guardar la tarea'), 'error');
       }
     })
     .withFailureHandler(function(e) {
@@ -1380,6 +1380,33 @@ function _ltToastType(type) {
     case 'error': case 'danger': case 'fail': case 'bad': return 'error';
     case 'warn': case 'warning': return 'warn';
     default: return 'info'; // info/notice/'' → info
+  }
+}
+// Mapea res.code (que devuelve el backend vía _err) a copy accionable. Si no
+// hay code o no está mapeado, cae a res.error (back-compat con los returns
+// viejos). Llamar como toast(_friendlyError(res, 'No se pudo guardar'), 'error')
+// para que el user vea acción + razón en vez de "Error: undefined" o jerga.
+function _friendlyError(res, fallback) {
+  var defaultMsg = fallback || 'Algo salió mal.';
+  if (!res) return defaultMsg;
+  var code = res.code || '';
+  var raw = res.error || defaultMsg;
+  switch (code) {
+    case 'LOCK_BUSY':
+      return 'El servidor está saturado. Reintentá en unos segundos.';
+    case 'BACKEND_ERROR':
+      return 'Error inesperado del backend. Reintentá; si persiste, contámelo. (' + raw + ')';
+    case 'SHEET_NOT_MIGRATED':
+      return 'Esta hoja necesita migración antes de guardar. Pedile a un head que corra setupSheets / migrate.';
+    case 'PERM_DENIED':
+      return 'No tenés permiso para esta acción. Si creés que es un error, pediselo a tu manager.';
+    case 'NOT_FOUND':
+      return 'No encontré el registro. Otro user pudo borrarlo — refrescá la página.';
+    case 'VALIDATION':
+    case 'STATE_CONFLICT':
+      return raw; // el mensaje del backend ya es claro/contexto-específico
+    default:
+      return raw;
   }
 }
 function toast(msg, type) {
@@ -7422,7 +7449,7 @@ function edCrearSubmit() {
         edCrearClose();
         if (typeof reload === 'function') reload();
       } else {
-        toast('Error: ' + ((res && res.error) || 'unknown'), 'error');
+        toast(_friendlyError(res, 'No se pudo crear la tarea'), 'error');
       }
     })
     .withFailureHandler(function(e) {
@@ -10051,7 +10078,7 @@ function edBibDocSave(mode, docId) {
   function ok(msg) { return function(res) {
     reset();
     if (res && res.success) { _BIBDOCS_CACHE = null; _BIB_PENDING_FILE = null; toast(msg, 'success'); edBibDocLinkClose(); _rEdBibDocs(D); }
-    else toast((res && res.error) || 'No se pudo guardar.', 'error');
+    else toast(_friendlyError(res, 'No se pudo guardar el documento'), 'error');
   }; }
   function fail(e) { reset(); toast('Error: ' + (e && e.message || 'desconocido'), 'error'); }
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
