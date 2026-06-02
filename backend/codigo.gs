@@ -918,17 +918,24 @@ function _sanitizeRow(arr) {
 // Si te parece redundante: probablemente lo es para mutations atómicas
 // de un solo setValue. NO lo quites de las que hacen read-then-write
 // sin auditar primero. La redundancia es barata (~5ms), el race es caro.
+// Códigos de error consumidos por _friendlyError() en el frontend para mostrar
+// copy accionable. Pasarlos es opcional; un return sin code todavía se renderiza
+// con res.error crudo (back-compat). Vocabulario mínimo, expandible si hace
+// falta: LOCK_BUSY, BACKEND_ERROR, SHEET_NOT_MIGRATED, PERM_DENIED, NOT_FOUND,
+// VALIDATION, STATE_CONFLICT.
+function _err(code, msg) { return { success: false, error: msg, code: code }; }
+
 function _safeMutation(fn) {
   var lock = LockService.getDocumentLock();
   try {
     lock.waitLock(30000);
   } catch (e) {
-    return { success: false, error: 'Servidor ocupado, reintenta en un momento.' };
+    return _err('LOCK_BUSY', 'Servidor ocupado, reintenta en un momento.');
   }
   try {
     return fn();
   } catch (e) {
-    return { success: false, error: (e && e.message) || String(e) };
+    return _err('BACKEND_ERROR', (e && e.message) || String(e));
   } finally {
     try { lock.releaseLock(); } catch (e) {}
     invalidateCache();
@@ -2421,7 +2428,7 @@ function addBibliotecaDocLink(nombre, url, metadata) {
       var v = _bibValidateMeta(metadata, ctx.role);
       if (!v.ok) return { success: false, error: v.error };
       var ws = _ensureBiblioDocsSheet(ctx.ss);
-      if (ws.getLastColumn() < _BIB_COLS) return { success: false, error: 'La Biblioteca necesita migración: pedile a un head que corra migrateBiblioDocsSchema().' };
+      if (ws.getLastColumn() < _BIB_COLS) return _err('SHEET_NOT_MIGRATED', 'La Biblioteca necesita migración: pedile a un head que corra migrateBiblioDocsSchema().');
       var nm = (nombre || '').toString().trim().slice(0, 120) || u.slice(0, 80);
       var m = v.meta, now = new Date().toISOString();
       var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);
@@ -2442,7 +2449,7 @@ function uploadBibliotecaDocFile(fileData, metadata) {
       var v = _bibValidateMeta(metadata, ctx.role);
       if (!v.ok) return { success: false, error: v.error };
       var ws = _ensureBiblioDocsSheet(ctx.ss);
-      if (ws.getLastColumn() < _BIB_COLS) return { success: false, error: 'La Biblioteca necesita migración: pedile a un head que corra migrateBiblioDocsSchema().' };
+      if (ws.getLastColumn() < _BIB_COLS) return _err('SHEET_NOT_MIGRATED', 'La Biblioteca necesita migración: pedile a un head que corra migrateBiblioDocsSchema().');
       var bytes = Utilities.base64Decode(fileData.data);
       if (bytes.length > _UPLOAD_MAX_BYTES) return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
       // Fase 2: organizar por taxonomía en Drive (/Biblioteca/<país>/<área>) en
