@@ -19,6 +19,9 @@
     "https://www.googleapis.com/auth/gmail.addons.execute",
     "https://www.googleapis.com/auth/gmail.addons.current.message.readonly"
   ],
+  "urlFetchWhitelist": [
+    "https://slack.com/api/"
+  ],
   "addOns": {
     "common": {
       "name": "Legal Tracker",
