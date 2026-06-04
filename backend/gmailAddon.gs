@@ -27,6 +27,28 @@
 // cualquier string), así que el riesgo de drift es cosmético.
 var _GMAIL_TIPOS = ['Contractual', 'Regulatorio', 'Contencioso', 'Privacy', 'Operativo'];
 
+// ── Homepage: card que se ve al abrir el add-on sin un correo seleccionado ──
+// Mejora descubribilidad: sin esto, el add-on solo muestra algo al abrir un
+// correo, lo que confunde ("instalé y no veo nada"). Acá explicamos el flujo.
+function onGmailHomepage(e) {
+  var section = CardService.newCardSection();
+  section.addWidget(CardService.newTextParagraph()
+    .setText('Abrí un correo y tocá <b>Crear tarea</b> para registrarlo en Legal Tracker.\n\nEl asunto se usa como nombre y el remitente/fecha/link quedan en las notas.'));
+  var url = '';
+  try { url = ScriptApp.getService().getUrl() || ''; } catch (err) {}
+  if (url) {
+    section.addWidget(CardService.newTextButton()
+      .setText('Abrir Legal Tracker')
+      .setOpenLink(CardService.newOpenLink().setUrl(url)));
+  }
+  return CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader()
+      .setTitle('Legal Tracker')
+      .setSubtitle('Crear tareas desde el correo'))
+    .addSection(section)
+    .build();
+}
+
 // ── Entry point: trigger contextual al abrir un correo ──────────────
 function onGmailMessageOpen(e) {
   var info = _gmailReadMessage(e);
