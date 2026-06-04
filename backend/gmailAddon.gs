@@ -27,6 +27,12 @@
 // cualquier string), así que el riesgo de drift es cosmético.
 var _GMAIL_TIPOS = ['Contractual', 'Regulatorio', 'Contencioso', 'Privacy', 'Operativo'];
 
+// Caps de adjuntos: las acciones de Gmail add-on tienen ~30s de ejecución, y
+// subir muchos/grandes archivos (decode base64 + Drive create) puede pasarse.
+// Pre-marcamos solo los que entran en estos límites; el resto va desmarcado.
+var _GMAIL_ATT_MAX_COUNT = 5;
+var _GMAIL_ATT_MAX_TOTAL = 15 * 1024 * 1024; // 15 MB
+
 // ── Homepage: card que se ve al abrir el add-on sin un correo seleccionado ──
 // Mejora descubribilidad: sin esto, el add-on solo muestra algo al abrir un
 // correo, lo que confunde ("instalé y no veo nada"). Acá explicamos el flujo.
@@ -69,7 +75,7 @@ function onGmailMessageOpen(e) {
 // asunto, remitente, fecha, link al hilo, y un snippet del cuerpo para inferir
 // el tipo de trabajo. Tolerante a fallos: si no puede leer, devuelve vacíos.
 function _gmailReadMessage(e) {
-  var info = { subject: '', from: '', dateStr: '', threadId: '', bodySnippet: '', notesPrefill: '' };
+  var info = { subject: '', from: '', dateStr: '', threadId: '', bodySnippet: '', notesPrefill: '', attachments: [] };
   try {
     GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
     var message = GmailApp.getMessageById(e.gmail.messageId);
@@ -79,6 +85,14 @@ function _gmailReadMessage(e) {
     info.dateStr = date ? Utilities.formatDate(date, 'America/Bogota', 'dd/MM/yyyy') : '';
     info.threadId = e.gmail.threadId || message.getThread().getId();
     try { info.bodySnippet = (message.getPlainBody() || '').slice(0, 1000); } catch (e2) {}
+    // Metadata de adjuntos (sin bytes): excluimos inline (firmas/logos del HTML).
+    // El índice acá debe coincidir con la re-lectura al crear → mismas opciones.
+    try {
+      var atts = message.getAttachments({ includeInlineImages: false, includeAttachments: true });
+      info.attachments = atts.map(function(a, idx) {
+        return { name: a.getName(), size: a.getSize(), idx: idx };
+      });
+    } catch (e3) { info.attachments = []; }
     info.notesPrefill = 'Desde correo de ' + info.from
       + (info.dateStr ? ' · ' + info.dateStr : '')
       + '\nVer correo: ' + _gmailThreadLink(info.threadId);
@@ -179,6 +193,23 @@ function _gmailBuildCreateCard(info, ctx, clientes) {
     form.addWidget(riesgoInput);
   }
 
+  // Adjuntos del correo (opcional). Pre-marcamos los que entran en los caps;
+  // los grandes quedan desmarcados para que el usuario decida. Inline ya
+  // excluidos en la lectura. Al crear, los marcados se suben a la tarea.
+  if (info.attachments && info.attachments.length) {
+    var attInput = CardService.newSelectionInput()
+      .setType(CardService.SelectionInputType.CHECK_BOX)
+      .setFieldName('attachments')
+      .setTitle('Adjuntar al crear');
+    var running = 0, count = 0;
+    info.attachments.forEach(function(att) {
+      var fits = (count < _GMAIL_ATT_MAX_COUNT) && (running + att.size <= _GMAIL_ATT_MAX_TOTAL);
+      if (fits) { running += att.size; count++; }
+      attInput.addItem(att.name + ' · ' + _gmailFmtSize(att.size), String(att.idx), fits);
+    });
+    form.addWidget(attInput);
+  }
+
   // Nota del usuario. El contexto del correo (remitente/fecha/link) se guarda
   // automáticamente vía parámetro de la acción — no se pierde si editan acá.
   form.addWidget(CardService.newTextInput()
@@ -219,7 +250,7 @@ function _gmailUnauthorizedCard() {
 
 // Card de éxito tras crear: confirma + ofrece abrir la app o crear otra desde
 // el mismo correo (sin volver a la inbox).
-function _gmailSuccessCard(res, taskObj, ctx) {
+function _gmailSuccessCard(res, taskObj, ctx, attResult) {
   var section = CardService.newCardSection();
   section.addWidget(CardService.newDecoratedText()
     .setTopLabel('Tarea creada')
@@ -227,6 +258,12 @@ function _gmailSuccessCard(res, taskObj, ctx) {
     .setWrapText(true));
   var who = (taskObj.resp === ctx.user.name) ? 'Asignada a vos' : ('Asignada a ' + taskObj.resp);
   section.addWidget(CardService.newDecoratedText().setText(who).setWrapText(true));
+
+  if (attResult && (attResult.ok || attResult.fail)) {
+    var attMsg = attResult.ok + (attResult.ok === 1 ? ' adjunto subido' : ' adjuntos subidos');
+    if (attResult.fail) attMsg += ' · ' + attResult.fail + ' no (tipo no soportado o muy grande)';
+    section.addWidget(CardService.newDecoratedText().setText('📎 ' + attMsg).setWrapText(true));
+  }
 
   var url = '';
   try { url = ScriptApp.getService().getUrl() || ''; } catch (err) {}
@@ -301,12 +338,53 @@ function gmailCreateTaskFromEmail(e) {
     return _gmailNotify('Error: ' + ((err && err.message) || err));
   }
   if (res && res.success) {
+    // Subir adjuntos marcados (si los hay). La tarea ya existe, así que un fallo
+    // parcial no la pierde; el resultado se refleja en la card de éxito.
+    var attResult = null;
+    var checkedIdx = _gmailFormValues(e, 'attachments');
+    if (checkedIdx.length && e.gmail && e.gmail.messageId) {
+      attResult = _gmailUploadAttachments(e, res.id, checkedIdx);
+    }
+    var notifText = '✓ Tarea #' + res.id + ' creada'
+      + (attResult && attResult.ok ? ' · ' + attResult.ok + ' adjunto' + (attResult.ok === 1 ? '' : 's') : '');
     return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText('✓ Tarea #' + res.id + ' creada'))
-      .setNavigation(CardService.newNavigation().updateCard(_gmailSuccessCard(res, taskObj, ctx)))
+      .setNotification(CardService.newNotification().setText(notifText))
+      .setNavigation(CardService.newNavigation().updateCard(_gmailSuccessCard(res, taskObj, ctx, attResult)))
       .build();
   }
   return _gmailNotify('No se pudo crear: ' + _friendlyGmailError(res));
+}
+
+// Sube los adjuntos marcados a la tarea recién creada. Re-lee el correo con las
+// MISMAS opciones que en el render (para que los índices coincidan), reaplica
+// los caps por defensa, y reusa uploadDocument() (que valida MIME allowlist +
+// tamaño y vincula al Drive correcto). Devuelve {ok, fail}.
+function _gmailUploadAttachments(e, taskId, checkedIdx) {
+  var ok = 0, fail = 0;
+  try {
+    GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
+    var message = GmailApp.getMessageById(e.gmail.messageId);
+    var atts = message.getAttachments({ includeInlineImages: false, includeAttachments: true });
+    var want = {};
+    checkedIdx.forEach(function(s) { want[String(s)] = true; });
+    var running = 0, count = 0;
+    for (var i = 0; i < atts.length; i++) {
+      if (!want[String(i)]) continue;
+      var a = atts[i];
+      if (count >= _GMAIL_ATT_MAX_COUNT || running + a.getSize() > _GMAIL_ATT_MAX_TOTAL) { fail++; continue; }
+      var r = uploadDocument('task', taskId, {
+        name: a.getName(),
+        mimeType: a.getContentType(),
+        data: Utilities.base64Encode(a.getBytes())
+      });
+      if (r && r.success) { ok++; running += a.getSize(); count++; }
+      else fail++;
+    }
+  } catch (err) {
+    // Lectura del correo falló: lo que no se subió queda como fallo silencioso;
+    // la tarea ya existe igual.
+  }
+  return { ok: ok, fail: fail };
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -403,6 +481,28 @@ function _gmailFormValue(e, key) {
     if (e && e.formInput && e.formInput[key] != null) return e.formInput[key];
   } catch (err) {}
   return '';
+}
+
+// Lee un campo multi-valor (checkbox group) como array de strings.
+function _gmailFormValues(e, key) {
+  try {
+    var fi = e && e.commonEventObject && e.commonEventObject.formInputs;
+    if (fi && fi[key] && fi[key].stringInputs && fi[key].stringInputs.value) {
+      return fi[key].stringInputs.value;
+    }
+  } catch (err) {}
+  try {
+    if (e && e.formInputs && e.formInputs[key]) return e.formInputs[key];
+  } catch (err) {}
+  return [];
+}
+
+// Formatea bytes a un tamaño legible (B / KB / MB).
+function _gmailFmtSize(bytes) {
+  if (bytes == null || isNaN(bytes)) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 // Lee un parámetro de la acción (set vía setParameters), tolerante a ambos

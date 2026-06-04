@@ -31,7 +31,9 @@ Cosas que **no se pueden automatizar desde el código** y hay que hacer a mano
 | 11 | **Biblioteca: asegurar col 17** | Correr `migrateBiblioDocsSchema()` una vez (o se auto-agrega al crear/editar el primer doc) | El campo "Área solicitante" en documentos vive en la col 17 de `BibliotecaDocs`; `_ensureBiblioDocsSheet` la agrega sola en el primer write, pero correr migrate la asegura ya. |
 | 12 | **Activar el Gmail Add-on** | Editor de Apps Script → **Deploy → Test deployments → Install** (te lo instala a vos para probar). Para todo el equipo: Deploy → New deployment → tipo **Add-on**, y pedir a IT/Workspace admin que lo despliegue org-wide a Legal. | El `clasp push` (CI) sube el **código** del add-on, pero Gmail no lo muestra hasta que exista un deployment de tipo add-on. Tras instalar, abrí cualquier correo → ícono de Legal Tracker en la barra lateral derecha de Gmail → "Crear tarea". La primera vez Gmail pide autorizar los scopes nuevos (lectura del correo abierto). |
 
-> **Nota logo del add-on:** el `logoUrl` en `appsscript.json` (`addOns.common.logoUrl`) usa un ícono Material genérico de placeholder. Reemplazar por el logo real de Legal Tracker / Rappi (URL https pública) cuando esté.
+> **Nota logo del add-on:** el `logoUrl` en `appsscript.json` (`addOns.common.logoUrl`) usa la balanza ⚖ de Noto Emoji (a color, visible en claro/oscuro) como placeholder. Reemplazar por el logo real de Legal Tracker / Rappi (URL https pública, PNG/JPEG) cuando esté.
+
+> **Adjuntar correos:** el add-on puede subir los adjuntos del correo a la tarea, pero eso usa el mismo upload a Drive que la app → **requiere `Config!DriveFolder` seteado** (#8). Sin esa carpeta, la tarea se crea igual pero los adjuntos fallan (la card lo avisa). Caps: máx 5 archivos / 15 MB por tarea; inline (firmas/logos) se excluyen solos.
 
 ---
 
