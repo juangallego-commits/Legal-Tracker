@@ -89,34 +89,52 @@ function _gmailReadMessage(e) {
 // ── Card de creación ────────────────────────────────────────────────
 function _gmailBuildCreateCard(info, ctx, clientes) {
   var canAssignOthers = ctx && (ctx.role === 'manager' || ctx.role === 'head');
-  var section = CardService.newCardSection();
+
+  // Sección de contexto del correo (read-only): el usuario ve qué está
+  // registrando. El link al hilo viaja aparte (parámetro de la acción), así no
+  // se pierde si edita el campo de nota.
+  var ctxSection = CardService.newCardSection();
+  ctxSection.addWidget(CardService.newDecoratedText()
+    .setTopLabel('Correo')
+    .setText(info.subject || '(sin asunto)')
+    .setWrapText(true));
+  if (info.from) {
+    ctxSection.addWidget(CardService.newDecoratedText()
+      .setTopLabel('De')
+      .setText(info.from + (info.dateStr ? ' · ' + info.dateStr : ''))
+      .setWrapText(true));
+  }
+
+  var form = CardService.newCardSection();
+  var fullText = (info.subject || '') + ' ' + (info.bodySnippet || '');
 
   // Nombre (del asunto)
-  section.addWidget(CardService.newTextInput()
+  form.addWidget(CardService.newTextInput()
     .setFieldName('nombre')
     .setTitle('Nombre de la tarea')
     .setValue(info.subject || ''));
 
   // Tipo de trabajo — pre-seleccionado por inferencia de keywords del correo.
-  var inferred = _gmailInferTipo((info.subject || '') + ' ' + (info.bodySnippet || ''));
+  var inferredTipo = _gmailInferTipo(fullText);
   var tipoInput = CardService.newSelectionInput()
     .setType(CardService.SelectionInputType.DROPDOWN)
     .setFieldName('tipoTrabajo')
     .setTitle('Tipo de trabajo');
-  tipoInput.addItem('— Sin definir —', '', inferred === '');
-  _GMAIL_TIPOS.forEach(function(tp) { tipoInput.addItem(tp, tp, tp === inferred); });
-  section.addWidget(tipoInput);
+  tipoInput.addItem('— Sin definir —', '', inferredTipo === '');
+  _GMAIL_TIPOS.forEach(function(tp) { tipoInput.addItem(tp, tp, tp === inferredTipo); });
+  form.addWidget(tipoInput);
 
-  // Prioridad
+  // Prioridad — Alta si el correo suena urgente; sino Media.
+  var inferredPrio = _gmailInferPriority(fullText);
   var prioInput = CardService.newSelectionInput()
     .setType(CardService.SelectionInputType.DROPDOWN)
     .setFieldName('priority')
     .setTitle('Prioridad');
-  ['Alta', 'Media', 'Baja'].forEach(function(p) { prioInput.addItem(p, p, p === 'Media'); });
-  section.addWidget(prioInput);
+  ['Alta', 'Media', 'Baja'].forEach(function(p) { prioInput.addItem(p, p, p === inferredPrio); });
+  form.addWidget(prioInput);
 
   // Plazo (opcional)
-  section.addWidget(CardService.newDatePicker()
+  form.addWidget(CardService.newDatePicker()
     .setFieldName('deadline')
     .setTitle('Plazo (opcional)'));
 
@@ -128,11 +146,10 @@ function _gmailBuildCreateCard(info, ctx, clientes) {
       .setTitle('Área solicitante (cliente interno)');
     cliInput.addItem('— Sin definir —', '', true);
     clientes.forEach(function(c) { cliInput.addItem(c, c, false); });
-    section.addWidget(cliInput);
+    form.addWidget(cliInput);
   }
 
-  // Responsable — solo manager/head pueden asignar a otros. El specialist queda
-  // implícito (self) sin mostrar selector. Self siempre primero + pre-seleccionado.
+  // Manager/head: responsable + confidencialidad + riesgo.
   if (canAssignOthers) {
     var selfName = ctx.user.name;
     var list = [selfName];
@@ -142,10 +159,8 @@ function _gmailBuildCreateCard(info, ctx, clientes) {
       .setFieldName('resp')
       .setTitle('Responsable');
     list.forEach(function(m) { respInput.addItem(m + (m === selfName ? ' (vos)' : ''), m, m === selfName); });
-    section.addWidget(respInput);
+    form.addWidget(respInput);
 
-    // Confidencialidad — solo manager/head (consistente con el backend, que
-    // fuerza 'estandar' para specialist). Labels alineadas con la app.
     var confInput = CardService.newSelectionInput()
       .setType(CardService.SelectionInputType.DROPDOWN)
       .setFieldName('confidencialidad')
@@ -153,27 +168,41 @@ function _gmailBuildCreateCard(info, ctx, clientes) {
     confInput.addItem('Normal', 'estandar', true);
     confInput.addItem('Confidencial', 'restringido', false);
     confInput.addItem('Altamente confidencial', 'confidencial', false);
-    section.addWidget(confInput);
+    form.addWidget(confInput);
+
+    var riesgoInput = CardService.newSelectionInput()
+      .setType(CardService.SelectionInputType.DROPDOWN)
+      .setFieldName('riesgo')
+      .setTitle('Nivel de riesgo');
+    riesgoInput.addItem('— Sin definir —', '', true);
+    ['Legal', 'Reputacional', 'Negocio'].forEach(function(r) { riesgoInput.addItem(r, r, false); });
+    form.addWidget(riesgoInput);
   }
 
-  // Notas (contexto del correo, editable)
-  section.addWidget(CardService.newTextInput()
+  // Nota del usuario. El contexto del correo (remitente/fecha/link) se guarda
+  // automáticamente vía parámetro de la acción — no se pierde si editan acá.
+  form.addWidget(CardService.newTextInput()
     .setFieldName('notas')
-    .setTitle('Notas')
-    .setMultiline(true)
-    .setValue(info.notesPrefill || ''));
+    .setTitle('Tu nota (opcional)')
+    .setHint('El remitente y el link al correo se guardan solos')
+    .setMultiline(true));
 
-  // Crear
-  section.addWidget(CardService.newTextButton()
+  // Crear — el contexto del correo viaja como parámetro para reconstruir las
+  // notas server-side sin depender de que el usuario no lo borre.
+  var createAction = CardService.newAction()
+    .setFunctionName('gmailCreateTaskFromEmail')
+    .setParameters({ emailNote: info.notesPrefill || '' });
+  form.addWidget(CardService.newTextButton()
     .setText('Crear tarea')
     .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-    .setOnClickAction(CardService.newAction().setFunctionName('gmailCreateTaskFromEmail')));
+    .setOnClickAction(createAction));
 
   return CardService.newCardBuilder()
     .setHeader(CardService.newCardHeader()
       .setTitle('Crear tarea')
       .setSubtitle('Legal Tracker'))
-    .addSection(section)
+    .addSection(ctxSection)
+    .addSection(form)
     .build();
 }
 
@@ -188,10 +217,59 @@ function _gmailUnauthorizedCard() {
     .build();
 }
 
+// Card de éxito tras crear: confirma + ofrece abrir la app o crear otra desde
+// el mismo correo (sin volver a la inbox).
+function _gmailSuccessCard(res, taskObj, ctx) {
+  var section = CardService.newCardSection();
+  section.addWidget(CardService.newDecoratedText()
+    .setTopLabel('Tarea creada')
+    .setText('#' + res.id + ' · ' + (taskObj.nombre || ''))
+    .setWrapText(true));
+  var who = (taskObj.resp === ctx.user.name) ? 'Asignada a vos' : ('Asignada a ' + taskObj.resp);
+  section.addWidget(CardService.newDecoratedText().setText(who).setWrapText(true));
+
+  var url = '';
+  try { url = ScriptApp.getService().getUrl() || ''; } catch (err) {}
+  if (url) {
+    section.addWidget(CardService.newTextButton()
+      .setText('Abrir Legal Tracker')
+      .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+      .setOpenLink(CardService.newOpenLink().setUrl(url)));
+  }
+  section.addWidget(CardService.newTextButton()
+    .setText('Crear otra desde este correo')
+    .setOnClickAction(CardService.newAction().setFunctionName('gmailCreateAnother')));
+
+  return CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader().setTitle('✓ Listo').setSubtitle('Legal Tracker'))
+    .addSection(section)
+    .build();
+}
+
+// "Crear otra": re-renderiza el form contextual del mismo correo en el lugar.
+function gmailCreateAnother(e) {
+  var info = _gmailReadMessage(e);
+  var card;
+  try {
+    var ctx = _getAuthContext();
+    card = _gmailBuildCreateCard(info, ctx, _gmailClientes(ctx.ss));
+  } catch (err) {
+    card = _gmailUnauthorizedCard();
+  }
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().updateCard(card))
+    .build();
+}
+
 // ── Handler: crear la tarea ─────────────────────────────────────────
 function gmailCreateTaskFromEmail(e) {
   var nombre = (_gmailFormValue(e, 'nombre') || '').trim();
   if (!nombre) return _gmailNotify('Falta el nombre de la tarea.');
+
+  // Notas = contexto del correo (parámetro, siempre preservado) + nota del user.
+  var emailNote = _gmailParam(e, 'emailNote') || '';
+  var userNote = (_gmailFormValue(e, 'notas') || '').trim();
+  var notas = emailNote + (userNote ? (emailNote ? '\n\n' : '') + userNote : '');
 
   var taskObj = {
     nombre: nombre,
@@ -200,7 +278,8 @@ function gmailCreateTaskFromEmail(e) {
     deadline: _gmailDateValue(e, 'deadline') || '',
     areaSolicitante: _gmailFormValue(e, 'areaSolicitante') || '',
     confidencialidad: _gmailFormValue(e, 'confidencialidad') || 'estandar',
-    notas: _gmailFormValue(e, 'notas') || ''
+    riesgo: _gmailFormValue(e, 'riesgo') || '',
+    notas: notas
   };
 
   // Responsable: el selector (manager/head) o, si no hay selector, el propio
@@ -222,8 +301,10 @@ function gmailCreateTaskFromEmail(e) {
     return _gmailNotify('Error: ' + ((err && err.message) || err));
   }
   if (res && res.success) {
-    var who = (taskObj.resp === ctx.user.name) ? 'asignada a vos' : ('asignada a ' + taskObj.resp);
-    return _gmailNotify('✓ Tarea #' + res.id + ' creada · ' + who + '.');
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('✓ Tarea #' + res.id + ' creada'))
+      .setNavigation(CardService.newNavigation().updateCard(_gmailSuccessCard(res, taskObj, ctx)))
+      .build();
   }
   return _gmailNotify('No se pudo crear: ' + _friendlyGmailError(res));
 }
@@ -251,6 +332,20 @@ function _gmailInferTipo(text) {
   if (has(['nda', 'contrato', 'acuerdo', 'convenio', 'cláusula', 'clausula', 'términos', 'terminos', 'contractual', 'minuta', 'adenda', 'otrosí', 'otrosi'])) return 'Contractual';
   if (has(['regulaci', 'regulatori', 'compliance', 'superintendencia', 'licencia', 'permiso', 'sanción', 'sancion', 'normativ'])) return 'Regulatorio';
   return '';
+}
+
+// Sugiere prioridad Alta si el correo transmite urgencia; sino Media. El usuario
+// siempre puede cambiarla en el dropdown.
+function _gmailInferPriority(text) {
+  var t = (text || '').toLowerCase();
+  function has(words) {
+    for (var i = 0; i < words.length; i++) { if (t.indexOf(words[i]) >= 0) return true; }
+    return false;
+  }
+  if (has(['urgente', 'urgent', 'asap', 'inmediato', 'inmediata', 'cuanto antes',
+           'lo antes posible', 'crítico', 'critico', 'prioridad alta', 'hoy mismo',
+           'para hoy', 'perentorio', 'improrrogable', 'time-sensitive'])) return 'Alta';
+  return 'Media';
 }
 
 // Lista de clientes internos (área solicitante) desde Config.ClientesInternos,
@@ -306,6 +401,20 @@ function _gmailFormValue(e, key) {
   } catch (err) {}
   try {
     if (e && e.formInput && e.formInput[key] != null) return e.formInput[key];
+  } catch (err) {}
+  return '';
+}
+
+// Lee un parámetro de la acción (set vía setParameters), tolerante a ambos
+// formatos de event object. Usado para pasar el contexto del correo al handler.
+function _gmailParam(e, key) {
+  try {
+    if (e && e.commonEventObject && e.commonEventObject.parameters && e.commonEventObject.parameters[key] != null) {
+      return e.commonEventObject.parameters[key];
+    }
+  } catch (err) {}
+  try {
+    if (e && e.parameters && e.parameters[key] != null) return e.parameters[key];
   } catch (err) {}
   return '';
 }
