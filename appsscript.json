@@ -15,6 +15,23 @@
     "https://www.googleapis.com/auth/script.send_mail",
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/script.container.ui"
-  ]
+    "https://www.googleapis.com/auth/script.container.ui",
+    "https://www.googleapis.com/auth/gmail.addons.execute",
+    "https://www.googleapis.com/auth/gmail.addons.current.message.readonly"
+  ],
+  "addOns": {
+    "common": {
+      "name": "Legal Tracker",
+      "logoUrl": "https://www.gstatic.com/images/icons/material/system/2x/assignment_turned_in_black_48dp.png",
+      "useLocaleFromApp": true
+    },
+    "gmail": {
+      "contextualTriggers": [
+        {
+          "unconditional": {},
+          "onTriggerFunction": "onGmailMessageOpen"
+        }
+      ]
+    }
+  }
 }

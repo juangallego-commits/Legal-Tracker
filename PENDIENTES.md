@@ -29,6 +29,9 @@ Cosas que **no se pueden automatizar desde el código** y hay que hacer a mano
 | 9 | **Configurar `Config!CalendarId`** | Hoja `Config`, key `CalendarId` = ID del calendario del equipo | Define qué calendario muestra la vista **Calendario**. Si no se setea, usa el primario del usuario. |
 | 10 | **Definir `Config!ClientesInternos`** | Hoja `Config`, key `ClientesInternos` = CSV (ej. `Restaurantes, Finanzas, Tesorería, Monetization, …`) | Lista del eje **"Área solicitante"** (cliente interno) en tareas y biblioteca. Editable sin tocar código. Si está vacía, cae a esos 4 por default. |
 | 11 | **Biblioteca: asegurar col 17** | Correr `migrateBiblioDocsSchema()` una vez (o se auto-agrega al crear/editar el primer doc) | El campo "Área solicitante" en documentos vive en la col 17 de `BibliotecaDocs`; `_ensureBiblioDocsSheet` la agrega sola en el primer write, pero correr migrate la asegura ya. |
+| 12 | **Activar el Gmail Add-on** | Editor de Apps Script → **Deploy → Test deployments → Install** (te lo instala a vos para probar). Para todo el equipo: Deploy → New deployment → tipo **Add-on**, y pedir a IT/Workspace admin que lo despliegue org-wide a Legal. | El `clasp push` (CI) sube el **código** del add-on, pero Gmail no lo muestra hasta que exista un deployment de tipo add-on. Tras instalar, abrí cualquier correo → ícono de Legal Tracker en la barra lateral derecha de Gmail → "Crear tarea". La primera vez Gmail pide autorizar los scopes nuevos (lectura del correo abierto). |
+
+> **Nota logo del add-on:** el `logoUrl` en `appsscript.json` (`addOns.common.logoUrl`) usa un ícono Material genérico de placeholder. Reemplazar por el logo real de Legal Tracker / Rappi (URL https pública) cuando esté.
 
 ---
 
