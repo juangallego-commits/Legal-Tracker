@@ -27,6 +27,12 @@
 // cualquier string), así que el riesgo de drift es cosmético.
 var _GMAIL_TIPOS = ['Contractual', 'Regulatorio', 'Contencioso', 'Privacy', 'Operativo'];
 
+// Caps de adjuntos: las acciones de Gmail add-on tienen ~30s de ejecución, y
+// subir muchos/grandes archivos (decode base64 + Drive create) puede pasarse.
+// Pre-marcamos solo los que entran en estos límites; el resto va desmarcado.
+var _GMAIL_ATT_MAX_COUNT = 5;
+var _GMAIL_ATT_MAX_TOTAL = 15 * 1024 * 1024; // 15 MB
+
 // ── Homepage: card que se ve al abrir el add-on sin un correo seleccionado ──
 // Mejora descubribilidad: sin esto, el add-on solo muestra algo al abrir un
 // correo, lo que confunde ("instalé y no veo nada"). Acá explicamos el flujo.
@@ -69,7 +75,7 @@ function onGmailMessageOpen(e) {
 // asunto, remitente, fecha, link al hilo, y un snippet del cuerpo para inferir
 // el tipo de trabajo. Tolerante a fallos: si no puede leer, devuelve vacíos.
 function _gmailReadMessage(e) {
-  var info = { subject: '', from: '', dateStr: '', threadId: '', bodySnippet: '', notesPrefill: '' };
+  var info = { subject: '', from: '', dateStr: '', threadId: '', bodySnippet: '', notesPrefill: '', attachments: [] };
   try {
     GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
     var message = GmailApp.getMessageById(e.gmail.messageId);
@@ -79,6 +85,14 @@ function _gmailReadMessage(e) {
     info.dateStr = date ? Utilities.formatDate(date, 'America/Bogota', 'dd/MM/yyyy') : '';
     info.threadId = e.gmail.threadId || message.getThread().getId();
     try { info.bodySnippet = (message.getPlainBody() || '').slice(0, 1000); } catch (e2) {}
+    // Metadata de adjuntos (sin bytes): excluimos inline (firmas/logos del HTML).
+    // El índice acá debe coincidir con la re-lectura al crear → mismas opciones.
+    try {
+      var atts = message.getAttachments({ includeInlineImages: false, includeAttachments: true });
+      info.attachments = atts.map(function(a, idx) {
+        return { name: a.getName(), size: a.getSize(), idx: idx };
+      });
+    } catch (e3) { info.attachments = []; }
     info.notesPrefill = 'Desde correo de ' + info.from
       + (info.dateStr ? ' · ' + info.dateStr : '')
       + '\nVer correo: ' + _gmailThreadLink(info.threadId);
@@ -89,34 +103,52 @@ function _gmailReadMessage(e) {
 // ── Card de creación ────────────────────────────────────────────────
 function _gmailBuildCreateCard(info, ctx, clientes) {
   var canAssignOthers = ctx && (ctx.role === 'manager' || ctx.role === 'head');
-  var section = CardService.newCardSection();
+
+  // Sección de contexto del correo (read-only): el usuario ve qué está
+  // registrando. El link al hilo viaja aparte (parámetro de la acción), así no
+  // se pierde si edita el campo de nota.
+  var ctxSection = CardService.newCardSection();
+  ctxSection.addWidget(CardService.newDecoratedText()
+    .setTopLabel('Correo')
+    .setText(info.subject || '(sin asunto)')
+    .setWrapText(true));
+  if (info.from) {
+    ctxSection.addWidget(CardService.newDecoratedText()
+      .setTopLabel('De')
+      .setText(info.from + (info.dateStr ? ' · ' + info.dateStr : ''))
+      .setWrapText(true));
+  }
+
+  var form = CardService.newCardSection();
+  var fullText = (info.subject || '') + ' ' + (info.bodySnippet || '');
 
   // Nombre (del asunto)
-  section.addWidget(CardService.newTextInput()
+  form.addWidget(CardService.newTextInput()
     .setFieldName('nombre')
     .setTitle('Nombre de la tarea')
     .setValue(info.subject || ''));
 
   // Tipo de trabajo — pre-seleccionado por inferencia de keywords del correo.
-  var inferred = _gmailInferTipo((info.subject || '') + ' ' + (info.bodySnippet || ''));
+  var inferredTipo = _gmailInferTipo(fullText);
   var tipoInput = CardService.newSelectionInput()
     .setType(CardService.SelectionInputType.DROPDOWN)
     .setFieldName('tipoTrabajo')
     .setTitle('Tipo de trabajo');
-  tipoInput.addItem('— Sin definir —', '', inferred === '');
-  _GMAIL_TIPOS.forEach(function(tp) { tipoInput.addItem(tp, tp, tp === inferred); });
-  section.addWidget(tipoInput);
+  tipoInput.addItem('— Sin definir —', '', inferredTipo === '');
+  _GMAIL_TIPOS.forEach(function(tp) { tipoInput.addItem(tp, tp, tp === inferredTipo); });
+  form.addWidget(tipoInput);
 
-  // Prioridad
+  // Prioridad — Alta si el correo suena urgente; sino Media.
+  var inferredPrio = _gmailInferPriority(fullText);
   var prioInput = CardService.newSelectionInput()
     .setType(CardService.SelectionInputType.DROPDOWN)
     .setFieldName('priority')
     .setTitle('Prioridad');
-  ['Alta', 'Media', 'Baja'].forEach(function(p) { prioInput.addItem(p, p, p === 'Media'); });
-  section.addWidget(prioInput);
+  ['Alta', 'Media', 'Baja'].forEach(function(p) { prioInput.addItem(p, p, p === inferredPrio); });
+  form.addWidget(prioInput);
 
   // Plazo (opcional)
-  section.addWidget(CardService.newDatePicker()
+  form.addWidget(CardService.newDatePicker()
     .setFieldName('deadline')
     .setTitle('Plazo (opcional)'));
 
@@ -128,11 +160,10 @@ function _gmailBuildCreateCard(info, ctx, clientes) {
       .setTitle('Área solicitante (cliente interno)');
     cliInput.addItem('— Sin definir —', '', true);
     clientes.forEach(function(c) { cliInput.addItem(c, c, false); });
-    section.addWidget(cliInput);
+    form.addWidget(cliInput);
   }
 
-  // Responsable — solo manager/head pueden asignar a otros. El specialist queda
-  // implícito (self) sin mostrar selector. Self siempre primero + pre-seleccionado.
+  // Manager/head: responsable + confidencialidad + riesgo.
   if (canAssignOthers) {
     var selfName = ctx.user.name;
     var list = [selfName];
@@ -142,10 +173,8 @@ function _gmailBuildCreateCard(info, ctx, clientes) {
       .setFieldName('resp')
       .setTitle('Responsable');
     list.forEach(function(m) { respInput.addItem(m + (m === selfName ? ' (vos)' : ''), m, m === selfName); });
-    section.addWidget(respInput);
+    form.addWidget(respInput);
 
-    // Confidencialidad — solo manager/head (consistente con el backend, que
-    // fuerza 'estandar' para specialist). Labels alineadas con la app.
     var confInput = CardService.newSelectionInput()
       .setType(CardService.SelectionInputType.DROPDOWN)
       .setFieldName('confidencialidad')
@@ -153,27 +182,58 @@ function _gmailBuildCreateCard(info, ctx, clientes) {
     confInput.addItem('Normal', 'estandar', true);
     confInput.addItem('Confidencial', 'restringido', false);
     confInput.addItem('Altamente confidencial', 'confidencial', false);
-    section.addWidget(confInput);
+    form.addWidget(confInput);
+
+    var riesgoInput = CardService.newSelectionInput()
+      .setType(CardService.SelectionInputType.DROPDOWN)
+      .setFieldName('riesgo')
+      .setTitle('Nivel de riesgo');
+    riesgoInput.addItem('— Sin definir —', '', true);
+    ['Legal', 'Reputacional', 'Negocio'].forEach(function(r) { riesgoInput.addItem(r, r, false); });
+    form.addWidget(riesgoInput);
   }
 
-  // Notas (contexto del correo, editable)
-  section.addWidget(CardService.newTextInput()
-    .setFieldName('notas')
-    .setTitle('Notas')
-    .setMultiline(true)
-    .setValue(info.notesPrefill || ''));
+  // Adjuntos del correo (opcional). Pre-marcamos los que entran en los caps;
+  // los grandes quedan desmarcados para que el usuario decida. Inline ya
+  // excluidos en la lectura. Al crear, los marcados se suben a la tarea.
+  if (info.attachments && info.attachments.length) {
+    var attInput = CardService.newSelectionInput()
+      .setType(CardService.SelectionInputType.CHECK_BOX)
+      .setFieldName('attachments')
+      .setTitle('Adjuntar al crear');
+    var running = 0, count = 0;
+    info.attachments.forEach(function(att) {
+      var fits = (count < _GMAIL_ATT_MAX_COUNT) && (running + att.size <= _GMAIL_ATT_MAX_TOTAL);
+      if (fits) { running += att.size; count++; }
+      attInput.addItem(att.name + ' · ' + _gmailFmtSize(att.size), String(att.idx), fits);
+    });
+    form.addWidget(attInput);
+  }
 
-  // Crear
-  section.addWidget(CardService.newTextButton()
+  // Nota del usuario. El contexto del correo (remitente/fecha/link) se guarda
+  // automáticamente vía parámetro de la acción — no se pierde si editan acá.
+  form.addWidget(CardService.newTextInput()
+    .setFieldName('notas')
+    .setTitle('Tu nota (opcional)')
+    .setHint('El remitente y el link al correo se guardan solos')
+    .setMultiline(true));
+
+  // Crear — el contexto del correo viaja como parámetro para reconstruir las
+  // notas server-side sin depender de que el usuario no lo borre.
+  var createAction = CardService.newAction()
+    .setFunctionName('gmailCreateTaskFromEmail')
+    .setParameters({ emailNote: info.notesPrefill || '' });
+  form.addWidget(CardService.newTextButton()
     .setText('Crear tarea')
     .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-    .setOnClickAction(CardService.newAction().setFunctionName('gmailCreateTaskFromEmail')));
+    .setOnClickAction(createAction));
 
   return CardService.newCardBuilder()
     .setHeader(CardService.newCardHeader()
       .setTitle('Crear tarea')
       .setSubtitle('Legal Tracker'))
-    .addSection(section)
+    .addSection(ctxSection)
+    .addSection(form)
     .build();
 }
 
@@ -188,10 +248,65 @@ function _gmailUnauthorizedCard() {
     .build();
 }
 
+// Card de éxito tras crear: confirma + ofrece abrir la app o crear otra desde
+// el mismo correo (sin volver a la inbox).
+function _gmailSuccessCard(res, taskObj, ctx, attResult) {
+  var section = CardService.newCardSection();
+  section.addWidget(CardService.newDecoratedText()
+    .setTopLabel('Tarea creada')
+    .setText('#' + res.id + ' · ' + (taskObj.nombre || ''))
+    .setWrapText(true));
+  var who = (taskObj.resp === ctx.user.name) ? 'Asignada a vos' : ('Asignada a ' + taskObj.resp);
+  section.addWidget(CardService.newDecoratedText().setText(who).setWrapText(true));
+
+  if (attResult && (attResult.ok || attResult.fail)) {
+    var attMsg = attResult.ok + (attResult.ok === 1 ? ' adjunto subido' : ' adjuntos subidos');
+    if (attResult.fail) attMsg += ' · ' + attResult.fail + ' no (tipo no soportado o muy grande)';
+    section.addWidget(CardService.newDecoratedText().setText('📎 ' + attMsg).setWrapText(true));
+  }
+
+  var url = '';
+  try { url = ScriptApp.getService().getUrl() || ''; } catch (err) {}
+  if (url) {
+    section.addWidget(CardService.newTextButton()
+      .setText('Abrir Legal Tracker')
+      .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+      .setOpenLink(CardService.newOpenLink().setUrl(url)));
+  }
+  section.addWidget(CardService.newTextButton()
+    .setText('Crear otra desde este correo')
+    .setOnClickAction(CardService.newAction().setFunctionName('gmailCreateAnother')));
+
+  return CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader().setTitle('✓ Listo').setSubtitle('Legal Tracker'))
+    .addSection(section)
+    .build();
+}
+
+// "Crear otra": re-renderiza el form contextual del mismo correo en el lugar.
+function gmailCreateAnother(e) {
+  var info = _gmailReadMessage(e);
+  var card;
+  try {
+    var ctx = _getAuthContext();
+    card = _gmailBuildCreateCard(info, ctx, _gmailClientes(ctx.ss));
+  } catch (err) {
+    card = _gmailUnauthorizedCard();
+  }
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().updateCard(card))
+    .build();
+}
+
 // ── Handler: crear la tarea ─────────────────────────────────────────
 function gmailCreateTaskFromEmail(e) {
   var nombre = (_gmailFormValue(e, 'nombre') || '').trim();
   if (!nombre) return _gmailNotify('Falta el nombre de la tarea.');
+
+  // Notas = contexto del correo (parámetro, siempre preservado) + nota del user.
+  var emailNote = _gmailParam(e, 'emailNote') || '';
+  var userNote = (_gmailFormValue(e, 'notas') || '').trim();
+  var notas = emailNote + (userNote ? (emailNote ? '\n\n' : '') + userNote : '');
 
   var taskObj = {
     nombre: nombre,
@@ -200,7 +315,8 @@ function gmailCreateTaskFromEmail(e) {
     deadline: _gmailDateValue(e, 'deadline') || '',
     areaSolicitante: _gmailFormValue(e, 'areaSolicitante') || '',
     confidencialidad: _gmailFormValue(e, 'confidencialidad') || 'estandar',
-    notas: _gmailFormValue(e, 'notas') || ''
+    riesgo: _gmailFormValue(e, 'riesgo') || '',
+    notas: notas
   };
 
   // Responsable: el selector (manager/head) o, si no hay selector, el propio
@@ -222,10 +338,53 @@ function gmailCreateTaskFromEmail(e) {
     return _gmailNotify('Error: ' + ((err && err.message) || err));
   }
   if (res && res.success) {
-    var who = (taskObj.resp === ctx.user.name) ? 'asignada a vos' : ('asignada a ' + taskObj.resp);
-    return _gmailNotify('✓ Tarea #' + res.id + ' creada · ' + who + '.');
+    // Subir adjuntos marcados (si los hay). La tarea ya existe, así que un fallo
+    // parcial no la pierde; el resultado se refleja en la card de éxito.
+    var attResult = null;
+    var checkedIdx = _gmailFormValues(e, 'attachments');
+    if (checkedIdx.length && e.gmail && e.gmail.messageId) {
+      attResult = _gmailUploadAttachments(e, res.id, checkedIdx);
+    }
+    var notifText = '✓ Tarea #' + res.id + ' creada'
+      + (attResult && attResult.ok ? ' · ' + attResult.ok + ' adjunto' + (attResult.ok === 1 ? '' : 's') : '');
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText(notifText))
+      .setNavigation(CardService.newNavigation().updateCard(_gmailSuccessCard(res, taskObj, ctx, attResult)))
+      .build();
   }
   return _gmailNotify('No se pudo crear: ' + _friendlyGmailError(res));
+}
+
+// Sube los adjuntos marcados a la tarea recién creada. Re-lee el correo con las
+// MISMAS opciones que en el render (para que los índices coincidan), reaplica
+// los caps por defensa, y reusa uploadDocument() (que valida MIME allowlist +
+// tamaño y vincula al Drive correcto). Devuelve {ok, fail}.
+function _gmailUploadAttachments(e, taskId, checkedIdx) {
+  var ok = 0, fail = 0;
+  try {
+    GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
+    var message = GmailApp.getMessageById(e.gmail.messageId);
+    var atts = message.getAttachments({ includeInlineImages: false, includeAttachments: true });
+    var want = {};
+    checkedIdx.forEach(function(s) { want[String(s)] = true; });
+    var running = 0, count = 0;
+    for (var i = 0; i < atts.length; i++) {
+      if (!want[String(i)]) continue;
+      var a = atts[i];
+      if (count >= _GMAIL_ATT_MAX_COUNT || running + a.getSize() > _GMAIL_ATT_MAX_TOTAL) { fail++; continue; }
+      var r = uploadDocument('task', taskId, {
+        name: a.getName(),
+        mimeType: a.getContentType(),
+        data: Utilities.base64Encode(a.getBytes())
+      });
+      if (r && r.success) { ok++; running += a.getSize(); count++; }
+      else fail++;
+    }
+  } catch (err) {
+    // Lectura del correo falló: lo que no se subió queda como fallo silencioso;
+    // la tarea ya existe igual.
+  }
+  return { ok: ok, fail: fail };
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -251,6 +410,20 @@ function _gmailInferTipo(text) {
   if (has(['nda', 'contrato', 'acuerdo', 'convenio', 'cláusula', 'clausula', 'términos', 'terminos', 'contractual', 'minuta', 'adenda', 'otrosí', 'otrosi'])) return 'Contractual';
   if (has(['regulaci', 'regulatori', 'compliance', 'superintendencia', 'licencia', 'permiso', 'sanción', 'sancion', 'normativ'])) return 'Regulatorio';
   return '';
+}
+
+// Sugiere prioridad Alta si el correo transmite urgencia; sino Media. El usuario
+// siempre puede cambiarla en el dropdown.
+function _gmailInferPriority(text) {
+  var t = (text || '').toLowerCase();
+  function has(words) {
+    for (var i = 0; i < words.length; i++) { if (t.indexOf(words[i]) >= 0) return true; }
+    return false;
+  }
+  if (has(['urgente', 'urgent', 'asap', 'inmediato', 'inmediata', 'cuanto antes',
+           'lo antes posible', 'crítico', 'critico', 'prioridad alta', 'hoy mismo',
+           'para hoy', 'perentorio', 'improrrogable', 'time-sensitive'])) return 'Alta';
+  return 'Media';
 }
 
 // Lista de clientes internos (área solicitante) desde Config.ClientesInternos,
@@ -306,6 +479,42 @@ function _gmailFormValue(e, key) {
   } catch (err) {}
   try {
     if (e && e.formInput && e.formInput[key] != null) return e.formInput[key];
+  } catch (err) {}
+  return '';
+}
+
+// Lee un campo multi-valor (checkbox group) como array de strings.
+function _gmailFormValues(e, key) {
+  try {
+    var fi = e && e.commonEventObject && e.commonEventObject.formInputs;
+    if (fi && fi[key] && fi[key].stringInputs && fi[key].stringInputs.value) {
+      return fi[key].stringInputs.value;
+    }
+  } catch (err) {}
+  try {
+    if (e && e.formInputs && e.formInputs[key]) return e.formInputs[key];
+  } catch (err) {}
+  return [];
+}
+
+// Formatea bytes a un tamaño legible (B / KB / MB).
+function _gmailFmtSize(bytes) {
+  if (bytes == null || isNaN(bytes)) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// Lee un parámetro de la acción (set vía setParameters), tolerante a ambos
+// formatos de event object. Usado para pasar el contexto del correo al handler.
+function _gmailParam(e, key) {
+  try {
+    if (e && e.commonEventObject && e.commonEventObject.parameters && e.commonEventObject.parameters[key] != null) {
+      return e.commonEventObject.parameters[key];
+    }
+  } catch (err) {}
+  try {
+    if (e && e.parameters && e.parameters[key] != null) return e.parameters[key];
   } catch (err) {}
   return '';
 }
