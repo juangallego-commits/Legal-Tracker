@@ -20,7 +20,8 @@
     "https://www.googleapis.com/auth/gmail.addons.current.message.readonly"
   ],
   "urlFetchWhitelist": [
-    "https://slack.com/api/"
+    "https://slack.com/api/",
+    "https://generativelanguage.googleapis.com/"
   ],
   "addOns": {
     "common": {
