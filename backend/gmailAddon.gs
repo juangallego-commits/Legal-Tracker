@@ -68,23 +68,39 @@ function onGmailMessageOpen(e) {
   } catch (err) {
     return [_gmailUnauthorizedCard()];
   }
-  return [_gmailBuildCreateCard(info, ctx, clientes)];
+  // Detección de duplicados: si ya existe una tarea (activa o cerrada) con este
+  // threadId en notas, ofrecemos abrirla en vez de crear una segunda. El usuario
+  // siempre puede forzar "crear igual" desde esa card.
+  if (info.threadId) {
+    var dup = _gmailFindTaskByThread(ctx.ss, info.threadId);
+    if (dup) return [_gmailDuplicateCard(dup, info, ctx, clientes)];
+  }
+  // AI enrich: Gemini pre-llena todo lo que pueda inferir del correo. Si no hay
+  // API key o falla, ai === null y el render cae a la heurística existente.
+  var ai = _gmailAIEnrich(info, clientes);
+  return [_gmailBuildCreateCard(info, ctx, clientes, ai)];
 }
 
 // Lee el correo abierto con el token de mensaje actual (scope angosto). Devuelve
 // asunto, remitente, fecha, link al hilo, y un snippet del cuerpo para inferir
 // el tipo de trabajo. Tolerante a fallos: si no puede leer, devuelve vacíos.
 function _gmailReadMessage(e) {
-  var info = { subject: '', from: '', dateStr: '', threadId: '', bodySnippet: '', notesPrefill: '', attachments: [] };
+  var info = { messageId: '', subject: '', from: '', dateStr: '', threadId: '', body: '', bodySnippet: '', notesPrefill: '', attachments: [] };
   try {
     GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
+    info.messageId = e.gmail.messageId || '';
     var message = GmailApp.getMessageById(e.gmail.messageId);
     info.subject = message.getSubject() || '';
     info.from = message.getFrom() || '';
     var date = message.getDate();
     info.dateStr = date ? Utilities.formatDate(date, 'America/Bogota', 'dd/MM/yyyy') : '';
     info.threadId = e.gmail.threadId || message.getThread().getId();
-    try { info.bodySnippet = (message.getPlainBody() || '').slice(0, 1000); } catch (e2) {}
+    // Cuerpo: completo para la IA (truncado al cap de prompt), snippet corto
+    // para la heurística (sigue siendo el fallback si IA no anda).
+    try {
+      info.body = (message.getPlainBody() || '').slice(0, 8000);
+      info.bodySnippet = info.body.slice(0, 1000);
+    } catch (e2) {}
     // Metadata de adjuntos (sin bytes): excluimos inline (firmas/logos del HTML).
     // El índice acá debe coincidir con la re-lectura al crear → mismas opciones.
     try {
@@ -101,7 +117,7 @@ function _gmailReadMessage(e) {
 }
 
 // ── Card de creación ────────────────────────────────────────────────
-function _gmailBuildCreateCard(info, ctx, clientes) {
+function _gmailBuildCreateCard(info, ctx, clientes, ai) {
   var canAssignOthers = ctx && (ctx.role === 'manager' || ctx.role === 'head');
 
   // Sección de contexto del correo (read-only): el usuario ve qué está
@@ -119,47 +135,77 @@ function _gmailBuildCreateCard(info, ctx, clientes) {
       .setWrapText(true));
   }
 
-  var form = CardService.newCardSection();
+  // Pre-fill por campo: IA primero (cuando trajo un valor válido), heurística
+  // por keywords como fallback. Ambas pueden quedar vacías sin romper nada — el
+  // usuario llena lo que falta antes de crear.
   var fullText = (info.subject || '') + ' ' + (info.bodySnippet || '');
+  var pre = {
+    nombre:           (ai && ai.nombre)            || info.subject || '',
+    tipoTrabajo:      (ai && ai.tipoTrabajo)       || _gmailInferTipo(fullText),
+    priority:         (ai && ai.priority)          || _gmailInferPriority(fullText),
+    deadline:         (ai && ai.deadline)          || '',
+    areaSolicitante:  (ai && ai.areaSolicitante)   || '',
+    confidencialidad: (ai && ai.confidencialidad)  || 'estandar',
+    riesgo:           (ai && ai.riesgo)            || '',
+    contraparte:      (ai && ai.contraparte)       || '',
+    acc:              (ai && ai.acc)               || '',
+    notas:            (ai && ai.notas)             || ''
+  };
 
-  // Nombre (del asunto)
+  var form = CardService.newCardSection();
+
+  // Badge cuando la IA aportó pre-fill — pone al usuario en modo "revisar"
+  // en vez de "completar de cero".
+  if (ai) {
+    form.addWidget(CardService.newDecoratedText()
+      .setText('✨ <b>Pre-llenado con IA</b> — revisá los campos y ajustá lo que haga falta antes de crear.')
+      .setWrapText(true));
+  }
+
+  // Nombre
   form.addWidget(CardService.newTextInput()
     .setFieldName('nombre')
     .setTitle('Nombre de la tarea')
-    .setValue(info.subject || ''));
+    .setValue(pre.nombre));
 
-  // Tipo de trabajo — pre-seleccionado por inferencia de keywords del correo.
-  var inferredTipo = _gmailInferTipo(fullText);
+  // Tipo de trabajo
   var tipoInput = CardService.newSelectionInput()
     .setType(CardService.SelectionInputType.DROPDOWN)
     .setFieldName('tipoTrabajo')
     .setTitle('Tipo de trabajo');
-  tipoInput.addItem('— Sin definir —', '', inferredTipo === '');
-  _GMAIL_TIPOS.forEach(function(tp) { tipoInput.addItem(tp, tp, tp === inferredTipo); });
+  tipoInput.addItem('— Sin definir —', '', pre.tipoTrabajo === '');
+  _GMAIL_TIPOS.forEach(function(tp) { tipoInput.addItem(tp, tp, tp === pre.tipoTrabajo); });
   form.addWidget(tipoInput);
 
-  // Prioridad — Alta si el correo suena urgente; sino Media.
-  var inferredPrio = _gmailInferPriority(fullText);
+  // Prioridad
   var prioInput = CardService.newSelectionInput()
     .setType(CardService.SelectionInputType.DROPDOWN)
     .setFieldName('priority')
     .setTitle('Prioridad');
-  ['Alta', 'Media', 'Baja'].forEach(function(p) { prioInput.addItem(p, p, p === inferredPrio); });
+  ['Alta', 'Media', 'Baja'].forEach(function(p) { prioInput.addItem(p, p, p === pre.priority); });
   form.addWidget(prioInput);
 
-  // Plazo (opcional)
-  form.addWidget(CardService.newDatePicker()
+  // Plazo (DatePicker acepta msSinceEpoch en UTC-midnight del día elegido)
+  var datePicker = CardService.newDatePicker()
     .setFieldName('deadline')
-    .setTitle('Plazo (opcional)'));
+    .setTitle('Plazo (opcional)');
+  if (pre.deadline) {
+    var m = String(pre.deadline).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      var dtMs = Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+      datePicker.setValueInMsSinceEpoch(dtMs);
+    }
+  }
+  form.addWidget(datePicker);
 
-  // Cliente / área solicitante (de Config.ClientesInternos)
+  // Cliente / área solicitante
   if (clientes && clientes.length) {
     var cliInput = CardService.newSelectionInput()
       .setType(CardService.SelectionInputType.DROPDOWN)
       .setFieldName('areaSolicitante')
       .setTitle('Área solicitante (cliente interno)');
-    cliInput.addItem('— Sin definir —', '', true);
-    clientes.forEach(function(c) { cliInput.addItem(c, c, false); });
+    cliInput.addItem('— Sin definir —', '', !pre.areaSolicitante);
+    clientes.forEach(function(c) { cliInput.addItem(c, c, c === pre.areaSolicitante); });
     form.addWidget(cliInput);
   }
 
@@ -179,19 +225,33 @@ function _gmailBuildCreateCard(info, ctx, clientes) {
       .setType(CardService.SelectionInputType.DROPDOWN)
       .setFieldName('confidencialidad')
       .setTitle('Confidencialidad');
-    confInput.addItem('Normal', 'estandar', true);
-    confInput.addItem('Confidencial', 'restringido', false);
-    confInput.addItem('Altamente confidencial', 'confidencial', false);
+    confInput.addItem('Normal', 'estandar', pre.confidencialidad === 'estandar');
+    confInput.addItem('Confidencial', 'restringido', pre.confidencialidad === 'restringido');
+    confInput.addItem('Altamente confidencial', 'confidencial', pre.confidencialidad === 'confidencial');
     form.addWidget(confInput);
 
     var riesgoInput = CardService.newSelectionInput()
       .setType(CardService.SelectionInputType.DROPDOWN)
       .setFieldName('riesgo')
       .setTitle('Nivel de riesgo');
-    riesgoInput.addItem('— Sin definir —', '', true);
-    ['Legal', 'Reputacional', 'Negocio'].forEach(function(r) { riesgoInput.addItem(r, r, false); });
+    riesgoInput.addItem('— Sin definir —', '', !pre.riesgo);
+    ['Legal', 'Reputacional', 'Negocio'].forEach(function(r) { riesgoInput.addItem(r, r, r === pre.riesgo); });
     form.addWidget(riesgoInput);
   }
+
+  // Contraparte (texto libre). Lo mostramos siempre — la IA lo llena si detecta
+  // un actor externo claro; sino el usuario lo deja vacío o escribe a mano.
+  form.addWidget(CardService.newTextInput()
+    .setFieldName('contraparte')
+    .setTitle('Contraparte (opcional)')
+    .setValue(pre.contraparte));
+
+  // Próximo paso / acción (el campo "Acción" de la tarea en la app).
+  form.addWidget(CardService.newTextInput()
+    .setFieldName('acc')
+    .setTitle('Próximo paso (opcional)')
+    .setMultiline(true)
+    .setValue(pre.acc));
 
   // Adjuntos del correo (opcional). Pre-marcamos los que entran en los caps;
   // los grandes quedan desmarcados para que el usuario decida. Inline ya
@@ -210,13 +270,15 @@ function _gmailBuildCreateCard(info, ctx, clientes) {
     form.addWidget(attInput);
   }
 
-  // Nota del usuario. El contexto del correo (remitente/fecha/link) se guarda
-  // automáticamente vía parámetro de la acción — no se pierde si editan acá.
+  // Notas. Si la IA generó un resumen, lo ponemos como pre-fill; sino vacío. El
+  // contexto del correo (remitente/fecha/link) se concatena server-side desde el
+  // parámetro de la acción — no se pierde si el usuario edita.
   form.addWidget(CardService.newTextInput()
     .setFieldName('notas')
-    .setTitle('Tu nota (opcional)')
+    .setTitle(ai && ai.notas ? 'Resumen (editable)' : 'Tu nota (opcional)')
     .setHint('El remitente y el link al correo se guardan solos')
-    .setMultiline(true));
+    .setMultiline(true)
+    .setValue(pre.notas));
 
   // Crear — el contexto del correo viaja como parámetro para reconstruir las
   // notas server-side sin depender de que el usuario no lo borre.
@@ -246,6 +308,213 @@ function _gmailUnauthorizedCard() {
     .setHeader(CardService.newCardHeader().setTitle('Legal Tracker'))
     .addSection(section)
     .build();
+}
+
+// Card cuando ya existe una tarea para este hilo de correo. El "Ver tarea" abre
+// el tracker; el "Crear igual" es un escape hatch para casos donde el mismo hilo
+// dispara un seguimiento separado (ej. responder, después una nueva acción).
+function _gmailDuplicateCard(dup, info, ctx, clientes) {
+  var section = CardService.newCardSection();
+  section.addWidget(CardService.newDecoratedText()
+    .setTopLabel(dup.cerrada ? 'Ya existe (cerrada)' : 'Ya existe una tarea para este correo')
+    .setText('#' + dup.id + ' · ' + (dup.nombre || ''))
+    .setWrapText(true));
+  if (dup.resp) {
+    section.addWidget(CardService.newDecoratedText()
+      .setTopLabel('Responsable')
+      .setText(dup.resp));
+  }
+  var url = '';
+  try { url = ScriptApp.getService().getUrl() || ''; } catch (err) {}
+  if (url) {
+    section.addWidget(CardService.newTextButton()
+      .setText('Abrir Legal Tracker')
+      .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+      .setOpenLink(CardService.newOpenLink().setUrl(url)));
+  }
+  section.addWidget(CardService.newTextButton()
+    .setText('Crear otra tarea igual')
+    .setOnClickAction(CardService.newAction()
+      .setFunctionName('gmailForceCreate')
+      .setParameters({ messageId: info.messageId || '' })));
+  return CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader().setTitle('Tarea ya creada').setSubtitle('Legal Tracker'))
+    .addSection(section)
+    .build();
+}
+
+// "Crear otra igual": ignora la detección de duplicados y muestra el form
+// normal. Re-procesa AI desde el cache (no re-llama Gemini).
+function gmailForceCreate(e) {
+  var info = _gmailReadMessage(e);
+  var card;
+  try {
+    var ctx = _getAuthContext();
+    var clientes = _gmailClientes(ctx.ss);
+    var ai = _gmailAIEnrich(info, clientes);
+    card = _gmailBuildCreateCard(info, ctx, clientes, ai);
+  } catch (err) {
+    card = _gmailUnauthorizedCard();
+  }
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().updateCard(card))
+    .build();
+}
+
+// ── IA · Gemini ─────────────────────────────────────────────────────
+// Llama Gemini Flash con el contenido del correo + el vocabulario válido del
+// tracker (tipos, prioridades, riesgos, confidencialidad, clientes). Devuelve
+// un objeto con los campos extraídos o null si:
+//   - no hay GEMINI_API_KEY seteada (Script Properties)
+//   - la llamada falla (red, quota, etc.)
+//   - el output no parsea como JSON o no tiene los campos esperados
+// En cualquier fallo, el caller cae a heurística — el add-on nunca se rompe por
+// la IA.
+//
+// Cacheamos por messageId (UserCache, 5 min) para que reabrir el mismo correo no
+// vuelva a gastar la cuota.
+function _gmailAIEnrich(info, clientes) {
+  var apiKey;
+  try { apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY'); } catch (err) { return null; }
+  if (!apiKey) return null;
+  if (!info || (!info.subject && !info.body)) return null;
+
+  var cache = null;
+  try { cache = CacheService.getUserCache(); } catch (err) {}
+  var cacheKey = 'gmail-ai-' + (info.messageId || '');
+  if (cache && info.messageId) {
+    var hit = cache.get(cacheKey);
+    if (hit) {
+      try { return JSON.parse(hit); } catch (err) {}
+    }
+  }
+
+  var prompt = _gmailAIPrompt(info, clientes);
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(apiKey);
+  var payload = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 1024 }
+  };
+
+  var resp;
+  try {
+    resp = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+  } catch (err) {
+    Logger.log('gmailAI: fetch error · ' + ((err && err.message) || err));
+    return null;
+  }
+  if (resp.getResponseCode() !== 200) {
+    Logger.log('gmailAI: HTTP ' + resp.getResponseCode() + ' · ' + resp.getContentText().slice(0, 200));
+    return null;
+  }
+  var json;
+  try { json = JSON.parse(resp.getContentText()); } catch (err) { return null; }
+  var text = '';
+  try { text = json.candidates[0].content.parts[0].text || ''; } catch (err) {}
+  if (!text) return null;
+  var out;
+  try { out = JSON.parse(text); } catch (err) { return null; }
+
+  // Validación contra enums: si la IA inventa valores fuera del dominio, los
+  // dropeamos en vez de pasarlos al render (mejor vacío que un valor inválido
+  // que después rompe filtros / stats).
+  var clean = _gmailAIValidate(out, clientes);
+  if (cache && info.messageId) {
+    try { cache.put(cacheKey, JSON.stringify(clean), 300); } catch (err) {}
+  }
+  return clean;
+}
+
+// Arma el prompt con todo el contexto que la IA necesita para pre-llenar bien:
+// enums válidos del tracker, lista actual de clientes desde Config, y el correo.
+function _gmailAIPrompt(info, clientes) {
+  var today = Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy-MM-dd');
+  var clientesList = (clientes && clientes.length) ? clientes.join(', ') : '(ninguno configurado)';
+  return ''
+    + 'Sos un asistente del equipo legal de Rappi. Analizá el siguiente correo y producí '
+    + 'un draft de tarea para el tracker interno. Devolvé JSON estricto (sin markdown ni '
+    + 'comentarios) con estos campos exactos:\n\n'
+    + '{\n'
+    + '  "nombre": "string accionable (máx 80 chars). Verbo + objeto, ej. \\"Revisar NDA con X\\"",\n'
+    + '  "tipoTrabajo": "uno de: Contractual | Regulatorio | Contencioso | Privacy | Operativo, o \\"\\"",\n'
+    + '  "priority": "Alta | Media | Baja según urgencia real",\n'
+    + '  "riesgo": "Legal | Reputacional | Negocio o \\"\\" si no aplica",\n'
+    + '  "confidencialidad": "estandar | restringido | confidencial",\n'
+    + '  "areaSolicitante": "uno de los clientes válidos exactamente como aparece en la lista, o \\"\\"",\n'
+    + '  "contraparte": "nombre de la empresa/parte externa, o \\"\\" si es interno o no aplica",\n'
+    + '  "deadline": "yyyy-MM-dd SOLO si hay plazo claro (explícito o inferible). Vacío si dudás.",\n'
+    + '  "acc": "próximo paso concreto en 1 línea (qué tengo que hacer apenas abro la tarea)",\n'
+    + '  "notas": "resumen ejecutivo en bullets con \\"- \\" (3-5): qué se pide, partes, plazos, contexto clave"\n'
+    + '}\n\n'
+    + 'Reglas duras:\n'
+    + '- No inventes. Si dudás, devolvé "".\n'
+    + '- "areaSolicitante" SOLO si la lista de clientes contiene un match claro: ' + clientesList + '.\n'
+    + '- "confidencialidad": estandar por default. Subí a restringido si hay info sensible o de negocio; '
+    + 'confidencial solo para M&A, estrategia, o asuntos legales críticos.\n'
+    + '- "priority": Alta si hay urgencia real (plazo corto, escalado, demanda); Baja si es rutina. Mayoría = Media.\n'
+    + '- "contraparte" queda vacío si el correo es interno entre empleados de Rappi.\n'
+    + '- "nombre" en español, modo imperativo, sin "Re:" / "Fwd:".\n'
+    + '- "notas" en español, bullets con guion ("- "), una idea por bullet.\n\n'
+    + 'CORREO A ANALIZAR\n'
+    + 'Hoy es: ' + today + '\n'
+    + 'De: ' + (info.from || '(desconocido)') + '\n'
+    + 'Asunto: ' + (info.subject || '(sin asunto)') + '\n'
+    + 'Fecha: ' + (info.dateStr || '') + '\n'
+    + (info.attachments && info.attachments.length
+        ? 'Adjuntos: ' + info.attachments.map(function(a){ return a.name; }).join(', ') + '\n'
+        : '')
+    + 'Cuerpo:\n' + (info.body || '(sin cuerpo)');
+}
+
+// Valida la salida de la IA contra el vocabulario del tracker. Cualquier valor
+// fuera del dominio se reemplaza por "" para que el render no lo muestre como
+// pill inválida.
+function _gmailAIValidate(out, clientes) {
+  if (!out || typeof out !== 'object') return null;
+  var clean = {
+    nombre:           (out.nombre || '').toString().trim().slice(0, 120),
+    tipoTrabajo:      _GMAIL_TIPOS.indexOf(out.tipoTrabajo) >= 0 ? out.tipoTrabajo : '',
+    priority:         ['Alta', 'Media', 'Baja'].indexOf(out.priority) >= 0 ? out.priority : 'Media',
+    riesgo:           ['Legal', 'Reputacional', 'Negocio'].indexOf(out.riesgo) >= 0 ? out.riesgo : '',
+    confidencialidad: ['estandar', 'restringido', 'confidencial'].indexOf(out.confidencialidad) >= 0 ? out.confidencialidad : 'estandar',
+    areaSolicitante:  (clientes || []).indexOf(out.areaSolicitante) >= 0 ? out.areaSolicitante : '',
+    contraparte:      (out.contraparte || '').toString().trim().slice(0, 120),
+    deadline:         /^\d{4}-\d{2}-\d{2}$/.test(out.deadline || '') ? out.deadline : '',
+    acc:              (out.acc || '').toString().trim().slice(0, 200),
+    notas:            (out.notas || '').toString().trim().slice(0, 1500)
+  };
+  return clean;
+}
+
+// Busca si ya existe una tarea (activa o cerrada) cuya columna Notas contenga
+// este threadId. Lectura barata (solo nombre + id + resp + col notas + status).
+// Devuelve { id, nombre, resp, cerrada } o null.
+function _gmailFindTaskByThread(ss, threadId) {
+  if (!ss || !threadId) return null;
+  var hit = _gmailScanSheetForThread(ss, SHEET_ACTIVO, threadId, 4 /*headerOffset*/, false);
+  if (hit) return hit;
+  return _gmailScanSheetForThread(ss, SHEET_HISTORIAL, threadId, 2 /*headerOffset*/, true);
+}
+
+function _gmailScanSheetForThread(ss, sheetName, threadId, dataStartRow, cerrada) {
+  var ws = ss.getSheetByName(sheetName);
+  if (!ws) return null;
+  var lr = ws.getLastRow();
+  if (lr < dataStartRow) return null;
+  var lc = Math.min(ws.getLastColumn(), TASK_COLS);
+  var data = ws.getRange(dataStartRow, 1, lr - dataStartRow + 1, lc).getValues();
+  for (var i = 0; i < data.length; i++) {
+    var notas = (data[i][10] || '').toString(); // col 11 = Notas
+    if (notas.indexOf(threadId) >= 0) {
+      return { id: data[i][0], nombre: data[i][1], resp: data[i][2], cerrada: cerrada };
+    }
+  }
+  return null;
 }
 
 // Card de éxito tras crear: confirma + ofrece abrir la app o crear otra desde
@@ -316,6 +585,8 @@ function gmailCreateTaskFromEmail(e) {
     areaSolicitante: _gmailFormValue(e, 'areaSolicitante') || '',
     confidencialidad: _gmailFormValue(e, 'confidencialidad') || 'estandar',
     riesgo: _gmailFormValue(e, 'riesgo') || '',
+    contraparte: _gmailFormValue(e, 'contraparte') || '',
+    acc: _gmailFormValue(e, 'acc') || '',
     notas: notas
   };
 

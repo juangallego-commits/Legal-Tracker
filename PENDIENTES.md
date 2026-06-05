@@ -35,6 +35,8 @@ Cosas que **no se pueden automatizar desde el código** y hay que hacer a mano
 
 > **Adjuntar correos:** el add-on puede subir los adjuntos del correo a la tarea, pero eso usa el mismo upload a Drive que la app → **requiere `Config!DriveFolder` seteado** (#8). Sin esa carpeta, la tarea se crea igual pero los adjuntos fallan (la card lo avisa). Caps: máx 5 archivos / 15 MB por tarea; inline (firmas/logos) se excluyen solos.
 
+| 13 | **Habilitar AI fill en el Gmail add-on** | Editor de Apps Script → **Configuración del proyecto** → **Propiedades del script** → agregar `GEMINI_API_KEY` con una clave gratis de [aistudio.google.com](https://aistudio.google.com/app/apikey) | El add-on usa Gemini 2.5 Flash para pre-llenar **todos** los campos de la tarea (nombre accionable, tipo, prioridad, riesgo, confidencialidad, cliente, contraparte, deadline, próximo paso y resumen en notas) leyendo el correo. **Sin la key, el add-on sigue andando con la heurística vieja (keywords) — no se rompe nada, solo pierde el super-fill.** Free tier de Gemini Flash aguanta sobrado para el volumen del equipo. Costo: $0. Latencia añadida al abrir un correo: ~1-2 s (cacheamos por messageId 5 min). **Privacidad:** se envía el body del correo a Gemini; el head debe validar con la org si los correos legales pueden salir hacia esa API antes de habilitar la key. |
+
 ---
 
 ## 🔌 Slack — estado real y qué hacer (revisado a fondo)
