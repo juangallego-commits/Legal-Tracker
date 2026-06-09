@@ -10488,10 +10488,31 @@ function edTkBibPickerAttach(docId) {
 // ════════════════════════════════════════════════════════════════
 // RECURSOS · links curados (herramientas tech/AI, guías, clases) que
 // comparte el equipo legal. Todos ven todos; solo el autor (o un head)
-// puede eliminar. Backend: getRecursos / addRecurso / deleteRecurso.
+// puede editar/eliminar. Backend: getRecursos / addRecurso /
+// updateRecurso / deleteRecurso. La vista NO agrupa por categoría
+// (deprecada): es una lista plana con búsqueda + chips de tipo + orden.
 // ════════════════════════════════════════════════════════════════
 var _RECURSOS_CACHE = null;     // null = aún no cargado; array = cargado
 var _RECURSOS_FORM_OPEN = false; // toggle del form colapsable "Agregar recurso"
+var _RECURSOS_EDIT_ID = null;    // si !== null → el form está en modo edición de ese id
+// Estado de filtros de la vista (en memoria, no se persiste). Re-render al cambiar.
+var _RECURSOS_UI = { q: '', tipo: 'all', sort: 'recientes' };
+
+// Enum de tipo de recurso → ícono (emoji) + label i18n. '' = sin clasificar.
+// Espejo del backend _REC_TIPOS (tool/guide/course/repo/template/dataset).
+// Las labels se llaman con t() literal para que check-i18n las detecte.
+var _REC_TIPO_META = {
+  'tool':     { icon: '🔧', label: function(){ return t('Herramienta'); } },
+  'guide':    { icon: '📘', label: function(){ return t('Guía'); } },
+  'course':   { icon: '🎓', label: function(){ return t('Curso'); } },
+  'repo':     { icon: '💻', label: function(){ return t('Repo'); } },
+  'template': { icon: '📄', label: function(){ return t('Template'); } },
+  'dataset':  { icon: '📊', label: function(){ return t('Dataset'); } },
+  '':         { icon: '🏷️', label: function(){ return t('Sin clasificar'); } }
+};
+// Orden de los tipos para los chips/pills (los '' van al final como "Sin clasificar").
+var _REC_TIPO_ORDER = ['tool', 'guide', 'course', 'repo', 'template', 'dataset'];
+function _recTipoMeta(tipo) { return _REC_TIPO_META[tipo] || _REC_TIPO_META['']; }
 
 // ¿Puede el usuario actual eliminar este recurso? head siempre; o el autor.
 function _recursoCanDelete(r) {
@@ -10504,6 +10525,36 @@ function _recursoCanDelete(r) {
 function _recursoSafeHref(url) {
   return /^https?:\/\//i.test((url || '').toString().trim()) ? url.trim() : '';
 }
+// Filtra + ordena los recursos según _RECURSOS_UI. Búsqueda client-side sobre
+// título + descripción + tags; chip de tipo; orden recientes/más usados.
+function _recursoFilterSort(recursos) {
+  var q = (_RECURSOS_UI.q || '').trim().toLowerCase();
+  var tipo = _RECURSOS_UI.tipo || 'all';
+  var out = (recursos || []).filter(function(r) {
+    if (tipo !== 'all' && (r.tipo || '') !== tipo) return false;
+    if (!q) return true;
+    var hay = (r.titulo || '') + ' ' + (r.descripcion || '') + ' ' + ((r.tags || []).join(' '));
+    return hay.toLowerCase().indexOf(q) >= 0;
+  });
+  // Orden. "Más usados" cae a recientes como desempate (hoy clicks=0 → todo recientes).
+  // "fecha" llega como dd/MM/yyyy → la parseamos a un comparable para ordenar bien.
+  function fechaKey(s) {
+    var m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((s || '').trim());
+    return m ? (m[3] + m[2] + m[1]) : '';
+  }
+  out.sort(function(a, b) {
+    if (_RECURSOS_UI.sort === 'clicks') {
+      var d = (b.clicks || 0) - (a.clicks || 0);
+      if (d !== 0) return d;
+    }
+    var fa = fechaKey(a.fecha), fb = fechaKey(b.fecha);
+    if (fa !== fb) return fa < fb ? 1 : -1; // fecha desc
+    var ta = (a.titulo || '').toLowerCase(), tb = (b.titulo || '').toLowerCase();
+    return ta < tb ? -1 : (ta > tb ? 1 : 0);
+  });
+  return out;
+}
+
 function rEdRecursos(D) {
   var v = $('vEdRecursos'); if (!v) return;
 
@@ -10527,13 +10578,13 @@ function rEdRecursos(D) {
     return;
   }
 
-  var recursos = (_RECURSOS_CACHE || []).slice(); // ya viene ordenado por categoría+título
+  var all = (_RECURSOS_CACHE || []).slice();
 
   var html = '<div class="pa-page">';
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">' + esc(t('Recursos')) + '</span>'
-       +    '<span class="pa-page-sub">' + recursos.length + ' '
-       +      esc(recursos.length === 1 ? t('recurso') : t('recursos')) + '</span>'
+       +    '<span class="pa-page-sub">' + all.length + ' '
+       +      esc(all.length === 1 ? t('recurso') : t('recursos')) + '</span>'
        +    '<div class="pa-page-meta">'
        +      '<button class="pa-btn pa-btn-primary" onclick="edRecursoToggleForm()">' + paIcon('plus', 12) + ' ' + esc(t('Agregar recurso')) + '</button>'
        +    '</div>'
@@ -10541,28 +10592,10 @@ function rEdRecursos(D) {
 
   html += '<div class="pa-narrative">' + esc(t('Herramientas, guías y links que comparte el equipo legal')) + '</div>';
 
-  // Form colapsable "Agregar recurso"
-  if (_RECURSOS_FORM_OPEN) {
-    html += '<div class="pa-card" style="margin:0 0 16px">'
-         +    '<div class="pa-card-h"><h3>' + esc(t('Agregar recurso')) + '</h3></div>'
-         +    '<div style="display:flex;flex-direction:column;gap:0">'
-         +      '<div class="cr-field" id="recFldTitulo"><div class="cr-label">' + esc(t('Título')) + ' <span class="req">*</span></div>'
-         +        '<input id="recTitulo" class="cr-input" maxlength="160" placeholder="' + esc(t('ej: Curso de prompts para legales')) + '"></div>'
-         +      '<div class="cr-field" id="recFldUrl"><div class="cr-label">' + esc(t('URL')) + ' <span class="req">*</span></div>'
-         +        '<input id="recUrl" class="cr-input" maxlength="2048" placeholder="https://…"></div>'
-         +      '<div class="cr-field"><div class="cr-label">' + esc(t('Categoría')) + '</div>'
-         +        '<input id="recCategoria" class="cr-input" maxlength="80" placeholder="' + esc(t('ej: Guías legales / AI')) + '"></div>'
-         +      '<div class="cr-field"><div class="cr-label">' + esc(t('Descripción')) + '</div>'
-         +        '<textarea id="recDescripcion" class="cr-input cr-textarea" rows="2" maxlength="500" placeholder="' + esc(t('Contexto breve (opcional)')) + '"></textarea></div>'
-         +      '<div style="display:flex;gap:8px;justify-content:flex-end">'
-         +        '<button type="button" class="ed-btn ghost" onclick="edRecursoToggleForm()">' + esc(t('Cancelar')) + '</button>'
-         +        '<button type="button" class="ed-btn accent" id="recAddBtn" onclick="edRecursoAdd()">' + esc(t('Agregar')) + '</button>'
-         +      '</div>'
-         +    '</div>'
-         + '</div>';
-  }
+  // Form colapsable de alta/edición.
+  if (_RECURSOS_FORM_OPEN) html += _recursoFormHtml();
 
-  if (recursos.length === 0) {
+  if (all.length === 0) {
     html += paEmpty('globe', t('Todavía no hay recursos.'), t('Agregá el primero con "Agregar recurso".'));
     html += '</div>';
     v.innerHTML = html;
@@ -10570,77 +10603,233 @@ function rEdRecursos(D) {
     return;
   }
 
-  // Agrupado por categoría: encabezado por cada categoría (la lista ya viene
-  // ordenada por categoría+título, así que basta detectar el cambio).
-  var curCat = null;
-  recursos.forEach(function(r) {
-    var cat = r.categoria || 'General';
-    if (cat !== curCat) {
-      if (curCat !== null) html += '</div>'; // cerrar el grid anterior
-      curCat = cat;
-      html += '<div class="pa-section-h"><h3>' + esc(cat) + '</h3></div>';
-      html += '<div class="bib-grid">';
-    }
+  // ── Toolbar: búsqueda + orden ───────────────────────────────────
+  html += '<div class="pa-filterbar">'
+       +    '<div class="pa-search" style="width:240px">'
+       +      paIcon('search', 12)
+       +      '<input type="text" id="recSearch" placeholder="' + esc(t('Buscar recursos')) + '" value="' + esc(_RECURSOS_UI.q) + '" oninput="edRecursoSetSearch(this.value)">'
+       +    '</div>'
+       +    '<div style="margin-left:auto;display:flex;gap:6px;align-items:center">'
+       +      '<div class="pa-chip' + (_RECURSOS_UI.sort === 'recientes' ? ' is-active' : '') + '" onclick="edRecursoSetSort(\'recientes\')">' + esc(t('Recientes')) + '</div>'
+       +      '<div class="pa-chip' + (_RECURSOS_UI.sort === 'clicks' ? ' is-active' : '') + '" onclick="edRecursoSetSort(\'clicks\')">' + esc(t('Más usados')) + '</div>'
+       +    '</div>'
+       + '</div>';
 
-    var href = _recursoSafeHref(r.url);
-    var titHtml = href
-      ? '<a href="' + esc(href) + '" target="_blank" rel="noopener" class="bib-card-title" style="text-decoration:none">' + esc(r.titulo) + '</a>'
-      : '<div class="bib-card-title">' + esc(r.titulo) + '</div>';
-
-    var delBtn = _recursoCanDelete(r)
-      ? '<div class="bib-card-actions">'
-        + '<button type="button" class="bib-card-act del" onclick="event.stopPropagation();edRecursoDelete(\'' + esc(r.id) + '\')" title="' + esc(t('Eliminar')) + '" aria-label="' + esc(t('Eliminar')) + '" style="font-size:15px;line-height:1">×</button>'
-        + '</div>'
-      : '';
-
-    var descHtml = r.descripcion
-      ? '<div style="font-size:12px;color:var(--fg-2);line-height:1.45;margin:2px 0 4px">' + esc(r.descripcion) + '</div>'
-      : '';
-
-    var metaParts = [];
-    if (r.autor) metaParts.push(esc(t('Agregado por')) + ' ' + esc(r.autor));
-    if (r.fecha) metaParts.push(esc(r.fecha));
-
-    html += '<div class="bib-card">'
-         +    '<div class="bib-card-h">'
-         +      '<span class="bib-card-icon">' + paIcon('globe', 16) + '</span>'
-         +      titHtml
-         +      delBtn
-         +    '</div>'
-         +    descHtml
-         +    '<div class="bib-card-class"><span class="bib-chip">' + esc(cat) + '</span></div>'
-         +    '<div class="bib-card-f">'
-         +      '<span class="author">' + metaParts.join(' · ') + '</span>'
-         +      (href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener" class="open-hint" style="text-decoration:none;cursor:pointer">↗ ' + esc(t('Abrir')) + '</a>' : '')
-         +    '</div>'
-         + '</div>';
+  // ── Chips de filtro por tipo (con contador en vivo) ─────────────
+  // Contamos sobre _todos_ los recursos (no sobre el resultado filtrado).
+  function tipoCount(key) {
+    return all.filter(function(r){ return key === 'all' || (r.tipo || '') === key; }).length;
+  }
+  function tipoChip(key, label, active) {
+    return '<div class="pa-chip' + (active ? ' is-active' : '') + '" onclick="edRecursoSetTipo(\'' + esc(key) + '\')">'
+         + esc(label) + ' <span class="ct">' + tipoCount(key) + '</span></div>';
+  }
+  html += '<div class="pa-filterbar">';
+  html += tipoChip('all', t('Todos'), _RECURSOS_UI.tipo === 'all');
+  // Un chip por tipo "real" que esté presente, en orden fijo.
+  _REC_TIPO_ORDER.forEach(function(key) {
+    if (tipoCount(key) === 0) return;
+    var meta = _recTipoMeta(key);
+    html += tipoChip(key, meta.icon + ' ' + meta.label(), _RECURSOS_UI.tipo === key);
   });
-  if (curCat !== null) html += '</div>'; // cerrar el último grid
+  // "Sin clasificar" siempre que existan recursos sin tipo.
+  if (tipoCount('') > 0) {
+    html += tipoChip('', _REC_TIPO_META[''].icon + ' ' + t('Sin clasificar'), _RECURSOS_UI.tipo === '');
+  }
+  html += '</div>';
+
+  // ── Lista plana (filtrada + ordenada) ───────────────────────────
+  var recursos = _recursoFilterSort(all);
+  if (recursos.length === 0) {
+    html += paEmpty('search', t('No hay recursos que coincidan.'), t('Probá con otra búsqueda o filtro.'));
+  } else {
+    html += '<div class="bib-grid">';
+    recursos.forEach(function(r) {
+      var href = _recursoSafeHref(r.url);
+      var titHtml = href
+        ? '<a href="' + esc(href) + '" target="_blank" rel="noopener" class="bib-card-title" style="text-decoration:none">' + esc(r.titulo) + '</a>'
+        : '<div class="bib-card-title">' + esc(r.titulo) + '</div>';
+
+      var actions = '';
+      if (_recursoCanDelete(r)) {
+        actions = '<div class="bib-card-actions">'
+          + '<button type="button" class="bib-card-act" onclick="event.stopPropagation();edRecursoEdit(\'' + esc(r.id) + '\')" title="' + esc(t('Editar')) + '" aria-label="' + esc(t('Editar')) + '" style="font-size:13px;line-height:1">✏️</button>'
+          + '<button type="button" class="bib-card-act del" onclick="event.stopPropagation();edRecursoDelete(\'' + esc(r.id) + '\')" title="' + esc(t('Eliminar')) + '" aria-label="' + esc(t('Eliminar')) + '" style="font-size:15px;line-height:1">×</button>'
+          + '</div>';
+      }
+
+      var descHtml = r.descripcion
+        ? '<div style="font-size:12px;color:var(--fg-2);line-height:1.45;margin:2px 0 4px">' + esc(r.descripcion) + '</div>'
+        : '';
+
+      // Clasificación: tipo (chip) + tags (chips chicos) + badges (área / requiere pago).
+      var meta = _recTipoMeta(r.tipo);
+      var classHtml = '<div class="bib-card-class">';
+      classHtml += '<span class="bib-chip">' + meta.icon + ' ' + esc(meta.label()) + '</span>';
+      if (r.area) classHtml += '<span class="bib-card-badge">' + esc(r.area) + '</span>';
+      if (r.requierePago) classHtml += '<span class="bib-card-badge">💳 ' + esc(t('Requiere cuenta/pago')) + '</span>';
+      classHtml += '</div>';
+
+      var tagsHtml = '';
+      if (r.tags && r.tags.length) {
+        tagsHtml = '<div class="bib-card-tags">';
+        r.tags.forEach(function(tg){ tagsHtml += '<span class="bib-tag">' + esc(tg) + '</span>'; });
+        tagsHtml += '</div>';
+      }
+
+      var metaParts = [];
+      if (r.autor) metaParts.push(esc(t('Agregado por')) + ' ' + esc(r.autor));
+      if (r.fecha) metaParts.push(esc(r.fecha));
+
+      html += '<div class="bib-card">'
+           +    '<div class="bib-card-h">'
+           +      '<span class="bib-card-icon">' + paIcon('globe', 16) + '</span>'
+           +      titHtml
+           +      actions
+           +    '</div>'
+           +    descHtml
+           +    classHtml
+           +    tagsHtml
+           +    '<div class="bib-card-f">'
+           +      '<span class="author">' + metaParts.join(' · ') + '</span>'
+           +      (href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener" class="open-hint" style="text-decoration:none;cursor:pointer">↗ ' + esc(t('Abrir')) + '</a>' : '')
+           +    '</div>'
+           + '</div>';
+    });
+    html += '</div>';
+  }
 
   html += '</div>';
   v.innerHTML = html;
   if (_RECURSOS_FORM_OPEN) setTimeout(function(){ var i = $('recTitulo'); if (i) i.focus(); }, 60);
 }
 
+// HTML del form de alta/edición. En modo edición (_RECURSOS_EDIT_ID) viene
+// prefilled con el recurso del cache y el botón llama a edRecursoSave().
+function _recursoFormHtml() {
+  var editing = _RECURSOS_EDIT_ID != null;
+  var r = editing
+    ? ((_RECURSOS_CACHE || []).filter(function(x){ return x.id === _RECURSOS_EDIT_ID; })[0] || null)
+    : null;
+  // Si el id a editar ya no está en el cache (otro user lo borró), caemos a alta.
+  if (editing && !r) { editing = false; _RECURSOS_EDIT_ID = null; }
+
+  var val = {
+    titulo: r ? r.titulo : '',
+    url: r ? r.url : '',
+    categoria: r ? r.categoria : '',
+    descripcion: r ? r.descripcion : '',
+    tipo: r ? (r.tipo || '') : '',
+    tags: r ? (r.tags || []).join(', ') : '',
+    area: r ? (r.area || '') : '',
+    requierePago: r ? !!r.requierePago : false
+  };
+
+  // Pills de tipo (incluye "Sin clasificar" = ''). data-tipo guarda la selección.
+  var pills = '<div class="pa-filterbar" id="recTipoPills" style="padding:0 0 4px">';
+  _REC_TIPO_ORDER.concat(['']).forEach(function(key) {
+    var meta = _recTipoMeta(key);
+    pills += '<div class="pa-chip' + (val.tipo === key ? ' is-active' : '') + '" data-tipo="' + esc(key) + '" onclick="edRecursoPickTipo(this)">'
+          + meta.icon + ' ' + esc(meta.label()) + '</div>';
+  });
+  pills += '</div>';
+
+  return '<div class="pa-card" style="margin:0 0 16px">'
+       +    '<div class="pa-card-h"><h3>' + esc(editing ? t('Editar recurso') : t('Agregar recurso')) + '</h3></div>'
+       +    '<div style="display:flex;flex-direction:column;gap:0">'
+       +      '<div class="cr-field" id="recFldTitulo"><div class="cr-label">' + esc(t('Título')) + ' <span class="req">*</span></div>'
+       +        '<input id="recTitulo" class="cr-input" maxlength="160" placeholder="' + esc(t('ej: Curso de prompts para legales')) + '" value="' + esc(val.titulo) + '"></div>'
+       +      '<div class="cr-field" id="recFldUrl"><div class="cr-label">' + esc(t('URL')) + ' <span class="req">*</span></div>'
+       +        '<input id="recUrl" class="cr-input" maxlength="2048" placeholder="https://…" value="' + esc(val.url) + '"></div>'
+       +      '<div class="cr-field"><div class="cr-label">' + esc(t('Tipo')) + '</div>' + pills + '</div>'
+       +      '<div class="cr-field"><div class="cr-label">' + esc(t('Etiquetas (separadas por coma)')) + '</div>'
+       +        '<input id="recTags" class="cr-input" maxlength="240" placeholder="' + esc(t('ej: contratos, ia, plantilla')) + '" value="' + esc(val.tags) + '"></div>'
+       +      '<div class="cr-field"><div class="cr-label">' + esc(t('Área')) + '</div>'
+       +        '<input id="recArea" class="cr-input" maxlength="80" placeholder="' + esc(t('Área (opcional)')) + '" value="' + esc(val.area) + '"></div>'
+       +      '<div class="cr-field"><div class="cr-label">' + esc(t('Categoría')) + '</div>'
+       +        '<input id="recCategoria" class="cr-input" maxlength="80" placeholder="' + esc(t('ej: Guías legales / AI')) + '" value="' + esc(val.categoria) + '"></div>'
+       +      '<div class="cr-field"><div class="cr-label">' + esc(t('Descripción')) + '</div>'
+       +        '<textarea id="recDescripcion" class="cr-input cr-textarea" rows="2" maxlength="500" placeholder="' + esc(t('Contexto breve (opcional)')) + '">' + esc(val.descripcion) + '</textarea></div>'
+       +      '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-2);cursor:pointer;margin:2px 0 10px">'
+       +        '<input type="checkbox" id="recRequierePago"' + (val.requierePago ? ' checked' : '') + '> ' + esc(t('Requiere cuenta o pago')) + '</label>'
+       +      '<div style="display:flex;gap:8px;justify-content:flex-end">'
+       +        '<button type="button" class="ed-btn ghost" onclick="edRecursoToggleForm()">' + esc(t('Cancelar')) + '</button>'
+       +        '<button type="button" class="ed-btn accent" id="recAddBtn" onclick="' + (editing ? 'edRecursoSave()' : 'edRecursoAdd()') + '">' + esc(editing ? t('Guardar') : t('Agregar')) + '</button>'
+       +      '</div>'
+       +    '</div>'
+       + '</div>';
+}
+
+// Selección de tipo en las pills del form (toggle visual; la lectura real
+// se hace al guardar leyendo el .is-active con data-tipo).
+function edRecursoPickTipo(el) {
+  var box = $('recTipoPills'); if (!box) return;
+  var pills = box.querySelectorAll('.pa-chip');
+  for (var i = 0; i < pills.length; i++) pills[i].classList.remove('is-active');
+  el.classList.add('is-active');
+}
+function _recursoReadTipo() {
+  var box = $('recTipoPills'); if (!box) return '';
+  var active = box.querySelector('.pa-chip.is-active');
+  return active ? (active.getAttribute('data-tipo') || '') : '';
+}
+
+// ── Filtros de la vista (re-render al cambiar) ────────────────────
+// Búsqueda con debounce 200ms (mismo patrón que edSetSearch del tracker): el
+// re-render destruye el input → tras re-renderear restauramos foco + caret.
+function edRecursoSetSearch(q) {
+  _RECURSOS_UI.q = q || '';
+  clearTimeout(window._recSearchT);
+  window._recSearchT = setTimeout(function(){
+    rEdRecursos(D);
+    var i = $('recSearch');
+    if (i) { i.focus(); try { i.setSelectionRange(_RECURSOS_UI.q.length, _RECURSOS_UI.q.length); } catch(e){} }
+  }, 200);
+}
+function edRecursoSetTipo(tipo) { _RECURSOS_UI.tipo = tipo; rEdRecursos(D); }
+function edRecursoSetSort(sort) { _RECURSOS_UI.sort = sort; rEdRecursos(D); }
+
 function edRecursoToggleForm() {
+  // Cancelar/cerrar siempre sale de modo edición.
   _RECURSOS_FORM_OPEN = !_RECURSOS_FORM_OPEN;
+  if (!_RECURSOS_FORM_OPEN) _RECURSOS_EDIT_ID = null;
   rEdRecursos(D);
 }
 
-function edRecursoAdd() {
+// Abrir el form en modo edición de un recurso (prefilled).
+function edRecursoEdit(id) {
+  _RECURSOS_EDIT_ID = id;
+  _RECURSOS_FORM_OPEN = true;
+  rEdRecursos(D);
+}
+
+// Lee y valida los campos del form. Devuelve {obj} con los campos comunes
+// o null si la validación falló (ya marca has-err + toast).
+function _recursoReadForm() {
   var titulo = ($('recTitulo') && $('recTitulo').value || '').trim();
   var url = ($('recUrl') && $('recUrl').value || '').trim();
-  var categoria = ($('recCategoria') && $('recCategoria').value || '').trim();
-  var descripcion = ($('recDescripcion') && $('recDescripcion').value || '').trim();
-
-  // Validación: título + url obligatorios. Marcamos el campo con has-err.
   var fldT = $('recFldTitulo'), fldU = $('recFldUrl');
   if (fldT) fldT.classList.remove('has-err');
   if (fldU) fldU.classList.remove('has-err');
   var bad = false;
   if (!titulo) { if (fldT) fldT.classList.add('has-err'); bad = true; }
   if (!/^https?:\/\//i.test(url)) { if (fldU) fldU.classList.add('has-err'); bad = true; }
-  if (bad) { toast(t('Completá título y una URL válida (http/https).'), 'error'); return; }
+  if (bad) { toast(t('Completá título y una URL válida (http/https).'), 'error'); return null; }
+  return {
+    titulo: titulo,
+    url: url,
+    categoria: ($('recCategoria') && $('recCategoria').value || '').trim(),
+    descripcion: ($('recDescripcion') && $('recDescripcion').value || '').trim(),
+    tipo: _recursoReadTipo(),
+    tags: ($('recTags') && $('recTags').value || '').trim(),
+    area: ($('recArea') && $('recArea').value || '').trim(),
+    requierePago: !!($('recRequierePago') && $('recRequierePago').checked)
+  };
+}
+
+function edRecursoAdd() {
+  var obj = _recursoReadForm();
+  if (!obj) return;
 
   var btn = $('recAddBtn');
   if (btn) { btn.disabled = true; btn.textContent = t('Agregando…'); }
@@ -10652,8 +10841,20 @@ function edRecursoAdd() {
       if (res && res.success) {
         _RECURSOS_CACHE = null;
         _RECURSOS_FORM_OPEN = false;
+        _RECURSOS_EDIT_ID = null;
         toast(t('Recurso agregado'), 'success');
         rEdRecursos(D);
+      } else if (res && res.motivo === 'duplicado') {
+        // No limpiamos el form: el usuario puede ajustar la URL o abrir el existente.
+        var ex = res.recursoExistente;
+        var href = ex && _recursoSafeHref(ex.url);
+        toast(t('Ya existe un recurso con esa URL'), 'error');
+        if (href) {
+          // Aviso persistente con link para abrir el recurso duplicado.
+          toast(t('Ver el recurso existente') + ': ' + href, 'info');
+        }
+        // Marcamos el campo URL como el conflictivo.
+        var fldU = $('recFldUrl'); if (fldU) fldU.classList.add('has-err');
       } else {
         toast(_friendlyError(res, t('No se pudo agregar el recurso.')), 'error');
       }
@@ -10662,7 +10863,37 @@ function edRecursoAdd() {
       reset();
       toast('Error: ' + (e && e.message || 'desconocido'), 'error');
     })
-    .addRecurso({ titulo: titulo, url: url, categoria: categoria, descripcion: descripcion });
+    .addRecurso(obj);
+}
+
+function edRecursoSave() {
+  if (_RECURSOS_EDIT_ID == null) { edRecursoAdd(); return; }
+  var obj = _recursoReadForm();
+  if (!obj) return;
+  var id = _RECURSOS_EDIT_ID;
+
+  var btn = $('recAddBtn');
+  if (btn) { btn.disabled = true; btn.textContent = t('Guardando…'); }
+  function reset() { if (btn) { btn.disabled = false; btn.textContent = t('Guardar'); } }
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      reset();
+      if (res && res.success) {
+        _RECURSOS_CACHE = null;
+        _RECURSOS_FORM_OPEN = false;
+        _RECURSOS_EDIT_ID = null;
+        toast(t('Recurso actualizado'), 'success');
+        rEdRecursos(D);
+      } else {
+        toast(_friendlyError(res, t('No se pudo actualizar el recurso.')), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      reset();
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .updateRecurso(id, obj);
 }
 
 function edRecursoDelete(id) {
@@ -10671,6 +10902,8 @@ function edRecursoDelete(id) {
       .withSuccessHandler(function(res) {
         if (res && res.success) {
           _RECURSOS_CACHE = null;
+          // Si estábamos editando justo este recurso, cerrar el form.
+          if (_RECURSOS_EDIT_ID === id) { _RECURSOS_EDIT_ID = null; _RECURSOS_FORM_OPEN = false; }
           toast(t('Recurso eliminado'), 'success');
           rEdRecursos(D);
         } else {
