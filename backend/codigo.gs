@@ -43,6 +43,8 @@ const PROJ_CONTRAPARTES_COL = 17; // 1-indexed
 
 const STATUS_ORDER = {'Bloqueado':0,'En curso':1,'Pendiente':2,'En revisión':3,'Listo':4};
 const PRIO_ORDER   = {'Alta':0,'Media':1,'Baja':2};
+// Fuente unica de SLA (dias habiles por prioridad). Viaja al cliente en data.slaLimits.
+const SLA_LIMITS   = {'Alta':2,'Media':5,'Baja':7};
 
 // ── CACHE ───────────────────────────────────────────────────────
 // Cacheamos el snapshot completo por 30s. Cualquier escritura llama a invalidateCache().
@@ -267,7 +269,6 @@ function _getEditorialDataImpl() {
   // sino para cada miembro hacíamos un .filter() sobre el array completo
   // (O(team × n)). Ahora es O(n + team).
   if (data.team && data.team.length) {
-    var SLA_BY_PRIO = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
     var tasksByResp = {};
     (data.tasks || []).forEach(function(t) {
       var key = t.resp || '';
@@ -307,7 +308,7 @@ function _getEditorialDataImpl() {
       // (la UI muestra "—" en ese caso). Usado en Home Manager y columna SLA de Mi Equipo.
       var recent30 = memberHist.filter(function(h){ return (nowMsMember - h.cerradoDate.getTime()) <= THIRTY_DAYS_MS_M; });
       if (recent30.length > 0) {
-        var onTime30 = recent30.filter(function(h){ var sla = SLA_BY_PRIO[h.priority] || 5; return h.bizDays <= sla; }).length;
+        var onTime30 = recent30.filter(function(h){ var sla = SLA_LIMITS[h.priority] || 5; return h.bizDays <= sla; }).length;
         member.slaPct = Math.round((onTime30 / recent30.length) * 100);
       } else {
         member.slaPct = null;
@@ -317,7 +318,7 @@ function _getEditorialDataImpl() {
       var streak = 0;
       var sortedDesc = memberHist.slice().sort(function(a, b){ return b.cerradoDate - a.cerradoDate; });
       for (var i = 0; i < sortedDesc.length; i++) {
-        var sla = SLA_BY_PRIO[sortedDesc[i].priority] || 5;
+        var sla = SLA_LIMITS[sortedDesc[i].priority] || 5;
         if (sortedDesc[i].bizDays <= sla) streak++;
         else break;
       }
@@ -339,7 +340,6 @@ function _getEditorialDataImpl() {
 
   // Enriquecer countries (open, overdue, slaPct, trend)
   if (data.countries && data.countries.length) {
-    var SLA_BY_PRIO_C = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
     var nowMs = new Date().getTime();
     var THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
     var WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -378,7 +378,7 @@ function _getEditorialDataImpl() {
       } else {
         var onTime = 0;
         recent.forEach(function(h) {
-          var sla = SLA_BY_PRIO_C[h.priority] || 5;
+          var sla = SLA_LIMITS[h.priority] || 5;
           if (h.bizDays <= sla) onTime++;
         });
         c.slaPct = Math.round((onTime / recent.length) * 100);
@@ -391,8 +391,8 @@ function _getEditorialDataImpl() {
         var age = nowMs - h.cerradoMs;
         return age > WEEK_MS && age <= 2 * WEEK_MS;
       });
-      c.slaPctThisWeek = _slaPctOf(thisWeek, SLA_BY_PRIO_C);
-      c.slaPctLastWeek = _slaPctOf(lastWeek, SLA_BY_PRIO_C);
+      c.slaPctThisWeek = _slaPctOf(thisWeek, SLA_LIMITS);
+      c.slaPctLastWeek = _slaPctOf(lastWeek, SLA_LIMITS);
       c.closedThisWeek = thisWeek.length;
       c.closedLastWeek = lastWeek.length;
 
@@ -423,15 +423,15 @@ function _getEditorialDataImpl() {
         if ((nowMs - h.cerradoMs) <= THIRTY_DAYS_MS) allRecent.push(h);
       });
     });
-    latam.slaPct = allRecent.length ? _slaPctOf(allRecent, SLA_BY_PRIO_C) : null;
+    latam.slaPct = allRecent.length ? _slaPctOf(allRecent, SLA_LIMITS) : null;
     // SLA esta semana vs semana anterior para LATAM completo.
     var latamThis = allRecent.filter(function(h){ return (nowMs - h.cerradoMs) <= WEEK_MS; });
     var latamPrev = allRecent.filter(function(h){
       var age = nowMs - h.cerradoMs;
       return age > WEEK_MS && age <= 2 * WEEK_MS;
     });
-    latam.slaPctThisWeek = _slaPctOf(latamThis, SLA_BY_PRIO_C);
-    latam.slaPctLastWeek = _slaPctOf(latamPrev, SLA_BY_PRIO_C);
+    latam.slaPctThisWeek = _slaPctOf(latamThis, SLA_LIMITS);
+    latam.slaPctLastWeek = _slaPctOf(latamPrev, SLA_LIMITS);
   }
 
   // Globales
@@ -440,6 +440,7 @@ function _getEditorialDataImpl() {
   data.roleSpecific = data.roleSpecific || {};
   data.roleSpecific.narrative = _buildNarrative(data);
 
+  data.slaLimits = SLA_LIMITS;
   return data;
 }
 
@@ -520,9 +521,8 @@ function _enrichTaskEditorial(t, todayISO, opts) {
   // blockedReason: solo cuando la tarea está bloqueada
   t.blockedReason = (t.status === 'Bloqueado') ? firstNoteLine : '';
 
-  // slaTarget por prioridad
-  var slaByPrio = { 'Alta': '2d', 'Media': '5d', 'Baja': '7d' };
-  t.slaTarget = slaByPrio[t.priority] || '5d';
+  // slaTarget por prioridad (derivado de la fuente unica SLA_LIMITS)
+  t.slaTarget = (SLA_LIMITS[t.priority] || 5) + 'd';
 }
 
 // Diferencia de días entre dos fechas ISO (YYYY-MM-DD). Resultado en días enteros.
@@ -823,14 +823,13 @@ function _buildViewForRole(raw, role, user, feriadosByCountry) {
 
   // SLA — días hábiles desde creación, restando feriados del país de la tarea.
   var now = new Date();
-  var slaLimits = { Alta: 2, Media: 5, Baja: 7 };
   var sla = { onTime: 0, atRisk: 0, overdue: 0 };
   tasks.forEach(function(t) {
     if (t.status === 'Listo') return;
     if (!t.creadoRaw) { sla.onTime++; return; }
     var ferSet = feriadosByCountry[(t.pais || '').toUpperCase()] || null;
     var bizDays = countBizDays(new Date(t.creadoRaw), now, ferSet);
-    var limit = slaLimits[t.priority] || 5;
+    var limit = SLA_LIMITS[t.priority] || 5;
     if (bizDays > limit) sla.overdue++;
     else if (bizDays >= limit - 1) sla.atRisk++;
     else sla.onTime++;
@@ -4084,14 +4083,13 @@ function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
   var overdueAtEOM = stillOpenAtEOM.filter(deadlineBeforeEOM);
 
   // 4) On-time %: de las cerradas en el mes, cuántas dentro de SLA.
-  var slaLimits = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
   var onTime = 0;
   closedInMonth.forEach(function(t) {
     var c = parseCreado(t);
     var cl = parseCerrado(t);
     if (!c || !cl) return;
     var biz = countBizDays(c, cl);
-    var lim = slaLimits[t.priority] || 5;
+    var lim = SLA_LIMITS[t.priority] || 5;
     if (biz <= lim) onTime++;
   });
   var onTimePct = closedInMonth.length === 0 ? null : Math.round((onTime / closedInMonth.length) * 100);
@@ -4132,7 +4130,7 @@ function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
     return arr.map(function(t) {
       var c = parseCreado(t), cl = parseCerrado(t);
       var biz = (c && cl) ? countBizDays(c, cl) : null;
-      var lim = slaLimits[t.priority] || 5;
+      var lim = SLA_LIMITS[t.priority] || 5;
       var sla = (biz == null) ? '—' : (biz <= lim ? 'En tiempo (' + biz + 'd ≤ ' + lim + 'd)' : 'Fuera de tiempo (' + biz + 'd > ' + lim + 'd)');
       return '<tr>'
         + '<td>' + _pdfEsc(t.id) + '</td>'

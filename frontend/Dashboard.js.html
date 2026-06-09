@@ -123,6 +123,8 @@ const ALL_STATUSES = ['Pendiente','En curso','En revisión','Bloqueado','Listo']
 // bucket de la vista Por urgencia para que el conteo coincida (antes 7 vs 5).
 const ED_WEEK_DAYS = 7;
 const SLA_LIMITS   = {'Alta':2,'Media':5,'Baja':7};
+// Fuente única de SLA: prefiere D.slaLimits (del backend); cae a SLA_LIMITS local.
+function _slaLimit(prio){ return ((typeof D !== 'undefined' && D && D.slaLimits) || SLA_LIMITS)[prio] || 5; }
 
 // Badge CSS class maps
 const BADGE_PRIO    = {'Alta':'b-alta','Media':'b-media','Baja':'b-baja'};
@@ -293,7 +295,7 @@ function taskOverdueBySLA(t) {
     var d = cur.getDay();
     if (d !== 0 && d !== 6) bizDays++;
   }
-  return bizDays > (SLA_LIMITS[t.priority] || 5);
+  return bizDays > _slaLimit(t.priority);
 }
 
 // ═══ FILTER ═══
@@ -8161,7 +8163,7 @@ function _edWasOnTime(t) {
   var c = pd(t.creado), f = pd(t.cerrado);
   if (!c || !f) return null;
   var biz = _edBizDaysBetween(c, f);
-  var lim = (typeof SLA_LIMITS !== 'undefined' && SLA_LIMITS[t.priority]) || 5;
+  var lim = _slaLimit(t.priority);
   return biz <= lim;
 }
 
@@ -8171,7 +8173,7 @@ function _edDaysVsSla(t) {
   var c = pd(t.creado), f = pd(t.cerrado);
   if (!c || !f) return null;
   var biz = _edBizDaysBetween(c, f);
-  var lim = (typeof SLA_LIMITS !== 'undefined' && SLA_LIMITS[t.priority]) || 5;
+  var lim = _slaLimit(t.priority);
   return biz - lim;
 }
 
@@ -8748,7 +8750,6 @@ function _edaSlaTrendSection(D, currentTasks, role, userCode) {
     hist = hist.filter(function(t){ return (t.pais || '') === userCode; });
   }
   if (!hist.length) return '';
-  var SLA = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
   var nowMs = Date.now();
   var WEEK = 7 * 86400000;
   var weeks = [];
@@ -8763,7 +8764,7 @@ function _edaSlaTrendSection(D, currentTasks, role, userCode) {
       var ms = cerradoDate.getTime();
       if (ms < weekStart || ms >= weekEnd) return;
       var biz = (typeof _bizDays === 'function') ? _bizDays(new Date(t.creadoRaw), cerradoDate) : null;
-      var lim = SLA[t.priority] || 5;
+      var lim = _slaLimit(t.priority);
       var onTime = (biz != null) && (biz <= lim);
       inWeek.push(onTime);
     });
@@ -9014,7 +9015,7 @@ function rEdAnalytics(D) {
           responsive: true, maintainAspectRatio: false, cutout: '70%',
           plugins: {
             legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, font: { size: 11 } } },
-            title:  { display: true, text: slaPct + '% en tiempo · SLA Alta 2d / Media 5d / Baja 7d', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
+            title:  { display: true, text: slaPct + '% en tiempo · SLA Alta ' + _slaLimit('Alta') + 'd / Media ' + _slaLimit('Media') + 'd / Baja ' + _slaLimit('Baja') + 'd', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
           }
         }
       });
@@ -9031,14 +9032,13 @@ function _rEdAnalyticsSpecialist(D) {
   var firstName = name ? name.split(/\s+/)[0] : 'Vos';
   var allHist = ((D && D.historial) || []).filter(function(t){ return t.resp === name; });
   var myActive = ((D && D.tasks) || []).filter(function(t){ return t.resp === name && t.status !== 'Listo'; });
-  var SLA = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
 
   // Parsear historial → date + bizDays + onTime flag
   var entries = allHist.filter(function(t){ return t.creadoRaw && t.cerrado; }).map(function(t) {
     var p = t.cerrado.split('/');
     var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
     var biz = (typeof _bizDays === 'function') ? _bizDays(new Date(t.creadoRaw), cerradoDate) : null;
-    var sla = SLA[t.priority] || 5;
+    var sla = _slaLimit(t.priority);
     return {
       priority: t.priority || 'Media',
       cerradoMs: cerradoDate.getTime(),
