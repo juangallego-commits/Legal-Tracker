@@ -421,21 +421,34 @@ function _gmailAIEnrich(info, clientes) {
     generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 1024 }
   };
 
-  var resp;
-  try {
-    resp = UrlFetchApp.fetch(url, {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    });
-  } catch (err) {
-    _GMAIL_AI_ERROR = 'fetch: ' + ((err && err.message) || err);
-    Logger.log('gmailAI: ' + _GMAIL_AI_ERROR);
-    return null;
+  // Gemini a veces devuelve 503 (sobrecargado) o 429 (rate limit) de forma
+  // transitoria. Reintentamos con backoff corto antes de rendirnos — un pico de
+  // demanda no debería tirar el pre-fill. Cap total bajo para no acercarnos al
+  // límite de ~30s de la acción.
+  var resp = null, code = 0;
+  var delays = [0, 700, 1500]; // 3 intentos
+  for (var attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt]) Utilities.sleep(delays[attempt]);
+    try {
+      resp = UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+    } catch (err) {
+      _GMAIL_AI_ERROR = 'fetch: ' + ((err && err.message) || err);
+      Logger.log('gmailAI: ' + _GMAIL_AI_ERROR);
+      return null;
+    }
+    code = resp.getResponseCode();
+    if (code === 200) break;
+    // Solo reintentamos errores transitorios; 4xx (key/modelo) no se arreglan reintentando.
+    if (code !== 503 && code !== 429 && code !== 500) break;
   }
-  if (resp.getResponseCode() !== 200) {
-    _GMAIL_AI_ERROR = 'HTTP ' + resp.getResponseCode() + ' · ' + resp.getContentText().slice(0, 220);
+  if (code !== 200) {
+    _GMAIL_AI_ERROR = 'HTTP ' + code + ' · ' + resp.getContentText().slice(0, 200)
+      + (code === 503 || code === 429 ? ' (sobrecarga temporal de Gemini — reintentá en unos segundos)' : '');
     Logger.log('gmailAI: ' + _GMAIL_AI_ERROR);
     return null;
   }

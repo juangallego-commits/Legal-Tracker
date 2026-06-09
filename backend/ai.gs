@@ -38,17 +38,21 @@ function _aiGenerateJSON(parts, gcfg) {
           + ':generateContent?key=' + encodeURIComponent(apiKey);
   var generationConfig = { responseMimeType: 'application/json' };
   if (gcfg) { for (var k in gcfg) { if (gcfg.hasOwnProperty(k)) generationConfig[k] = gcfg[k]; } }
-  var resp;
-  try {
-    resp = UrlFetchApp.fetch(url, {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify({ contents: [{ parts: parts }], generationConfig: generationConfig }),
-      muteHttpExceptions: true
-    });
-  } catch (e) { Logger.log('ai: fetch error · ' + ((e && e.message) || e)); return null; }
-  if (resp.getResponseCode() !== 200) {
-    Logger.log('ai: HTTP ' + resp.getResponseCode() + ' · ' + resp.getContentText().slice(0, 300));
+  // Reintentos con backoff para errores transitorios (503 sobrecarga / 429 rate
+  // limit / 500). Los 4xx de key/modelo no se reintentan.
+  var resp = null, code = 0, body = JSON.stringify({ contents: [{ parts: parts }], generationConfig: generationConfig });
+  var delays = [0, 1000, 2500];
+  for (var attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt]) Utilities.sleep(delays[attempt]);
+    try {
+      resp = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: body, muteHttpExceptions: true });
+    } catch (e) { Logger.log('ai: fetch error · ' + ((e && e.message) || e)); return null; }
+    code = resp.getResponseCode();
+    if (code === 200) break;
+    if (code !== 503 && code !== 429 && code !== 500) break;
+  }
+  if (code !== 200) {
+    Logger.log('ai: HTTP ' + code + ' · ' + resp.getContentText().slice(0, 300));
     return null;
   }
   var json; try { json = JSON.parse(resp.getContentText()); } catch (e) { return null; }
