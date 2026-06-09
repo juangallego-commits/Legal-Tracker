@@ -2283,6 +2283,43 @@ function _effectiveUserName() {
 function _effectiveUserCode() {
   return (USER && USER.code) || (D && D._user && D._user.code) || '';
 }
+
+// ─── COLABORADORES EN TAREAS (helpers) ─────────────────────────
+// Comparación de nombres tolerante a espacios/caso (mismo criterio laxo
+// que usa la reasignación). El resto del tracker compara resp con ===,
+// pero acá normalizamos para no perder match por capitalización del sheet.
+function _colabNameEq(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+// Mi rol en t.colaboradores: 'ver' | 'editar' | null.
+function _myColabRole(t) {
+  if (!t || !t.colaboradores || !t.colaboradores.length) return null;
+  var me = _effectiveUserName();
+  if (!me) return null;
+  for (var i = 0; i < t.colaboradores.length; i++) {
+    var c = t.colaboradores[i];
+    if (c && _colabNameEq(c.name, me)) return (c.role === 'editar') ? 'editar' : 'ver';
+  }
+  return null;
+}
+// ¿Puedo gestionar colaboradores de esta tarea? Espeja el backend
+// (_authorizeColaboradoresWrite): head siempre; manager si la tarea es de
+// su país; cualquiera si es el responsable.
+function _canManageColab(t) {
+  if (!t) return false;
+  var role = _effectiveRole();
+  if (role === 'head') return true;
+  if (_colabNameEq(t.resp, _effectiveUserName())) return true;
+  if (role === 'manager') {
+    var cc = t.pais || mc(t.resp);
+    if (!cc || cc === _effectiveUserCode()) return true;
+  }
+  return false;
+}
+// ¿La tarea está compartida CONMIGO? Soy colaborador y NO soy el resp.
+function _isSharedWithMe(t) {
+  return !!_myColabRole(t) && !_colabNameEq(t.resp, _effectiveUserName());
+}
 // Abre el tracker editorial con la tarea seleccionada (panel detalle visible).
 function edGoTaskInTracker(taskId) {
   if (typeof EDT !== 'undefined') EDT.selectedId = taskId;
@@ -4402,6 +4439,9 @@ function _edApplyFilter(tasks, filter) {
   if (filter === 'blocked') return tasks.filter(function(t){ return t.status === 'Bloqueado'; });
   if (filter === 'alta')    return tasks.filter(function(t){ return t.priority === 'Alta' && t.status !== 'Listo'; });
   if (filter === 'mine')    return tasks.filter(function(t){ return t.resp === _effectiveUserName() && t.status !== 'Listo'; });
+  // 'shared': tareas donde soy colaborador (ver/editar) y NO el responsable.
+  // El backend ya las incluye en D.tasks; acá solo aislamos esa porción.
+  if (filter === 'shared')  return tasks.filter(function(t){ return _isSharedWithMe(t) && t.status !== 'Listo'; });
   // 'closed': mostrar cerradas (vienen del historial, no de D.tasks; rEdTracker
   // las concatena cuando filter === 'closed').
   if (filter === 'closed')  return tasks.filter(function(t){ return t.status === 'Listo'; });
@@ -5250,6 +5290,204 @@ function edReasignarConfirm() {
       if (typeof toast === 'function') toast('Error: ' + (e && e.message || 'desconocido') + ' · se revirtió', 'error');
     })
     .updateTaskField(taskId, 'resp', newResp);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COLABORADORES EN TAREAS · sección del panel + alta/baja
+// ───────────────────────────────────────────────────────────────
+// El backend trae t.colaboradores = [{name, role}], role ∈ ver|editar, y ya
+// incluye en el tracker las tareas donde sos colaborador. Acá: render de la
+// lista + (si podés gestionar) alta vía picker de país y baja con ×.
+// ═══════════════════════════════════════════════════════════════
+
+// Chip de rol legible. 'editar' → tono accent; 'ver' → tono dim.
+function _colabRolePill(role) {
+  return (role === 'editar')
+    ? '<span class="pa-pill pa-pill-info" style="height:16px;font-size:10px">' + esc(t('Puede editar')) + '</span>'
+    : '<span class="pa-pill pa-pill-dim" style="height:16px;font-size:10px">' + esc(t('Puede ver')) + '</span>';
+}
+
+// Sección "Colaboradores" del panel de tarea.
+function _renderColabSection(sel, canManage) {
+  if (!sel) return '';
+  var list = sel.colaboradores || [];
+  var rows = '';
+  if (list.length === 0) {
+    rows = '<div style="font-size:12px;color:var(--fg-3)">' + esc(t('Sin colaboradores')) + '</div>';
+  } else {
+    list.forEach(function(c) {
+      if (!c || !c.name) return;
+      var nameArg = "'" + esc(sel.id) + "','" + esc(String(c.name).replace(/'/g, "\\'")) + "'";
+      rows += '<div class="pa-flex-center" style="gap:8px;padding:6px 0;border-bottom:1px solid var(--line-1)">'
+           +    paAvatar(c.name, 24, mc(c.name))
+           +    '<span style="flex:1;min-width:0;font-size:13px;color:var(--fg-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(c.name) + '</span>'
+           +    _colabRolePill(c.role)
+           +    (canManage
+                ? '<button class="pa-btn pa-btn-ghost" style="height:22px;font-size:11px;padding:0 6px;color:var(--critical-fg)" title="' + esc(t('Quitar')) + '" onclick="edColabRemove(' + nameArg + ')">×</button>'
+                : '')
+           + '</div>';
+    });
+  }
+  var addBtn = canManage
+    ? '<button class="pa-btn pa-btn-outline" style="margin-top:8px;height:26px;font-size:12px" onclick="edColabAddOpen(\'' + esc(sel.id) + '\')">' + paIcon('users', 12) + ' ' + esc(t('Agregar colaborador')) + '</button>'
+    : '';
+  return '<div class="tk-section">'
+       +    '<div class="tk-section-h">' + esc(t('Colaboradores')) + '</div>'
+       +    rows
+       +    addBtn
+       + '</div>';
+}
+
+// ── Alta de colaborador (modal sobre crHost, espeja el de reasignar) ──
+var EDCOL = { taskId: null, name: '', role: 'ver' };
+
+function edColabAddOpen(taskId) {
+  var task = (D && D.tasks || []).find(function(t){ return t.id == taskId; });
+  if (!task) return;
+  if (!_canManageColab(task)) {
+    if (typeof toast === 'function') toast(t('No tenés permiso para gestionar colaboradores.'), 'error');
+    return;
+  }
+  EDCOL.taskId = taskId;
+  EDCOL.name = '';
+  EDCOL.role = 'ver';
+  _edColabRender();
+}
+
+function edColabAddClose() {
+  EDCOL.taskId = null;
+  EDCOL.name = '';
+  EDCOL.role = 'ver';
+  var host = $('crHost'); if (host) host.innerHTML = '';
+}
+
+function edColabSetName(v) { EDCOL.name = v || ''; _edColabRender(); }
+function edColabSetRole(v) { EDCOL.role = (v === 'editar') ? 'editar' : 'ver'; _edColabRender(); }
+
+// Candidatos: miembros del país de la tarea (head sin país filtra todo el
+// roster), excluyendo al responsable y a quienes ya son colaboradores.
+function _edColabCandidates(task) {
+  var role = _effectiveRole();
+  var country = task.pais || mc(task.resp) || '';
+  // Manager siempre scopeado a su país; head ve el país de la tarea (o todo
+  // si la tarea no tiene país resoluble).
+  var pool = (role === 'manager')
+    ? _crpMembers(_effectiveUserCode())
+    : (country ? _crpMembers(country) : getAllMembers());
+  var taken = {};
+  (task.colaboradores || []).forEach(function(c){ if (c && c.name) taken[String(c.name).trim().toLowerCase()] = 1; });
+  var respKey = String(task.resp || '').trim().toLowerCase();
+  return pool.filter(function(n) {
+    var k = String(n || '').trim().toLowerCase();
+    return k && k !== respKey && !taken[k];
+  });
+}
+
+function _edColabRender() {
+  var host = $('crHost'); if (!host) return;
+  var task = (D && D.tasks || []).find(function(t){ return t.id == EDCOL.taskId; });
+  if (!task) { host.innerHTML = ''; return; }
+  var candidates = _edColabCandidates(task);
+  var selectedName = EDCOL.name;
+
+  function memberCard(n) {
+    var isSel = _colabNameEq(n, selectedName);
+    return '<div onclick="edColabSetName(\'' + esc(String(n).replace(/'/g, "\\'")) + '\')" style="'
+      + 'display:grid;grid-template-columns:28px 1fr;align-items:center;gap:10px;'
+      + 'padding:9px 12px;border-radius:8px;cursor:pointer;'
+      + 'background:' + (isSel ? 'var(--accent-soft)' : 'transparent') + ';'
+      + 'border:1px solid ' + (isSel ? 'var(--accent)' : 'var(--line-1)') + ';margin-bottom:6px">'
+      + paAvatar(n, 24, mc(n))
+      + '<span style="font-size:13px;color:var(--fg-1)">' + esc(n) + '</span>'
+      + '</div>';
+  }
+
+  var memberList = candidates.length
+    ? candidates.map(memberCard).join('')
+    : '<div style="padding:18px;text-align:center;color:var(--fg-3);font-size:13px">' + esc(t('No hay personas disponibles para agregar.')) + '</div>';
+
+  function roleBtn(val, label) {
+    var on = EDCOL.role === val;
+    return '<button type="button" onclick="edColabSetRole(\'' + val + '\')" class="pa-btn ' + (on ? 'pa-btn-primary' : 'pa-btn-outline') + '" style="flex:1;justify-content:center">' + esc(label) + '</button>';
+  }
+
+  host.innerHTML = ''
+    + '<div class="cr-overlay" onclick="if(event.target===this)edColabAddClose()">'
+    +   '<div class="cr-backdrop" onclick="edColabAddClose()"></div>'
+    +   '<div class="cr-modal" role="dialog" aria-modal="true" aria-label="' + esc(t('Agregar colaborador')) + '" style="max-width:520px">'
+    +     '<div class="cr-head">'
+    +       '<div style="width:32px;height:32px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;flex-shrink:0">'
+    +         paIcon('users', 16)
+    +       '</div>'
+    +       '<div style="flex:1">'
+    +         '<div class="cr-title">' + esc(t('Agregar colaborador')) + '</div>'
+    +         '<div style="font-size:12px;color:var(--fg-3);margin-top:2px">' + esc(t('El colaborador verá esta tarea en su tracker.')) + '</div>'
+    +       '</div>'
+    +       '<button type="button" class="cr-x" onclick="edColabAddClose()" aria-label="' + esc(t('Cerrar')) + '">×</button>'
+    +     '</div>'
+    +     '<div class="cr-body">'
+    +       '<div style="display:flex;gap:8px;margin-bottom:14px">' + roleBtn('ver', t('Puede ver')) + roleBtn('editar', t('Puede editar')) + '</div>'
+    +       '<div style="max-height:260px;overflow-y:auto">' + memberList + '</div>'
+    +     '</div>'
+    +     '<div class="cr-foot">'
+    +       '<div class="cr-foot-info">'
+    +         (selectedName ? paIcon('check', 11) + ' ' + esc(t('Agregará a')) + ' <b>' + esc(selectedName) + '</b>.' : esc(t('Elegí una persona para continuar.')))
+    +       '</div>'
+    +       '<button type="button" class="pa-btn pa-btn-outline" onclick="edColabAddClose()">' + esc(t('Cancelar')) + '</button>'
+    +       '<button type="button" class="pa-btn pa-btn-primary" ' + (selectedName ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"') + ' onclick="edColabAddConfirm()">' + paIcon('check', 12) + ' ' + esc(t('Agregar')) + '</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+}
+
+function edColabAddConfirm() {
+  var taskId = EDCOL.taskId;
+  var name = EDCOL.name;
+  var role = (EDCOL.role === 'editar') ? 'editar' : 'ver';
+  if (!taskId) { edColabAddClose(); return; }
+  if (!name) { if (typeof toast === 'function') toast(t('Elegí una persona para continuar.'), 'error'); return; }
+  edColabAddClose();
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      hideLoader();
+      if (res && res.success) {
+        if (typeof toast === 'function') toast('✅ ' + t('Colaborador agregado'), 'success');
+        reload();
+      } else {
+        if (typeof toast === 'function') toast(_friendlyError(res, t('No se pudo agregar el colaborador.')), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      hideLoader();
+      if (typeof toast === 'function') toast(_friendlyError(e, t('No se pudo agregar el colaborador.')), 'error');
+    })
+    .addTaskColaborador(taskId, name, role);
+}
+
+function edColabRemove(taskId, name) {
+  if (!taskId || !name) return;
+  var task = (D && D.tasks || []).find(function(t){ return t.id == taskId; });
+  if (task && !_canManageColab(task)) {
+    if (typeof toast === 'function') toast(t('No tenés permiso para gestionar colaboradores.'), 'error');
+    return;
+  }
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      hideLoader();
+      if (res && res.success) {
+        if (typeof toast === 'function') toast('✅ ' + t('Colaborador quitado'), 'success');
+        reload();
+      } else {
+        if (typeof toast === 'function') toast(_friendlyError(res, t('No se pudo quitar el colaborador.')), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      hideLoader();
+      if (typeof toast === 'function') toast(_friendlyError(e, t('No se pudo quitar el colaborador.')), 'error');
+    })
+    .removeTaskColaborador(taskId, name);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -6185,6 +6423,7 @@ function rEdTracker(D) {
   var cToday    = roleTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; }).length;
   var cBlocked  = roleTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var cMine     = roleTasks.filter(function(t){ return t.resp === userName && t.status !== 'Listo'; }).length;
+  var cShared   = roleTasks.filter(function(t){ return _isSharedWithMe(t) && t.status !== 'Listo'; }).length;
   var cAlta     = roleTasks.filter(function(t){ return t.priority === 'Alta' && t.status !== 'Listo'; }).length;
 
   // Cuando el filtro es 'closed', la fuente de tareas es el historial (las que
@@ -6243,6 +6482,7 @@ function rEdTracker(D) {
        +    chip('alta',    t('Prioridad alta'),  cAlta,    null,       EDT.filter === 'alta')
        +    '<div class="pa-chip-divider"></div>'
        +    (role !== 'specialist' ? chip('mine', t('Asignadas a mí'), cMine, null, EDT.filter === 'mine') : '')
+       +    ((cShared > 0 || EDT.filter === 'shared') ? chip('shared', t('Compartidas conmigo'), cShared, 'info', EDT.filter === 'shared') : '')
        +    chip('closed',  t('Cerradas'),        cClosed,  null,       EDT.filter === 'closed')
        +    '<div style="margin-left:auto;display:flex;gap:6px;align-items:center">'
        +      '<div class="pa-search" style="width:220px">'
@@ -6306,7 +6546,7 @@ function rEdTracker(D) {
   if (primaryNonDefault || EDT.search) {
     var filterLabels = {
       overdue: 'Vencidas', today: 'Vencen hoy', blocked: 'On hold',
-      alta: 'Prioridad alta', mine: 'Asignadas a mí', closed: 'Cerradas'
+      alta: 'Prioridad alta', mine: 'Asignadas a mí', shared: 'Compartidas conmigo', closed: 'Cerradas'
     };
     var filtLbl = filterLabels[EDT.filter] || 'filtro';
     html += '<div class="pa-filter-active">'
@@ -6528,11 +6768,16 @@ function _edTkRowHtml(t, role, sel) {
   var isSel = sel && sel.id == t.id;
   var isChecked = (EDT.selectedIds || []).indexOf(String(t.id)) >= 0;
   var cfLvl = _confLevel(t);
+  // Badge "Compartida": esta tarea aparece en mi tracker porque soy
+  // colaborador (no el responsable). Lo distingue de las propias.
+  var sharedBadge = _isSharedWithMe(t)
+    ? ' <span class="pa-pill pa-pill-info" style="height:16px;font-size:10px" title="' + esc(t('Compartida conmigo')) + '">' + paIcon('users', 9) + ' ' + esc(t('Compartida')) + '</span>'
+    : '';
   var h = '<div class="pa-tbl-r' + (isSel ? ' is-selected' : '') + '" data-task-id="' + esc(t.id) + '" onclick="edSelectTask(\'' + esc(t.id) + '\')">'
        +    '<span onclick="event.stopPropagation();edTkToggleSelectId(\'' + esc(t.id) + '\')"><span class="pa-check' + (isChecked ? ' is-checked' : '') + '"></span></span>'
        +    paConfDot(cfLvl)
        +    '<span class="id mono">' + esc(t.id) + '</span>'
-       +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(metaTxt) + chips + blockReasonSuffix + '</span></div>';
+       +    '<div class="title"><span class="t">' + esc(t.nombre || '') + sharedBadge + '</span><span class="meta">' + esc(metaTxt) + chips + blockReasonSuffix + '</span></div>';
   if (role === 'specialist') {
     h += (pn && pn !== 'Sin proyecto')
       ? '<span style="font-size:12px;color:var(--fg-2)">' + esc(pn) + '</span>'
@@ -6576,6 +6821,13 @@ function _renderTkPanel(sel) {
   var selCfLvl = _confLevel(sel);
   var selCfMeta = ED_CONF_LEVELS[selCfLvl] || { label: 'Estándar', desc: '' };
   var canReassign = (role === 'manager' || role === 'head');
+  // Gestión de colaboradores (resp / manager-de-su-país / head). Espeja backend.
+  var canManageColab = _canManageColab(sel);
+  // Modo lectura para colaborador con rol 'ver': no es responsable ni
+  // manager/head de la tarea. Ocultamos la barra de acciones y la edición
+  // inline; comentar y leer docs siguen disponibles. El backend igual lo
+  // bloquea — esto es coherencia visual.
+  var colabReadOnly = (_myColabRole(sel) === 'ver') && !canManageColab;
 
   // Overlay con backdrop: click fuera del modal cierra. Esto sustituyó el
   // panel slide-in fixed que tapaba el sidebar de la app en pantallas <1600px.
@@ -6597,8 +6849,8 @@ function _renderTkPanel(sel) {
        +      paIcon('lock', 12)
        +      esc(selCfMeta.label.toUpperCase()) + ' · ' + esc(selCfMeta.desc)
        +    '</div>'
-       +    '<h1 class="tk-title' + (sel.status === 'Listo' ? '' : ' editable') + '" data-task-id="' + esc(sel.id) + '"'
-       +      (sel.status === 'Listo' ? '' : ' ondblclick="edPanelEditTitle(this)" title="Doble-click para editar"')
+       +    '<h1 class="tk-title' + ((sel.status === 'Listo' || colabReadOnly) ? '' : ' editable') + '" data-task-id="' + esc(sel.id) + '"'
+       +      ((sel.status === 'Listo' || colabReadOnly) ? '' : ' ondblclick="edPanelEditTitle(this)" title="Doble-click para editar"')
        +      '>' + esc(sel.nombre || '') + '</h1>'
        +    '<div class="tk-pillrow">'
        +      paPriorityPill(sel.priority)
@@ -6625,20 +6877,24 @@ function _renderTkPanel(sel) {
     // Tipo de trabajo vive en la pillrow superior (línea ~6079), no duplicar acá.
   ];
   fields.forEach(function(f) {
+    var fEditable = f.editable && !colabReadOnly;
     html += '<div class="tk-field">'
          +    '<span class="tk-field-lbl">' + paIcon(f.icon, 12) + ' ' + esc(t(f.l)) + '</span>'
-         +    '<span class="tk-field-val' + (f.warn ? ' is-warn' : '') + '"' + (f.editable ? ' onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')"' : '') + '>'
+         +    '<span class="tk-field-val' + (f.warn ? ' is-warn' : '') + '"' + (fEditable ? ' onclick="openEdit(' + (typeof sel.id === 'number' ? sel.id : '\'' + esc(sel.id) + '\'') + ')"' : '') + '>'
          +      '<span>' + esc(f.v) + '</span>'
-         +      (f.editable ? paIcon('chevD', 10, 'caret') : '')
+         +      (fEditable ? paIcon('chevD', 10, 'caret') : '')
          +    '</span>'
          + '</div>';
   });
   html += '</div>';
 
-  // Notas
+  // Colaboradores — personas con acceso a la tarea sin ser el responsable.
+  html += _renderColabSection(sel, canManageColab);
+
+  // Notas — read-only si la tarea está cerrada o si soy colaborador 'ver'.
   html += '<div class="tk-section">'
        +    '<div class="tk-section-h">' + esc(t('Notas')) + '</div>'
-       +    (sel.status === 'Listo'
+       +    ((sel.status === 'Listo' || colabReadOnly)
             ? '<textarea class="tk-notes" readonly placeholder="Sin notas…" style="width:100%;border:1px solid var(--line-1);background:var(--bg-2);color:var(--fg-2);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>'
             : '<textarea class="tk-notes" data-task-id="' + esc(sel.id) + '" placeholder="Sin notas…" oninput="edPanelAutosizeNotes(this)" onblur="edPanelSaveNotes(this)" style="width:100%;border:1px solid var(--line-1);background:var(--bg-1);color:var(--fg-1);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>')
        + '</div>';
@@ -6725,7 +6981,15 @@ function _renderTkPanel(sel) {
   // Bottom action bar — la tarea cerrada (Listo) vive en el historial y es
   // de solo lectura, pero el dueño / manager / head puede reabrirla
   // (vuelve a Tracking Activo como "En curso") con el botón Reabrir.
-  if (sel.status === 'Listo') {
+  if (colabReadOnly) {
+    // Colaborador con rol 'ver': sin barra de acciones ni edición inline.
+    // Puede comentar y leer documentos. El backend igual bloquea mutaciones.
+    html += '<div class="tk-panel-actions">'
+         +    '<span style="font-size:12px;color:var(--fg-3);display:flex;align-items:center;gap:6px">'
+         +      paIcon('lock', 12) + esc(t('Compartida contigo · solo lectura'))
+         +    '</span>'
+         + '</div>';
+  } else if (sel.status === 'Listo') {
     html += '<div class="tk-panel-actions">'
          +    '<span style="font-size:12px;color:var(--fg-3);display:flex;align-items:center;gap:6px">'
          +      paIcon('check', 12) + esc(t('Tarea cerrada')) + (sel.cerrado ? ' · ' + esc(sel.cerrado) : '')
