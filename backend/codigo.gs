@@ -1135,11 +1135,15 @@ function readProjects(ss) {
 function addProject(obj) { return _safeMutation(function() { return _addProjectImpl(obj); }); }
 function _addProjectImpl(obj) {
   var ctx = _getAuthContext();
+  // El creador siempre queda como participante: así puede ver/editar el proyecto,
+  // y un specialist puede crearlo (la autorización pide ser responsable o participante).
+  var parts = (obj.participantes || '').toString().split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  if (ctx.user && ctx.user.name && parts.indexOf(ctx.user.name) < 0) parts.push(ctx.user.name);
   // Validar que pueda crear en este país / como este responsable
   _authorizeProjectWrite(ctx, {
     pais: obj.pais || '',
     responsable: obj.responsable || ctx.user.name,
-    participantes: (obj.participantes || '').toString().split(',').map(function(s){ return s.trim(); }).filter(Boolean)
+    participantes: parts
   });
   var ss = ctx.ss;
   var ws = ss.getSheetByName(SHEET_PROYECTOS);
@@ -1171,7 +1175,7 @@ function _addProjectImpl(obj) {
     var rowVals = [
       newId, obj.nombre||'', pais, lider, obj.responsable||'',
       obj.deadline||'', obj.priority||'Media', obj.status||'Activo',
-      obj.descripcion||'', obj.notas||'', new Date(), getCurrentWeekLabel(), obj.participantes||'',
+      obj.descripcion||'', obj.notas||'', new Date(), getCurrentWeekLabel(), parts.join(', '),
       obj.tipoTrabajo||'', obj.riesgo||'', ''
     ];
     if (lc >= PROJ_CONTRAPARTES_COL) rowVals.push(cpc);
