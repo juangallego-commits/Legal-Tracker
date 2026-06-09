@@ -112,7 +112,13 @@ function _gmailReadMessage(e) {
     info.notesPrefill = 'Desde correo de ' + info.from
       + (info.dateStr ? ' · ' + info.dateStr : '')
       + '\nVer correo: ' + _gmailThreadLink(info.threadId);
-  } catch (err) {}
+  } catch (err) {
+    // Capturamos el error para poder diagnosticar (antes se tragaba en silencio
+    // y el síntoma era "(sin asunto)" + IA que no corre).
+    info.readError = (err && err.message) || String(err);
+    info.gmailFieldPresent = !!(e && e.gmail);
+    info.tokenPresent = !!(e && e.gmail && e.gmail.accessToken);
+  }
   return info;
 }
 
@@ -133,6 +139,15 @@ function _gmailBuildCreateCard(info, ctx, clientes, ai) {
       .setTopLabel('De')
       .setText(info.from + (info.dateStr ? ' · ' + info.dateStr : ''))
       .setWrapText(true));
+  }
+  // Diagnóstico: si no se pudo leer el correo, lo mostramos en vez de tragarlo.
+  if (info.readError || !info.subject) {
+    var diag = info.readError
+      ? ('⚠️ No pude leer el correo: ' + info.readError
+         + ' · gmail=' + (info.gmailFieldPresent ? 'sí' : 'no')
+         + ' · token=' + (info.tokenPresent ? 'sí' : 'no'))
+      : '⚠️ El correo abierto no tiene asunto, o el add-on se abrió sin un correo seleccionado.';
+    ctxSection.addWidget(CardService.newDecoratedText().setText(diag).setWrapText(true));
   }
 
   // Pre-fill por campo: IA primero (cuando trajo un valor válido), heurística
@@ -159,6 +174,15 @@ function _gmailBuildCreateCard(info, ctx, clientes, ai) {
   if (ai) {
     form.addWidget(CardService.newDecoratedText()
       .setText('✨ <b>Pre-llenado con IA</b> — revisá los campos y ajustá lo que haga falta antes de crear.')
+      .setWrapText(true));
+  } else if (info.subject || info.body) {
+    // El correo se leyó pero la IA no produjo nada: distinguir sin-key vs falló.
+    var keyPresent = false;
+    try { keyPresent = !!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY'); } catch (e) {}
+    form.addWidget(CardService.newDecoratedText()
+      .setText(keyPresent
+        ? 'ℹ️ La IA no respondió (red/quota). Los campos quedan con la heurística básica.'
+        : 'ℹ️ IA desactivada: falta GEMINI_API_KEY en Propiedades del script.')
       .setWrapText(true));
   }
 
