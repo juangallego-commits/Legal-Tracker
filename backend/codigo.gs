@@ -1435,6 +1435,13 @@ function _addTaskImpl(taskObj) {
     if (lc >= 18) rowVals.push(conf); // Confidencialidad
     if (lc >= TASK_CONTRAPARTE_COL) rowVals.push(contraparte); // Contraparte
     if (lc >= TASK_AREASOL_COL) rowVals.push(areaSolicitante); // Área solicitante
+    if (lc >= TASK_COLAB_COL) {
+      // Colaboradores (col 21): valida/normaliza y excluye al propio resp.
+      var _colabs = _parseColaboradores(JSON.stringify(taskObj.colaboradores || [])).filter(function(c){
+        return _normalizeName(c.name) !== _normalizeName(taskObj.resp || '');
+      });
+      rowVals.push(_stringifyColaboradores(_colabs));
+    }
     ws.appendRow(_sanitizeRow(rowVals));
     _logActivity(ctx, newId, 'create', '', '', taskObj.nombre || '');
     return {success:true, id:newId};
@@ -1756,16 +1763,29 @@ function getMyRecentActivity(sinceIso) {
     var data = ws.getRange(2, 1, lr - 1, 9).getValues();
     // Construir set de mis tasks (resp = myName) buscando en activo + historial
     var myTaskIds = {};
+    var _myNorm = _normalizeName(myName);
+    // Mis tasks: donde soy resp, O donde soy COLABORADOR — así getMyRecentActivity
+    // también notifica la actividad de tareas compartidas conmigo (incluido el
+    // momento en que me agregan como colaborador).
+    function _collectMyTasks(sheet) {
+      if (!sheet || sheet.getLastRow() < 4) return;
+      var w = Math.min(sheet.getLastColumn(), TASK_COLAB_COL);
+      var rows = sheet.getRange(4, 1, sheet.getLastRow() - 3, w).getValues();
+      rows.forEach(function(r){
+        if (!r[0]) return;
+        if (r[2] === myName) { myTaskIds[String(r[0])] = 1; return; }
+        if (w >= TASK_COLAB_COL) {
+          var colabs = _parseColaboradores(r[TASK_COLAB_COL - 1]);
+          for (var k = 0; k < colabs.length; k++) {
+            if (_normalizeName(colabs[k].name) === _myNorm) { myTaskIds[String(r[0])] = 1; return; }
+          }
+        }
+      });
+    }
     var aWs = ctx.ss.getSheetByName(SHEET_ACTIVO);
-    if (aWs && aWs.getLastRow() >= 4) {
-      var aData = aWs.getRange(4, 1, aWs.getLastRow() - 3, 3).getValues();
-      aData.forEach(function(r){ if (r[2] === myName && r[0]) myTaskIds[String(r[0])] = 1; });
-    }
     var hWs = ctx.ss.getSheetByName(SHEET_HISTORIAL);
-    if (hWs && hWs.getLastRow() >= 4) {
-      var hData = hWs.getRange(4, 1, hWs.getLastRow() - 3, 3).getValues();
-      hData.forEach(function(r){ if (r[2] === myName && r[0]) myTaskIds[String(r[0])] = 1; });
-    }
+    _collectMyTasks(aWs);
+    _collectMyTasks(hWs);
     var sinceMs = sinceIso ? new Date(sinceIso).getTime() : 0;
     if (isNaN(sinceMs)) sinceMs = 0;
     var out = [];
