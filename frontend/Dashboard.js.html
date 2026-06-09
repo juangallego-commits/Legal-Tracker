@@ -8129,6 +8129,22 @@ function _piRoleOf(project, userName, tasks) {
   return hasMyTask ? 'Participante' : 'Observador';
 }
 
+// ¿El usuario actual puede editar/cerrar ESTE proyecto? Espeja exactamente
+// _authorizeProjectWrite del backend para no mostrar un botón que luego falla:
+// head siempre; manager si es de su país; specialist si es responsable o
+// participante del proyecto. Antes era manager/head-only y un specialist que
+// lidera su propio proyecto no tenía cómo editarlo/cerrarlo desde la UI.
+function _piCanEditProject(p) {
+  if (!p) return false;
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  if (role === 'head') return true;
+  var me = _effectiveUserName();
+  if (role === 'manager') return !p.pais || p.pais === _effectiveUserCode();
+  // specialist: responsable o participante (mismo criterio que el backend)
+  if (p.responsable && p.responsable === me) return true;
+  return (p.participantes || []).indexOf(me) >= 0;
+}
+
 function _piEnrichProject(p, D, userName) {
   var tasks  = (D && D.tasks)     || [];
   var hist   = (D && D.historial) || [];
@@ -8351,9 +8367,9 @@ function _piRenderDetail(p, D) {
   var segBlk  = segPct(byStatus['Bloqueado']);
   var segLis  = segPct(byStatus['Listo']);
 
-  // Manager+head pueden editar proyecto. Specialist no (botón oculto).
-  var piRole = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
-  var piCanEdit = (piRole === 'manager' || piRole === 'head');
+  // Editar/cerrar: head, manager de su país, o el responsable/participante del
+  // proyecto (incl. specialists). Espeja _authorizeProjectWrite del backend.
+  var piCanEdit = _piCanEditProject(p);
   var html = ''
     + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">'
     +   '<button class="ed-btn pi-detail-back" style="margin:0" onclick="edPiClose()">← Volver a proyectos</button>'
