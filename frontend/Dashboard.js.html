@@ -4062,7 +4062,13 @@ function rEdHomeManager(D) {
       var loadFg = over ? 'var(--critical-fg)' : 'var(--fg-2)';
       var slaM = m.slaPct;
       var slaColorM = slaM == null ? 'var(--fg-3)' : (slaM >= 90 ? 'var(--good-fg)' : (slaM < 85 ? 'var(--warn-fg)' : 'var(--fg-2)'));
-      html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px;height:46px">'
+      // Paso 3 p2 — "por qué" sintetizado (las columnas muestran los números;
+      // el tooltip da la razón del score en una línea). Reúsa keys i18n existentes.
+      var _why = [];
+      if ((m.overdue || 0) > 0) _why.push(t('Vencidas') + ' ' + m.overdue);
+      if ((m.blocked || 0) > 0) _why.push(t('On hold') + ' ' + m.blocked);
+      if (pct > 100) _why.push(t('Carga') + ' ' + pct + '%');
+      html += '<div class="pa-tbl-r" title="' + esc(_why.join(' · ')) + '" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px;height:46px">'
            +    '<div class="pa-flex-center">' + paAvatar(m.name || '?', 22)
            +      '<div><div style="font-size:13px;font-weight:500">' + esc(m.name || '') + '</div>'
            +      '<div class="pa-meta-sm">' + esc(m.role || 'Specialist') + '</div></div>'
