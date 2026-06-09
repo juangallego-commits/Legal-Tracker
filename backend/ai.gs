@@ -58,7 +58,12 @@ function _aiGenerateJSON(parts, gcfg) {
   var json; try { json = JSON.parse(resp.getContentText()); } catch (e) { return null; }
   var text = ''; try { text = json.candidates[0].content.parts[0].text || ''; } catch (e) {}
   if (!text) return null;
-  try { return JSON.parse(text); } catch (e) { return null; }
+  // Tolera fences ```json ... ``` o texto alrededor; último recurso, primer {...}.
+  var s = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  try { return JSON.parse(s); } catch (e) {}
+  var m = s.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch (e2) {} }
+  return null;
 }
 
 // ── Contract Intelligence ───────────────────────────────────────────

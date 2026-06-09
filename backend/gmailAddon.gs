@@ -418,7 +418,7 @@ function _gmailAIEnrich(info, clientes) {
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(apiKey);
   var payload = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 1024 }
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 2048 }
   };
 
   // Gemini a veces devuelve 503 (sobrecargado) o 429 (rate limit) de forma
@@ -454,11 +454,16 @@ function _gmailAIEnrich(info, clientes) {
   }
   var json;
   try { json = JSON.parse(resp.getContentText()); } catch (err) { _GMAIL_AI_ERROR = 'respuesta no-JSON'; return null; }
+  var cand = (json.candidates && json.candidates[0]) || {};
   var text = '';
-  try { text = json.candidates[0].content.parts[0].text || ''; } catch (err) {}
-  if (!text) { _GMAIL_AI_ERROR = 'respuesta vacía (posible filtro de seguridad)'; return null; }
-  var out;
-  try { out = JSON.parse(text); } catch (err) { return null; }
+  try { text = cand.content.parts[0].text || ''; } catch (err) {}
+  if (!text) { _GMAIL_AI_ERROR = 'sin texto (finishReason: ' + (cand.finishReason || '?') + ')'; return null; }
+  var out = _gmailParseJsonLoose(text);
+  if (!out) {
+    // Causa típica: JSON truncado (finishReason MAX_TOKENS) o envuelto en ```.
+    _GMAIL_AI_ERROR = 'JSON inválido (finishReason: ' + (cand.finishReason || '?') + '): ' + text.slice(0, 100);
+    return null;
+  }
 
   // Validación contra enums: si la IA inventa valores fuera del dominio, los
   // dropeamos en vez de pasarlos al render (mejor vacío que un valor inválido
@@ -468,6 +473,17 @@ function _gmailAIEnrich(info, clientes) {
     try { cache.put(cacheKey, JSON.stringify(clean), 300); } catch (err) {}
   }
   return clean;
+}
+
+// Parsea JSON tolerando que el modelo lo envuelva en ```json ... ``` o agregue
+// texto alrededor. Último recurso: extrae el primer bloque {...}.
+function _gmailParseJsonLoose(text) {
+  if (!text) return null;
+  var s = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  try { return JSON.parse(s); } catch (e) {}
+  var m = s.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch (e2) {} }
+  return null;
 }
 
 // Arma el prompt con todo el contexto que la IA necesita para pre-llenar bien:
