@@ -2052,15 +2052,42 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 
 /* Loader bar */
 .loader-bar {
-  position: fixed; top: 0; left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  background-size: 200% 100%;
-  animation: pa-loader 1.2s linear infinite;
+  position: fixed; inset: 0;
   z-index: 1000;
+  pointer-events: none;
   display: none;
+  /* Glow en los 4 lados a la vez: borde accent + halo interno que pulsa. */
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    inset 0 0 22px 3px color-mix(in oklab, var(--accent) 38%, transparent);
+  animation: pa-loader-glow 1.1s ease-in-out infinite;
+}
+@keyframes pa-loader-glow {
+  0%, 100% { opacity: 0.30; }
+  50%      { opacity: 1; }
 }
 .loader-bar.show { display: block; }
+
+/* Pill central con el texto de "qué está cargando" (opcional, vía showLoader(msg)). */
+.loader-label {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+  z-index: 1001;
+  display: none; align-items: center; gap: 8px;
+  background: var(--bg-1);
+  border: 1px solid var(--accent);
+  color: var(--fg-1);
+  padding: 7px 16px; border-radius: 20px;
+  font-size: 12px; font-weight: 500;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+  max-width: 80vw;
+}
+.loader-label.show { display: inline-flex; }
+.loader-label .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+  animation: pa-loader-glow 0.9s ease-in-out infinite;
+  flex-shrink: 0;
+}
 
 /* Footer */
 .footer {

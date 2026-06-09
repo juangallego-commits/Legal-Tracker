@@ -53,11 +53,15 @@ function _aiGenerateJSON(parts, gcfg) {
     } catch (e) { _AI_LAST_ERROR = 'fetch: ' + ((e && e.message) || e); Logger.log('ai: ' + _AI_LAST_ERROR); return null; }
     code = resp.getResponseCode();
     if (code === 200) break;
-    if (code !== 503 && code !== 429 && code !== 500) break;
+    // Reintentamos solo 503/500 (transitorios de servidor). El 429 (cuota/rate
+    // del free tier) no se resuelve en segundos → fallar rápido con mensaje claro.
+    if (code !== 503 && code !== 500) break;
   }
   if (code !== 200) {
-    _AI_LAST_ERROR = 'HTTP ' + code + ' · ' + resp.getContentText().slice(0, 200)
-      + (code === 503 || code === 429 ? ' (sobrecarga temporal, reintentá)' : '');
+    _AI_LAST_ERROR = (code === 429)
+      ? 'cuota de Gemini agotada (free tier) — esperá unos minutos o revisá tu plan en ai.google.dev · HTTP 429'
+      : 'HTTP ' + code + ' · ' + resp.getContentText().slice(0, 200)
+        + (code === 503 ? ' (sobrecarga temporal, reintentá)' : '');
     Logger.log('ai: ' + _AI_LAST_ERROR);
     return null;
   }
