@@ -22,6 +22,9 @@ var _AI_EMBED_MODEL = 'text-embedding-004';
 var _AI_INSIGHTS_SHEET = 'ContractInsights';
 var _AI_CONTRACT_MAX_BYTES = 15 * 1024 * 1024; // 15 MB de PDF para análisis inline
 
+// Motivo del último fallo de IA (para devolverlo en el error en vez de tragarlo).
+var _AI_LAST_ERROR = '';
+
 // ── Gemini · llamadas base ──────────────────────────────────────────
 function _aiApiKey() {
   try { return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || ''; }
@@ -32,8 +35,9 @@ function _aiApiKey() {
 // (texto y/o inline_data). Devuelve el objeto parseado o null ante cualquier
 // fallo (red, quota, HTTP !=200, JSON inválido) — el caller decide el fallback.
 function _aiGenerateJSON(parts, gcfg) {
+  _AI_LAST_ERROR = '';
   var apiKey = _aiApiKey();
-  if (!apiKey) return null;
+  if (!apiKey) { _AI_LAST_ERROR = 'sin GEMINI_API_KEY'; return null; }
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + _AI_MODEL
           + ':generateContent?key=' + encodeURIComponent(apiKey);
   var generationConfig = { responseMimeType: 'application/json' };
@@ -46,23 +50,27 @@ function _aiGenerateJSON(parts, gcfg) {
     if (delays[attempt]) Utilities.sleep(delays[attempt]);
     try {
       resp = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: body, muteHttpExceptions: true });
-    } catch (e) { Logger.log('ai: fetch error · ' + ((e && e.message) || e)); return null; }
+    } catch (e) { _AI_LAST_ERROR = 'fetch: ' + ((e && e.message) || e); Logger.log('ai: ' + _AI_LAST_ERROR); return null; }
     code = resp.getResponseCode();
     if (code === 200) break;
     if (code !== 503 && code !== 429 && code !== 500) break;
   }
   if (code !== 200) {
-    Logger.log('ai: HTTP ' + code + ' · ' + resp.getContentText().slice(0, 300));
+    _AI_LAST_ERROR = 'HTTP ' + code + ' · ' + resp.getContentText().slice(0, 200)
+      + (code === 503 || code === 429 ? ' (sobrecarga temporal, reintentá)' : '');
+    Logger.log('ai: ' + _AI_LAST_ERROR);
     return null;
   }
-  var json; try { json = JSON.parse(resp.getContentText()); } catch (e) { return null; }
-  var text = ''; try { text = json.candidates[0].content.parts[0].text || ''; } catch (e) {}
-  if (!text) return null;
+  var json; try { json = JSON.parse(resp.getContentText()); } catch (e) { _AI_LAST_ERROR = 'respuesta no-JSON'; return null; }
+  var cand = (json.candidates && json.candidates[0]) || {};
+  var text = ''; try { text = cand.content.parts[0].text || ''; } catch (e) {}
+  if (!text) { _AI_LAST_ERROR = 'sin texto (finishReason: ' + (cand.finishReason || '?') + ')'; return null; }
   // Tolera fences ```json ... ``` o texto alrededor; último recurso, primer {...}.
   var s = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   try { return JSON.parse(s); } catch (e) {}
   var m = s.match(/\{[\s\S]*\}/);
   if (m) { try { return JSON.parse(m[0]); } catch (e2) {} }
+  _AI_LAST_ERROR = 'JSON inválido (finishReason: ' + (cand.finishReason || '?') + '): ' + text.slice(0, 100);
   return null;
 }
 
@@ -96,8 +104,8 @@ function analyzeContractDoc(kind, itemId, docId) {
     var out = _aiGenerateJSON([
       { text: _aiContractPrompt() },
       { inline_data: { mime_type: 'application/pdf', data: Utilities.base64Encode(bytes) } }
-    ], { temperature: 0.1, maxOutputTokens: 2048 });
-    if (!out) return _err('AI_FAIL', 'La IA no pudo analizar el documento. Reintentá en un momento.');
+    ], { temperature: 0.1, maxOutputTokens: 4096 });
+    if (!out) return _err('AI_FAIL', 'La IA no pudo analizar: ' + (_AI_LAST_ERROR || 'motivo desconocido'));
 
     var clean = _aiValidateContract(out);
     _aiStoreInsights(ctx, kind, itemId, doc, clean);
