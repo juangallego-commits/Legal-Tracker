@@ -860,6 +860,8 @@ function openEditProj(id) {
     +   '<input type="text" id="epPart" value="' + esc(partsValue) + '"></div>'
     + '<div class="form-group" style="margin-bottom:14px"><label>Notas</label>'
     +   '<input type="text" id="epNot" value="' + esc(p.notas || '') + '"></div>'
+    + '<div class="form-group" style="margin-bottom:14px"><label>Contrapartes en conflicto <span style="font-weight:400;color:var(--text-dim)">(separadas por coma · alertan conflicto de interés al crear tareas)</span></label>'
+    +   '<input type="text" id="epConf" value="' + esc((p.contrapartesConflicto || []).join(', ')) + '"></div>'
     + renderDocsSection('project', id, p.documentos || []);
   $('editOv').classList.add('show');
 }
@@ -950,7 +952,8 @@ function saveEditProj() {
     notas:       $('epNot').value,
     participantes: participantes,
     tipoTrabajo: $('epTipo').value,
-    riesgo:      $('epRiesgo').value
+    riesgo:      $('epRiesgo').value,
+    contrapartesConflicto: ($('epConf') ? $('epConf').value.split(',').map(function(s){ return s.trim(); }).filter(Boolean) : [])
   };
   var id = EDIT_ID;
   _setSaving(true);
@@ -7484,6 +7487,7 @@ var EDC = {
     resp: '',
     deadline: '',
     proyectoId: '',
+    contraparte: '',
     confidencialidad: 'estandar',
     areaSolicitante: ''
   }
@@ -7669,6 +7673,43 @@ function _clientesInternos() {
   var raw = (D && D.config && D.config.ClientesInternos) || 'Restaurantes, Finanzas, Tesorería, Monetization';
   return raw.toString().split(',').map(function(s){ return s.trim(); }).filter(Boolean);
 }
+// ── Conflicto de interés (wizard de tareas) ───────────────────────────
+// Si la tarea se liga a un proyecto que declaró "contrapartes en conflicto" y
+// la contraparte ingresada matchea una, avisamos en vivo. Mismo criterio de
+// match que checkContraparteConflict (legacy): exacto o substring en cualquier
+// dirección, case-insensitive. El backend ya soporta el campo (col 19); esto es
+// 100% UI.
+function _crMatchConflict(contraparte, declared) {
+  var cp = (contraparte || '').toString().trim().toLowerCase();
+  if (!cp || !Array.isArray(declared)) return null;
+  for (var i = 0; i < declared.length; i++) {
+    var d = (declared[i] || '').toString().trim();
+    if (!d) continue;
+    var dl = d.toLowerCase();
+    if (cp === dl || cp.indexOf(dl) !== -1 || dl.indexOf(cp) !== -1) return d;
+  }
+  return null;
+}
+function _crConflictMsg(v) {
+  if (!v || !v.proyectoId || !v.contraparte) return '';
+  var projects = (D && D.projects) || [];
+  var proj = projects.find(function(p){ return String(p.id) === String(v.proyectoId); });
+  if (!proj) return '';
+  var hit = _crMatchConflict(v.contraparte, proj.contrapartesConflicto || []);
+  if (!hit) return '';
+  return '<div style="margin-top:8px;padding:10px 12px;border-radius:8px;'
+    + 'border:1px solid var(--warn,#e6a23c);background:var(--warn-soft,rgba(230,162,60,.14));'
+    + 'color:var(--warn,#e6a23c);font-size:12.5px;font-weight:600;line-height:1.45">'
+    + '⚠ ' + esc(t('Posible conflicto de interés')) + ': '
+    + esc(t('La contraparte coincide con un conflicto declarado en este proyecto'))
+    + ' — "' + esc(proj.nombre || ('#' + proj.id)) + '" (' + esc(hit) + ').'
+    + '</div>';
+}
+function _crRefreshConflict() {
+  var el = $('crConflictWarn');
+  if (el) el.innerHTML = _crConflictMsg(EDC.values);
+}
+
 function _crRenderStep2() {
   var v = EDC.values;
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
@@ -7719,12 +7760,19 @@ function _crRenderStep2() {
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
     +     '<div class="cr-label">Ligar a proyecto</div>'
-    +     _crSelectHtml('crProj', projs, v.proyectoId, 'Sin proyecto').replace('<select id="crProj"', '<select id="crProj" onchange="edCrearSetField(\'proyectoId\', this.value)"')
+    +     _crSelectHtml('crProj', projs, v.proyectoId, 'Sin proyecto').replace('<select id="crProj"', '<select id="crProj" onchange="edCrearSetField(\'proyectoId\', this.value); _crRefreshConflict()"')
     +   '</div>'
     +   '<div class="cr-field">'
     +     '<div class="cr-label">Área solicitante <span style="font-weight:400;color:var(--fg-3)">(cliente interno)</span></div>'
     +     _crSelectHtml('crAreaSol', _clientesInternos().map(function(c){ return { value: c, label: c }; }), v.areaSolicitante, 'Sin definir').replace('<select id="crAreaSol"', '<select id="crAreaSol" onchange="edCrearSetField(\'areaSolicitante\', this.value)"')
     +   '</div>'
+    + '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">' + esc(t('Contraparte (opcional)')) + '</div>'
+    +   '<input type="text" class="cr-input" id="crContraparte" maxlength="120" value="' + esc(v.contraparte || '') + '" '
+    +     'placeholder="' + esc(t('Nombre de la contraparte')) + '" '
+    +     'oninput="edCrearSetField(\'contraparte\', this.value); _crRefreshConflict()">'
+    +   '<div id="crConflictWarn">' + _crConflictMsg(v) + '</div>'
     + '</div>'
     // Confidencialidad solo para manager/head — consistente con backend que
     // valida el rol en updateTaskField. Specialist no la ve; queda en 'estandar'
@@ -8095,6 +8143,7 @@ function edCrearSubmit() {
       notas: (v.descripcion || '').trim(),
       confidencialidad: v.confidencialidad || 'estandar',
       areaSolicitante: v.areaSolicitante || '',
+      contraparte: v.contraparte || '',
       colaboradores: Array.isArray(v.colaboradores) ? v.colaboradores : []
     });
 }
@@ -10001,6 +10050,12 @@ function _crpRenderStep2() {
     + '<div class="cr-field">'
     +   '<div class="cr-label">Participantes <span style="font-weight:400;color:var(--fg-3);font-size:11px;margin-left:4px">Click para incluir/excluir · agrupados por país</span></div>'
     +   _crpParticipantPicker(v)
+    + '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Contrapartes en conflicto <span style="font-weight:400;color:var(--fg-3);font-size:11px;margin-left:4px">Alertan conflicto de interés al crear tareas del proyecto · separá con comas</span></div>'
+    +   '<input type="text" class="cr-input" id="crpConflicto" maxlength="300" value="' + esc(v.contrapartesConflicto || '') + '" '
+    +     'placeholder="Ej: Empresa X, Proveedor Y" '
+    +     'oninput="edCrearProyectoSetField(\'contrapartesConflicto\', this.value)">'
     + '</div>';
 }
 
@@ -10129,7 +10184,8 @@ function edCrearProyectoOpen() {
     riesgo: '',
     lider: '',
     deadline: '',
-    participantes: ''
+    participantes: '',
+    contrapartesConflicto: ''
   };
   // Restaurar borrador si tiene contenido útil
   try {
@@ -10223,7 +10279,8 @@ function edCrearProyectoSubmit() {
       deadline: v.deadline || '',
       status: 'Activo',
       notas: '',
-      participantes: (v.participantes || '').trim()
+      participantes: (v.participantes || '').trim(),
+      contrapartesConflicto: (v.contrapartesConflicto || '').trim()
     });
 }
 
