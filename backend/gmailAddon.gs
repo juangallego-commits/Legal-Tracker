@@ -443,12 +443,15 @@ function _gmailAIEnrich(info, clientes) {
     }
     code = resp.getResponseCode();
     if (code === 200) break;
-    // Solo reintentamos errores transitorios; 4xx (key/modelo) no se arreglan reintentando.
-    if (code !== 503 && code !== 429 && code !== 500) break;
+    // Reintentamos solo errores transitorios de servidor (503/500). El 429
+    // (cuota/rate del free tier) no se resuelve en segundos → fallar rápido.
+    if (code !== 503 && code !== 500) break;
   }
   if (code !== 200) {
-    _GMAIL_AI_ERROR = 'HTTP ' + code + ' · ' + resp.getContentText().slice(0, 200)
-      + (code === 503 || code === 429 ? ' (sobrecarga temporal de Gemini — reintentá en unos segundos)' : '');
+    _GMAIL_AI_ERROR = (code === 429)
+      ? 'cuota de Gemini agotada (free tier) — esperá unos minutos (límite por minuto) o revisá tu plan en ai.google.dev · HTTP 429'
+      : 'HTTP ' + code + ' · ' + resp.getContentText().slice(0, 200)
+        + (code === 503 ? ' (sobrecarga temporal — reintentá)' : '');
     Logger.log('gmailAI: ' + _GMAIL_AI_ERROR);
     return null;
   }

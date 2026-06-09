@@ -1703,7 +1703,15 @@ var ACTIONS = {
       google.script.run
         .withSuccessHandler(function(res) {
           hideLoader();
-          if (res && res.success) { toast('✅ Documento eliminado', 'success'); reopenEditWithFreshData(); }
+          if (res && res.success) {
+            toast('✅ Documento eliminado', 'success');
+            // El modal de edición tiene su propio refresh; el panel de detalle
+            // (donde el doc se quita pero el DOM no se actualizaba) se refresca
+            // con reload() — re-renderiza el panel del task seleccionado con
+            // data fresca, dejando los índices correctos para futuros borrados.
+            if ($('editOv') && $('editOv').classList.contains('show')) reopenEditWithFreshData();
+            else reload();
+          }
           else toast('Error: ' + ((res && res.error) || ''), 'error');
         })
         .withFailureHandler(function(e){ hideLoader(); toast('Error: ' + e.message, 'error'); })
@@ -1842,16 +1850,36 @@ function restoreFilters() {
 // Refcount para soportar llamadas concurrentes (ej. update + reload).
 // ════════════════════════════════════════════════════════════════
 var _loaderCount = 0;
-function showLoader() {
+function showLoader(msg) {
   _loaderCount++;
   var el = $('loaderBar');
   if (el) el.classList.add('show');
+  _loaderSetLabel(msg);
 }
 function hideLoader() {
   _loaderCount = Math.max(0, _loaderCount - 1);
   if (_loaderCount === 0) {
     var el = $('loaderBar');
     if (el) el.classList.remove('show');
+    _loaderSetLabel(null);
+  }
+}
+// Pill central opcional: showLoader('Subiendo archivo…') la muestra; sin texto
+// solo queda el glow de los 4 lados. Se crea on-demand para no tocar el HTML.
+function _loaderSetLabel(msg) {
+  var lbl = document.getElementById('loaderLabel');
+  if (!lbl) {
+    lbl = document.createElement('div');
+    lbl.id = 'loaderLabel';
+    lbl.className = 'loader-label';
+    document.body.appendChild(lbl);
+  }
+  if (msg) {
+    lbl.innerHTML = '<span class="dot"></span>';
+    lbl.appendChild(document.createTextNode(msg));
+    lbl.classList.add('show');
+  } else {
+    lbl.classList.remove('show');
   }
 }
 
@@ -4954,8 +4982,7 @@ function edTkUploadFile(input) {
     toast('Archivo demasiado grande (máx 45 MB en Apps Script)', 'error');
     input.value = ''; return;
   }
-  toast('Leyendo ' + file.name + '…', 'info');
-  showLoader();
+  showLoader('Leyendo ' + file.name + '…');
   var reader = new FileReader();
   reader.onerror = function(e) {
     hideLoader();
@@ -4965,7 +4992,7 @@ function edTkUploadFile(input) {
   };
   reader.onload = function() {
     var base64 = String(reader.result).split(',')[1];
-    toast('Subiendo ' + file.name + ' a Drive…', 'info');
+    _loaderSetLabel('Subiendo ' + file.name + ' a Drive… (puede tardar)');
     google.script.run
       .withSuccessHandler(function(res) {
         hideLoader(); input.value = '';
