@@ -10497,6 +10497,13 @@ var _RECURSOS_FORM_OPEN = false; // toggle del form colapsable "Agregar recurso"
 var _RECURSOS_EDIT_ID = null;    // si !== null → el form está en modo edición de ese id
 // Estado de filtros de la vista (en memoria, no se persiste). Re-render al cambiar.
 var _RECURSOS_UI = { q: '', tipo: 'all', sort: 'recientes' };
+// Hub de 2 pestañas: 'links' (links curados del equipo) | 'integraciones'
+// (catálogo de "qué puede hacer MyDash"). Default 'links'.
+var _RECURSOS_TAB = 'links';
+// Cache del catálogo de integraciones: null = aún no cargado; array = cargado.
+var _INTEGRACIONES_CACHE = null;
+// Filtro por estado de la pestaña integraciones ('all' | estado). En memoria.
+var _INTEGRACIONES_FILTER = 'all';
 
 // Enum de tipo de recurso → ícono (emoji) + label i18n. '' = sin clasificar.
 // Espejo del backend _REC_TIPOS (tool/guide/course/repo/template/dataset).
@@ -10555,12 +10562,52 @@ function _recursoFilterSort(recursos) {
   return out;
 }
 
+// Hub Recursos · cáscara de 2 pestañas. Renderiza header + barra de pestañas
+// ["Links del equipo" | "Qué puede hacer MyDash"] y delega el cuerpo al
+// renderer de la pestaña activa. La pestaña 'links' mantiene EXACTAMENTE el
+// comportamiento R1 (ver _recRenderLinksTab); 'integraciones' es el catálogo.
 function rEdRecursos(D) {
   var v = $('vEdRecursos'); if (!v) return;
 
+  // Barra de 2 pestañas del hub (chips, mismo patrón que _bibSubnav). El header
+  // de cada pestaña (título + acciones) lo pone el renderer de la pestaña,
+  // igual que Biblioteca: subnav primero, luego el pa-page-h de cada sub-vista.
+  function _recHubTabs(active) {
+    return '<div style="display:flex;gap:6px;margin:0 0 16px">'
+         +    '<div class="pa-chip' + (active === 'links' ? ' is-active' : '') + '" onclick="edRecursoSetTab(\'links\')">' + esc(t('Links del equipo')) + '</div>'
+         +    '<div class="pa-chip' + (active === 'integraciones' ? ' is-active' : '') + '" onclick="edRecursoSetTab(\'integraciones\')">' + esc(t('Qué puede hacer MyDash')) + '</div>'
+         +  '</div>';
+  }
+
+  var html = '<div class="pa-page">' + _recHubTabs(_RECURSOS_TAB);
+  if (_RECURSOS_TAB === 'integraciones') {
+    html += _recRenderIntegracionesTab(v);
+  } else {
+    html += _recRenderLinksTab(v);
+  }
+  html += '</div>';
+  v.innerHTML = html;
+
+  // Post-render: foco en el form de alta (solo aplica a la pestaña links).
+  if (_RECURSOS_TAB === 'links' && _RECURSOS_FORM_OPEN) {
+    setTimeout(function(){ var i = $('recTitulo'); if (i) i.focus(); }, 60);
+  }
+}
+
+// Cambio de pestaña del hub → re-render.
+function edRecursoSetTab(tab) {
+  if (tab !== 'links' && tab !== 'integraciones') return;
+  _RECURSOS_TAB = tab;
+  rEdRecursos(D);
+}
+
+// ── Pestaña A · Links del equipo (comportamiento R1 intacto) ──────
+// Devuelve el HTML del cuerpo (sin el wrapper .pa-page ni el header del hub,
+// que los pone rEdRecursos). Si el cache aún no cargó, dispara la carga y
+// devuelve un skeleton. Mantiene toda la lógica de búsqueda/filtros/cards/form.
+function _recRenderLinksTab(v) {
   // Cache: si no hay, cargamos del server con loader y re-renderizamos.
   if (_RECURSOS_CACHE == null) {
-    v.innerHTML = '<div class="pa-page">' + ltSkeleton(5) + '</div>';
     if (typeof showLoader === 'function') showLoader();
     google.script.run
       .withSuccessHandler(function(res) {
@@ -10575,12 +10622,12 @@ function rEdRecursos(D) {
         rEdRecursos(D);
       })
       .getRecursos();
-    return;
+    return ltSkeleton(5);
   }
 
   var all = (_RECURSOS_CACHE || []).slice();
 
-  var html = '<div class="pa-page">';
+  var html = '';
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">' + esc(t('Recursos')) + '</span>'
        +    '<span class="pa-page-sub">' + all.length + ' '
@@ -10597,10 +10644,7 @@ function rEdRecursos(D) {
 
   if (all.length === 0) {
     html += paEmpty('globe', t('Todavía no hay recursos.'), t('Agregá el primero con "Agregar recurso".'));
-    html += '</div>';
-    v.innerHTML = html;
-    if (_RECURSOS_FORM_OPEN) setTimeout(function(){ var i = $('recTitulo'); if (i) i.focus(); }, 60);
-    return;
+    return html;
   }
 
   // ── Toolbar: búsqueda + orden ───────────────────────────────────
@@ -10699,10 +10743,169 @@ function rEdRecursos(D) {
     html += '</div>';
   }
 
-  html += '</div>';
-  v.innerHTML = html;
-  if (_RECURSOS_FORM_OPEN) setTimeout(function(){ var i = $('recTitulo'); if (i) i.focus(); }, 60);
+  return html;
 }
+
+// ════════════════════════════════════════════════════════════════
+// Pestaña B · Catálogo de integraciones ("Qué puede hacer MyDash").
+// Lista read-only de lo que la app puede hacer y cómo se activa cada
+// cosa. El contenido (titulo/queHace/comoActivar/ctaTexto) ya viene
+// bilingüe del backend (getIntegraciones) → NO pasa por t(); solo el
+// chrome (chips/notas) se traduce. Las keys de config viven en Script
+// Properties: NUNCA hay un panel de config in-app acá.
+// ════════════════════════════════════════════════════════════════
+
+// Elige el campo según LANG. Cae al ES si el PT viene vacío.
+function _intLang(it, base) {
+  var pt = it[base + '_pt'], es = it[base + '_es'];
+  return (LANG === 'pt' && pt) ? pt : (es || '');
+}
+
+// Meta por estado: clase de pill semántica (reusa pa-pill-*) + label i18n.
+// 'dim' usa la pill .pa-pill-dim (vars --dim-* existentes).
+var _INT_ESTADO_META = {
+  'activa':        { pill: 'pa-pill-good', label: function(){ return t('Activa'); } },
+  'instala_addon': { pill: 'pa-pill-info', label: function(){ return t('La activás vos'); } },
+  'setup_admin':   { pill: 'pa-pill-warn', label: function(){ return t('Requiere admin'); } },
+  'owner_centrico':{ pill: 'pa-pill-dim',  label: function(){ return t('Limitada al owner'); } }
+};
+function _intEstadoMeta(estado) {
+  return _INT_ESTADO_META[estado] || _INT_ESTADO_META['owner_centrico'];
+}
+
+// Devuelve el HTML del cuerpo de la pestaña integraciones (sin wrapper
+// .pa-page ni header del hub). Carga perezosa con loader → cachea → re-render.
+function _recRenderIntegracionesTab(v) {
+  if (_INTEGRACIONES_CACHE == null) {
+    if (typeof showLoader === 'function') showLoader();
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (typeof hideLoader === 'function') hideLoader();
+        _INTEGRACIONES_CACHE = (res && res.success && res.integraciones) ? res.integraciones : [];
+        rEdRecursos(D);
+      })
+      .withFailureHandler(function(e) {
+        if (typeof hideLoader === 'function') hideLoader();
+        _INTEGRACIONES_CACHE = [];
+        toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+        rEdRecursos(D);
+      })
+      .getIntegraciones();
+    return ltSkeleton(5);
+  }
+
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var all = (_INTEGRACIONES_CACHE || []).slice().sort(function(a, b) {
+    return (a.orden || 0) - (b.orden || 0);
+  });
+
+  var html = '';
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">' + esc(t('Recursos')) + '</span>'
+       +    '<span class="pa-page-sub">' + esc(t('Qué puede hacer MyDash')) + '</span>'
+       +  '</div>';
+  html += '<div class="pa-narrative">' + esc(t('Lo que MyDash puede hacer y cómo se activa cada cosa.')) + '</div>';
+
+  if (all.length === 0) {
+    html += paEmpty('globe', t('Todavía no hay integraciones.'), t('Cuando se configuren, vas a verlas acá.'));
+    return html;
+  }
+
+  // ── Filtro por estado (chips con contador en vivo) ──────────────
+  function estadoCount(key) {
+    return all.filter(function(it){ return key === 'all' || (it.estado || '') === key; }).length;
+  }
+  function estadoChip(key, label) {
+    var active = _INTEGRACIONES_FILTER === key;
+    return '<div class="pa-chip' + (active ? ' is-active' : '') + '" onclick="edRecursoSetIntFilter(\'' + esc(key) + '\')">'
+         + esc(label) + ' <span class="ct">' + estadoCount(key) + '</span></div>';
+  }
+  html += '<div class="pa-filterbar">';
+  html += estadoChip('all', t('Todos'));
+  ['activa', 'instala_addon', 'setup_admin', 'owner_centrico'].forEach(function(key) {
+    if (estadoCount(key) === 0) return;
+    html += estadoChip(key, _intEstadoMeta(key).label());
+  });
+  html += '</div>';
+
+  var items = (_INTEGRACIONES_FILTER === 'all')
+    ? all
+    : all.filter(function(it){ return (it.estado || '') === _INTEGRACIONES_FILTER; });
+
+  if (items.length === 0) {
+    html += paEmpty('search', t('No hay integraciones que coincidan.'), t('Probá con otro filtro.'));
+    return html;
+  }
+
+  html += '<div class="bib-grid">';
+  items.forEach(function(it) {
+    var titulo = _intLang(it, 'titulo');
+    var queHace = _intLang(it, 'queHace');
+    var comoActivar = _intLang(it, 'comoActivar');
+    var ctaTexto = _intLang(it, 'ctaTexto');
+    var estado = it.estado || 'owner_centrico';
+    var meta = _intEstadoMeta(estado);
+    var href = _recursoSafeHref(it.ctaUrl);
+    var icono = (it.icono || '🔧').toString();
+
+    // Chip de estado.
+    var chipHtml = '<div class="bib-card-class">'
+                 + '<span class="pa-pill ' + meta.pill + '">' + esc(meta.label()) + '</span>'
+                 + '</div>';
+
+    // CTA / nota según estado + rol. Helpers de markup:
+    function linkBtn(txt) {
+      return '<a href="' + esc(href) + '" target="_blank" rel="noopener" class="pa-btn pa-btn-outline" style="text-decoration:none">'
+           + esc(txt) + ' ↗</a>';
+    }
+    function noteText(txt) {
+      return '<div style="font-size:12px;color:var(--fg-3);line-height:1.45">' + esc(txt) + '</div>';
+    }
+    var ctaHtml = '';
+    if (estado === 'activa') {
+      // Sin CTA: el chip verde "Activa" ya lo dice todo.
+      ctaHtml = '';
+    } else if (estado === 'instala_addon') {
+      // La activa el propio usuario. Link si hay ctaUrl; si no, guía textual.
+      ctaHtml = href ? linkBtn(ctaTexto || comoActivar) : noteText(comoActivar);
+    } else if (estado === 'setup_admin') {
+      // Requiere admin. specialist: solo "pedíselo"; manager/head: link de pasos.
+      if (role === 'manager' || role === 'head') {
+        ctaHtml = href ? linkBtn(ctaTexto || comoActivar) : noteText(comoActivar);
+      } else {
+        ctaHtml = noteText(t('Pedíselo a tu admin'));
+      }
+    } else { // owner_centrico
+      // Limitada al owner / requiere IT. Sin CTA de acción.
+      ctaHtml = noteText(t('Hoy limitada al owner / requiere IT'));
+    }
+
+    var queHaceHtml = queHace
+      ? '<div style="font-size:12px;color:var(--fg-2);line-height:1.45;margin:2px 0 4px">' + esc(queHace) + '</div>'
+      : '';
+    // "Cómo activar" como texto secundario (no se duplica si ya es la nota CTA).
+    var comoHtml = (comoActivar && !(ctaHtml.indexOf(esc(comoActivar)) >= 0))
+      ? '<div style="font-size:11px;color:var(--fg-3);line-height:1.4;margin:0 0 6px">' + esc(comoActivar) + '</div>'
+      : '';
+
+    html += '<div class="bib-card">'
+         +    '<div class="bib-card-h">'
+         +      '<span class="bib-card-icon" style="font-size:16px;line-height:1">' + esc(icono) + '</span>'
+         +      '<div class="bib-card-title">' + esc(titulo) + '</div>'
+         +    '</div>'
+         +    queHaceHtml
+         +    comoHtml
+         +    chipHtml
+         +    (ctaHtml ? '<div class="bib-card-f"><span></span>' + ctaHtml + '</div>' : '')
+         + '</div>';
+  });
+  html += '</div>';
+
+  return html;
+}
+
+// Filtro por estado de la pestaña integraciones → re-render.
+function edRecursoSetIntFilter(estado) { _INTEGRACIONES_FILTER = estado; rEdRecursos(D); }
 
 // HTML del form de alta/edición. En modo edición (_RECURSOS_EDIT_ID) viene
 // prefilled con el recurso del cache y el botón llama a edRecursoSave().
