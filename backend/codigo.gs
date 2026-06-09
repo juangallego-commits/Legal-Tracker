@@ -1158,6 +1158,38 @@ function _readProjectById(ss, projId) {
 // ════════════════════════════════════════════════════════════════
 // PROJECTS CRUD
 // ════════════════════════════════════════════════════════════════
+// Normaliza el deadline de un proyecto (la celda puede venir como Date, como
+// ISO 'yyyy-MM-dd' o como 'dd/MM/yyyy') a sus dos formas: iso (para cálculos
+// de días/SLA en el front) y disp 'dd/MM/yyyy' (para mostrar). Devuelve
+// {iso:'', disp:''} si no hay deadline. Single source of truth para que el
+// countdown del proyecto no dependa del formato con que quedó guardada.
+function _deadlineParts(val) {
+  if (!val) return { iso: '', disp: '' };
+  if (val instanceof Date) {
+    return {
+      iso:  Utilities.formatDate(val, 'America/Bogota', 'yyyy-MM-dd'),
+      disp: Utilities.formatDate(val, 'America/Bogota', 'dd/MM/yyyy')
+    };
+  }
+  var s = val.toString().trim();
+  var mi = s.match(/^(\d{4})-(\d{2})-(\d{2})/);   // ISO yyyy-MM-dd
+  if (mi) return { iso: mi[1] + '-' + mi[2] + '-' + mi[3], disp: mi[3] + '/' + mi[2] + '/' + mi[1] };
+  var md = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);  // dd/MM/yyyy
+  if (md) return { iso: md[3] + '-' + md[2] + '-' + md[1], disp: md[1] + '/' + md[2] + '/' + md[3] };
+  return { iso: '', disp: s };
+}
+
+// Convierte un deadline ISO 'yyyy-MM-dd' a un Date real (mediodía local, para
+// evitar corrimientos por timezone al escribir en la hoja). Si ya es Date o no
+// parsea, devuelve el valor tal cual para no romper el append/update.
+function _deadlineToCell(val) {
+  if (!val) return '';
+  if (val instanceof Date) return val;
+  var m = val.toString().trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10), 12, 0, 0);
+  return val;
+}
+
 function readProjects(ss) {
   var ws = ss.getSheetByName(SHEET_PROYECTOS);
   if (!ws) return [];
@@ -1168,11 +1200,12 @@ function readProjects(ss) {
   var projects = [];
   data.forEach(function(row) {
     if (!row[1]) return;
+    var _dl = _deadlineParts(row[5]);
     projects.push({
       id: row[0], nombre: row[1]||'', pais: (row[2]||'').toString().trim(),
       lider: (row[3]||'').toString().trim(), responsable: (row[4]||'').toString().trim(),
-      deadline: row[5]?(row[5] instanceof Date?Utilities.formatDate(row[5],'America/Bogota','dd/MM/yyyy'):row[5].toString()):'',
-      deadlineISO: row[5]?(row[5] instanceof Date?Utilities.formatDate(row[5],'America/Bogota','yyyy-MM-dd'):''):'', priority: row[6]||'Media',
+      deadline: _dl.disp,
+      deadlineISO: _dl.iso, priority: row[6]||'Media',
       status: row[7]||'Activo',
       // Cualquier estado distinto del default 'Activo' se considera puesto manualmente y se respeta.
       statusForced: (function(){ var s=(row[7]||'').toString().trim(); return s!=='' && s!=='Activo'; })(),
@@ -1233,7 +1266,7 @@ function _addProjectImpl(obj) {
     var lc = ws.getLastColumn();
     var rowVals = [
       newId, obj.nombre||'', pais, lider, obj.responsable||'',
-      obj.deadline||'', obj.priority||'Media', obj.status||'Activo',
+      _deadlineToCell(obj.deadline), obj.priority||'Media', obj.status||'Activo',
       obj.descripcion||'', obj.notas||'', new Date(), getCurrentWeekLabel(), parts.join(', '),
       obj.tipoTrabajo||'', obj.riesgo||'', ''
     ];
@@ -1282,6 +1315,9 @@ function _updateProjectFieldsImpl(projId, fields) {
       var col = fieldMap[k];
       if (!col) return;
       var v = fields[k];
+      // deadline puede llegar como ISO 'yyyy-MM-dd'; lo guardamos como Date real
+      // para que readProjects lo lea como fecha y el countdown funcione siempre.
+      if (k === 'deadline') v = _deadlineToCell(v);
       // participantes puede llegar como array o string csv
       if (k === 'participantes' && Array.isArray(v)) v = v.join(', ');
       // contrapartesConflicto: array → csv; string → trust.
