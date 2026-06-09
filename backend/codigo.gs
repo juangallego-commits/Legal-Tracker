@@ -15,6 +15,7 @@ const SHEET_FERIADOS  = 'Feriados'; // Manual; cols: pais (CO/MX/CR/...) | fecha
 const SHEET_TEMPLATES = 'Templates'; // Optional; cols: tipoTrabajo | checklist(JSON) | estado | autor.
 const SHEET_BIBLIO_DOCS = 'BibliotecaDocs'; // Optional; cols: id | nombre | tipo(link|file) | url | categoria | autor | fecha.
 const SHEET_RECURSOS  = 'Recursos'; // Auto-created on first use (seeded); cols: id | titulo | url | categoria | descripcion | autor | autorEmail | fecha.
+const SHEET_INTEGRACIONES = 'Integraciones'; // Auto-created on first use (seeded, 8 rows); cols (14): id|key|titulo_es|titulo_pt|queHace_es|queHace_pt|comoActivar_es|comoActivar_pt|estado|icono|ctaTexto_es|ctaTexto_pt|ctaUrl|orden.
 
 // ── DAILY DIGEST ────────────────────────────────────────────────
 // URL del web app deployado (/exec). Se usa en los emails del digest
@@ -2575,21 +2576,39 @@ function getBibliotecaConfig() {
 // A diferencia de la Biblioteca, Recursos es role-agnostic: TODOS ven TODO
 // (sin filtro de rol/país). La hoja se auto-crea on-first-use (mismo patrón
 // que Comments/Activity/BibliotecaDocs) y se siembra con 1 recurso inicial.
-// Cols: id | titulo | url | categoria | descripcion | autor | autorEmail | fecha.
-const _REC_HEADERS = ['id', 'titulo', 'url', 'categoria', 'descripcion', 'autor', 'autorEmail', 'fecha'];
-const _REC_COLS = _REC_HEADERS.length; // 8
+// Cols (14, orden fijo): id | titulo | url | categoria | descripcion | autor |
+// autorEmail | fecha | tipo | tags | destacado | clicks | area | requierePago.
+// La hoja se auto-upgradea (8 → 14) de forma idempotente en _ensureRecursosSheet,
+// así la feature anda aunque el admin no haya corrido migrarRecursosFaseB todavía.
+const _REC_HEADERS = ['id', 'titulo', 'url', 'categoria', 'descripcion', 'autor', 'autorEmail', 'fecha', 'tipo', 'tags', 'destacado', 'clicks', 'area', 'requierePago'];
+const _REC_COLS = _REC_HEADERS.length; // 14
+
+// Tipos válidos de recurso (fase B). Cualquier otro valor se normaliza a ''.
+const _REC_TIPOS = ['tool', 'guide', 'course', 'repo', 'template', 'dataset'];
+
+// Defaults para las columnas nuevas (8 → 14), por nombre. 'tags' es especial:
+// hereda el valor de 'categoria' en el upgrade (mismo criterio que admin.gs).
+const _REC_DEFAULTS_BY_NAME = { tipo: '', tags: '', destacado: false, clicks: 0, area: '', requierePago: false };
 
 // Siembra inicial (solo al crear la hoja). fecha se completa al sembrar.
+// Fila completa de 14 cols (tipo/tags/destacado/clicks/area/requierePago).
 function _recSeedRows(ss) {
+  var cat = 'Guías legales / AI';
   return [[
     1,
     'Mundial FIFA 2026 — Guía legal (NotebookLM)',
     'https://notebooklm.google.com/notebook/fc842e78-a8e9-4861-a6ba-f9c7802dc567',
-    'Guías legales / AI',
+    cat,
     'Guía estratégica y legal de Rappi para el Mundial FIFA 2026: ejecutar campañas de marketing y eventos sin infringir la propiedad intelectual de la FIFA ni incurrir en ambush marketing.',
     'Juan Gallego',
     'juan.gallego@rappi.com',
-    Utilities.formatDate(new Date(), 'America/Bogota', 'dd/MM/yyyy')
+    Utilities.formatDate(new Date(), 'America/Bogota', 'dd/MM/yyyy'),
+    'guide', // tipo
+    cat,     // tags (hereda categoria, mismo criterio que el upgrade)
+    false,   // destacado
+    0,       // clicks
+    '',      // area
+    false    // requierePago
   ]];
 }
 
@@ -2604,6 +2623,34 @@ function _ensureRecursosSheet(ss) {
     ws.setFrozenRows(1);
     var seed = _recSeedRows(ss);
     if (seed && seed.length) ws.getRange(2, 1, seed.length, _REC_COLS).setValues(seed.map(_sanitizeRow));
+    return ws;
+  }
+  // Upgrade idempotente del header (8 → 14). Mismo criterio que admin.gs/
+  // migrarRecursosFaseB: si la hoja tiene menos cols que _REC_HEADERS, agregar
+  // las faltantes AL FINAL (fila 1) y poblar defaults en las filas de data en
+  // BATCH (tags ← categoria). Así la feature anda sin esperar al admin.
+  var lastCol = ws.getLastColumn();
+  if (lastCol < _REC_COLS) {
+    var firstNew = lastCol; // índice 0-based de la primera col faltante
+    var missing = _REC_HEADERS.slice(firstNew);
+    ws.getRange(1, firstNew + 1, 1, missing.length).setValues([missing]);
+    ws.getRange(1, firstNew + 1, 1, missing.length).setFontWeight('bold');
+    var lastRow = ws.getLastRow();
+    if (lastRow >= 2) {
+      var numRows = lastRow - 1;
+      // Col 4 = categoria, para poblar 'tags' en las filas existentes.
+      var cats = ws.getRange(2, 4, numRows, 1).getValues();
+      var fill = [];
+      for (var r = 0; r < numRows; r++) {
+        var rowVals = [];
+        for (var c = 0; c < missing.length; c++) {
+          var name = missing[c];
+          rowVals.push(name === 'tags' ? cats[r][0] : _REC_DEFAULTS_BY_NAME[name]);
+        }
+        fill.push(rowVals);
+      }
+      ws.getRange(2, firstNew + 1, numRows, missing.length).setValues(fill.map(_sanitizeRow));
+    }
   }
   return ws;
 }
@@ -2621,30 +2668,120 @@ function _nextRecursoId(ws) {
   return max + 1;
 }
 
+// Valida una URL de recurso con el MISMO criterio que attachDocumentLink:
+// solo http(s) (bloquea javascript:/data:/file: → XSS), máx 2048, sin chars de
+// control. Devuelve { ok:true, url } o { ok:false, error }.
+function _recValidateUrl(raw) {
+  var url = (raw || '').toString().trim();
+  if (!/^https?:\/\//i.test(url)) {
+    return { ok: false, error: 'URL inválida: solo se aceptan https:// o http://' };
+  }
+  if (url.length > 2048) {
+    return { ok: false, error: 'URL demasiado larga (máx. 2048 caracteres)' };
+  }
+  if (/[\x00-\x1f\x7f]/.test(url)) {
+    return { ok: false, error: 'URL contiene caracteres inválidos' };
+  }
+  return { ok: true, url: url };
+}
+
+// Normaliza una URL para deduplicar: minúsculas, sin barra final, sin params
+// utm_* (conserva el resto del query en orden original). Tolerante: si algo
+// falla, cae a un lowercase+trim simple.
+function _recNormalizeUrl(raw) {
+  var url = (raw || '').toString().trim().toLowerCase();
+  if (!url) return '';
+  try {
+    var hash = url.indexOf('#');
+    if (hash >= 0) url = url.slice(0, hash); // descartar fragmento
+    var qi = url.indexOf('?');
+    var base = qi >= 0 ? url.slice(0, qi) : url;
+    var query = qi >= 0 ? url.slice(qi + 1) : '';
+    if (query) {
+      var kept = query.split('&').filter(function(p) {
+        if (!p) return false;
+        var k = p.split('=')[0];
+        return k.indexOf('utm_') !== 0; // descartar utm_*
+      });
+      query = kept.join('&');
+    }
+    base = base.replace(/\/+$/, ''); // sin barra(s) final(es)
+    return query ? (base + '?' + query) : base;
+  } catch (e) {
+    return url.replace(/\/+$/, '');
+  }
+}
+
+// tags: acepta array o CSV → array de strings no vacíos, trim, sin duplicados.
+function _recParseTags(val) {
+  var arr;
+  if (Array.isArray(val)) arr = val;
+  else if (val == null) arr = [];
+  else arr = val.toString().split(',');
+  var out = [], seen = {};
+  for (var i = 0; i < arr.length; i++) {
+    var t = (arr[i] || '').toString().trim();
+    if (!t) continue;
+    var k = t.toLowerCase();
+    if (seen[k]) continue;
+    seen[k] = true;
+    out.push(t);
+  }
+  return out;
+}
+
+// tags array/CSV → CSV canónico para guardar en la celda.
+function _recTagsToCsv(val) { return _recParseTags(val).join(', '); }
+
+// Coerción robusta a boolean (la celda puede venir bool, 'true'/'TRUE', 1, '1').
+function _recToBool(v) {
+  if (v === true || v === false) return v;
+  var s = (v == null ? '' : v).toString().trim().toLowerCase();
+  return s === 'true' || s === '1' || s === 'yes' || s === 'sí' || s === 'si';
+}
+
+// tipo válido ∈ _REC_TIPOS, normalizado a minúsculas; cualquier otro → ''.
+function _recNormalizeTipo(v) {
+  var t = (v || '').toString().trim().toLowerCase();
+  return _REC_TIPOS.indexOf(t) >= 0 ? t : '';
+}
+
 // Role-agnostic: TODOS ven TODOS los recursos (sin filtro de rol/país).
 // Ordenado por categoria y luego titulo.
 function getRecursos() {
   return _telemetry('getRecursos', function() {
     try {
       var ctx = _getAuthContext();
-      var ws = _ensureRecursosSheet(ctx.ss); // crea + siembra si no existe
+      var ws = _ensureRecursosSheet(ctx.ss); // crea + siembra + upgradea si hace falta
       var lr = ws.getLastRow();
       if (lr < 2) return { success: true, recursos: [] };
-      var data = ws.getRange(2, 1, lr - 1, _REC_COLS).getValues();
+      // Lectura DEFENSIVA: hasta getLastColumn() real (puede ser 8 si el admin
+      // no migró, o 14 ya migrado). Campos nuevos → defaults si la col no existe.
+      var lc = Math.max(ws.getLastColumn(), _REC_COLS);
+      var data = ws.getRange(2, 1, lr - 1, lc).getValues();
       var recursos = [];
       data.forEach(function(r) {
         var id = (r[0] || '').toString().trim();
         var titulo = (r[1] || '').toString().trim();
         if (!id || !titulo) return; // saltar filas vacías/corruptas
+        var categoria = (r[3] || '').toString().trim() || 'General';
+        // tags (col 10, idx 9): si la celda está vacía pero existe, cae a [].
+        var tagsRaw = r.length > 9 ? r[9] : '';
         recursos.push({
           id: id,
           titulo: titulo,
           url: (r[2] || '').toString().trim(),
-          categoria: (r[3] || '').toString().trim() || 'General',
+          categoria: categoria,
           descripcion: (r[4] || '').toString().trim(),
           autor: (r[5] || '').toString().trim(),
           autorEmail: (r[6] || '').toString().trim(),
-          fecha: (r[7] || '').toString().trim()
+          fecha: (r[7] || '').toString().trim(),
+          tipo: _recNormalizeTipo(r.length > 8 ? r[8] : ''),
+          tags: _recParseTags(tagsRaw),
+          destacado: _recToBool(r.length > 10 ? r[10] : false),
+          clicks: (function() { var n = parseInt(r.length > 11 ? r[11] : 0, 10); return isNaN(n) ? 0 : n; })(),
+          area: (r.length > 12 ? (r[12] || '') : '').toString().trim(),
+          requierePago: _recToBool(r.length > 13 ? r[13] : false)
         });
       });
       recursos.sort(function(a, b) {
@@ -2661,8 +2798,10 @@ function getRecursos() {
   });
 }
 
-// obj = {titulo, url, categoria, descripcion}. titulo requerido; url http(s)
-// válida (misma validación que attachDocumentLink); categoria default 'General'.
+// obj = {titulo, url, categoria, descripcion, tipo, tags, area, requierePago}.
+// titulo requerido; url http(s) válida (misma validación que attachDocumentLink);
+// categoria default 'General'. DEDUPE por URL normalizada (case/barra/utm_*).
+// tipo válido ∈ _REC_TIPOS si no, ''. destacado=false y clicks=0 por default.
 function addRecurso(obj) {
   return _telemetry('addRecurso', function() {
     return _safeMutation(function() {
@@ -2670,34 +2809,152 @@ function addRecurso(obj) {
       obj = obj || {};
       var titulo = (obj.titulo || '').toString().trim();
       if (!titulo) return { success: false, error: 'El título es obligatorio.' };
-      var url = (obj.url || '').toString().trim();
-      // Validar esquema: solo http(s). Bloquea javascript:, data:, file: (XSS).
-      if (!/^https?:\/\//i.test(url)) {
-        return { success: false, error: 'URL inválida: solo se aceptan https:// o http://' };
-      }
-      if (url.length > 2048) {
-        return { success: false, error: 'URL demasiado larga (máx. 2048 caracteres)' };
-      }
-      if (/[\x00-\x1f\x7f]/.test(url)) {
-        return { success: false, error: 'URL contiene caracteres inválidos' };
-      }
+      var v = _recValidateUrl(obj.url);
+      if (!v.ok) return { success: false, error: v.error };
+      var url = v.url;
       var categoria = (obj.categoria || '').toString().trim() || 'General';
       var descripcion = (obj.descripcion || '').toString().trim();
+      var tipo = _recNormalizeTipo(obj.tipo);
+      var tagsCsv = _recTagsToCsv(obj.tags);
+      var area = (obj.area || '').toString().trim();
+      var requierePago = _recToBool(obj.requierePago);
       var ws = _ensureRecursosSheet(ctx.ss);
+
+      // ── DEDUPE: si ya existe un recurso con la misma URL normalizada ──
+      var norm = _recNormalizeUrl(url);
+      var lr = ws.getLastRow();
+      if (norm && lr >= 2) {
+        var lc = Math.max(ws.getLastColumn(), _REC_COLS);
+        var rows = ws.getRange(2, 1, lr - 1, lc).getValues();
+        for (var i = 0; i < rows.length; i++) {
+          if (_recNormalizeUrl(rows[i][2]) === norm) {
+            return {
+              success: false,
+              motivo: 'duplicado',
+              recursoExistente: {
+                id: (rows[i][0] || '').toString().trim(),
+                titulo: (rows[i][1] || '').toString().trim(),
+                url: (rows[i][2] || '').toString().trim(),
+                categoria: (rows[i][3] || '').toString().trim() || 'General',
+                descripcion: (rows[i][4] || '').toString().trim(),
+                autor: (rows[i][5] || '').toString().trim(),
+                autorEmail: (rows[i][6] || '').toString().trim(),
+                fecha: (rows[i][7] || '').toString().trim(),
+                tipo: _recNormalizeTipo(rows[i].length > 8 ? rows[i][8] : ''),
+                tags: _recParseTags(rows[i].length > 9 ? rows[i][9] : ''),
+                destacado: _recToBool(rows[i].length > 10 ? rows[i][10] : false),
+                clicks: (function() { var n = parseInt(rows[i].length > 11 ? rows[i][11] : 0, 10); return isNaN(n) ? 0 : n; })(),
+                area: (rows[i].length > 12 ? (rows[i][12] || '') : '').toString().trim(),
+                requierePago: _recToBool(rows[i].length > 13 ? rows[i][13] : false)
+              }
+            };
+          }
+        }
+      }
+
       var id = _nextRecursoId(ws);
       var autor = (ctx.user && ctx.user.name) || ctx.email || '';
       var autorEmail = ctx.email || '';
       var fecha = Utilities.formatDate(new Date(), 'America/Bogota', 'dd/MM/yyyy');
-      ws.appendRow(_sanitizeRow([id, titulo, url, categoria, descripcion, autor, autorEmail, fecha]));
+      // Fila completa de 14 cols. destacado=false, clicks=0 por default.
+      ws.appendRow(_sanitizeRow([
+        id, titulo, url, categoria, descripcion, autor, autorEmail, fecha,
+        tipo, tagsCsv, false, 0, area, requierePago
+      ]));
       return {
         success: true,
         recurso: {
           id: id, titulo: titulo, url: url, categoria: categoria,
-          descripcion: descripcion, autor: autor, autorEmail: autorEmail, fecha: fecha
+          descripcion: descripcion, autor: autor, autorEmail: autorEmail, fecha: fecha,
+          tipo: tipo, tags: _recParseTags(tagsCsv), destacado: false, clicks: 0,
+          area: area, requierePago: requierePago
         }
       };
     });
   }, {});
+}
+
+// updateRecurso(id, campos): edita un recurso existente. Permiso: el AUTOR
+// (autorEmail === ctx.email, case-insensitive) o un HEAD (ctx.role === 'head').
+// Campos editables: titulo, url (re-validada), categoria, descripcion, tipo,
+// tags, area, requierePago. Solo se tocan los campos provistos (PATCH parcial).
+// NO toca: autor, autorEmail, fecha, destacado, clicks.
+function updateRecurso(id, campos) {
+  return _telemetry('updateRecurso', function() {
+    return _safeMutation(function() {
+      var ctx = _getAuthContext();
+      var rid = (id || '').toString().trim();
+      if (!rid) return { success: false, error: 'ID requerido.' };
+      campos = campos || {};
+      var ws = _ensureRecursosSheet(ctx.ss);
+      var lr = ws.getLastRow();
+      if (lr < 2) return { success: false, error: 'No hay recursos.' };
+      var lc = Math.max(ws.getLastColumn(), _REC_COLS);
+      var data = ws.getRange(2, 1, lr - 1, lc).getValues();
+      var rowIdx = -1, row = null;
+      for (var i = 0; i < data.length; i++) {
+        if ((data[i][0] || '').toString().trim() === rid) {
+          rowIdx = i + 2;
+          row = data[i];
+          break;
+        }
+      }
+      if (rowIdx < 0) return { success: false, error: 'Recurso no encontrado.' };
+
+      var autorEmail = (row[6] || '').toString().trim().toLowerCase();
+      var isAuthor = ctx.email && autorEmail && ctx.email.toLowerCase() === autorEmail;
+      if (ctx.role !== 'head' && !isAuthor) {
+        return { success: false, error: 'Solo el autor o un head pueden editar este recurso.' };
+      }
+
+      // Construir el estado actualizado (14 cols), tocando solo lo provisto.
+      var cur = {
+        id: (row[0] || '').toString().trim(),
+        titulo: (row[1] || '').toString().trim(),
+        url: (row[2] || '').toString().trim(),
+        categoria: (row[3] || '').toString().trim() || 'General',
+        descripcion: (row[4] || '').toString().trim(),
+        autor: (row[5] || '').toString().trim(),
+        autorEmail: (row[6] || '').toString().trim(),
+        fecha: (row[7] || '').toString().trim(),
+        tipo: _recNormalizeTipo(row.length > 8 ? row[8] : ''),
+        tags: _recParseTags(row.length > 9 ? row[9] : ''),
+        destacado: _recToBool(row.length > 10 ? row[10] : false),
+        clicks: (function() { var n = parseInt(row.length > 11 ? row[11] : 0, 10); return isNaN(n) ? 0 : n; })(),
+        area: (row.length > 12 ? (row[12] || '') : '').toString().trim(),
+        requierePago: _recToBool(row.length > 13 ? row[13] : false)
+      };
+
+      if (campos.hasOwnProperty('titulo')) {
+        var t = (campos.titulo || '').toString().trim();
+        if (!t) return { success: false, error: 'El título es obligatorio.' };
+        cur.titulo = t;
+      }
+      if (campos.hasOwnProperty('url')) {
+        var v = _recValidateUrl(campos.url);
+        if (!v.ok) return { success: false, error: v.error };
+        cur.url = v.url;
+      }
+      if (campos.hasOwnProperty('categoria')) {
+        cur.categoria = (campos.categoria || '').toString().trim() || 'General';
+      }
+      if (campos.hasOwnProperty('descripcion')) {
+        cur.descripcion = (campos.descripcion || '').toString().trim();
+      }
+      if (campos.hasOwnProperty('tipo')) cur.tipo = _recNormalizeTipo(campos.tipo);
+      if (campos.hasOwnProperty('tags')) cur.tags = _recParseTags(campos.tags);
+      if (campos.hasOwnProperty('area')) cur.area = (campos.area || '').toString().trim();
+      if (campos.hasOwnProperty('requierePago')) cur.requierePago = _recToBool(campos.requierePago);
+
+      // Escribir la fila completa (14 cols) en BATCH.
+      ws.getRange(rowIdx, 1, 1, _REC_COLS).setValues([_sanitizeRow([
+        cur.id, cur.titulo, cur.url, cur.categoria, cur.descripcion, cur.autor,
+        cur.autorEmail, cur.fecha, cur.tipo, _recTagsToCsv(cur.tags), cur.destacado,
+        cur.clicks, cur.area, cur.requierePago
+      ])]);
+      return { success: true, recurso: cur };
+    });
+  }, { id: id });
 }
 
 // Permiso: solo el AUTOR (autorEmail === email del visitante) o un HEAD.
@@ -2729,6 +2986,92 @@ function deleteRecurso(id) {
       return { success: true };
     });
   }, { id: id });
+}
+
+// ════════════════════════════════════════════════════════════════
+// INTEGRACIONES (Fase I0) · catálogo de integraciones del Legal Tracker
+// ════════════════════════════════════════════════════════════════
+// Hoja 'Integraciones' auto-creada + sembrada en el primer uso (mismo patrón
+// que _ensureRecursosSheet). 14 cols, bilingüe ES/PT: el backend NO sabe el
+// idioma del visitante (el frontend elige según su LANG), por eso devuelve
+// TODOS los campos _es y _pt. Header fijo (orden importa).
+const _INTEG_HEADERS = ['id', 'key', 'titulo_es', 'titulo_pt', 'queHace_es', 'queHace_pt', 'comoActivar_es', 'comoActivar_pt', 'estado', 'icono', 'ctaTexto_es', 'ctaTexto_pt', 'ctaUrl', 'orden'];
+const _INTEG_COLS = _INTEG_HEADERS.length; // 14
+
+// Siembra inicial (8 filas). PT = igual al ES como placeholder; ctaUrl = ''.
+function _integSeedRows() {
+  // Helper: arma una fila duplicando ES→PT en titulo/queHace/comoActivar/ctaTexto.
+  function R(id, key, titulo, queHace, comoActivar, estado, icono, ctaTexto, orden) {
+    return [id, key, titulo, titulo, queHace, queHace, comoActivar, comoActivar, estado, icono, ctaTexto, ctaTexto, '', orden];
+  }
+  return [
+    R(1, 'gmail_addon', 'Add-on de Gmail', 'Crear tarea legal desde un correo, pre-llenada con IA; subir adjuntos a Drive', 'Instalá el complemento de Gmail desde el Marketplace de tu Workspace.', 'instala_addon', '📧', 'Cómo instalarlo', 1),
+    R(2, 'digest_diario', 'Digest diario por email', 'Resumen 8am: vencidas / vencen hoy / próximas, con deep-links', 'Tu admin activa el envío diario.', 'setup_admin', '📬', 'Ver pasos', 2),
+    R(3, 'contract_intel', 'Contract Intelligence (IA)', 'Botón ✨ en PDFs: extrae partes, vigencia, vencimiento, obligaciones y riesgos; crea recordatorio de renovación', 'Requiere API key de Gemini (la configura el admin).', 'setup_admin', '✨', 'Ver pasos', 3),
+    R(4, 'busqueda_semantica', 'Búsqueda semántica (IA)', 'Buscar en la Biblioteca por significado, no por palabra exacta', 'Requiere API key de Gemini + indexado (admin).', 'setup_admin', '🔎', 'Ver pasos', 4),
+    R(5, 'slack', 'Slack', 'Notificaciones salientes del bot al canal del equipo', 'El admin configura el bot y el canal.', 'setup_admin', '💬', 'Ver pasos', 5),
+    R(6, 'calendario', 'Calendario', 'Cruza reuniones con deadlines; crear tarea de seguimiento desde un evento', 'Compartí tu Google Calendar con la cuenta del Legal Tracker (o IT habilita la visibilidad interna).', 'owner_centrico', '📅', '', 6),
+    R(7, 'drive', 'Drive', 'Carpetas auto-organizadas por taxonomía (año/país/cliente/tipo)', 'Ya está activo.', 'activa', '📁', '', 7),
+    R(8, 'exports', 'Exports', 'Reporte XLSX filtrado y PDF mensual por país', 'Ya está activo (desde el tracker).', 'activa', '📤', '', 8)
+  ];
+}
+
+// get-or-create + seed. Mismo patrón que _ensureRecursosSheet (header bold +
+// fila congelada). Si la crea, la siembra con las 8 filas.
+function _ensureIntegracionesSheet(ss) {
+  var ws = ss.getSheetByName(SHEET_INTEGRACIONES);
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_INTEGRACIONES);
+    ws.getRange(1, 1, 1, _INTEG_COLS).setValues([_INTEG_HEADERS]);
+    ws.getRange(1, 1, 1, _INTEG_COLS).setFontWeight('bold');
+    ws.setFrozenRows(1);
+    var seed = _integSeedRows();
+    if (seed && seed.length) ws.getRange(2, 1, seed.length, _INTEG_COLS).setValues(seed.map(_sanitizeRow));
+  }
+  return ws;
+}
+
+// Devuelve el catálogo completo (todos los campos _es y _pt), ordenado por
+// 'orden'. El frontend elige idioma según su LANG.
+function getIntegraciones() {
+  return _telemetry('getIntegraciones', function() {
+    try {
+      var ctx = _getAuthContext();
+      var ws = _ensureIntegracionesSheet(ctx.ss); // crea + siembra si no existe
+      var lr = ws.getLastRow();
+      if (lr < 2) return { success: true, integraciones: [] };
+      // Lectura defensiva hasta el ancho real (mín. _INTEG_COLS).
+      var lc = Math.max(ws.getLastColumn(), _INTEG_COLS);
+      var data = ws.getRange(2, 1, lr - 1, lc).getValues();
+      var integraciones = [];
+      data.forEach(function(r) {
+        var id = (r[0] || '').toString().trim();
+        var key = (r[1] || '').toString().trim();
+        if (!id && !key) return; // saltar filas vacías/corruptas
+        var ordRaw = parseInt(r.length > 13 ? r[13] : 0, 10);
+        integraciones.push({
+          id: id,
+          key: key,
+          titulo_es: (r[2] || '').toString().trim(),
+          titulo_pt: (r[3] || '').toString().trim(),
+          queHace_es: (r[4] || '').toString().trim(),
+          queHace_pt: (r[5] || '').toString().trim(),
+          comoActivar_es: (r[6] || '').toString().trim(),
+          comoActivar_pt: (r[7] || '').toString().trim(),
+          estado: (r[8] || '').toString().trim(),
+          icono: (r[9] || '').toString().trim(),
+          ctaTexto_es: (r[10] || '').toString().trim(),
+          ctaTexto_pt: (r[11] || '').toString().trim(),
+          ctaUrl: (r[12] || '').toString().trim(),
+          orden: isNaN(ordRaw) ? 0 : ordRaw
+        });
+      });
+      integraciones.sort(function(a, b) { return a.orden - b.orden; });
+      return { success: true, integraciones: integraciones };
+    } catch (e) {
+      return { success: false, error: (e && e.message) || String(e) };
+    }
+  });
 }
 
 // ════════════════════════════════════════════════════════════════

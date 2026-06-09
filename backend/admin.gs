@@ -343,3 +343,87 @@ function wipeTestData() {
   log('Preservados: Equipos, Config, Feriados, Templates');
   return report;
 }
+
+// ════════════════════════════════════════════════════════════════
+// MIGRAR RECURSOS · FASE B (hub Recursos R0)
+// ════════════════════════════════════════════════════════════════
+// Migración de schema del hub Recursos. Idempotente. Gated por HEAD.
+//
+// Cómo correr: editor de Apps Script → dropdown → migrarRecursosFaseB
+// → Run. Mirá Logger (View → Executions) para el reporte.
+//
+// Qué hace:
+//   1. Recursos: extiende el header de 8 → 14 cols (agrega tipo, tags,
+//      destacado, clicks, area, requierePago). Para las filas de data
+//      existentes setea defaults en BATCH (tags hereda el valor de la
+//      col 4 = categoria). Si ya tiene 14+ cols → skip.
+//   2. Crea hoja Favoritos (cols email|recursoId|fecha) si no existe.
+//
+// Auto-contenida: solo usa SpreadsheetApp, SHEET_RECURSOS y
+// _requireAdminEmail — no llama helpers de Recursos de codigo.gs.
+function migrarRecursosFaseB() {
+  var who = _requireAdminEmail();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var report = [];
+  var log = function(msg) { report.push(msg); Logger.log(msg); };
+  log('▶ migrarRecursosFaseB ejecutado por ' + who);
+
+  // ── 1. Recursos: extender header 8 → 14 cols ────────────────────
+  var TARGET_HDR = ['id', 'titulo', 'url', 'categoria', 'descripcion', 'autor', 'autorEmail', 'fecha', 'tipo', 'tags', 'destacado', 'clicks', 'area', 'requierePago'];
+  var rec = ss.getSheetByName(SHEET_RECURSOS);
+  if (!rec) {
+    log('⚠ Hoja Recursos no encontrada — skip migración de columnas');
+  } else {
+    var lastCol = rec.getLastColumn();
+    var curHdr = lastCol > 0 ? rec.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+    if (curHdr.length >= TARGET_HDR.length) {
+      log('· Recursos: ya migrado (' + curHdr.length + ' cols), skip');
+    } else {
+      var firstNew = curHdr.length; // índice 0-based de la primera col faltante
+      var missing = TARGET_HDR.slice(firstNew);
+      // Agregar los headers faltantes AL FINAL (fila 1, un solo setValues).
+      rec.getRange(1, firstNew + 1, 1, missing.length).setValues([missing]);
+      rec.getRange(1, firstNew + 1, 1, missing.length).setFontWeight('bold');
+      log('✓ Recursos: agregados ' + missing.length + ' headers [' + missing.join(', ') + ']');
+
+      // Defaults para las filas de data existentes, en BATCH.
+      var lastRow = rec.getLastRow();
+      if (lastRow >= 2) {
+        var numRows = lastRow - 1;
+        // Necesitamos la col 4 (categoria) de cada fila para poblar tags.
+        var cats = rec.getRange(2, 4, numRows, 1).getValues();
+        // Plantilla de defaults indexada por nombre de columna, para respetar
+        // el orden exacto incluso si firstNew no fuese 8.
+        var defByName = { tipo: '', tags: '', destacado: false, clicks: 0, area: '', requierePago: false };
+        var fill = [];
+        for (var r = 0; r < numRows; r++) {
+          var rowVals = [];
+          for (var c = 0; c < missing.length; c++) {
+            var name = missing[c];
+            rowVals.push(name === 'tags' ? cats[r][0] : defByName[name]);
+          }
+          fill.push(rowVals);
+        }
+        rec.getRange(2, firstNew + 1, numRows, missing.length).setValues(fill);
+        log('✓ Recursos: defaults seteados en ' + numRows + ' fila(s) (tags ← categoria)');
+      } else {
+        log('· Recursos: sin filas de data, solo headers');
+      }
+    }
+  }
+
+  // ── 2. Favoritos: crear hoja si no existe ───────────────────────
+  var fav = ss.getSheetByName('Favoritos');
+  if (!fav) {
+    fav = ss.insertSheet('Favoritos');
+    fav.getRange(1, 1, 1, 3).setValues([['email', 'recursoId', 'fecha']]);
+    fav.getRange(1, 1, 1, 3).setFontWeight('bold');
+    fav.setFrozenRows(1);
+    log('✓ Hoja Favoritos creada (headers: email|recursoId|fecha)');
+  } else {
+    log('· Hoja Favoritos ya existía — skip');
+  }
+
+  log('—— migrarRecursosFaseB terminó ——');
+  return report;
+}
