@@ -8146,8 +8146,9 @@ function _piEnrichProject(p, D, userName) {
   var critPct  = total > 0 ? Math.round(crit / total * 100) : 0;
 
   var deadlineDays = null;
-  if (p.deadline && D && D.today) {
-    var m1 = (p.deadline + '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  var _pDl = p.deadlineISO || p.deadline;  // deadlineISO es ISO normalizado; deadline es display dd/MM/yyyy
+  if (_pDl && D && D.today) {
+    var m1 = (_pDl + '').match(/^(\d{4})-(\d{2})-(\d{2})/);
     var m2 = D.today.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (m1 && m2) {
       var d1 = new Date(parseInt(m1[1],10), parseInt(m1[2],10)-1, parseInt(m1[3],10));
