@@ -14,6 +14,7 @@ const SHEET_ACTIVITY  = 'Activity'; // Auto-created; cols: id, ts, task_id, auth
 const SHEET_FERIADOS  = 'Feriados'; // Manual; cols: pais (CO/MX/CR/...) | fecha (YYYY-MM-DD) | nombre
 const SHEET_TEMPLATES = 'Templates'; // Optional; cols: tipoTrabajo | checklist(JSON) | estado | autor.
 const SHEET_BIBLIO_DOCS = 'BibliotecaDocs'; // Optional; cols: id | nombre | tipo(link|file) | url | categoria | autor | fecha.
+const SHEET_RECURSOS  = 'Recursos'; // Auto-created on first use (seeded); cols: id | titulo | url | categoria | descripcion | autor | autorEmail | fecha.
 
 // ── DAILY DIGEST ────────────────────────────────────────────────
 // URL del web app deployado (/exec). Se usa en los emails del digest
@@ -2566,6 +2567,168 @@ function getBibliotecaConfig() {
       userRole: ctx.role
     };
   });
+}
+
+// ════════════════════════════════════════════════════════════════
+// ── RECURSOS ── · links curados (herramientas tech/AI, docs, clases)
+// ════════════════════════════════════════════════════════════════
+// A diferencia de la Biblioteca, Recursos es role-agnostic: TODOS ven TODO
+// (sin filtro de rol/país). La hoja se auto-crea on-first-use (mismo patrón
+// que Comments/Activity/BibliotecaDocs) y se siembra con 1 recurso inicial.
+// Cols: id | titulo | url | categoria | descripcion | autor | autorEmail | fecha.
+const _REC_HEADERS = ['id', 'titulo', 'url', 'categoria', 'descripcion', 'autor', 'autorEmail', 'fecha'];
+const _REC_COLS = _REC_HEADERS.length; // 8
+
+// Siembra inicial (solo al crear la hoja). fecha se completa al sembrar.
+function _recSeedRows(ss) {
+  return [[
+    1,
+    'Mundial FIFA 2026 — Guía legal (NotebookLM)',
+    'https://notebooklm.google.com/notebook/fc842e78-a8e9-4861-a6ba-f9c7802dc567',
+    'Guías legales / AI',
+    'Guía estratégica y legal de Rappi para el Mundial FIFA 2026: ejecutar campañas de marketing y eventos sin infringir la propiedad intelectual de la FIFA ni incurrir en ambush marketing.',
+    'Juan Gallego',
+    'juan.gallego@rappi.com',
+    Utilities.formatDate(new Date(), 'America/Bogota', 'dd/MM/yyyy')
+  ]];
+}
+
+// Mismo patrón que _commentsSheet/_ensureBiblioDocsSheet: get-or-create con
+// header en bold + fila congelada. Si la crea, además la siembra.
+function _ensureRecursosSheet(ss) {
+  var ws = ss.getSheetByName(SHEET_RECURSOS);
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_RECURSOS);
+    ws.getRange(1, 1, 1, _REC_COLS).setValues([_REC_HEADERS]);
+    ws.getRange(1, 1, 1, _REC_COLS).setFontWeight('bold');
+    ws.setFrozenRows(1);
+    var seed = _recSeedRows(ss);
+    if (seed && seed.length) ws.getRange(2, 1, seed.length, _REC_COLS).setValues(seed.map(_sanitizeRow));
+  }
+  return ws;
+}
+
+// id incremental = max(ids)+1 (o 1 si vacía). Mismo patrón que nextTaskId/_nextCommentId.
+function _nextRecursoId(ws) {
+  var lr = ws.getLastRow();
+  if (lr < 2) return 1;
+  var ids = ws.getRange(2, 1, lr - 1, 1).getValues();
+  var max = 0;
+  for (var i = 0; i < ids.length; i++) {
+    var n = parseInt(ids[i][0], 10);
+    if (!isNaN(n) && n > max) max = n;
+  }
+  return max + 1;
+}
+
+// Role-agnostic: TODOS ven TODOS los recursos (sin filtro de rol/país).
+// Ordenado por categoria y luego titulo.
+function getRecursos() {
+  return _telemetry('getRecursos', function() {
+    try {
+      var ctx = _getAuthContext();
+      var ws = _ensureRecursosSheet(ctx.ss); // crea + siembra si no existe
+      var lr = ws.getLastRow();
+      if (lr < 2) return { success: true, recursos: [] };
+      var data = ws.getRange(2, 1, lr - 1, _REC_COLS).getValues();
+      var recursos = [];
+      data.forEach(function(r) {
+        var id = (r[0] || '').toString().trim();
+        var titulo = (r[1] || '').toString().trim();
+        if (!id || !titulo) return; // saltar filas vacías/corruptas
+        recursos.push({
+          id: id,
+          titulo: titulo,
+          url: (r[2] || '').toString().trim(),
+          categoria: (r[3] || '').toString().trim() || 'General',
+          descripcion: (r[4] || '').toString().trim(),
+          autor: (r[5] || '').toString().trim(),
+          autorEmail: (r[6] || '').toString().trim(),
+          fecha: (r[7] || '').toString().trim()
+        });
+      });
+      recursos.sort(function(a, b) {
+        var ca = a.categoria.toLowerCase(), cb = b.categoria.toLowerCase();
+        if (ca < cb) return -1;
+        if (ca > cb) return 1;
+        var ta = a.titulo.toLowerCase(), tb = b.titulo.toLowerCase();
+        return ta < tb ? -1 : (ta > tb ? 1 : 0);
+      });
+      return { success: true, recursos: recursos };
+    } catch (e) {
+      return { success: false, error: (e && e.message) || String(e) };
+    }
+  });
+}
+
+// obj = {titulo, url, categoria, descripcion}. titulo requerido; url http(s)
+// válida (misma validación que attachDocumentLink); categoria default 'General'.
+function addRecurso(obj) {
+  return _telemetry('addRecurso', function() {
+    return _safeMutation(function() {
+      var ctx = _getAuthContext();
+      obj = obj || {};
+      var titulo = (obj.titulo || '').toString().trim();
+      if (!titulo) return { success: false, error: 'El título es obligatorio.' };
+      var url = (obj.url || '').toString().trim();
+      // Validar esquema: solo http(s). Bloquea javascript:, data:, file: (XSS).
+      if (!/^https?:\/\//i.test(url)) {
+        return { success: false, error: 'URL inválida: solo se aceptan https:// o http://' };
+      }
+      if (url.length > 2048) {
+        return { success: false, error: 'URL demasiado larga (máx. 2048 caracteres)' };
+      }
+      if (/[\x00-\x1f\x7f]/.test(url)) {
+        return { success: false, error: 'URL contiene caracteres inválidos' };
+      }
+      var categoria = (obj.categoria || '').toString().trim() || 'General';
+      var descripcion = (obj.descripcion || '').toString().trim();
+      var ws = _ensureRecursosSheet(ctx.ss);
+      var id = _nextRecursoId(ws);
+      var autor = (ctx.user && ctx.user.name) || ctx.email || '';
+      var autorEmail = ctx.email || '';
+      var fecha = Utilities.formatDate(new Date(), 'America/Bogota', 'dd/MM/yyyy');
+      ws.appendRow(_sanitizeRow([id, titulo, url, categoria, descripcion, autor, autorEmail, fecha]));
+      return {
+        success: true,
+        recurso: {
+          id: id, titulo: titulo, url: url, categoria: categoria,
+          descripcion: descripcion, autor: autor, autorEmail: autorEmail, fecha: fecha
+        }
+      };
+    });
+  }, {});
+}
+
+// Permiso: solo el AUTOR (autorEmail === email del visitante) o un HEAD.
+function deleteRecurso(id) {
+  return _telemetry('deleteRecurso', function() {
+    return _safeMutation(function() {
+      var ctx = _getAuthContext();
+      var rid = (id || '').toString().trim();
+      if (!rid) return { success: false, error: 'ID requerido.' };
+      var ws = ctx.ss.getSheetByName(SHEET_RECURSOS);
+      if (!ws) return { success: false, error: 'No hay recursos.' };
+      var lr = ws.getLastRow();
+      if (lr < 2) return { success: false, error: 'No hay recursos.' };
+      var data = ws.getRange(2, 1, lr - 1, _REC_COLS).getValues();
+      var rowIdx = -1, autorEmail = '';
+      for (var i = 0; i < data.length; i++) {
+        if ((data[i][0] || '').toString().trim() === rid) {
+          rowIdx = i + 2;
+          autorEmail = (data[i][6] || '').toString().trim().toLowerCase();
+          break;
+        }
+      }
+      if (rowIdx < 0) return { success: false, error: 'Recurso no encontrado.' };
+      var isAuthor = ctx.email && autorEmail && ctx.email.toLowerCase() === autorEmail;
+      if (ctx.role !== 'head' && !isAuthor) {
+        return { success: false, error: 'Solo el autor o un head pueden eliminar este recurso.' };
+      }
+      ws.deleteRow(rowIdx);
+      return { success: true };
+    });
+  }, { id: id });
 }
 
 // ════════════════════════════════════════════════════════════════
