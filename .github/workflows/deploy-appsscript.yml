@@ -35,3 +35,18 @@ jobs:
 
       - name: Push a Apps Script
         run: clasp push -f
+
+      # Actualiza la implementación EXISTENTE de la web app (mismo deploymentId →
+      # misma URL /exec). El equipo entra siempre por el mismo link y ve lo nuevo
+      # sin que nadie haga "Versión nueva" a mano. Si el secret no está seteado,
+      # saltea sin fallar (el push igual actualizó el código HEAD / dev).
+      - name: Redeploy de la web app (misma URL)
+        env:
+          DEPLOY_ID: ${{ secrets.WEBAPP_DEPLOYMENT_ID }}
+        run: |
+          if [ -z "$DEPLOY_ID" ]; then
+            echo "WEBAPP_DEPLOYMENT_ID no seteado — se omite el redeploy."
+            exit 0
+          fi
+          clasp deploy --deploymentId "$DEPLOY_ID" --description "CI ${GITHUB_SHA::7} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
