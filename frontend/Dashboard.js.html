@@ -2648,6 +2648,13 @@ function _tourStepsForRole(role) {
           + '</ul>'
     },
     {
+      eye: 'IA en contratos',
+      title: 'Analizá un PDF con un click',
+      body: '<p>Cuando adjuntás un <b>PDF</b> a una tarea, al lado del archivo aparece un botón <b>✨</b>.</p>'
+          + '<p>Click y la IA lee el contrato y te devuelve <b>insights</b> en segundos: partes, plazos, obligaciones y cláusulas a vigilar — sin que tengas que abrirlo entero.</p>'
+          + '<p>Los insights quedan guardados en la tarea, así el resto del equipo los ve sin re-analizar.</p>'
+    },
+    {
       eye: 'Cerrar tarea',
       title: 'Cuando terminás una tarea',
       body: '<p>Barra inferior del panel:</p>'
@@ -2677,6 +2684,14 @@ function _tourStepsForRole(role) {
           + '<p>Botones arriba: <b>Agregar enlace</b> (URL externa) o <b>Subir archivo</b> (al Drive).</p>',
       action: { label: 'Ir a Biblioteca', fnCode: "edFinishTour();goEd('plantillas')" },
       target: '.pa-sb-item[data-viewid="plantillas"]'
+    },
+    {
+      eye: 'Recursos',
+      title: 'Recursos del equipo',
+      body: '<p>En <b>Recursos</b> hay links curados de herramientas, guías y AI que el equipo legal comparte — agrupados por categoría.</p>'
+          + '<p>Cada card abre el link en una pestaña nueva. ¿Tenés algo útil que sumar? Botón <b>Agregar recurso</b> arriba: título, URL, categoría y listo.</p>',
+      action: { label: 'Ir a Recursos', fnCode: "edFinishTour();goEd('recursos')" },
+      target: '.pa-sb-item[data-viewid="recursos"]'
     },
     {
       eye: 'Calendario',
