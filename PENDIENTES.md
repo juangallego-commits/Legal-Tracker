@@ -9,25 +9,30 @@ Cosas que **no se pueden automatizar desde el código** y hay que hacer a mano
 
 ---
 
-## 🔴 Para desplegar lo de esta sesión (en orden)
+## ✅ Deploy — ahora automático (ya no es manual)
 
-| # | Qué | Cómo | Por qué |
-|---|-----|------|---------|
-| 1 | **Mergear la rama a `main`** | PR de `claude/gifted-rubin-byMOq` → merge | La rama quedó adelante de `main`. El push a `main` es lo que dispara `clasp` (deploy). |
-| 2 | **Publicar producción `/exec`** | Editor → Deploy → Manage deployments → **New version** | El deploy automático solo actualiza `/dev`. La URL `/exec` (la que usa el equipo) requiere "New version" manual. **Sin esto, nada de lo nuevo llega a prod.** |
-| 3 | **Verificar acceso por dominio** | Abrir `/dev` logueado con `@rappi.com` | Cambié `access` de `ANYONE_ANONYMOUS` → `DOMAIN`. Confirmá que entrás bien (la cuenta dueña del script debe ser `@rappi.com`). Si pide re-autorizar, aceptá. |
-| 4 | **Re-autorizar scopes** | Tras el deploy, correr cualquier función desde el editor y aceptar permisos | Scopes en uso: `spreadsheets`, `drive`, `send_mail` (digest), `calendar.readonly`, `external_request`. Sin re-auth, digest/calendario/upload fallan. |
+El CI ahora hace **`clasp push` + `clasp deploy --deploymentId`** en cada merge a
+`main` → la URL `/exec` (la del equipo) se actualiza sola, **mismo link de
+siempre**. Ya no hay que hacer "Versión nueva" a mano. (Secret
+`WEBAPP_DEPLOYMENT_ID` configurado.)
+
+> Si alguna vez el equipo "no ve los cambios": es caché del navegador, no del
+> deploy → **hard refresh** (Cmd/Ctrl+Shift+R).
 
 ## 🟠 Para que funcionen features ya construidas
 
+> Estado a esta sesión: **#5 setupSheets, #10 ClientesInternos y #13 GEMINI_API_KEY
+> ya hechos** (confirmado: col 20 escribe, la IA del add-on responde). Pendientes
+> de confirmar: #8 DriveFolder, #9 CalendarId, #11 migrate biblioteca, #14 backfill.
+
 | # | Qué | Cómo | Por qué |
 |---|-----|------|---------|
-| 5 | **Correr `setupSheets()`** | Editor → `setupSheets` → Run | Crea/migra hojas y columnas (Feriados, Templates, col 18 Confidencialidad, col 19 Contraparte, **col 20 AreaSolicitante**, etc.). **Prerrequisito** del campo "Área solicitante" en tareas: sin la col 20 no se guarda (hay guard anti-corrupción). |
+| 5 | ✅ **Correr `setupSheets()`** | Editor → `setupSheets` → Run | Crea/migra hojas y columnas (Feriados, Templates, col 18 Confidencialidad, col 19 Contraparte, **col 20 AreaSolicitante**, etc.). **Prerrequisito** del campo "Área solicitante" en tareas: sin la col 20 no se guarda (hay guard anti-corrupción). |
 | 6 | **Borrar las 3 plantillas de ejemplo** | Correr `clearSampleTemplates()` | Data sembrada que se ve "inventada". |
 | 7 | **Encender el digest diario** | Correr `installDigestTrigger()` | Instala el trigger diario ~8am. **Nota:** consolidé los dos sistemas de digest que existían — ahora cualquiera de los dos installers borra los triggers del otro, así que es imposible que manden doble email. Corré **solo uno**. |
 | 8 | **Configurar `Config!DriveFolder`** | Hoja `Config`, key `DriveFolder` = URL/ID de la carpeta raíz de Drive | Necesario para **subir archivos** (Biblioteca y adjuntos de tareas). Los *enlaces* funcionan sin esto. |
 | 9 | **Configurar `Config!CalendarId`** | Hoja `Config`, key `CalendarId` = ID del calendario del equipo | Define qué calendario muestra la vista **Calendario**. Si no se setea, usa el primario del usuario. |
-| 10 | **Definir `Config!ClientesInternos`** | Hoja `Config`, key `ClientesInternos` = CSV (ej. `Restaurantes, Finanzas, Tesorería, Monetization, …`) | Lista del eje **"Área solicitante"** (cliente interno) en tareas y biblioteca. Editable sin tocar código. Si está vacía, cae a esos 4 por default. |
+| 10 | ✅ **Definir `Config!ClientesInternos`** | Hoja `Config`, key `ClientesInternos` = CSV (ej. `Restaurantes, Finanzas, Tesorería, Monetization, …`) | Lista del eje **"Área solicitante"** (cliente interno) en tareas y biblioteca. Editable sin tocar código. Si está vacía, cae a esos 4 por default. |
 | 11 | **Biblioteca: asegurar col 17** | Correr `migrateBiblioDocsSchema()` una vez (o se auto-agrega al crear/editar el primer doc) | El campo "Área solicitante" en documentos vive en la col 17 de `BibliotecaDocs`; `_ensureBiblioDocsSheet` la agrega sola en el primer write, pero correr migrate la asegura ya. |
 | 12 | **Activar el Gmail Add-on** | Editor de Apps Script → **Deploy → Test deployments → Install** (te lo instala a vos para probar). Para todo el equipo: Deploy → New deployment → tipo **Add-on**, y pedir a IT/Workspace admin que lo despliegue org-wide a Legal. | El `clasp push` (CI) sube el **código** del add-on, pero Gmail no lo muestra hasta que exista un deployment de tipo add-on. Tras instalar, abrí cualquier correo → ícono de Legal Tracker en la barra lateral derecha de Gmail → "Crear tarea". La primera vez Gmail pide autorizar los scopes nuevos (lectura del correo abierto). |
 
@@ -35,7 +40,7 @@ Cosas que **no se pueden automatizar desde el código** y hay que hacer a mano
 
 > **Adjuntar correos:** el add-on puede subir los adjuntos del correo a la tarea, pero eso usa el mismo upload a Drive que la app → **requiere `Config!DriveFolder` seteado** (#8). Sin esa carpeta, la tarea se crea igual pero los adjuntos fallan (la card lo avisa). Caps: máx 5 archivos / 15 MB por tarea; inline (firmas/logos) se excluyen solos.
 
-| 13 | **Habilitar AI en todo (add-on + Contract Intelligence + búsqueda semántica)** | Editor de Apps Script → **Configuración del proyecto** → **Propiedades del script** → agregar `GEMINI_API_KEY` con una clave gratis de [aistudio.google.com](https://aistudio.google.com/app/apikey) | **Una sola key destraba 3 features:** (a) super-fill del Gmail add-on, (b) **Contract Intelligence** — botón "✨ Analizar" en cada PDF de una tarea extrae partes/vigencia/vencimiento/riesgos + crea recordatorios de renovación, (c) **búsqueda semántica** en Biblioteca (botón "✨ IA"). **Sin la key, todo cae a su comportamiento previo — nada se rompe.** Free tier de Gemini aguanta sobrado. Costo: $0. **Privacidad:** se envía el contenido del correo/contrato/doc a Gemini; validar con la org antes de habilitar para datos legales sensibles. |
+| 13 | ✅ **Habilitar AI en todo (add-on + Contract Intelligence + búsqueda semántica)** | Editor de Apps Script → **Configuración del proyecto** → **Propiedades del script** → agregar `GEMINI_API_KEY` con una clave gratis de [aistudio.google.com](https://aistudio.google.com/app/apikey) | **Una sola key destraba 3 features:** (a) super-fill del Gmail add-on, (b) **Contract Intelligence** — botón "✨ Analizar" en cada PDF de una tarea extrae partes/vigencia/vencimiento/riesgos + crea recordatorios de renovación, (c) **búsqueda semántica** en Biblioteca (botón "✨ IA"). **Sin la key, todo cae a su comportamiento previo — nada se rompe.** Free tier de Gemini aguanta sobrado (ojo: si testeás mucho da 429 "cuota agotada" — se resetea por minuto/día). **Privacidad:** se envía el contenido del correo/contrato/doc a Gemini; validar con la org antes de habilitar para datos legales sensibles. |
 | 14 | **(Opcional) Backfill de embeddings de Biblioteca** | Tras setear `GEMINI_API_KEY` (#13), correr `backfillBiblioEmbeddings()` desde el editor (solo head) | La búsqueda semántica necesita un vector por documento. Los docs **nuevos** se embeddan solos al subirlos; este backfill genera los vectores de los docs **ya existentes** de una. Idempotente (no re-procesa los que ya tienen). Sin correrlo, la búsqueda IA solo encuentra docs subidos después de habilitar la key. |
 
 ---
