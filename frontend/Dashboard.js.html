@@ -6171,6 +6171,27 @@ function edNotifRenderBadge() {
   btn.style.position = 'relative';
   btn.appendChild(d);
 }
+// Label para una notificación action='colaboradores'. El backend manda
+// old_value/new_value = JSON de la lista [{name,role}]. Si MI nombre está en
+// la lista nueva y NO en la vieja → me acaban de agregar; sino, es un update
+// genérico de la lista. Parseo defensivo: si el JSON falla, cae al genérico.
+function _notifColabLabel(it) {
+  function inList(json) {
+    try {
+      var arr = JSON.parse(json || '[]');
+      if (!Array.isArray(arr)) return false;
+      var me = _effectiveUserName();
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i] && _colabNameEq(arr[i].name, me)) return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+  var inNew = inList(it.new_value);
+  var inOld = inList(it.old_value);
+  if (inNew && !inOld) return LANG === 'pt' ? 'adicionou você como colaborador' : 'te agregó como colaborador';
+  return LANG === 'pt' ? 'atualizou os colaboradores' : 'actualizó los colaboradores';
+}
 function edNotifOpen() {
   edUserMenuClose();
   var items = _NOTIF_RECENT || [];
@@ -6194,6 +6215,7 @@ function edNotifOpen() {
         case 'block':         actLabel = LANG === 'pt' ? 'pôs em on hold' : 'puso en on hold'; break;
         case 'reassign':      actLabel = (LANG === 'pt' ? 'reatribuiu a você' : 'te asignó'); break;
         case 'status_change': actLabel = (LANG === 'pt' ? 'mudou status de' : 'cambió estado de'); break;
+        case 'colaboradores': actLabel = _notifColabLabel(it); break;
         default:              actLabel = (LANG === 'pt' ? 'atualizou' : 'actualizó');
       }
       rows += '<div class="ed-notif-row" onclick="edNotifClose();edGoTaskInTracker(\'' + esc(it.task_id) + '\')">'
@@ -7712,7 +7734,71 @@ function _crRenderStep2() {
         + '<div class="cr-pills-row">' + _crPillsHtml('confidencialidad', _CR_CONF_OPTS, confLvl, _crConfMod) + '</div>'
         + '<div style="font-size:11px;color:var(--fg-3);margin-top:6px;line-height:1.45">' + esc(confDesc) + '</div>'
         + '</div>'
-      : '');
+      : '')
+    + _crColabFieldHtml(v);
+}
+
+// Campo "Colaboradores (opcional)" del paso 2 del wizard de crear tarea.
+// Es 100% local: appendea a EDC.values.colaboradores y NO toca el backend —
+// la lista se manda recién en edCrearSubmit dentro de addTask(). Espeja el
+// patrón/estilo del modal del panel (_edColabRender): picker de personas del
+// país + toggle de rol Ver/Editar, y muestra los agregados como chips.
+function _crColabFieldHtml(v) {
+  var draft = EDC.colabDraft || (EDC.colabDraft = { name: '', role: 'ver' });
+  var added = Array.isArray(v.colaboradores) ? v.colaboradores : [];
+  // Candidatos: miembros del país (paso 1 ya exige país), menos el responsable
+  // y los ya agregados. Mismo criterio laxo de nombres que el resto del tracker.
+  var taken = {};
+  added.forEach(function(c){ if (c && c.name) taken[String(c.name).trim().toLowerCase()] = 1; });
+  var respKey = String(v.resp || '').trim().toLowerCase();
+  var candidates = _crpMembers(v.pais).filter(function(n) {
+    var k = String(n || '').trim().toLowerCase();
+    return k && k !== respKey && !taken[k];
+  });
+  // Si el draft apunta a alguien que ya no es candidato (recién agregado o
+  // pasó a ser el resp), lo limpiamos para no mandar basura.
+  if (draft.name && candidates.map(function(n){ return String(n).trim().toLowerCase(); }).indexOf(String(draft.name).trim().toLowerCase()) < 0) {
+    draft.name = '';
+  }
+
+  // Chips de los ya agregados (nombre · rol · ×).
+  var chips = added.map(function(c) {
+    if (!c || !c.name) return '';
+    return '<span class="cr-pill-btn active" style="cursor:default;gap:6px">'
+      + esc(c.name)
+      + ' · ' + esc(c.role === 'editar' ? t('Puede editar') : t('Puede ver'))
+      + '<button type="button" onclick="edCrearRemoveColab(\'' + escJs(c.name) + '\')" title="' + esc(t('Quitar')) + '" '
+      +   'style="background:none;border:0;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0 0 0 2px">×</button>'
+      + '</span>';
+  }).join('');
+  var chipsRow = chips
+    ? '<div class="cr-pills-row" style="margin-bottom:8px">' + chips + '</div>'
+    : '';
+
+  // Sub-control para agregar: picker + toggle de rol + botón Agregar.
+  function roleBtn(val, label) {
+    var on = draft.role === val;
+    return '<button type="button" onclick="edCrearSetColabRole(\'' + val + '\')" '
+      + 'class="cr-pill-btn' + (on ? ' active' : '') + '" style="flex:1;justify-content:center">' + esc(label) + '</button>';
+  }
+  var picker = candidates.length
+    ? '<div class="cr-grid2" style="align-items:end">'
+      +   '<div>'
+      +     _crSelectHtml('crColabPick', candidates.map(function(n){ return { value: n, label: n }; }), draft.name, t('Elegí una persona…')).replace('<select id="crColabPick"', '<select id="crColabPick" onchange="edCrearSetColabName(this.value)"')
+      +   '</div>'
+      +   '<div style="display:flex;gap:8px">'
+      +     '<div style="display:flex;gap:6px;flex:1">' + roleBtn('ver', t('Puede ver')) + roleBtn('editar', t('Puede editar')) + '</div>'
+      +     '<button type="button" class="pa-btn pa-btn-primary" ' + (draft.name ? '' : 'disabled style="opacity:.5;cursor:not-allowed"') + ' '
+      +       'onclick="edCrearAddColab(\'' + escJs(draft.name) + '\',\'' + escJs(draft.role) + '\')">' + paIcon('plus', 12) + ' ' + esc(t('Agregar')) + '</button>'
+      +   '</div>'
+      + '</div>'
+    : '<div style="font-size:12px;color:var(--fg-3)">' + esc(t('No hay personas disponibles para agregar.')) + '</div>';
+
+  return '<div class="cr-field">'
+    +   '<div class="cr-label">' + esc(t('Colaboradores (opcional)')) + '</div>'
+    +   chipsRow
+    +   picker
+    + '</div>';
 }
 
 function _crRenderStep3() {
@@ -7847,8 +7933,13 @@ function edCrearOpen() {
     deadline: '',
     proyectoId: '',
     confidencialidad: 'estandar',
-    areaSolicitante: ''
+    areaSolicitante: '',
+    colaboradores: []
   };
+  // Estado transitorio del sub-control "agregar colaborador" del paso 2.
+  // Sobrevive a los re-render del wizard (_crMount re-renderea todo el body),
+  // pero NO se persiste en el draft de localStorage. Espeja EDCOL del panel.
+  EDC.colabDraft = { name: '', role: 'ver' };
   // Restaurar borrador de localStorage si existe contenido útil (titulo o
   // descripcion). Solo override campos NO vacíos del draft — sino una
   // sesión previa que dejó resp/pais en blanco anula nuestros pre-fills
@@ -7865,6 +7956,9 @@ function edCrearOpen() {
       }
     }
   } catch(e){}
+  // El draft puede traer colaboradores de una sesión previa (o nada). Garantizar
+  // que siempre sea un array para que el render del paso 2 no rompa.
+  if (!Array.isArray(EDC.values.colaboradores)) EDC.values.colaboradores = [];
   _crMount();
   setTimeout(function() {
     var input = $('crTitulo');
@@ -7891,6 +7985,44 @@ function edCrearSetField(key, value) {
   // reflejar el estado activo.
   var rerenderFields = { tipo: 1, pais: 1, prioridad: 1, confidencialidad: 1 };
   if (rerenderFields[key]) _crMount();
+}
+
+// ── Sub-control de colaboradores del paso 2 (todo local, sin backend) ──
+// Stagear nombre/rol y commit a EDC.values.colaboradores. Re-renderean el
+// wizard (igual que las pills de edCrearSetField) para reflejar el estado.
+function edCrearSetColabName(v) {
+  if (!EDC.colabDraft) EDC.colabDraft = { name: '', role: 'ver' };
+  EDC.colabDraft.name = v || '';
+  _crMount();
+}
+function edCrearSetColabRole(v) {
+  if (!EDC.colabDraft) EDC.colabDraft = { name: '', role: 'ver' };
+  EDC.colabDraft.role = (v === 'editar') ? 'editar' : 'ver';
+  _crMount();
+}
+function edCrearAddColab(name, role) {
+  if (!EDC.values) return;
+  if (!Array.isArray(EDC.values.colaboradores)) EDC.values.colaboradores = [];
+  // Fallback al estado staged si el arg viene vacío (defensivo).
+  var nm = (name || (EDC.colabDraft && EDC.colabDraft.name) || '').toString().trim();
+  var rl = ((role || (EDC.colabDraft && EDC.colabDraft.role) || 'ver') === 'editar') ? 'editar' : 'ver';
+  if (!nm) return;
+  // Dedup laxo por nombre (mismo criterio que _colabNameEq); el último gana rol.
+  var exists = false;
+  for (var i = 0; i < EDC.values.colaboradores.length; i++) {
+    if (_colabNameEq(EDC.values.colaboradores[i].name, nm)) { EDC.values.colaboradores[i].role = rl; exists = true; break; }
+  }
+  if (!exists) EDC.values.colaboradores.push({ name: nm, role: rl });
+  // Reset del picker (el rol se mantiene como sticky para agregar varios igual).
+  if (EDC.colabDraft) EDC.colabDraft.name = '';
+  try { localStorage.setItem('lt-edc-draft', JSON.stringify(EDC.values)); } catch(e){}
+  _crMount();
+}
+function edCrearRemoveColab(name) {
+  if (!EDC.values || !Array.isArray(EDC.values.colaboradores)) return;
+  EDC.values.colaboradores = EDC.values.colaboradores.filter(function(c){ return !_colabNameEq(c.name, name); });
+  try { localStorage.setItem('lt-edc-draft', JSON.stringify(EDC.values)); } catch(e){}
+  _crMount();
 }
 
 function edCrearGoStep(n) {
@@ -7961,7 +8093,8 @@ function edCrearSubmit() {
       acc: '',
       notas: (v.descripcion || '').trim(),
       confidencialidad: v.confidencialidad || 'estandar',
-      areaSolicitante: v.areaSolicitante || ''
+      areaSolicitante: v.areaSolicitante || '',
+      colaboradores: Array.isArray(v.colaboradores) ? v.colaboradores : []
     });
 }
 
