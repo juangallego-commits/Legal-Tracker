@@ -3903,6 +3903,20 @@ function rEdHomeSpecialist(D) {
   v.innerHTML = html;
 }
 
+// Riesgo de una persona — fuente única usada por el Home del manager (ranking
+// top-3) y por Mi equipo (conteo). score pondera vencidas(×3), bloqueadas(×2) y
+// sobrecapacidad(>100%, ×2). atRisk = score>0 (tiene vencidas, bloqueadas, o
+// está sobre el 100% de su capacidad).
+function _memberRisk(m) {
+  var cap = (m && m.capacity) || 0;
+  var load = (m && m.load) || 0;
+  var overdue = (m && m.overdue) || 0;
+  var blocked = (m && m.blocked) || 0;
+  var ratio = cap > 0 ? (load / cap) : 0;
+  var score = overdue * 3 + blocked * 2 + Math.max(0, ratio - 1) * 2;
+  return { score: score, overdue: overdue, blocked: blocked, overloadPct: Math.round(ratio * 100), atRisk: score > 0 };
+}
+
 function rEdHomeManager(D) {
   var v = $('vEdHome'); if (!v) return;
   var name = _effectiveUserName();
@@ -4022,12 +4036,7 @@ function rEdHomeManager(D) {
   // vencidas o bloqueadas). El detalle completo del equipo está en
   // "Mi equipo" — no duplicamos la tabla acá.
   var teamAtRisk = teamMine.slice()
-    .map(function(m){
-      var pct = (m.capacity > 0) ? ((m.load || 0) / m.capacity) : 0;
-      // Score: overdue × 3 + blocked × 2 + sobrecapacidad
-      var score = ((m.overdue || 0) * 3) + ((m.blocked || 0) * 2) + Math.max(0, pct - 1) * 2;
-      return { m: m, score: score };
-    })
+    .map(function(m){ return { m: m, score: _memberRisk(m).score }; })
     .filter(function(x){ return x.score > 0; })
     .sort(function(a, b){ return b.score - a.score; })
     .slice(0, 3);
@@ -8376,11 +8385,10 @@ function rEdMiequipo(D) {
     }
     countries.sort();
   }
-  var atRisk = visible.filter(function(m){
-    if (!m || !m.capacity) return false;
-    var pct = Math.round((m.load || 0) / m.capacity * 100);
-    return pct > 90 || (m.overdue || 0) > 0 || (m.blocked || 0) > 0;
-  }).length;
+  // Unificado con el Home del manager: at-risk = _memberRisk().atRisk (score>0:
+  // vencidas, bloqueadas, o sobrecapacidad >100%). Nota: antes el umbral de carga
+  // era >90%; ahora >100% — el conteo puede bajar levemente para gente en 91-100%.
+  var atRisk = visible.filter(function(m){ return _memberRisk(m).atRisk; }).length;
 
   // ── Eyebrow + H1 + Lede ───────────────────────────────────────
   var eyebrow, h1, ledeBits = [];
