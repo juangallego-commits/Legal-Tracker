@@ -4091,7 +4091,7 @@ function rEdHomeManager(D) {
       var _why = [];
       if ((m.overdue || 0) > 0) _why.push(t('Vencidas') + ' ' + m.overdue);
       if ((m.blocked || 0) > 0) _why.push(t('On hold') + ' ' + m.blocked);
-      if (pct > 100) _why.push(t('Carga') + ' ' + pct + '%');
+      if (m.capacity > 0 && (m.load || 0) / m.capacity > 1) _why.push(t('Carga') + ' ' + pct + '%');
       html += '<div class="pa-tbl-r" title="' + esc(_why.join(' · ')) + '" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px;height:46px">'
            +    '<div class="pa-flex-center">' + paAvatar(m.name || '?', 22)
            +      '<div><div style="font-size:13px;font-weight:500">' + esc(m.name || '') + '</div>'
@@ -5681,7 +5681,7 @@ function _renderInsightsHtml(taskId, docId, ai, analyzedBy) {
   h += row('Tipo', ai.tipoContrato);
   h += row('Partes', (ai.partes || []).join(' · '));
   h += row('Vigencia', ai.vigenciaTexto);
-  h += row('Vence', ai.fechaVencimiento + (ai.autoRenovacion ? ' (auto-renovación)' : ''));
+  h += row('Vence', ai.fechaVencimiento ? (ai.fechaVencimiento + (ai.autoRenovacion ? ' (auto-renovación)' : '')) : '');
   h += row('Jurisdicción', ai.jurisdiccion);
   h += row('Montos', ai.montos);
   h += row('Penalidades', ai.penalidades);
@@ -7475,7 +7475,6 @@ function _crRenderStep3() {
     +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Tipo</div><div class="cr-conf-val">' + esc(v.tipo || '—') + '</div></div>'
     +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">País</div><div class="cr-conf-val">' + esc(v.pais || '—') + '</div></div>'
     +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Proyecto</div><div class="cr-conf-val">' + esc(projName) + '</div></div>'
-    +     '<div class="cr-conf-cell"><div class="cr-conf-lbl">Riesgo</div><div class="cr-conf-val">' + esc(v.riesgo || '—') + '</div></div>'
     +   '</div>'
     + '</div>';
   if (v.descripcion) {
@@ -7624,7 +7623,7 @@ function edCrearSetField(key, value) {
   // Para campos texto/select que están dentro del DOM actual, no re-renderizamos
   // — el valor ya está en EDC.values. Para pills sí re-renderizamos para
   // reflejar el estado activo.
-  var rerenderFields = { tipo: 1, pais: 1, prioridad: 1, riesgo: 1, confidencialidad: 1 };
+  var rerenderFields = { tipo: 1, pais: 1, prioridad: 1, confidencialidad: 1 };
   if (rerenderFields[key]) _crMount();
 }
 
@@ -9184,9 +9183,9 @@ function _rEdAnalyticsSpecialist(D) {
   } else {
     html += '<div class="pa-card" style="padding:14px 18px">';
     var rows = [
-      { lbl: 'Alta',  val: byPrio.Alta,  color: 'var(--critical)', avg: me.avgAlta  || '—', sla: 'SLA 2d' },
-      { lbl: 'Media', val: byPrio.Media, color: 'var(--warn)',     avg: me.avgMedia || '—', sla: 'SLA 5d' },
-      { lbl: 'Baja',  val: byPrio.Baja,  color: 'var(--good)',     avg: me.avgBaja  || '—', sla: 'SLA 7d' }
+      { lbl: 'Alta',  val: byPrio.Alta,  color: 'var(--critical)', avg: me.avgAlta  || '—', sla: 'SLA ' + _slaLimit('Alta') + 'd' },
+      { lbl: 'Media', val: byPrio.Media, color: 'var(--warn)',     avg: me.avgMedia || '—', sla: 'SLA ' + _slaLimit('Media') + 'd' },
+      { lbl: 'Baja',  val: byPrio.Baja,  color: 'var(--good)',     avg: me.avgBaja  || '—', sla: 'SLA ' + _slaLimit('Baja') + 'd' }
     ];
     rows.forEach(function(r, i) {
       var pct = totalP > 0 ? Math.round(r.val / totalP * 100) : 0;
@@ -10697,8 +10696,8 @@ function _recRenderLinksTab(v) {
       var actions = '';
       if (_recursoCanDelete(r)) {
         actions = '<div class="bib-card-actions">'
-          + '<button type="button" class="bib-card-act" onclick="event.stopPropagation();edRecursoEdit(\'' + esc(r.id) + '\')" title="' + esc(t('Editar')) + '" aria-label="' + esc(t('Editar')) + '" style="font-size:13px;line-height:1">✏️</button>'
-          + '<button type="button" class="bib-card-act del" onclick="event.stopPropagation();edRecursoDelete(\'' + esc(r.id) + '\')" title="' + esc(t('Eliminar')) + '" aria-label="' + esc(t('Eliminar')) + '" style="font-size:15px;line-height:1">×</button>'
+          + '<button type="button" class="bib-card-act" onclick="event.stopPropagation();edRecursoEdit(\'' + escJs(r.id) + '\')" title="' + esc(t('Editar')) + '" aria-label="' + esc(t('Editar')) + '" style="font-size:13px;line-height:1">✏️</button>'
+          + '<button type="button" class="bib-card-act del" onclick="event.stopPropagation();edRecursoDelete(\'' + escJs(r.id) + '\')" title="' + esc(t('Eliminar')) + '" aria-label="' + esc(t('Eliminar')) + '" style="font-size:15px;line-height:1">×</button>'
           + '</div>';
       }
 
@@ -11248,7 +11247,7 @@ function rEdCalendar(D) {
        +    '</div>'
        +  '</details>';
 
-  if (err) { html += paEmpty('calendar', t('Tu calendario no está conectado'), esc(err)); html += '</div>'; v.innerHTML = html; return; }
+  if (err) { html += paEmpty('calendar', t('Tu calendario no está conectado'), err); html += '</div>'; v.innerHTML = html; return; }
 
   // Empty-state semanal: si no hay NI reuniones NI vencimientos en toda la
   // semana, decirlo explícitamente (antes solo se veían 7 columnas con "·").
