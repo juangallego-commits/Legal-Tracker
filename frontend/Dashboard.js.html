@@ -10611,7 +10611,7 @@ function rEdRecursos(D) {
          +    '<div class="bib-card-class"><span class="bib-chip">' + esc(cat) + '</span></div>'
          +    '<div class="bib-card-f">'
          +      '<span class="author">' + metaParts.join(' · ') + '</span>'
-         +      (href ? '<span class="open-hint">↗ ' + esc(t('Abrir')) + '</span>' : '')
+         +      (href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener" class="open-hint" style="text-decoration:none;cursor:pointer">↗ ' + esc(t('Abrir')) + '</a>' : '')
          +    '</div>'
          + '</div>';
   });
