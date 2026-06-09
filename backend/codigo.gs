@@ -33,11 +33,14 @@ const DIGEST_SKIP_WEEKENDS = true; // En sáb/dom el trigger corre pero hace ear
 // los nuevos updates se persisten ahí.
 // NOTA MIGRACIÓN: las columnas TASK col 19 (Contraparte) y PROJ col 17 (ContrapartesConflicto)
 // deben agregarse manualmente al sheet antes de usar; sin la columna se defaultean a vacío.
-const TASK_COLS = 20;
+// TASK col 21 (Colaboradores, JSON [{name,role}]) se agrega con migrarColaboradores() (admin.gs);
+// sin la columna readTasks defaultea a [] y setTaskColaboradores avisa que falta migrar.
+const TASK_COLS = 21;
 const TASK_DOCS_COL = 17; // 1-indexed
 const TASK_CONF_COL = 18; // 1-indexed
 const TASK_CONTRAPARTE_COL = 19; // 1-indexed
 const TASK_AREASOL_COL = 20; // 1-indexed · "Área solicitante" (cliente interno)
+const TASK_COLAB_COL = 21; // 1-indexed · Colaboradores (JSON [{name,role}], role ∈ {ver,editar})
 // Projects: 17 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana,Participantes,TipoTrabajo,Riesgo,Documentos,ContrapartesConflicto
 const PROJ_COLS = 17;
 const PROJ_DOCS_COL = 16; // 1-indexed
@@ -272,9 +275,22 @@ function _getEditorialDataImpl() {
   // (O(team × n)). Ahora es O(n + team).
   if (data.team && data.team.length) {
     var tasksByResp = {};
+    // Buckets de tareas donde el miembro es colaborador con rol 'editar' (cuentan
+    // para load, igual que si fuera resp). Las colaboraciones 'ver' NO suman carga.
+    // Keyeado por nombre normalizado porque el name del colaborador puede diferir
+    // en mayúsculas/acentos del member.name.
+    var tasksByColabEditor = {};
     (data.tasks || []).forEach(function(t) {
       var key = t.resp || '';
       (tasksByResp[key] = tasksByResp[key] || []).push(t);
+      var colabs = t.colaboradores || [];
+      for (var ci = 0; ci < colabs.length; ci++) {
+        if (colabs[ci] && colabs[ci].role === 'editar') {
+          var ckey = _normalizeName(colabs[ci].name);
+          if (!ckey) continue;
+          (tasksByColabEditor[ckey] = tasksByColabEditor[ckey] || []).push(t);
+        }
+      }
     });
     var histByResp = {};
     (data.historial || []).forEach(function(t) {
@@ -295,7 +311,17 @@ function _getEditorialDataImpl() {
     var capMap = _resolveCapacityMap(data.config);
 
     data.team.forEach(function(member) {
-      var memberTasks = tasksByResp[member.name] || [];
+      // Tareas del miembro: como resp + como colaborador-editar. Dedup por id
+      // (un mismo task no debe contar doble; el CRUD impide ser resp y colab a la vez,
+      // pero deduplicamos por las dudas ante data inconsistente).
+      var memberTasks = (tasksByResp[member.name] || []).slice();
+      var colabEditorTasks = tasksByColabEditor[_normalizeName(member.name)] || [];
+      if (colabEditorTasks.length) {
+        var seen = {};
+        memberTasks.forEach(function(t){ seen[t.id] = 1; });
+        colabEditorTasks.forEach(function(t){ if (!seen[t.id]) { seen[t.id] = 1; memberTasks.push(t); } });
+      }
+      // active = tareas (resp OR colaborador-editar) que no están cerradas/canceladas.
       var activeTasks = memberTasks.filter(function(t){ return t.status !== 'Listo' && t.status !== 'Cancelado'; });
       member.load     = activeTasks.length;
       var capByName   = capMap.byName[_normalizeName(member.name)];
@@ -640,20 +666,37 @@ function determineRole(email, user, config) {
 //   restringido  → solo resp / lider / head / manager del país
 //   confidencial → solo resp / lider / head
 function filterTasksForRole(tasks, role, user, equipos) {
+  // ¿el visitante es colaborador de la tarea (cualquier rol)? Da visibilidad.
+  // task.colaboradores puede no existir en lecturas viejas → _isColaborador devuelve false.
+  function _userIsColab(t) { return _isColaborador(t, user.name, null); }
+
   var roleFiltered;
   if (role === 'head') {
     roleFiltered = tasks;
   } else if (role === 'manager') {
+    // Manager: tareas de su país (scope de país preservado — NO ve colaboraciones
+    // de otros países). Una task de su país donde algún miembro es colaborador ya
+    // entra por cc === user.code, así que el set de tareas visibles del manager no
+    // cambia acá; el aporte real de "colaborador" para el manager está en el
+    // override de confidencialidad de más abajo (ve una confidencial de SU país
+    // si tiene un colaborador asignado, sin necesitar ser resp/lider).
     roleFiltered = tasks.filter(function(t) {
       var cc = t.pais || getCountryForMember(t.resp, equipos);
       return cc === user.code;
     });
   } else {
-    roleFiltered = tasks.filter(function(t){ return t.resp === user.name; });
+    // specialist: sus tareas (resp) + las tareas donde es colaborador (ver o editar).
+    roleFiltered = tasks.filter(function(t){
+      return t.resp === user.name || _userIsColab(t);
+    });
   }
 
-  // Filtro adicional por confidencialidad (server-side enforcement, no solo UI)
+  // Filtro adicional por confidencialidad (server-side enforcement, no solo UI).
+  // OVERRIDE: ser colaborador de la tarea da visibilidad incluso si es
+  // restringida/confidencial — el filtro de confidencialidad NO debe ocultar una
+  // tarea donde sos colaborador (es un acceso concedido explícitamente).
   return roleFiltered.filter(function(t) {
+    if (_userIsColab(t)) return true;
     var conf = (t.confidencialidad || 'estandar').toString().trim().toLowerCase() || 'estandar';
     if (conf === 'estandar') return true;
     if (conf === 'restringido') {
@@ -1014,12 +1057,17 @@ function _authorizeTaskWrite(ctx, target) {
     }
     return;
   }
-  // specialist: solo sus propias tareas
-  if (!target || _normalizeName(target.resp) !== _normalizeName(ctx.user.name)) {
+  // specialist: sus propias tareas (resp), o tareas donde es colaborador con rol
+  // 'editar' (edita/avanza/cierra). Colaborador 'ver' NO pasa por acá (solo lee/comenta).
+  var isOwnerSpec = target && _normalizeName(target.resp) === _normalizeName(ctx.user.name);
+  var isEditorColab = _isColaborador(target, ctx.user.name, 'editar');
+  if (!isOwnerSpec && !isEditorColab) {
     throw new Error('Sin permiso: solo puedes modificar tus tareas');
   }
   // ...y solo de su propio país (cierra el create cross-country vía API directa).
-  if (target.pais && ctx.user.code && target.pais !== ctx.user.code) {
+  // El guard de país solo aplica al dueño (un colaborador-editar puede vivir en otro
+  // país y aun así trabajar la tarea que le compartieron).
+  if (isOwnerSpec && !isEditorColab && target.pais && ctx.user.code && target.pais !== ctx.user.code) {
     throw new Error('Sin permiso: solo puedes crear tareas de tu país');
   }
 }
@@ -1070,7 +1118,10 @@ function _readTaskById(ss, taskId) {
         riesgo: data[i][15],
         confidencialidad: (data[i][17] || '').toString().trim(),
         contraparte: data[i][18],
-        areaSolicitante: (data[i][19] || '').toString().trim()
+        areaSolicitante: (data[i][19] || '').toString().trim(),
+        // Col 21 (índice 20): colaboradores. Default [] si la hoja no tiene la col.
+        // _authorizeTaskWrite lo usa para permitir a colaboradores-editar.
+        colaboradores: _parseColaboradores(data[i][20])
       };
     }
   }
@@ -1283,7 +1334,10 @@ function readTasks(ws) {
       // Col 19 (índice 18): single text. Default '' si la columna aún no existe.
       contraparte: (row[18] || '').toString().trim(),
       // Col 20 (índice 19): área solicitante (cliente interno). Default '' si no existe.
-      areaSolicitante: (row[19] || '').toString().trim()
+      areaSolicitante: (row[19] || '').toString().trim(),
+      // Col 21 (índice 20): Colaboradores (JSON [{name,role}]). Default [] si la
+      // columna aún no existe en la hoja (deploy sin migrarColaboradores()).
+      colaboradores: _parseColaboradores(row[20])
     });
   });
   tasks.sort(function(a,b){return (PRIO_ORDER[a.priority]||1)-(PRIO_ORDER[b.priority]||1)||(STATUS_ORDER[a.status]||2)-(STATUS_ORDER[b.status]||2)});
@@ -3557,6 +3611,69 @@ function _serializeDocs(docs) {
   return JSON.stringify(docs);
 }
 
+// ── COLABORADORES (col 21, JSON-en-celda, mismo patrón que Documentos) ──
+// Cada colaborador = {name, role} con role ∈ {'ver','editar'}.
+//   ver    → visibilidad + comentar.
+//   editar → además edita/avanza/cierra; la tarea le suma a su carga.
+// El responsable principal (col 3 'resp') sigue siendo uno solo; esto es aditivo.
+var _COLAB_ROLES = { 'ver': 1, 'editar': 1 };
+
+// Parseo defensivo (igual que _parseDocs): JSON.parse en try/catch, valida role,
+// descarta entradas sin name. Devuelve [] ante celda vacía/JSON inválido/no-array.
+function _parseColaboradores(cell) {
+  if (!cell) return [];
+  var s = cell.toString().trim();
+  if (!s) return [];
+  var arr;
+  try { arr = JSON.parse(s); } catch (e) { return []; }
+  if (!Array.isArray(arr)) return [];
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var c = arr[i];
+    if (!c || typeof c !== 'object') continue;
+    var name = (c.name == null ? '' : c.name.toString().trim());
+    if (!name) continue; // ignora entradas sin name
+    var role = (c.role == null ? '' : c.role.toString().trim().toLowerCase());
+    if (!_COLAB_ROLES[role]) role = 'ver'; // default seguro
+    out.push({ name: name, role: role });
+  }
+  return out;
+}
+
+// Serializa a JSON string ('' si vacío → celda limpia, igual que _serializeDocs).
+function _stringifyColaboradores(arr) {
+  if (!arr || !arr.length) return '';
+  var clean = [];
+  for (var i = 0; i < arr.length; i++) {
+    var c = arr[i];
+    if (!c) continue;
+    var name = (c.name == null ? '' : c.name.toString().trim());
+    if (!name) continue;
+    var role = (c.role == null ? '' : c.role.toString().trim().toLowerCase());
+    if (!_COLAB_ROLES[role]) role = 'ver';
+    clean.push({ name: name, role: role });
+  }
+  return clean.length ? JSON.stringify(clean) : '';
+}
+
+// ¿`name` es colaborador de `task`? Compara con _normalizeName (como el resto del
+// código). roleMin === 'editar' exige role 'editar'; cualquier otro valor acepta
+// cualquier rol (ver o editar). task.colaboradores se asume [{name,role}] o ausente.
+function _isColaborador(task, name, roleMin) {
+  if (!task || !name) return false;
+  var list = task.colaboradores;
+  if (!list || !list.length) return false;
+  var target = _normalizeName(name);
+  if (!target) return false;
+  for (var i = 0; i < list.length; i++) {
+    var c = list[i];
+    if (!c || _normalizeName(c.name) !== target) continue;
+    if (roleMin === 'editar') { if (c.role === 'editar') return true; }
+    else { return true; }
+  }
+  return false;
+}
+
 // Extrae el ID de Drive de una URL o retorna el valor tal cual si ya parece ID.
 function _extractDriveId(urlOrId) {
   if (!urlOrId) return '';
@@ -3843,6 +3960,118 @@ function _removeDocumentImpl(kind, itemId, docIndex) {
   info.ws.getRange(info.row, info.col).setValue(_serializeDocs(info.docs));
   // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true };
+}
+
+// ════════════════════════════════════════════════════════════════
+// COLABORADORES EN TAREAS · CRUD (col 21, JSON-en-celda)
+// ════════════════════════════════════════════════════════════════
+// A una tarea se le pueden agregar personas con rol 'ver' (visibilidad +
+// comentar) o 'editar' (además edita/avanza/cierra; suma a su carga). El
+// responsable principal (col 3 'resp') sigue siendo uno solo. Mismo patrón
+// JSON-en-celda que Documentos (col 17).
+
+// Permiso para GESTIONAR la lista de colaboradores de una tarea: el resp de la
+// tarea, o manager de su país, o head. NO un colaborador-editar (un colaborador
+// puede trabajar la tarea pero no administrar a quién más se le comparte).
+// `target` = {resp, pais}. Lanza si no puede.
+function _authorizeColaboradoresWrite(ctx, target) {
+  if (ctx.role === 'head') return;
+  if (ctx.role === 'manager') {
+    var cc = (target && target.pais) || (target ? getCountryForMember(target.resp, ctx.equipos) : '');
+    if (cc && cc !== ctx.user.code) {
+      throw new Error('Sin permiso: tarea de otro país (' + cc + ')');
+    }
+    return;
+  }
+  // specialist: solo el responsable de la tarea puede gestionar colaboradores.
+  if (!target || _normalizeName(target.resp) !== _normalizeName(ctx.user.name)) {
+    throw new Error('Sin permiso: solo el responsable, manager o head pueden gestionar colaboradores');
+  }
+}
+
+// Reemplaza la lista completa de colaboradores de una tarea.
+//   lista = [{name, role}] con role ∈ {'ver','editar'}.
+// Permiso: resp / manager(de su país) / head. Valida cada role; NO permite
+// agregar al propio resp como colaborador (redundante). Persiste JSON en col 21.
+function setTaskColaboradores(taskId, lista) {
+  return _telemetry('setTaskColaboradores', function() {
+    return _safeMutation(function() { return _setTaskColaboradoresImpl(taskId, lista); });
+  }, { taskId: taskId, count: (lista && lista.length) || 0 });
+}
+function _setTaskColaboradoresImpl(taskId, lista) {
+  var ctx = _getAuthContext();
+  var current = _readTaskById(ctx.ss, taskId);
+  if (!current) return _err('NOT_FOUND', 'Tarea #' + taskId + ' no encontrada');
+  _authorizeColaboradoresWrite(ctx, current);
+
+  var ws = ctx.ss.getSheetByName(SHEET_ACTIVO);
+  // Guard anti-drift: si la hoja todavía no tiene la col 21, NO escribir (Sheets
+  // auto-expandiría y desplazaría las lecturas). Avisar que falta migrar.
+  if (TASK_COLAB_COL > ws.getLastColumn()) {
+    return _err('SHEET_NOT_MIGRATED', 'La hoja no tiene la columna Colaboradores. Pedile al admin que corra migrarColaboradores().');
+  }
+
+  // Normalizar + validar la lista entrante.
+  var arr = Array.isArray(lista) ? lista : [];
+  var respNorm = _normalizeName(current.resp);
+  var out = [];
+  var seen = {};
+  for (var i = 0; i < arr.length; i++) {
+    var c = arr[i];
+    if (!c || typeof c !== 'object') continue;
+    var name = (c.name == null ? '' : c.name.toString().trim());
+    if (!name) continue; // ignora entradas sin name
+    var role = (c.role == null ? '' : c.role.toString().trim().toLowerCase());
+    if (!_COLAB_ROLES[role]) {
+      return _err('VALIDATION', 'Rol inválido para "' + name + '": debe ser "ver" o "editar".');
+    }
+    var nn = _normalizeName(name);
+    // No permitir al propio resp como colaborador (redundante).
+    if (nn === respNorm) {
+      return _err('VALIDATION', 'El responsable de la tarea no puede agregarse como colaborador.');
+    }
+    if (seen[nn]) continue; // dedup por nombre normalizado (último gana el rol del primero visto)
+    seen[nn] = 1;
+    out.push({ name: name, role: role });
+  }
+
+  var json = _stringifyColaboradores(out);
+  var oldJson = _stringifyColaboradores(current.colaboradores || []);
+  ws.getRange(current.row, TASK_COLAB_COL).setValue(_sanitizeCell(json));
+  // Activity log best-effort (no aborta la mutation si falla).
+  _logActivity(ctx, taskId, 'colaboradores', 'colaboradores', oldJson, json);
+  // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
+  return { success: true, colaboradores: out };
+}
+
+// Azúcar: agrega/actualiza UN colaborador (set role) sobre la lista actual.
+// Reutiliza setTaskColaboradores para una sola fuente de validación/persistencia.
+function addTaskColaborador(taskId, name, role) {
+  return _safeMutation(function() {
+    var ctx = _getAuthContext();
+    var current = _readTaskById(ctx.ss, taskId);
+    if (!current) return _err('NOT_FOUND', 'Tarea #' + taskId + ' no encontrada');
+    var list = (current.colaboradores || []).slice();
+    var nn = _normalizeName(name);
+    var found = false;
+    for (var i = 0; i < list.length; i++) {
+      if (_normalizeName(list[i].name) === nn) { list[i] = { name: list[i].name, role: role }; found = true; break; }
+    }
+    if (!found) list.push({ name: (name == null ? '' : name.toString().trim()), role: role });
+    return _setTaskColaboradoresImpl(taskId, list);
+  });
+}
+
+// Azúcar: quita UN colaborador (por nombre) de la lista actual.
+function removeTaskColaborador(taskId, name) {
+  return _safeMutation(function() {
+    var ctx = _getAuthContext();
+    var current = _readTaskById(ctx.ss, taskId);
+    if (!current) return _err('NOT_FOUND', 'Tarea #' + taskId + ' no encontrada');
+    var nn = _normalizeName(name);
+    var list = (current.colaboradores || []).filter(function(c){ return _normalizeName(c.name) !== nn; });
+    return _setTaskColaboradoresImpl(taskId, list);
+  });
 }
 
 // ════════════════════════════════════════════════════════════════

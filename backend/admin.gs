@@ -245,6 +245,21 @@ function setupSheets() {
     }
   }
 
+  // ── 3c. Tracking Activo: col 21 = Colaboradores (JSON [{name,role}], header row 3) ──
+  if (tk) {
+    var lastColCb = tk.getLastColumn();
+    var hdrCb = lastColCb >= TASK_COLAB_COL ? tk.getRange(3, TASK_COLAB_COL).getValue() : '';
+    if (!hdrCb) {
+      tk.getRange(3, TASK_COLAB_COL).setValue('Colaboradores');
+      tk.getRange(3, TASK_COLAB_COL).setFontWeight('bold');
+      log('✓ Tracking Activo: agregada columna ' + TASK_COLAB_COL + ' = Colaboradores (row 3)');
+    } else if (hdrCb === 'Colaboradores') {
+      log('· Tracking Activo ya tenía columna Colaboradores');
+    } else {
+      log('⚠ Tracking Activo col ' + TASK_COLAB_COL + ' tiene "' + hdrCb + '" — revisión manual');
+    }
+  }
+
   // ── 4. Proyectos: col 17 = ContrapartesConflicto (header en row 1)
   var pj = ss.getSheetByName(SHEET_PROYECTOS);
   if (pj) {
@@ -425,5 +440,58 @@ function migrarRecursosFaseB() {
   }
 
   log('—— migrarRecursosFaseB terminó ——');
+  return report;
+}
+
+// ════════════════════════════════════════════════════════════════
+// MIGRAR COLABORADORES · col 21 en Tracking Activo (Fase 1)
+// ════════════════════════════════════════════════════════════════
+// Agrega la columna 21 = 'Colaboradores' (JSON [{name,role}]) a Tracking Activo.
+// Idempotente. Gated por HEAD. Las celdas existentes quedan vacías → readTasks
+// defaultea a [] (sin colaboradores). El CRUD (setTaskColaboradores) avisa si la
+// columna falta; esto la crea.
+//
+// Cómo correr: editor de Apps Script → dropdown → migrarColaboradores → Run.
+// Mirá Logger (View → Executions) para el reporte.
+//
+// El header de Tracking Activo va en la FILA 3 (igual que Contraparte col 19 y
+// AreaSolicitante col 20 — ver setupSheets). Auto-contenida: solo usa
+// SpreadsheetApp, SHEET_ACTIVO, TASK_COLAB_COL y _requireAdminEmail.
+function migrarColaboradores() {
+  var who = _requireAdminEmail();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var report = [];
+  var log = function(msg) { report.push(msg); Logger.log(msg); };
+  log('▶ migrarColaboradores ejecutado por ' + who);
+
+  var tk = ss.getSheetByName(SHEET_ACTIVO);
+  if (!tk) {
+    log('⚠ Hoja Tracking Activo no encontrada — nada que migrar');
+    log('—— migrarColaboradores terminó ——');
+    return report;
+  }
+
+  var lastCol = tk.getLastColumn();
+  // Idempotente: si ya tiene >=21 cols, leer el header existente y decidir.
+  var hdr = lastCol >= TASK_COLAB_COL ? (tk.getRange(3, TASK_COLAB_COL).getValue() || '').toString().trim() : '';
+  if (!hdr) {
+    tk.getRange(3, TASK_COLAB_COL).setValue('Colaboradores');
+    tk.getRange(3, TASK_COLAB_COL).setFontWeight('bold');
+    log('✓ Tracking Activo: agregada columna ' + TASK_COLAB_COL + ' = Colaboradores (row 3). Celdas existentes quedan vacías → [].');
+  } else if (hdr === 'Colaboradores') {
+    log('· Tracking Activo ya tenía columna Colaboradores (col ' + TASK_COLAB_COL + ') — skip');
+  } else {
+    log('⚠ Tracking Activo col ' + TASK_COLAB_COL + ' tiene "' + hdr + '" — revisión manual (NO se sobreescribe)');
+  }
+
+  // Flush cache para que el siguiente lector vea la columna nueva.
+  try {
+    CacheService.getScriptCache().remove(CACHE_KEY);
+    log('✓ Cache invalidada (' + CACHE_KEY + ')');
+  } catch (e) {
+    log('⚠ Cache flush falló: ' + e.message);
+  }
+
+  log('—— migrarColaboradores terminó ——');
   return report;
 }
