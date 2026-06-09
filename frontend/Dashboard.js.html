@@ -10812,7 +10812,7 @@ function rEdCalendar(D) {
        +    '</div>'
        +  '</details>';
 
-  if (err) { html += paEmpty('calendar', t('No pude leer el calendario.'), esc(err)); html += '</div>'; v.innerHTML = html; return; }
+  if (err) { html += paEmpty('calendar', t('Tu calendario no está conectado'), esc(err)); html += '</div>'; v.innerHTML = html; return; }
 
   // Empty-state semanal: si no hay NI reuniones NI vencimientos en toda la
   // semana, decirlo explícitamente (antes solo se veían 7 columnas con "·").

@@ -2822,7 +2822,7 @@ function getUpcomingCalendarEvents(fromIso, days) {
       var _ownerEmail = '';
       try { _ownerEmail = (Session.getEffectiveUser().getEmail() || '').toString().trim(); } catch (e) {}
       try { console.warn('Calendar resolve failed [' + r.reason + ']'); } catch (e) {}
-      return { items: [], error: 'No pudimos acceder a tu calendario. Para verlo acá, compartí tu Google Calendar con ' + (_ownerEmail || 'la cuenta del Legal Tracker') + ' con permiso «Ver todos los detalles del evento» (Google Calendar → Configuración → Compartir con personas específicas). Si persiste, IT puede habilitar la visibilidad interna de calendarios para todo el equipo de una.' };
+      return { items: [], error: 'No pudimos acceder a tu calendario — es opcional, el resto de MyDash funciona igual. Para verlo acá, desplegá «¿No ves tus reuniones acá?» arriba (se conecta una sola vez).' };
     }
     var tz = 'America/Bogota';
     var from;
