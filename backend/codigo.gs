@@ -1018,6 +1018,10 @@ function _authorizeTaskWrite(ctx, target) {
   if (!target || _normalizeName(target.resp) !== _normalizeName(ctx.user.name)) {
     throw new Error('Sin permiso: solo puedes modificar tus tareas');
   }
+  // ...y solo de su propio país (cierra el create cross-country vía API directa).
+  if (target.pais && ctx.user.code && target.pais !== ctx.user.code) {
+    throw new Error('Sin permiso: solo puedes crear tareas de tu país');
+  }
 }
 
 // Valida que el visitante pueda modificar un proyecto específico.
@@ -1798,6 +1802,9 @@ function _updateTaskFieldImpl(taskId, field, value) {
   if (field === 'pais' && ctx.role === 'manager' && value !== ctx.user.code) {
     throw new Error('Sin permiso: no puedes mover tareas a otro país');
   }
+  if (field === 'pais' && ctx.role === 'specialist' && value !== ctx.user.code) {
+    throw new Error('Sin permiso: no puedes cambiar el país de la tarea');
+  }
   // Solo manager/head pueden cambiar el nivel de confidencialidad de una tarea.
   if (field === 'confidencialidad' && ctx.role !== 'manager' && ctx.role !== 'head') {
     throw new Error('Sin permiso: solo manager o head pueden cambiar confidencialidad');
@@ -1878,6 +1885,9 @@ function _updateTaskFieldsImpl(taskId, fields) {
   }
   if (ctx.role === 'manager' && fields.pais !== undefined && fields.pais !== ctx.user.code) {
     throw new Error('Sin permiso: no puedes mover tareas a otro país');
+  }
+  if (ctx.role === 'specialist' && fields.pais !== undefined && fields.pais !== ctx.user.code) {
+    throw new Error('Sin permiso: no puedes cambiar el país de la tarea');
   }
   // Solo manager/head pueden cambiar el nivel de confidencialidad de una tarea.
   if (fields.confidencialidad !== undefined && ctx.role !== 'manager' && ctx.role !== 'head') {
@@ -2933,6 +2943,14 @@ function updateRecurso(id, campos) {
       if (campos.hasOwnProperty('url')) {
         var v = _recValidateUrl(campos.url);
         if (!v.ok) return { success: false, error: v.error };
+        // Dedupe: la URL editada no puede colisionar con OTRO recurso (consistente con addRecurso).
+        var _newNorm = _recNormalizeUrl(v.url);
+        for (var di = 0; di < data.length; di++) {
+          if (di === rowIdx - 2) continue; // saltar la fila propia
+          if (_recNormalizeUrl((data[di][2] || '').toString()) === _newNorm) {
+            return { success: false, motivo: 'duplicado', error: 'Ya existe otro recurso con esa URL.' };
+          }
+        }
         cur.url = v.url;
       }
       if (campos.hasOwnProperty('categoria')) {
