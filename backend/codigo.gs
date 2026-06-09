@@ -2433,6 +2433,7 @@ function addBibliotecaDocLink(nombre, url, metadata) {
       var m = v.meta, now = new Date().toISOString();
       var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);
       ws.appendRow(_sanitizeRow([id, nm, 'link', u, m.tipoDocumento, m.areaTrabajo, m.pais, m.confidencialidad, m.tags, (ctx.user && ctx.user.name) || ctx.email || '', ctx.email || '', now, 'si', m.notas, '', '', m.areaSolicitante]));
+      try { _aiUpsertEmbedding(ctx.ss, id, _aiBiblioText({ nombre: nm, tags: m.tags, notas: m.notas, tipoDocumento: m.tipoDocumento, areaTrabajo: m.areaTrabajo, areaSolicitante: m.areaSolicitante, pais: m.pais })); } catch (e) {}
       return { success: true, id: id };
     });
   }, {});
@@ -2452,13 +2453,18 @@ function uploadBibliotecaDocFile(fileData, metadata) {
       if (ws.getLastColumn() < _BIB_COLS) return _err('SHEET_NOT_MIGRATED', 'La Biblioteca necesita migración: pedile a un head que corra migrateBiblioDocsSchema().');
       var bytes = Utilities.base64Decode(fileData.data);
       if (bytes.length > _UPLOAD_MAX_BYTES) return { success: false, error: 'Archivo demasiado grande (máx. 45 MB)' };
-      // Fase 2: organizar por taxonomía en Drive (/Biblioteca/<país>/<área>) en
-      // vez de una carpeta plana. _ensureSubfolder es get-or-create idempotente.
-      var folder = _ensureSubfolder(_ensureSubfolder(_ensureSubfolder(_getRootFolder(), 'Biblioteca'), v.meta.pais), v.meta.areaTrabajo);
+      // Taxonomía de biblioteca: Biblioteca / TipoDocumento / Cliente / País.
+      // Agrupa por tipo de documento primero (todos los NDAs juntos, etc.),
+      // luego cliente interno (área solicitante), luego país. Get-or-create.
+      var bibRoot = _ensureSubfolder(_getRootFolder(), 'Biblioteca');
+      var bibTipo = _ensureSubfolder(bibRoot, v.meta.tipoDocumento || 'Sin clasificar');
+      var bibCli  = _ensureSubfolder(bibTipo, v.meta.areaSolicitante || 'Genérico');
+      var folder  = _ensureSubfolder(bibCli, v.meta.pais || 'Sin país');
       var file = folder.createFile(Utilities.newBlob(bytes, mime, fileData.name));
       var m = v.meta, now = new Date().toISOString();
       var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);
       ws.appendRow(_sanitizeRow([id, file.getName(), 'file', file.getUrl(), m.tipoDocumento, m.areaTrabajo, m.pais, m.confidencialidad, m.tags, (ctx.user && ctx.user.name) || ctx.email || '', ctx.email || '', now, 'si', m.notas, '', '', m.areaSolicitante]));
+      try { _aiUpsertEmbedding(ctx.ss, id, _aiBiblioText({ nombre: file.getName(), tags: m.tags, notas: m.notas, tipoDocumento: m.tipoDocumento, areaTrabajo: m.areaTrabajo, areaSolicitante: m.areaSolicitante, pais: m.pais })); } catch (e) {}
       return { success: true, id: id, url: file.getUrl() };
     });
   }, {});
@@ -3076,17 +3082,36 @@ function _getRootFolder() {
 // Retorna (o crea) una subcarpeta por nombre dentro de parent.
 function _ensureSubfolder(parent, name) {
   var clean = (name || '').toString().trim() || 'Sin clasificar';
+  // Drive no permite '/' en nombres de carpeta; lo reemplazamos para no romper.
+  clean = clean.replace(/\//g, '-').slice(0, 120);
   var it = parent.getFoldersByName(clean);
   if (it.hasNext()) return it.next();
   return parent.createFolder(clean);
 }
 
+// Extrae el año (yyyy) de una celda de fecha (Date o string dd/MM/yyyy ...).
+// Fallback al año actual si no parsea — así nunca quedan archivos sin año.
+function _folderYearFromCell(cell) {
+  try {
+    if (cell instanceof Date) return cell.getFullYear().toString();
+    var s = (cell || '').toString().trim();
+    var m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); // dd/MM/yyyy
+    if (m) return m[3];
+    var d = new Date(s);
+    if (!isNaN(d.getTime())) return d.getFullYear().toString();
+  } catch (e) {}
+  return new Date().getFullYear().toString();
+}
+
 // Resuelve la carpeta final donde debe ir un archivo según la taxonomía:
-//   TipoTrabajo / País / (NombreProyecto | "Tareas sueltas")
+//   Tareas:    Año / País / Cliente / Tipo / (NombreProyecto | "Tareas sueltas")
+//   Proyectos: Año / País / "Proyectos" / NombreProyecto / Tipo
+// Get-or-create en cada nivel (idempotente). Valores faltantes caen a labels
+// "Sin …" para que nada termine suelto en la raíz.
 function _resolveTargetFolder(kind, itemId) {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var root = _getRootFolder();
-  var tipo = '', pais = '', projName = '';
+  var tipo = '', pais = '', projName = '', cliente = '', year = '';
 
   if (kind === 'task') {
     var ws = ss.getSheetByName(SHEET_ACTIVO);
@@ -3095,8 +3120,10 @@ function _resolveTargetFolder(kind, itemId) {
     var data = ws.getRange(4, 1, Math.max(0, lr - 3), lc).getValues();
     for (var i = 0; i < data.length; i++) {
       if (data[i][0] == itemId) {
-        pais = (data[i][12] || '').toString().trim();
-        tipo = (data[i][14] || '').toString().trim();
+        year = _folderYearFromCell(data[i][8]);             // col 9  = Fecha Creación
+        pais = (data[i][12] || '').toString().trim();       // col 13 = País
+        tipo = (data[i][14] || '').toString().trim();       // col 15 = Tipo Trabajo
+        cliente = (data[i][19] || '').toString().trim();    // col 20 = AreaSolicitante
         var pid = parseInt((data[i][11] || '').toString().trim(), 10);
         if (!isNaN(pid)) {
           var projRow = _readProjectById(ss, pid);
@@ -3108,26 +3135,30 @@ function _resolveTargetFolder(kind, itemId) {
         break;
       }
     }
-  } else if (kind === 'project') {
-    var pws = ss.getSheetByName(SHEET_PROYECTOS);
-    var plr = pws.getLastRow();
-    var pdata = pws.getRange(2, 1, Math.max(0, plr - 1), PROJ_COLS).getValues();
-    for (var j = 0; j < pdata.length; j++) {
-      if (pdata[j][0] == itemId) {
-        pais = (pdata[j][2] || '').toString().trim();
-        tipo = (pdata[j][13] || '').toString().trim();
-        projName = (pdata[j][1] || '').toString().trim();
-        break;
-      }
-    }
+    var tYear = _ensureSubfolder(root, year);
+    var tPais = _ensureSubfolder(tYear, pais || 'Sin país');
+    var tCli  = _ensureSubfolder(tPais, cliente || 'Sin cliente');
+    var tTipo = _ensureSubfolder(tCli, tipo || 'Sin clasificar');
+    return _ensureSubfolder(tTipo, projName || 'Tareas sueltas');
   }
 
-  var tipoFolder = _ensureSubfolder(root, tipo || 'Sin clasificar');
-  var paisFolder = _ensureSubfolder(tipoFolder, pais || 'Sin país');
-  var finalName = kind === 'project'
-    ? (projName || 'Sin nombre')
-    : (projName || 'Tareas sueltas');
-  return _ensureSubfolder(paisFolder, finalName);
+  // kind === 'project'
+  var pws2 = ss.getSheetByName(SHEET_PROYECTOS);
+  var plr = pws2.getLastRow();
+  var pdata = pws2.getRange(2, 1, Math.max(0, plr - 1), PROJ_COLS).getValues();
+  for (var j = 0; j < pdata.length; j++) {
+    if (pdata[j][0] == itemId) {
+      pais = (pdata[j][2] || '').toString().trim();
+      tipo = (pdata[j][13] || '').toString().trim();
+      projName = (pdata[j][1] || '').toString().trim();
+      break;
+    }
+  }
+  var pYear = _ensureSubfolder(root, new Date().getFullYear().toString());
+  var pPais = _ensureSubfolder(pYear, pais || 'Sin país');
+  var pProy = _ensureSubfolder(pPais, 'Proyectos');
+  var pName = _ensureSubfolder(pProy, projName || 'Sin nombre');
+  return _ensureSubfolder(pName, tipo || 'Sin clasificar');
 }
 
 // Lee los docs actuales del item + la posición en el sheet + la columna.

@@ -5542,6 +5542,92 @@ function edTkPanelSwitchTab(btn) {
 // Lazy-load: cuando el panel se renderea, se llama edPanelLoadComments
 // con el taskId para fetch async. Antes muestra "Loading…", al
 // terminar reemplaza con el hilo. El input es textarea + Send button.
+// ── Contract Intelligence (IA sobre PDFs adjuntos) ──────────────────
+// Carga los insights ya guardados y los pinta en el contenedor de cada doc.
+function edLoadContractInsights(taskId) {
+  if (!taskId) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      var items = (res && res.items) || [];
+      items.forEach(function(it) {
+        var host = document.getElementById('tkIns-' + it.docId);
+        if (host) host.innerHTML = _renderInsightsHtml(taskId, it.docId, it.insights, it.analyzedBy);
+      });
+    })
+    .withFailureHandler(function(){ /* silencioso: sin insights, no rompe el panel */ })
+    .getContractInsights('task', taskId);
+}
+
+// Dispara el análisis de un PDF. Muestra spinner en el contenedor del doc.
+function edAnalyzeContract(taskId, docId) {
+  var host = document.getElementById('tkIns-' + docId);
+  if (host) host.innerHTML = '<div class="tk-ins-card" style="opacity:.7">✨ Analizando contrato con IA… (puede tardar ~10-20s)</div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        if (host) host.innerHTML = _renderInsightsHtml(taskId, docId, res.insights, null);
+        toast('✓ Contrato analizado', 'success');
+      } else {
+        if (host) host.innerHTML = '';
+        toast(_friendlyError(res, 'No se pudo analizar el contrato'), 'error');
+      }
+    })
+    .withFailureHandler(function(e){
+      if (host) host.innerHTML = '';
+      toast('Error: ' + ((e && e.message) || 'desconocido'), 'error');
+    })
+    .analyzeContractDoc('task', taskId, docId);
+}
+
+// Crea el recordatorio de renovación desde el vencimiento detectado.
+function edCreateRenewalReminder(taskId, docId) {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        toast('✓ Recordatorio creado: tarea #' + res.id + ' para ' + (res.deadline || ''), 'success');
+        if (typeof reload === 'function') reload();
+      } else {
+        toast(_friendlyError(res, 'No se pudo crear el recordatorio'), 'error');
+      }
+    })
+    .withFailureHandler(function(e){ toast('Error: ' + ((e && e.message) || 'desconocido'), 'error'); })
+    .createRenewalReminder('task', taskId, docId);
+}
+
+// Render del card de insights. `ai` es el objeto validado del backend.
+function _renderInsightsHtml(taskId, docId, ai, analyzedBy) {
+  if (!ai) return '';
+  function row(label, val) {
+    if (!val) return '';
+    return '<div style="display:flex;gap:8px;font-size:11.5px;padding:2px 0"><span style="color:var(--fg-3);min-width:88px;flex-shrink:0">' + esc(label) + '</span><span style="color:var(--fg-1)">' + esc(val) + '</span></div>';
+  }
+  function list(label, arr, color) {
+    if (!arr || !arr.length) return '';
+    var items = arr.map(function(x){ return '<li style="margin-bottom:2px">' + esc(x) + '</li>'; }).join('');
+    return '<div style="margin-top:6px"><div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:' + (color || 'var(--fg-3)') + ';margin-bottom:3px">' + esc(label) + '</div><ul style="margin:0;padding-left:16px;font-size:11.5px;color:var(--fg-1)">' + items + '</ul></div>';
+  }
+  var h = '<div class="tk-ins-card" style="background:var(--bg-2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:6px;padding:10px 12px;margin:6px 0 10px">';
+  h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="font-size:12px;font-weight:600;color:var(--fg-1)">✨ Insights del contrato</span>';
+  h += '<button class="pa-btn pa-btn-ghost" style="height:20px;font-size:10px;padding:0 5px;margin-left:auto" title="Re-analizar" onclick="edAnalyzeContract(\'' + esc(taskId) + '\',\'' + esc(docId) + '\')">↻</button></div>';
+  if (ai.resumen) h += '<div style="font-size:12px;color:var(--fg-1);margin-bottom:6px;line-height:1.4">' + esc(ai.resumen) + '</div>';
+  h += row('Tipo', ai.tipoContrato);
+  h += row('Partes', (ai.partes || []).join(' · '));
+  h += row('Vigencia', ai.vigenciaTexto);
+  h += row('Vence', ai.fechaVencimiento + (ai.autoRenovacion ? ' (auto-renovación)' : ''));
+  h += row('Jurisdicción', ai.jurisdiccion);
+  h += row('Montos', ai.montos);
+  h += row('Penalidades', ai.penalidades);
+  if (ai.exclusividad) h += row('Exclusividad', 'Sí');
+  h += list('Obligaciones clave', ai.obligacionesClave);
+  h += list('⚠️ Riesgos', ai.riesgos, 'var(--warn-fg)');
+  if (ai.fechaVencimiento) {
+    h += '<div style="margin-top:8px"><button class="pa-btn pa-btn-outline" style="height:24px;font-size:11px" onclick="edCreateRenewalReminder(\'' + esc(taskId) + '\',\'' + esc(docId) + '\')">📅 Crear recordatorio de renovación</button></div>';
+  }
+  if (analyzedBy) h += '<div style="font-size:10px;color:var(--fg-4);margin-top:6px">Analizado por ' + esc(analyzedBy) + '</div>';
+  h += '</div>';
+  return h;
+}
+
 // Cmd+Enter envía. Optimistic: el comment aparece al instante en el
 // thread mientras el server confirma.
 function edPanelLoadComments(taskId) {
@@ -6311,6 +6397,9 @@ function rEdTracker(D) {
     var actTaskId = activityHost.getAttribute('data-task-id');
     if (actTaskId) edPanelLoadActivity(actTaskId);
   }
+  // Lazy-load insights de contratos ya analizados (los pinta en su contenedor).
+  var insHost = v.querySelector('.tk-panel-rail-body[data-task-id]');
+  if (insHost) edLoadContractInsights(insHost.getAttribute('data-task-id'));
   // Hover preview: tooltip compacto tras 400ms de hover sobre una fila.
   v.querySelectorAll('.pa-tbl-r[data-task-id]').forEach(_edTkAttachPreview);
   if (EDT.lastViewedId) {
@@ -6521,6 +6610,7 @@ function _renderTkPanel(sel) {
         ? '<a href="' + esc(safeUrl) + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">' + esc(d.name || 'Documento') + '</a>'
         : esc(d.name || 'Documento');
       var canRemove = sel.status !== 'Listo';
+      var isPdf = d.id && /\.pdf$/i.test(d.name || '');
       html += '<div class="tk-doc pa-flex-center">'
            +    paConfDot(d.conf || 'estandar')
            +    paIcon('doc', 14, '', 'color:var(--fg-3)')
@@ -6528,13 +6618,17 @@ function _renderTkPanel(sel) {
            +      '<div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:var(--fg-1)">' + nameHtml + '</div>'
            +      '<div class="meta pa-meta-sm">' + esc(d.uploadedBy || 'Enlace externo') + '</div>'
            +    '</div>'
+           +    (isPdf
+                ? '<button class="pa-btn pa-btn-ghost" style="height:22px;font-size:11px;padding:0 6px;color:var(--accent)" title="Analizar contrato con IA" onclick="edAnalyzeContract(\'' + esc(sel.id) + '\',\'' + esc(d.id) + '\')">✨</button>'
+                : '')
            +    (safeUrl
                 ? '<a href="' + esc(safeUrl) + '" target="_blank" rel="noopener" style="display:grid;place-items:center;width:22px;height:22px;border-radius:4px;color:var(--fg-3);text-decoration:none" title="Abrir">' + paIcon('arrowUR', 11) + '</a>'
                 : '')
            +    (canRemove
                 ? '<button class="pa-btn pa-btn-ghost" style="height:22px;font-size:11px;padding:0 6px;color:var(--critical-fg)" title="Quitar del tracker" data-act="remove-doc" data-kind="task" data-item-id="' + esc(sel.id) + '" data-i="' + idx + '">×</button>'
                 : '')
-           + '</div>';
+           + '</div>'
+           +  '<div class="tk-insights" id="tkIns-' + esc(d.id || ('i' + idx)) + '"></div>';
     });
   }
   html += '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'
@@ -9938,25 +10032,55 @@ function _loadBibDocs(cb) {
     .withFailureHandler(function() { _BIBDOCS_CACHE = []; cb(); })
     .getBibliotecaDocs();
 }
+// Búsqueda semántica activa: array de docIds rankeados por la IA, o null.
+var _BIB_SEMANTIC = null;
+
 function _bibApplyFilters(docs) {
   var f = _BIB_FILTERS;
   var q = (f.query || '').toString().trim().toLowerCase();
-  return docs.filter(function(d) {
+  var out = docs.filter(function(d) {
     if (f.tipoDoc && d.tipoDocumento !== f.tipoDoc) return false;
     if (f.area && d.areaTrabajo !== f.area) return false;
     if (f.pais && d.pais !== f.pais) return false;
     if (f.cliente && (d.areaSolicitante || '') !== f.cliente) return false;
     if (f.soloVigentes && (d.vigente || 'si') === 'no') return false;
+    // Búsqueda IA: el set y el orden los define el ranking semántico; el
+    // substring query se ignora (lo reemplaza la IA). Las facetas igual aplican.
+    if (_BIB_SEMANTIC) return _BIB_SEMANTIC.indexOf(String(d.id)) >= 0;
     if (q) {
       var hay = [(d.nombre || ''), (d.tags || ''), (d.notas || '')].join(' ').toLowerCase();
       if (hay.indexOf(q) < 0) return false;
     }
     return true;
   });
+  if (_BIB_SEMANTIC) {
+    out.sort(function(a, b) { return _BIB_SEMANTIC.indexOf(String(a.id)) - _BIB_SEMANTIC.indexOf(String(b.id)); });
+  }
+  return out;
 }
 function _bibSetFacet(key, val) { _BIB_FILTERS[key] = val; _bibPersistFilters(); _rEdBibDocs(D); }
 function _bibSetVigentes(checked) { _BIB_FILTERS.soloVigentes = !!checked; _bibPersistFilters(); _rEdBibDocs(D); }
-function _bibLocalSearch(q) { _BIB_FILTERS.query = q || ''; _rEdBibDocs(D); }
+// Escribir en el buscador vuelve a modo substring (limpia la búsqueda IA).
+function _bibLocalSearch(q) { _BIB_SEMANTIC = null; _BIB_FILTERS.query = q || ''; _rEdBibDocs(D); }
+// Búsqueda semántica: embeddea el query y rankea por significado, no substring.
+function edBibSemanticSearch() {
+  var q = (_BIB_FILTERS.query || '').toString().trim();
+  if (!q) { toast('Escribí qué buscás y tocá IA', 'info'); return; }
+  toast('✨ Buscando por significado…', 'info');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.ids) {
+        _BIB_SEMANTIC = res.ids.map(String);
+        if (!_BIB_SEMANTIC.length) toast('Sin coincidencias semánticas. ¿Generaste los embeddings?', 'info');
+        _rEdBibDocs(D);
+      } else {
+        toast(_friendlyError(res, 'No se pudo buscar con IA'), 'error');
+      }
+    })
+    .withFailureHandler(function(e){ toast('Error: ' + ((e && e.message) || 'desconocido'), 'error'); })
+    .semanticSearchBiblioteca(q);
+}
+function edBibClearSemantic() { _BIB_SEMANTIC = null; _rEdBibDocs(D); }
 function _bibFacetSelect(key, label, options, current) {
   var h = '<select class="cr-input" style="width:auto;min-width:120px;height:30px;font-size:12px" onchange="_bibSetFacet(\'' + key + '\', this.value)">';
   h += '<option value="">' + esc(label) + ': Todos</option>';
@@ -9984,12 +10108,20 @@ function _rEdBibDocs(D) {
        +    '<span class="pa-page-sub">' + docs.length + (docs.length === all.length ? '' : ' de ' + all.length) + ' documento' + (all.length === 1 ? '' : 's') + '</span>'
        +    '<div class="pa-page-meta" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
        +      '<input type="text" class="cr-input" placeholder="Buscar en biblioteca…" value="' + esc(_BIB_FILTERS.query || '') + '" style="width:190px;height:30px;font-size:12px" oninput="_bibLocalSearch(this.value)">'
+       +      '<button class="pa-btn pa-btn-outline" style="height:30px;font-size:12px" title="Búsqueda semántica: encuentra por significado, no por palabra exacta" onclick="edBibSemanticSearch()">✨ IA</button>'
        +      '<button class="pa-btn pa-btn-outline" onclick="edBibDocLinkOpen()">' + paIcon('doc', 12) + ' Agregar enlace</button>'
        +      '<button class="pa-btn pa-btn-primary" onclick="var i=$(\'bibDocFileInput\'); if(i) i.click();">' + paIcon('plus', 12) + ' Subir archivo</button>'
        +      '<input type="file" id="bibDocFileInput" style="display:none" onchange="edBibDocUpload(this)">'
        +    '</div>'
        + '</div>';
-  html += '<div class="pa-narrative">Centro de conocimiento legal del equipo. Clasificá cada documento por tipo, área, país y confidencialidad para que el equipo lo encuentre.</div>';
+  if (_BIB_SEMANTIC) {
+    html += '<div class="pa-narrative" style="border-left:3px solid var(--accent);padding-left:10px;margin-bottom:12px;display:flex;align-items:center;gap:8px">'
+         +    '<span>✨ <b>Búsqueda IA</b> por significado · ' + docs.length + ' resultado' + (docs.length === 1 ? '' : 's') + ' para "' + esc(_BIB_FILTERS.query || '') + '"</span>'
+         +    '<button class="pa-btn pa-btn-ghost" style="height:22px;font-size:11px;margin-left:auto" onclick="edBibClearSemantic()">Limpiar IA</button>'
+         + '</div>';
+  } else {
+    html += '<div class="pa-narrative">Centro de conocimiento legal del equipo. Clasificá cada documento por tipo, área, país y confidencialidad para que el equipo lo encuentre. Probá <b>✨ IA</b> para buscar por significado.</div>';
+  }
 
   var sinClasificar = all.filter(function(d){ return d.tipoDocumento === 'Otro'; });
   if (sinClasificar.length > 0) {
