@@ -227,7 +227,7 @@ function _gmailBuildCreateCard(info, ctx, clientes, ai) {
     var cliInput = CardService.newSelectionInput()
       .setType(CardService.SelectionInputType.DROPDOWN)
       .setFieldName('areaSolicitante')
-      .setTitle('Área solicitante (cliente interno)');
+      .setTitle('Cliente interno');
     cliInput.addItem('Sin definir', '', !pre.areaSolicitante);
     clientes.forEach(function(c) { cliInput.addItem(c, c, c === pre.areaSolicitante); });
     form.addWidget(cliInput);
