@@ -7410,16 +7410,13 @@ function _crRenderStep2() {
       +   '</div>'
       + '</div>';
   }
+  // "Nivel de riesgo" se quitó del wizard de tareas (no alimentaba métricas y
+  // confundía). riesgo queda '' y el backend lo acepta. Sigue disponible en el
+  // wizard de proyectos y en la edición del panel. Prioridad pasa a full-width.
   return ''
-    + '<div class="cr-grid2">'
-    +   '<div class="cr-field">'
-    +     '<div class="cr-label">Prioridad</div>'
-    +     '<div class="cr-pills-row">' + _crPillsHtml('prioridad', _CR_PRIOS, v.prioridad, _crPrioMod) + '</div>'
-    +   '</div>'
-    +   '<div class="cr-field">'
-    +     '<div class="cr-label">Nivel de riesgo</div>'
-    +     '<div class="cr-pills-row">' + _crPillsHtml('riesgo', _CR_RIESGOS, v.riesgo, _crRiesgoMod) + '</div>'
-    +   '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Prioridad</div>'
+    +   '<div class="cr-pills-row">' + _crPillsHtml('prioridad', _CR_PRIOS, v.prioridad, _crPrioMod) + '</div>'
     + '</div>'
     + '<div class="cr-grid2">'
     +   respFieldHtml
