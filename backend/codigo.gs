@@ -14,6 +14,7 @@ const SHEET_ACTIVITY  = 'Activity'; // Auto-created; cols: id, ts, task_id, auth
 const SHEET_FERIADOS  = 'Feriados'; // Manual; cols: pais (CO/MX/CR/...) | fecha (YYYY-MM-DD) | nombre
 const SHEET_TEMPLATES = 'Templates'; // Optional; cols: tipoTrabajo | checklist(JSON) | estado | autor.
 const SHEET_BIBLIO_DOCS = 'BibliotecaDocs'; // Optional; cols: id | nombre | tipo(link|file) | url | categoria | autor | fecha.
+const SHEET_RECURSOS  = 'Recursos'; // Auto-created on first use (seeded); cols: id | titulo | url | categoria | descripcion | autor | autorEmail | fecha.
 
 // ── DAILY DIGEST ────────────────────────────────────────────────
 // URL del web app deployado (/exec). Se usa en los emails del digest
@@ -43,6 +44,8 @@ const PROJ_CONTRAPARTES_COL = 17; // 1-indexed
 
 const STATUS_ORDER = {'Bloqueado':0,'En curso':1,'Pendiente':2,'En revisión':3,'Listo':4};
 const PRIO_ORDER   = {'Alta':0,'Media':1,'Baja':2};
+// Fuente unica de SLA (dias habiles por prioridad). Viaja al cliente en data.slaLimits.
+const SLA_LIMITS   = {'Alta':2,'Media':5,'Baja':7};
 
 // ── CACHE ───────────────────────────────────────────────────────
 // Cacheamos el snapshot completo por 30s. Cualquier escritura llama a invalidateCache().
@@ -267,7 +270,6 @@ function _getEditorialDataImpl() {
   // sino para cada miembro hacíamos un .filter() sobre el array completo
   // (O(team × n)). Ahora es O(n + team).
   if (data.team && data.team.length) {
-    var SLA_BY_PRIO = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
     var tasksByResp = {};
     (data.tasks || []).forEach(function(t) {
       var key = t.resp || '';
@@ -307,7 +309,7 @@ function _getEditorialDataImpl() {
       // (la UI muestra "—" en ese caso). Usado en Home Manager y columna SLA de Mi Equipo.
       var recent30 = memberHist.filter(function(h){ return (nowMsMember - h.cerradoDate.getTime()) <= THIRTY_DAYS_MS_M; });
       if (recent30.length > 0) {
-        var onTime30 = recent30.filter(function(h){ var sla = SLA_BY_PRIO[h.priority] || 5; return h.bizDays <= sla; }).length;
+        var onTime30 = recent30.filter(function(h){ var sla = SLA_LIMITS[h.priority] || 5; return h.bizDays <= sla; }).length;
         member.slaPct = Math.round((onTime30 / recent30.length) * 100);
       } else {
         member.slaPct = null;
@@ -317,7 +319,7 @@ function _getEditorialDataImpl() {
       var streak = 0;
       var sortedDesc = memberHist.slice().sort(function(a, b){ return b.cerradoDate - a.cerradoDate; });
       for (var i = 0; i < sortedDesc.length; i++) {
-        var sla = SLA_BY_PRIO[sortedDesc[i].priority] || 5;
+        var sla = SLA_LIMITS[sortedDesc[i].priority] || 5;
         if (sortedDesc[i].bizDays <= sla) streak++;
         else break;
       }
@@ -339,7 +341,6 @@ function _getEditorialDataImpl() {
 
   // Enriquecer countries (open, overdue, slaPct, trend)
   if (data.countries && data.countries.length) {
-    var SLA_BY_PRIO_C = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
     var nowMs = new Date().getTime();
     var THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
     var WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -378,7 +379,7 @@ function _getEditorialDataImpl() {
       } else {
         var onTime = 0;
         recent.forEach(function(h) {
-          var sla = SLA_BY_PRIO_C[h.priority] || 5;
+          var sla = SLA_LIMITS[h.priority] || 5;
           if (h.bizDays <= sla) onTime++;
         });
         c.slaPct = Math.round((onTime / recent.length) * 100);
@@ -391,8 +392,8 @@ function _getEditorialDataImpl() {
         var age = nowMs - h.cerradoMs;
         return age > WEEK_MS && age <= 2 * WEEK_MS;
       });
-      c.slaPctThisWeek = _slaPctOf(thisWeek, SLA_BY_PRIO_C);
-      c.slaPctLastWeek = _slaPctOf(lastWeek, SLA_BY_PRIO_C);
+      c.slaPctThisWeek = _slaPctOf(thisWeek, SLA_LIMITS);
+      c.slaPctLastWeek = _slaPctOf(lastWeek, SLA_LIMITS);
       c.closedThisWeek = thisWeek.length;
       c.closedLastWeek = lastWeek.length;
 
@@ -423,15 +424,15 @@ function _getEditorialDataImpl() {
         if ((nowMs - h.cerradoMs) <= THIRTY_DAYS_MS) allRecent.push(h);
       });
     });
-    latam.slaPct = allRecent.length ? _slaPctOf(allRecent, SLA_BY_PRIO_C) : null;
+    latam.slaPct = allRecent.length ? _slaPctOf(allRecent, SLA_LIMITS) : null;
     // SLA esta semana vs semana anterior para LATAM completo.
     var latamThis = allRecent.filter(function(h){ return (nowMs - h.cerradoMs) <= WEEK_MS; });
     var latamPrev = allRecent.filter(function(h){
       var age = nowMs - h.cerradoMs;
       return age > WEEK_MS && age <= 2 * WEEK_MS;
     });
-    latam.slaPctThisWeek = _slaPctOf(latamThis, SLA_BY_PRIO_C);
-    latam.slaPctLastWeek = _slaPctOf(latamPrev, SLA_BY_PRIO_C);
+    latam.slaPctThisWeek = _slaPctOf(latamThis, SLA_LIMITS);
+    latam.slaPctLastWeek = _slaPctOf(latamPrev, SLA_LIMITS);
   }
 
   // Globales
@@ -440,6 +441,7 @@ function _getEditorialDataImpl() {
   data.roleSpecific = data.roleSpecific || {};
   data.roleSpecific.narrative = _buildNarrative(data);
 
+  data.slaLimits = SLA_LIMITS;
   return data;
 }
 
@@ -520,9 +522,8 @@ function _enrichTaskEditorial(t, todayISO, opts) {
   // blockedReason: solo cuando la tarea está bloqueada
   t.blockedReason = (t.status === 'Bloqueado') ? firstNoteLine : '';
 
-  // slaTarget por prioridad
-  var slaByPrio = { 'Alta': '2d', 'Media': '5d', 'Baja': '7d' };
-  t.slaTarget = slaByPrio[t.priority] || '5d';
+  // slaTarget por prioridad (derivado de la fuente unica SLA_LIMITS)
+  t.slaTarget = (SLA_LIMITS[t.priority] || 5) + 'd';
 }
 
 // Diferencia de días entre dos fechas ISO (YYYY-MM-DD). Resultado en días enteros.
@@ -823,14 +824,13 @@ function _buildViewForRole(raw, role, user, feriadosByCountry) {
 
   // SLA — días hábiles desde creación, restando feriados del país de la tarea.
   var now = new Date();
-  var slaLimits = { Alta: 2, Media: 5, Baja: 7 };
   var sla = { onTime: 0, atRisk: 0, overdue: 0 };
   tasks.forEach(function(t) {
     if (t.status === 'Listo') return;
     if (!t.creadoRaw) { sla.onTime++; return; }
     var ferSet = feriadosByCountry[(t.pais || '').toUpperCase()] || null;
     var bizDays = countBizDays(new Date(t.creadoRaw), now, ferSet);
-    var limit = slaLimits[t.priority] || 5;
+    var limit = SLA_LIMITS[t.priority] || 5;
     if (bizDays > limit) sla.overdue++;
     else if (bizDays >= limit - 1) sla.atRisk++;
     else sla.onTime++;
@@ -2570,6 +2570,168 @@ function getBibliotecaConfig() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// ── RECURSOS ── · links curados (herramientas tech/AI, docs, clases)
+// ════════════════════════════════════════════════════════════════
+// A diferencia de la Biblioteca, Recursos es role-agnostic: TODOS ven TODO
+// (sin filtro de rol/país). La hoja se auto-crea on-first-use (mismo patrón
+// que Comments/Activity/BibliotecaDocs) y se siembra con 1 recurso inicial.
+// Cols: id | titulo | url | categoria | descripcion | autor | autorEmail | fecha.
+const _REC_HEADERS = ['id', 'titulo', 'url', 'categoria', 'descripcion', 'autor', 'autorEmail', 'fecha'];
+const _REC_COLS = _REC_HEADERS.length; // 8
+
+// Siembra inicial (solo al crear la hoja). fecha se completa al sembrar.
+function _recSeedRows(ss) {
+  return [[
+    1,
+    'Mundial FIFA 2026 — Guía legal (NotebookLM)',
+    'https://notebooklm.google.com/notebook/fc842e78-a8e9-4861-a6ba-f9c7802dc567',
+    'Guías legales / AI',
+    'Guía estratégica y legal de Rappi para el Mundial FIFA 2026: ejecutar campañas de marketing y eventos sin infringir la propiedad intelectual de la FIFA ni incurrir en ambush marketing.',
+    'Juan Gallego',
+    'juan.gallego@rappi.com',
+    Utilities.formatDate(new Date(), 'America/Bogota', 'dd/MM/yyyy')
+  ]];
+}
+
+// Mismo patrón que _commentsSheet/_ensureBiblioDocsSheet: get-or-create con
+// header en bold + fila congelada. Si la crea, además la siembra.
+function _ensureRecursosSheet(ss) {
+  var ws = ss.getSheetByName(SHEET_RECURSOS);
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_RECURSOS);
+    ws.getRange(1, 1, 1, _REC_COLS).setValues([_REC_HEADERS]);
+    ws.getRange(1, 1, 1, _REC_COLS).setFontWeight('bold');
+    ws.setFrozenRows(1);
+    var seed = _recSeedRows(ss);
+    if (seed && seed.length) ws.getRange(2, 1, seed.length, _REC_COLS).setValues(seed.map(_sanitizeRow));
+  }
+  return ws;
+}
+
+// id incremental = max(ids)+1 (o 1 si vacía). Mismo patrón que nextTaskId/_nextCommentId.
+function _nextRecursoId(ws) {
+  var lr = ws.getLastRow();
+  if (lr < 2) return 1;
+  var ids = ws.getRange(2, 1, lr - 1, 1).getValues();
+  var max = 0;
+  for (var i = 0; i < ids.length; i++) {
+    var n = parseInt(ids[i][0], 10);
+    if (!isNaN(n) && n > max) max = n;
+  }
+  return max + 1;
+}
+
+// Role-agnostic: TODOS ven TODOS los recursos (sin filtro de rol/país).
+// Ordenado por categoria y luego titulo.
+function getRecursos() {
+  return _telemetry('getRecursos', function() {
+    try {
+      var ctx = _getAuthContext();
+      var ws = _ensureRecursosSheet(ctx.ss); // crea + siembra si no existe
+      var lr = ws.getLastRow();
+      if (lr < 2) return { success: true, recursos: [] };
+      var data = ws.getRange(2, 1, lr - 1, _REC_COLS).getValues();
+      var recursos = [];
+      data.forEach(function(r) {
+        var id = (r[0] || '').toString().trim();
+        var titulo = (r[1] || '').toString().trim();
+        if (!id || !titulo) return; // saltar filas vacías/corruptas
+        recursos.push({
+          id: id,
+          titulo: titulo,
+          url: (r[2] || '').toString().trim(),
+          categoria: (r[3] || '').toString().trim() || 'General',
+          descripcion: (r[4] || '').toString().trim(),
+          autor: (r[5] || '').toString().trim(),
+          autorEmail: (r[6] || '').toString().trim(),
+          fecha: (r[7] || '').toString().trim()
+        });
+      });
+      recursos.sort(function(a, b) {
+        var ca = a.categoria.toLowerCase(), cb = b.categoria.toLowerCase();
+        if (ca < cb) return -1;
+        if (ca > cb) return 1;
+        var ta = a.titulo.toLowerCase(), tb = b.titulo.toLowerCase();
+        return ta < tb ? -1 : (ta > tb ? 1 : 0);
+      });
+      return { success: true, recursos: recursos };
+    } catch (e) {
+      return { success: false, error: (e && e.message) || String(e) };
+    }
+  });
+}
+
+// obj = {titulo, url, categoria, descripcion}. titulo requerido; url http(s)
+// válida (misma validación que attachDocumentLink); categoria default 'General'.
+function addRecurso(obj) {
+  return _telemetry('addRecurso', function() {
+    return _safeMutation(function() {
+      var ctx = _getAuthContext();
+      obj = obj || {};
+      var titulo = (obj.titulo || '').toString().trim();
+      if (!titulo) return { success: false, error: 'El título es obligatorio.' };
+      var url = (obj.url || '').toString().trim();
+      // Validar esquema: solo http(s). Bloquea javascript:, data:, file: (XSS).
+      if (!/^https?:\/\//i.test(url)) {
+        return { success: false, error: 'URL inválida: solo se aceptan https:// o http://' };
+      }
+      if (url.length > 2048) {
+        return { success: false, error: 'URL demasiado larga (máx. 2048 caracteres)' };
+      }
+      if (/[\x00-\x1f\x7f]/.test(url)) {
+        return { success: false, error: 'URL contiene caracteres inválidos' };
+      }
+      var categoria = (obj.categoria || '').toString().trim() || 'General';
+      var descripcion = (obj.descripcion || '').toString().trim();
+      var ws = _ensureRecursosSheet(ctx.ss);
+      var id = _nextRecursoId(ws);
+      var autor = (ctx.user && ctx.user.name) || ctx.email || '';
+      var autorEmail = ctx.email || '';
+      var fecha = Utilities.formatDate(new Date(), 'America/Bogota', 'dd/MM/yyyy');
+      ws.appendRow(_sanitizeRow([id, titulo, url, categoria, descripcion, autor, autorEmail, fecha]));
+      return {
+        success: true,
+        recurso: {
+          id: id, titulo: titulo, url: url, categoria: categoria,
+          descripcion: descripcion, autor: autor, autorEmail: autorEmail, fecha: fecha
+        }
+      };
+    });
+  }, {});
+}
+
+// Permiso: solo el AUTOR (autorEmail === email del visitante) o un HEAD.
+function deleteRecurso(id) {
+  return _telemetry('deleteRecurso', function() {
+    return _safeMutation(function() {
+      var ctx = _getAuthContext();
+      var rid = (id || '').toString().trim();
+      if (!rid) return { success: false, error: 'ID requerido.' };
+      var ws = ctx.ss.getSheetByName(SHEET_RECURSOS);
+      if (!ws) return { success: false, error: 'No hay recursos.' };
+      var lr = ws.getLastRow();
+      if (lr < 2) return { success: false, error: 'No hay recursos.' };
+      var data = ws.getRange(2, 1, lr - 1, _REC_COLS).getValues();
+      var rowIdx = -1, autorEmail = '';
+      for (var i = 0; i < data.length; i++) {
+        if ((data[i][0] || '').toString().trim() === rid) {
+          rowIdx = i + 2;
+          autorEmail = (data[i][6] || '').toString().trim().toLowerCase();
+          break;
+        }
+      }
+      if (rowIdx < 0) return { success: false, error: 'Recurso no encontrado.' };
+      var isAuthor = ctx.email && autorEmail && ctx.email.toLowerCase() === autorEmail;
+      if (ctx.role !== 'head' && !isAuthor) {
+        return { success: false, error: 'Solo el autor o un head pueden eliminar este recurso.' };
+      }
+      ws.deleteRow(rowIdx);
+      return { success: true };
+    });
+  }, { id: id });
+}
+
+// ════════════════════════════════════════════════════════════════
 // FEEDBACK (Beta) · captura comentarios del equipo a la hoja 'Feedback'
 // ════════════════════════════════════════════════════════════════
 // Auto-captura: quién (email/nombre/rol), en qué vista y con qué sentimiento.
@@ -4084,14 +4246,13 @@ function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
   var overdueAtEOM = stillOpenAtEOM.filter(deadlineBeforeEOM);
 
   // 4) On-time %: de las cerradas en el mes, cuántas dentro de SLA.
-  var slaLimits = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
   var onTime = 0;
   closedInMonth.forEach(function(t) {
     var c = parseCreado(t);
     var cl = parseCerrado(t);
     if (!c || !cl) return;
     var biz = countBizDays(c, cl);
-    var lim = slaLimits[t.priority] || 5;
+    var lim = SLA_LIMITS[t.priority] || 5;
     if (biz <= lim) onTime++;
   });
   var onTimePct = closedInMonth.length === 0 ? null : Math.round((onTime / closedInMonth.length) * 100);
@@ -4132,7 +4293,7 @@ function _exportMonthlyCountryPDFImpl(countryCode, monthISO) {
     return arr.map(function(t) {
       var c = parseCreado(t), cl = parseCerrado(t);
       var biz = (c && cl) ? countBizDays(c, cl) : null;
-      var lim = slaLimits[t.priority] || 5;
+      var lim = SLA_LIMITS[t.priority] || 5;
       var sla = (biz == null) ? '—' : (biz <= lim ? 'En tiempo (' + biz + 'd ≤ ' + lim + 'd)' : 'Fuera de tiempo (' + biz + 'd > ' + lim + 'd)');
       return '<tr>'
         + '<td>' + _pdfEsc(t.id) + '</td>'

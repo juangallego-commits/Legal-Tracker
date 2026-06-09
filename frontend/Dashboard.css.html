@@ -3579,7 +3579,8 @@ table tr:hover td { background: var(--bg-2); }
 .lt-toast-bar {
   position: absolute;
   left: 0; bottom: 0;
-  height: 2px;
+  width: 100%; height: 2px;
+  transform-origin: left;
   background: var(--accent);
   animation: lt-toast-bar 3500ms linear forwards;
 }
@@ -3592,8 +3593,8 @@ table tr:hover td { background: var(--bg-2); }
   to   { opacity: 0; transform: translateY(4px); }
 }
 @keyframes lt-toast-bar {
-  from { width: 100%; }
-  to   { width: 0; }
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
 }
 
 /* ── SKELETONS (shimmer) ───────────────────────────────────────── */
@@ -3628,9 +3629,24 @@ textarea.lt-invalid { border-color: var(--critical) !important; }
 
 /* Respeta usuarios que pidieron menos movimiento. */
 @media (prefers-reduced-motion: reduce) {
-  .lt-toast, .lt-toast-out, .lt-skel, .lt-toast-bar,
-  .modal, .cr-modal, .ed-search-modal, .dd-menu.is-open, .dd-menu.show {
+  /* Reset genérico: neutraliza transitions + animations en toda la UI.
+     No colisiona con el único otro selector universal (box-sizing, ~l.207):
+     toca props distintas. Cubre los ofensores de transition de layout
+     (.ed-tour-progress-fill width, .pi-detail-seg width) sin tocar JS. */
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+  /* Explícitos por claridad — superficies + las animaciones que el bloque
+     original NO cubría: shimmer/skeleton, flash-highlight, y el tour. */
+  .lt-toast, .lt-toast-out, .lt-skel, .lt-toast-bar,
+  .modal, .cr-modal, .ed-search-modal, .dd-menu.is-open, .dd-menu.show,
+  .pa-skeleton-row, .lt-skel-row, .flash-highlight, .tk-row.flash-highlight,
+  .tour-spotlight, .tour-celebrate-check {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }
 

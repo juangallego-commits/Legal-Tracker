@@ -123,6 +123,8 @@ const ALL_STATUSES = ['Pendiente','En curso','En revisión','Bloqueado','Listo']
 // bucket de la vista Por urgencia para que el conteo coincida (antes 7 vs 5).
 const ED_WEEK_DAYS = 7;
 const SLA_LIMITS   = {'Alta':2,'Media':5,'Baja':7};
+// Fuente única de SLA: prefiere D.slaLimits (del backend); cae a SLA_LIMITS local.
+function _slaLimit(prio){ return ((typeof D !== 'undefined' && D && D.slaLimits) || SLA_LIMITS)[prio] || 5; }
 
 // Badge CSS class maps
 const BADGE_PRIO    = {'Alta':'b-alta','Media':'b-media','Baja':'b-baja'};
@@ -192,7 +194,8 @@ function setTheme(theme) {
     vEdHome: 'home', vEdTracker: 'tracker', vEdCalendar: 'calendar',
     vEdProyectosIndex: 'proyectos',
     vEdAnalytics: 'analytics', vEdHistorial: 'historial',
-    vEdMiequipo: 'miequipo', vEdResumen: 'paises', vEdPlantillas: 'plantillas'
+    vEdMiequipo: 'miequipo', vEdResumen: 'paises', vEdPlantillas: 'plantillas',
+    vEdRecursos: 'recursos'
   };
   if (EDVIEW_MAP[active.id]) goEd(EDVIEW_MAP[active.id]);
 }
@@ -293,7 +296,7 @@ function taskOverdueBySLA(t) {
     var d = cur.getDay();
     if (d !== 0 && d !== 6) bizDays++;
   }
-  return bizDays > (SLA_LIMITS[t.priority] || 5);
+  return bizDays > _slaLimit(t.priority);
 }
 
 // ═══ FILTER ═══
@@ -1511,7 +1514,7 @@ var _ED_ACTIVE_MAP = {
   vEdHome: 'home', vEdTracker: 'tracker', vEdCalendar: 'calendar',
   vEdProyectosIndex: 'proyectos', vEdMisTareas: 'mistareas', vEdAgrupadas: 'agrupadas',
   vEdAnalytics: 'analytics', vEdHistorial: 'historial', vEdMiequipo: 'miequipo',
-  vEdResumen: 'paises', vEdPlantillas: 'plantillas'
+  vEdResumen: 'paises', vEdPlantillas: 'plantillas', vEdRecursos: 'recursos'
 };
 function _rerenderActive() {
   var active = document.querySelector('.view.active');
@@ -2148,7 +2151,8 @@ var ED_NAV_BY_ROLE = {
     ]},
     { section: 'Donde trabajo', items: [
       { id: 'proyectos',  label: 'Proyectos',  icon: 'folder', view: 'proyectos' },
-      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' }
+      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' },
+      { id: 'recursos',   label: 'Recursos',   icon: 'globe',  view: 'recursos' }
     ]},
     { section: 'Análisis', items: [
       { id: 'analytics', label: 'Mi desempeño',  icon: 'chart',   view: 'analytics' },
@@ -2164,7 +2168,8 @@ var ED_NAV_BY_ROLE = {
     ]},
     { section: 'Operación', items: [
       { id: 'proyectos',  label: 'Proyectos',    icon: 'folder',   view: 'proyectos' },
-      { id: 'plantillas', label: 'Biblioteca',   icon: 'doc',      view: 'plantillas' }
+      { id: 'plantillas', label: 'Biblioteca',   icon: 'doc',      view: 'plantillas' },
+      { id: 'recursos',   label: 'Recursos',     icon: 'globe',    view: 'recursos' }
     ]},
     { section: 'Análisis', items: [
       { id: 'analytics', label: 'Métricas',   icon: 'chart',   view: 'analytics' },
@@ -2181,7 +2186,8 @@ var ED_NAV_BY_ROLE = {
     { section: 'Personas', items: [
       { id: 'miequipo',   label: 'Equipo',     icon: 'users',  view: 'miequipo' },
       { id: 'proyectos',  label: 'Proyectos',  icon: 'folder', view: 'proyectos' },
-      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' }
+      { id: 'plantillas', label: 'Biblioteca', icon: 'doc',    view: 'plantillas' },
+      { id: 'recursos',   label: 'Recursos',   icon: 'globe',  view: 'recursos' }
     ]},
     { section: 'Análisis', items: [
       { id: 'analytics', label: 'Analítica',  icon: 'chart',   view: 'analytics' },
@@ -2642,6 +2648,13 @@ function _tourStepsForRole(role) {
           + '</ul>'
     },
     {
+      eye: 'IA en contratos',
+      title: 'Analizá un PDF con un click',
+      body: '<p>Cuando adjuntás un <b>PDF</b> a una tarea, al lado del archivo aparece un botón <b>✨</b>.</p>'
+          + '<p>Click y la IA lee el contrato y te devuelve <b>insights</b> en segundos: partes, plazos, obligaciones y cláusulas a vigilar — sin que tengas que abrirlo entero.</p>'
+          + '<p>Los insights quedan guardados en la tarea, así el resto del equipo los ve sin re-analizar.</p>'
+    },
+    {
       eye: 'Cerrar tarea',
       title: 'Cuando terminás una tarea',
       body: '<p>Barra inferior del panel:</p>'
@@ -2671,6 +2684,14 @@ function _tourStepsForRole(role) {
           + '<p>Botones arriba: <b>Agregar enlace</b> (URL externa) o <b>Subir archivo</b> (al Drive).</p>',
       action: { label: 'Ir a Biblioteca', fnCode: "edFinishTour();goEd('plantillas')" },
       target: '.pa-sb-item[data-viewid="plantillas"]'
+    },
+    {
+      eye: 'Recursos',
+      title: 'Recursos del equipo',
+      body: '<p>En <b>Recursos</b> hay links curados de herramientas, guías y AI que el equipo legal comparte — agrupados por categoría.</p>'
+          + '<p>Cada card abre el link en una pestaña nueva. ¿Tenés algo útil que sumar? Botón <b>Agregar recurso</b> arriba: título, URL, categoría y listo.</p>',
+      action: { label: 'Ir a Recursos', fnCode: "edFinishTour();goEd('recursos')" },
+      target: '.pa-sb-item[data-viewid="recursos"]'
     },
     {
       eye: 'Calendario',
@@ -3672,6 +3693,11 @@ function goEd(viewId) {
     if (typeof rEdPlantillas === 'function') rEdPlantillas(D);
     return;
   }
+  if (viewId === 'recursos') {
+    var vR = $('vEdRecursos'); if (vR) vR.classList.add('active');
+    if (typeof rEdRecursos === 'function') rEdRecursos(D);
+    return;
+  }
 }
 
 function rEdHomeSpecialist(D) {
@@ -3901,6 +3927,20 @@ function rEdHomeSpecialist(D) {
   v.innerHTML = html;
 }
 
+// Riesgo de una persona — fuente única usada por el Home del manager (ranking
+// top-3) y por Mi equipo (conteo). score pondera vencidas(×3), bloqueadas(×2) y
+// sobrecapacidad(>100%, ×2). atRisk = score>0 (tiene vencidas, bloqueadas, o
+// está sobre el 100% de su capacidad).
+function _memberRisk(m) {
+  var cap = (m && m.capacity) || 0;
+  var load = (m && m.load) || 0;
+  var overdue = (m && m.overdue) || 0;
+  var blocked = (m && m.blocked) || 0;
+  var ratio = cap > 0 ? (load / cap) : 0;
+  var score = overdue * 3 + blocked * 2 + Math.max(0, ratio - 1) * 2;
+  return { score: score, overdue: overdue, blocked: blocked, overloadPct: Math.round(ratio * 100), atRisk: score > 0 };
+}
+
 function rEdHomeManager(D) {
   var v = $('vEdHome'); if (!v) return;
   var name = _effectiveUserName();
@@ -4020,12 +4060,7 @@ function rEdHomeManager(D) {
   // vencidas o bloqueadas). El detalle completo del equipo está en
   // "Mi equipo" — no duplicamos la tabla acá.
   var teamAtRisk = teamMine.slice()
-    .map(function(m){
-      var pct = (m.capacity > 0) ? ((m.load || 0) / m.capacity) : 0;
-      // Score: overdue × 3 + blocked × 2 + sobrecapacidad
-      var score = ((m.overdue || 0) * 3) + ((m.blocked || 0) * 2) + Math.max(0, pct - 1) * 2;
-      return { m: m, score: score };
-    })
+    .map(function(m){ return { m: m, score: _memberRisk(m).score }; })
     .filter(function(x){ return x.score > 0; })
     .sort(function(a, b){ return b.score - a.score; })
     .slice(0, 3);
@@ -4051,7 +4086,13 @@ function rEdHomeManager(D) {
       var loadFg = over ? 'var(--critical-fg)' : 'var(--fg-2)';
       var slaM = m.slaPct;
       var slaColorM = slaM == null ? 'var(--fg-3)' : (slaM >= 90 ? 'var(--good-fg)' : (slaM < 85 ? 'var(--warn-fg)' : 'var(--fg-2)'));
-      html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px;height:46px">'
+      // Paso 3 p2 — "por qué" sintetizado (las columnas muestran los números;
+      // el tooltip da la razón del score en una línea). Reúsa keys i18n existentes.
+      var _why = [];
+      if ((m.overdue || 0) > 0) _why.push(t('Vencidas') + ' ' + m.overdue);
+      if ((m.blocked || 0) > 0) _why.push(t('On hold') + ' ' + m.blocked);
+      if (pct > 100) _why.push(t('Carga') + ' ' + pct + '%');
+      html += '<div class="pa-tbl-r" title="' + esc(_why.join(' · ')) + '" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px;height:46px">'
            +    '<div class="pa-flex-center">' + paAvatar(m.name || '?', 22)
            +      '<div><div style="font-size:13px;font-weight:500">' + esc(m.name || '') + '</div>'
            +      '<div class="pa-meta-sm">' + esc(m.role || 'Specialist') + '</div></div>'
@@ -7369,16 +7410,13 @@ function _crRenderStep2() {
       +   '</div>'
       + '</div>';
   }
+  // "Nivel de riesgo" se quitó del wizard de tareas (no alimentaba métricas y
+  // confundía). riesgo queda '' y el backend lo acepta. Sigue disponible en el
+  // wizard de proyectos y en la edición del panel. Prioridad pasa a full-width.
   return ''
-    + '<div class="cr-grid2">'
-    +   '<div class="cr-field">'
-    +     '<div class="cr-label">Prioridad</div>'
-    +     '<div class="cr-pills-row">' + _crPillsHtml('prioridad', _CR_PRIOS, v.prioridad, _crPrioMod) + '</div>'
-    +   '</div>'
-    +   '<div class="cr-field">'
-    +     '<div class="cr-label">Nivel de riesgo</div>'
-    +     '<div class="cr-pills-row">' + _crPillsHtml('riesgo', _CR_RIESGOS, v.riesgo, _crRiesgoMod) + '</div>'
-    +   '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">Prioridad</div>'
+    +   '<div class="cr-pills-row">' + _crPillsHtml('prioridad', _CR_PRIOS, v.prioridad, _crPrioMod) + '</div>'
     + '</div>'
     + '<div class="cr-grid2">'
     +   respFieldHtml
@@ -8161,7 +8199,7 @@ function _edWasOnTime(t) {
   var c = pd(t.creado), f = pd(t.cerrado);
   if (!c || !f) return null;
   var biz = _edBizDaysBetween(c, f);
-  var lim = (typeof SLA_LIMITS !== 'undefined' && SLA_LIMITS[t.priority]) || 5;
+  var lim = _slaLimit(t.priority);
   return biz <= lim;
 }
 
@@ -8171,7 +8209,7 @@ function _edDaysVsSla(t) {
   var c = pd(t.creado), f = pd(t.cerrado);
   if (!c || !f) return null;
   var biz = _edBizDaysBetween(c, f);
-  var lim = (typeof SLA_LIMITS !== 'undefined' && SLA_LIMITS[t.priority]) || 5;
+  var lim = _slaLimit(t.priority);
   return biz - lim;
 }
 
@@ -8374,11 +8412,10 @@ function rEdMiequipo(D) {
     }
     countries.sort();
   }
-  var atRisk = visible.filter(function(m){
-    if (!m || !m.capacity) return false;
-    var pct = Math.round((m.load || 0) / m.capacity * 100);
-    return pct > 90 || (m.overdue || 0) > 0 || (m.blocked || 0) > 0;
-  }).length;
+  // Unificado con el Home del manager: at-risk = _memberRisk().atRisk (score>0:
+  // vencidas, bloqueadas, o sobrecapacidad >100%). Nota: antes el umbral de carga
+  // era >90%; ahora >100% — el conteo puede bajar levemente para gente en 91-100%.
+  var atRisk = visible.filter(function(m){ return _memberRisk(m).atRisk; }).length;
 
   // ── Eyebrow + H1 + Lede ───────────────────────────────────────
   var eyebrow, h1, ledeBits = [];
@@ -8748,7 +8785,6 @@ function _edaSlaTrendSection(D, currentTasks, role, userCode) {
     hist = hist.filter(function(t){ return (t.pais || '') === userCode; });
   }
   if (!hist.length) return '';
-  var SLA = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
   var nowMs = Date.now();
   var WEEK = 7 * 86400000;
   var weeks = [];
@@ -8763,7 +8799,7 @@ function _edaSlaTrendSection(D, currentTasks, role, userCode) {
       var ms = cerradoDate.getTime();
       if (ms < weekStart || ms >= weekEnd) return;
       var biz = (typeof _bizDays === 'function') ? _bizDays(new Date(t.creadoRaw), cerradoDate) : null;
-      var lim = SLA[t.priority] || 5;
+      var lim = _slaLimit(t.priority);
       var onTime = (biz != null) && (biz <= lim);
       inWeek.push(onTime);
     });
@@ -9014,7 +9050,7 @@ function rEdAnalytics(D) {
           responsive: true, maintainAspectRatio: false, cutout: '70%',
           plugins: {
             legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, font: { size: 11 } } },
-            title:  { display: true, text: slaPct + '% en tiempo · SLA Alta 2d / Media 5d / Baja 7d', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
+            title:  { display: true, text: slaPct + '% en tiempo · SLA Alta ' + _slaLimit('Alta') + 'd / Media ' + _slaLimit('Media') + 'd / Baja ' + _slaLimit('Baja') + 'd', color: th.muted, font: { size: 11, weight: '700' }, padding: { bottom: 8 } }
           }
         }
       });
@@ -9031,14 +9067,13 @@ function _rEdAnalyticsSpecialist(D) {
   var firstName = name ? name.split(/\s+/)[0] : 'Vos';
   var allHist = ((D && D.historial) || []).filter(function(t){ return t.resp === name; });
   var myActive = ((D && D.tasks) || []).filter(function(t){ return t.resp === name && t.status !== 'Listo'; });
-  var SLA = { 'Alta': 2, 'Media': 5, 'Baja': 7 };
 
   // Parsear historial → date + bizDays + onTime flag
   var entries = allHist.filter(function(t){ return t.creadoRaw && t.cerrado; }).map(function(t) {
     var p = t.cerrado.split('/');
     var cerradoDate = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10));
     var biz = (typeof _bizDays === 'function') ? _bizDays(new Date(t.creadoRaw), cerradoDate) : null;
-    var sla = SLA[t.priority] || 5;
+    var sla = _slaLimit(t.priority);
     return {
       priority: t.priority || 'Media',
       cerradoMs: cerradoDate.getTime(),
@@ -10448,6 +10483,203 @@ function edTkBibPickerAttach(docId) {
     })
     .withFailureHandler(function(e) { toast('Error: ' + (e && e.message || 'desconocido'), 'error'); })
     .attachDocumentLink('task', taskId, { url: d.url, name: d.nombre });
+}
+
+// ════════════════════════════════════════════════════════════════
+// RECURSOS · links curados (herramientas tech/AI, guías, clases) que
+// comparte el equipo legal. Todos ven todos; solo el autor (o un head)
+// puede eliminar. Backend: getRecursos / addRecurso / deleteRecurso.
+// ════════════════════════════════════════════════════════════════
+var _RECURSOS_CACHE = null;     // null = aún no cargado; array = cargado
+var _RECURSOS_FORM_OPEN = false; // toggle del form colapsable "Agregar recurso"
+
+// ¿Puede el usuario actual eliminar este recurso? head siempre; o el autor.
+function _recursoCanDelete(r) {
+  if (USER && USER.role === 'head') return true;
+  var mine = (USER && USER.email) || '';
+  return !!(r && r.autorEmail && r.autorEmail.toLowerCase() === mine.toLowerCase());
+}
+// Solo dejamos pasar http(s) al href (defensa en profundidad; el backend ya
+// bloquea javascript:/data:/file:). Si no valida, no se renderiza como link.
+function _recursoSafeHref(url) {
+  return /^https?:\/\//i.test((url || '').toString().trim()) ? url.trim() : '';
+}
+function rEdRecursos(D) {
+  var v = $('vEdRecursos'); if (!v) return;
+
+  // Cache: si no hay, cargamos del server con loader y re-renderizamos.
+  if (_RECURSOS_CACHE == null) {
+    v.innerHTML = '<div class="pa-page">' + ltSkeleton(5) + '</div>';
+    if (typeof showLoader === 'function') showLoader();
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (typeof hideLoader === 'function') hideLoader();
+        _RECURSOS_CACHE = (res && res.success && res.recursos) ? res.recursos : [];
+        rEdRecursos(D);
+      })
+      .withFailureHandler(function(e) {
+        if (typeof hideLoader === 'function') hideLoader();
+        _RECURSOS_CACHE = [];
+        toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+        rEdRecursos(D);
+      })
+      .getRecursos();
+    return;
+  }
+
+  var recursos = (_RECURSOS_CACHE || []).slice(); // ya viene ordenado por categoría+título
+
+  var html = '<div class="pa-page">';
+  html += '<div class="pa-page-h">'
+       +    '<span class="pa-page-title">' + esc(t('Recursos')) + '</span>'
+       +    '<span class="pa-page-sub">' + recursos.length + ' '
+       +      esc(recursos.length === 1 ? t('recurso') : t('recursos')) + '</span>'
+       +    '<div class="pa-page-meta">'
+       +      '<button class="pa-btn pa-btn-primary" onclick="edRecursoToggleForm()">' + paIcon('plus', 12) + ' ' + esc(t('Agregar recurso')) + '</button>'
+       +    '</div>'
+       + '</div>';
+
+  html += '<div class="pa-narrative">' + esc(t('Herramientas, guías y links que comparte el equipo legal')) + '</div>';
+
+  // Form colapsable "Agregar recurso"
+  if (_RECURSOS_FORM_OPEN) {
+    html += '<div class="pa-card" style="margin:0 0 16px">'
+         +    '<div class="pa-card-h"><h3>' + esc(t('Agregar recurso')) + '</h3></div>'
+         +    '<div style="display:flex;flex-direction:column;gap:0">'
+         +      '<div class="cr-field" id="recFldTitulo"><div class="cr-label">' + esc(t('Título')) + ' <span class="req">*</span></div>'
+         +        '<input id="recTitulo" class="cr-input" maxlength="160" placeholder="' + esc(t('ej: Curso de prompts para legales')) + '"></div>'
+         +      '<div class="cr-field" id="recFldUrl"><div class="cr-label">' + esc(t('URL')) + ' <span class="req">*</span></div>'
+         +        '<input id="recUrl" class="cr-input" maxlength="2048" placeholder="https://…"></div>'
+         +      '<div class="cr-field"><div class="cr-label">' + esc(t('Categoría')) + '</div>'
+         +        '<input id="recCategoria" class="cr-input" maxlength="80" placeholder="' + esc(t('ej: Guías legales / AI')) + '"></div>'
+         +      '<div class="cr-field"><div class="cr-label">' + esc(t('Descripción')) + '</div>'
+         +        '<textarea id="recDescripcion" class="cr-input cr-textarea" rows="2" maxlength="500" placeholder="' + esc(t('Contexto breve (opcional)')) + '"></textarea></div>'
+         +      '<div style="display:flex;gap:8px;justify-content:flex-end">'
+         +        '<button type="button" class="ed-btn ghost" onclick="edRecursoToggleForm()">' + esc(t('Cancelar')) + '</button>'
+         +        '<button type="button" class="ed-btn accent" id="recAddBtn" onclick="edRecursoAdd()">' + esc(t('Agregar')) + '</button>'
+         +      '</div>'
+         +    '</div>'
+         + '</div>';
+  }
+
+  if (recursos.length === 0) {
+    html += paEmpty('globe', t('Todavía no hay recursos.'), t('Agregá el primero con "Agregar recurso".'));
+    html += '</div>';
+    v.innerHTML = html;
+    if (_RECURSOS_FORM_OPEN) setTimeout(function(){ var i = $('recTitulo'); if (i) i.focus(); }, 60);
+    return;
+  }
+
+  // Agrupado por categoría: encabezado por cada categoría (la lista ya viene
+  // ordenada por categoría+título, así que basta detectar el cambio).
+  var curCat = null;
+  recursos.forEach(function(r) {
+    var cat = r.categoria || 'General';
+    if (cat !== curCat) {
+      if (curCat !== null) html += '</div>'; // cerrar el grid anterior
+      curCat = cat;
+      html += '<div class="pa-section-h"><h3>' + esc(cat) + '</h3></div>';
+      html += '<div class="bib-grid">';
+    }
+
+    var href = _recursoSafeHref(r.url);
+    var titHtml = href
+      ? '<a href="' + esc(href) + '" target="_blank" rel="noopener" class="bib-card-title" style="text-decoration:none">' + esc(r.titulo) + '</a>'
+      : '<div class="bib-card-title">' + esc(r.titulo) + '</div>';
+
+    var delBtn = _recursoCanDelete(r)
+      ? '<div class="bib-card-actions">'
+        + '<button type="button" class="bib-card-act del" onclick="event.stopPropagation();edRecursoDelete(\'' + esc(r.id) + '\')" title="' + esc(t('Eliminar')) + '" aria-label="' + esc(t('Eliminar')) + '" style="font-size:15px;line-height:1">×</button>'
+        + '</div>'
+      : '';
+
+    var descHtml = r.descripcion
+      ? '<div style="font-size:12px;color:var(--fg-2);line-height:1.45;margin:2px 0 4px">' + esc(r.descripcion) + '</div>'
+      : '';
+
+    var metaParts = [];
+    if (r.autor) metaParts.push(esc(t('Agregado por')) + ' ' + esc(r.autor));
+    if (r.fecha) metaParts.push(esc(r.fecha));
+
+    html += '<div class="bib-card">'
+         +    '<div class="bib-card-h">'
+         +      '<span class="bib-card-icon">' + paIcon('globe', 16) + '</span>'
+         +      titHtml
+         +      delBtn
+         +    '</div>'
+         +    descHtml
+         +    '<div class="bib-card-class"><span class="bib-chip">' + esc(cat) + '</span></div>'
+         +    '<div class="bib-card-f">'
+         +      '<span class="author">' + metaParts.join(' · ') + '</span>'
+         +      (href ? '<span class="open-hint">↗ ' + esc(t('Abrir')) + '</span>' : '')
+         +    '</div>'
+         + '</div>';
+  });
+  if (curCat !== null) html += '</div>'; // cerrar el último grid
+
+  html += '</div>';
+  v.innerHTML = html;
+  if (_RECURSOS_FORM_OPEN) setTimeout(function(){ var i = $('recTitulo'); if (i) i.focus(); }, 60);
+}
+
+function edRecursoToggleForm() {
+  _RECURSOS_FORM_OPEN = !_RECURSOS_FORM_OPEN;
+  rEdRecursos(D);
+}
+
+function edRecursoAdd() {
+  var titulo = ($('recTitulo') && $('recTitulo').value || '').trim();
+  var url = ($('recUrl') && $('recUrl').value || '').trim();
+  var categoria = ($('recCategoria') && $('recCategoria').value || '').trim();
+  var descripcion = ($('recDescripcion') && $('recDescripcion').value || '').trim();
+
+  // Validación: título + url obligatorios. Marcamos el campo con has-err.
+  var fldT = $('recFldTitulo'), fldU = $('recFldUrl');
+  if (fldT) fldT.classList.remove('has-err');
+  if (fldU) fldU.classList.remove('has-err');
+  var bad = false;
+  if (!titulo) { if (fldT) fldT.classList.add('has-err'); bad = true; }
+  if (!/^https?:\/\//i.test(url)) { if (fldU) fldU.classList.add('has-err'); bad = true; }
+  if (bad) { toast(t('Completá título y una URL válida (http/https).'), 'error'); return; }
+
+  var btn = $('recAddBtn');
+  if (btn) { btn.disabled = true; btn.textContent = t('Agregando…'); }
+  function reset() { if (btn) { btn.disabled = false; btn.textContent = t('Agregar'); } }
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      reset();
+      if (res && res.success) {
+        _RECURSOS_CACHE = null;
+        _RECURSOS_FORM_OPEN = false;
+        toast(t('Recurso agregado'), 'success');
+        rEdRecursos(D);
+      } else {
+        toast(_friendlyError(res, t('No se pudo agregar el recurso.')), 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      reset();
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .addRecurso({ titulo: titulo, url: url, categoria: categoria, descripcion: descripcion });
+}
+
+function edRecursoDelete(id) {
+  confirm_(t('¿Eliminar este recurso? Esta acción no se puede deshacer.'), function() {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res && res.success) {
+          _RECURSOS_CACHE = null;
+          toast(t('Recurso eliminado'), 'success');
+          rEdRecursos(D);
+        } else {
+          toast(_friendlyError(res, t('No se pudo eliminar el recurso.')), 'error');
+        }
+      })
+      .withFailureHandler(function(e) { toast('Error: ' + (e && e.message || 'desconocido'), 'error'); })
+      .deleteRecurso(id);
+  }, { danger: true, confirmLabel: t('Eliminar') });
 }
 
 // ── Beta · feedback in-app (escribe a la hoja Feedback) ─────────────────
