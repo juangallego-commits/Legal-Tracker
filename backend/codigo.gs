@@ -2433,6 +2433,7 @@ function addBibliotecaDocLink(nombre, url, metadata) {
       var m = v.meta, now = new Date().toISOString();
       var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);
       ws.appendRow(_sanitizeRow([id, nm, 'link', u, m.tipoDocumento, m.areaTrabajo, m.pais, m.confidencialidad, m.tags, (ctx.user && ctx.user.name) || ctx.email || '', ctx.email || '', now, 'si', m.notas, '', '', m.areaSolicitante]));
+      try { _aiUpsertEmbedding(ctx.ss, id, _aiBiblioText({ nombre: nm, tags: m.tags, notas: m.notas, tipoDocumento: m.tipoDocumento, areaTrabajo: m.areaTrabajo, areaSolicitante: m.areaSolicitante, pais: m.pais })); } catch (e) {}
       return { success: true, id: id };
     });
   }, {});
@@ -2463,6 +2464,7 @@ function uploadBibliotecaDocFile(fileData, metadata) {
       var m = v.meta, now = new Date().toISOString();
       var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);
       ws.appendRow(_sanitizeRow([id, file.getName(), 'file', file.getUrl(), m.tipoDocumento, m.areaTrabajo, m.pais, m.confidencialidad, m.tags, (ctx.user && ctx.user.name) || ctx.email || '', ctx.email || '', now, 'si', m.notas, '', '', m.areaSolicitante]));
+      try { _aiUpsertEmbedding(ctx.ss, id, _aiBiblioText({ nombre: file.getName(), tags: m.tags, notas: m.notas, tipoDocumento: m.tipoDocumento, areaTrabajo: m.areaTrabajo, areaSolicitante: m.areaSolicitante, pais: m.pais })); } catch (e) {}
       return { success: true, id: id, url: file.getUrl() };
     });
   }, {});

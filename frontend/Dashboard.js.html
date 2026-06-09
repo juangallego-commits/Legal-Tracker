@@ -10032,25 +10032,55 @@ function _loadBibDocs(cb) {
     .withFailureHandler(function() { _BIBDOCS_CACHE = []; cb(); })
     .getBibliotecaDocs();
 }
+// Búsqueda semántica activa: array de docIds rankeados por la IA, o null.
+var _BIB_SEMANTIC = null;
+
 function _bibApplyFilters(docs) {
   var f = _BIB_FILTERS;
   var q = (f.query || '').toString().trim().toLowerCase();
-  return docs.filter(function(d) {
+  var out = docs.filter(function(d) {
     if (f.tipoDoc && d.tipoDocumento !== f.tipoDoc) return false;
     if (f.area && d.areaTrabajo !== f.area) return false;
     if (f.pais && d.pais !== f.pais) return false;
     if (f.cliente && (d.areaSolicitante || '') !== f.cliente) return false;
     if (f.soloVigentes && (d.vigente || 'si') === 'no') return false;
+    // Búsqueda IA: el set y el orden los define el ranking semántico; el
+    // substring query se ignora (lo reemplaza la IA). Las facetas igual aplican.
+    if (_BIB_SEMANTIC) return _BIB_SEMANTIC.indexOf(String(d.id)) >= 0;
     if (q) {
       var hay = [(d.nombre || ''), (d.tags || ''), (d.notas || '')].join(' ').toLowerCase();
       if (hay.indexOf(q) < 0) return false;
     }
     return true;
   });
+  if (_BIB_SEMANTIC) {
+    out.sort(function(a, b) { return _BIB_SEMANTIC.indexOf(String(a.id)) - _BIB_SEMANTIC.indexOf(String(b.id)); });
+  }
+  return out;
 }
 function _bibSetFacet(key, val) { _BIB_FILTERS[key] = val; _bibPersistFilters(); _rEdBibDocs(D); }
 function _bibSetVigentes(checked) { _BIB_FILTERS.soloVigentes = !!checked; _bibPersistFilters(); _rEdBibDocs(D); }
-function _bibLocalSearch(q) { _BIB_FILTERS.query = q || ''; _rEdBibDocs(D); }
+// Escribir en el buscador vuelve a modo substring (limpia la búsqueda IA).
+function _bibLocalSearch(q) { _BIB_SEMANTIC = null; _BIB_FILTERS.query = q || ''; _rEdBibDocs(D); }
+// Búsqueda semántica: embeddea el query y rankea por significado, no substring.
+function edBibSemanticSearch() {
+  var q = (_BIB_FILTERS.query || '').toString().trim();
+  if (!q) { toast('Escribí qué buscás y tocá IA', 'info'); return; }
+  toast('✨ Buscando por significado…', 'info');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.ids) {
+        _BIB_SEMANTIC = res.ids.map(String);
+        if (!_BIB_SEMANTIC.length) toast('Sin coincidencias semánticas. ¿Generaste los embeddings?', 'info');
+        _rEdBibDocs(D);
+      } else {
+        toast(_friendlyError(res, 'No se pudo buscar con IA'), 'error');
+      }
+    })
+    .withFailureHandler(function(e){ toast('Error: ' + ((e && e.message) || 'desconocido'), 'error'); })
+    .semanticSearchBiblioteca(q);
+}
+function edBibClearSemantic() { _BIB_SEMANTIC = null; _rEdBibDocs(D); }
 function _bibFacetSelect(key, label, options, current) {
   var h = '<select class="cr-input" style="width:auto;min-width:120px;height:30px;font-size:12px" onchange="_bibSetFacet(\'' + key + '\', this.value)">';
   h += '<option value="">' + esc(label) + ': Todos</option>';
@@ -10078,12 +10108,20 @@ function _rEdBibDocs(D) {
        +    '<span class="pa-page-sub">' + docs.length + (docs.length === all.length ? '' : ' de ' + all.length) + ' documento' + (all.length === 1 ? '' : 's') + '</span>'
        +    '<div class="pa-page-meta" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
        +      '<input type="text" class="cr-input" placeholder="Buscar en biblioteca…" value="' + esc(_BIB_FILTERS.query || '') + '" style="width:190px;height:30px;font-size:12px" oninput="_bibLocalSearch(this.value)">'
+       +      '<button class="pa-btn pa-btn-outline" style="height:30px;font-size:12px" title="Búsqueda semántica: encuentra por significado, no por palabra exacta" onclick="edBibSemanticSearch()">✨ IA</button>'
        +      '<button class="pa-btn pa-btn-outline" onclick="edBibDocLinkOpen()">' + paIcon('doc', 12) + ' Agregar enlace</button>'
        +      '<button class="pa-btn pa-btn-primary" onclick="var i=$(\'bibDocFileInput\'); if(i) i.click();">' + paIcon('plus', 12) + ' Subir archivo</button>'
        +      '<input type="file" id="bibDocFileInput" style="display:none" onchange="edBibDocUpload(this)">'
        +    '</div>'
        + '</div>';
-  html += '<div class="pa-narrative">Centro de conocimiento legal del equipo. Clasificá cada documento por tipo, área, país y confidencialidad para que el equipo lo encuentre.</div>';
+  if (_BIB_SEMANTIC) {
+    html += '<div class="pa-narrative" style="border-left:3px solid var(--accent);padding-left:10px;margin-bottom:12px;display:flex;align-items:center;gap:8px">'
+         +    '<span>✨ <b>Búsqueda IA</b> por significado · ' + docs.length + ' resultado' + (docs.length === 1 ? '' : 's') + ' para "' + esc(_BIB_FILTERS.query || '') + '"</span>'
+         +    '<button class="pa-btn pa-btn-ghost" style="height:22px;font-size:11px;margin-left:auto" onclick="edBibClearSemantic()">Limpiar IA</button>'
+         + '</div>';
+  } else {
+    html += '<div class="pa-narrative">Centro de conocimiento legal del equipo. Clasificá cada documento por tipo, área, país y confidencialidad para que el equipo lo encuentre. Probá <b>✨ IA</b> para buscar por significado.</div>';
+  }
 
   var sinClasificar = all.filter(function(d){ return d.tipoDocumento === 'Otro'; });
   if (sinClasificar.length > 0) {

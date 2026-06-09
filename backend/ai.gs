@@ -262,3 +262,119 @@ function createRenewalReminder(kind, itemId, docId) {
     return res || _err('BACKEND_ERROR', 'No se pudo crear el recordatorio.');
   }, { kind: kind, itemId: itemId });
 }
+
+// ── Embeddings · búsqueda semántica en Biblioteca (Sprint 3) ────────
+// Generamos un vector por documento (de su metadata) y lo guardamos en la hoja
+// oculta _Embeddings. Al buscar, embeddeamos el query y rankeamos por similitud
+// coseno. Todo best-effort: sin API key, los hooks no hacen nada y la búsqueda
+// por texto (substring) sigue funcionando.
+
+var _AI_EMBED_SHEET = '_Embeddings';
+
+// Texto representativo de un doc de biblioteca para embeddear.
+function _aiBiblioText(d) {
+  return [d.nombre, d.tags, d.notas, d.tipoDocumento, d.areaTrabajo, d.areaSolicitante, d.pais]
+    .filter(Boolean).join(' · ');
+}
+
+function _aiEmbed(text) {
+  if (!_aiApiKey() || !text) return null;
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + _AI_EMBED_MODEL
+          + ':embedContent?key=' + encodeURIComponent(_aiApiKey());
+  var resp;
+  try {
+    resp = UrlFetchApp.fetch(url, {
+      method: 'post', contentType: 'application/json',
+      payload: JSON.stringify({ model: 'models/' + _AI_EMBED_MODEL, content: { parts: [{ text: String(text).slice(0, 8000) }] } }),
+      muteHttpExceptions: true
+    });
+  } catch (e) { Logger.log('embed: fetch error · ' + e); return null; }
+  if (resp.getResponseCode() !== 200) { Logger.log('embed: HTTP ' + resp.getResponseCode() + ' · ' + resp.getContentText().slice(0, 200)); return null; }
+  var json; try { json = JSON.parse(resp.getContentText()); } catch (e) { return null; }
+  try { return json.embedding.values; } catch (e) { return null; }
+}
+
+function _aiEmbedSheet(ss) {
+  var ws = ss.getSheetByName(_AI_EMBED_SHEET);
+  if (!ws) {
+    ws = ss.insertSheet(_AI_EMBED_SHEET);
+    ws.getRange(1, 1, 1, 3).setValues([['docId', 'text', 'vector']]);
+    ws.getRange(1, 1, 1, 3).setFontWeight('bold');
+    try { ws.hideSheet(); } catch (e) {}
+  }
+  return ws;
+}
+
+// Embeddea y guarda (upsert por docId). Best-effort: nunca tira.
+function _aiUpsertEmbedding(ss, docId, text) {
+  try {
+    var vec = _aiEmbed(text);
+    if (!vec) return false;
+    var ws = _aiEmbedSheet(ss);
+    var lr = ws.getLastRow();
+    var rowIdx = -1;
+    if (lr >= 2) {
+      var ids = ws.getRange(2, 1, lr - 1, 1).getValues();
+      for (var i = 0; i < ids.length; i++) { if (String(ids[i][0]) === String(docId)) { rowIdx = i + 2; break; } }
+    }
+    var row = [docId, String(text).slice(0, 2000), JSON.stringify(vec)];
+    if (rowIdx > 0) ws.getRange(rowIdx, 1, 1, 3).setValues([row]);
+    else ws.appendRow(row);
+    return true;
+  } catch (e) { Logger.log('upsertEmbedding: ' + e); return false; }
+}
+
+function _aiCosine(a, b) {
+  var dot = 0, na = 0, nb = 0, n = Math.min(a.length, b.length);
+  for (var i = 0; i < n; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  if (na === 0 || nb === 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+// Búsqueda semántica: devuelve docIds rankeados por relevancia al query.
+function semanticSearchBiblioteca(query) {
+  return _telemetry('semanticSearchBiblioteca', function() {
+    _getAuthContext(); // valida acceso
+    if (!_aiApiKey()) return _err('NO_AI', 'Falta configurar GEMINI_API_KEY para búsqueda semántica.');
+    var q = (query || '').toString().trim();
+    if (!q) return { ids: [] };
+    var qv = _aiEmbed(q);
+    if (!qv) return _err('AI_FAIL', 'No pude procesar la búsqueda. Reintentá.');
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ws = ss.getSheetByName(_AI_EMBED_SHEET);
+    if (!ws) return { ids: [] };
+    var lr = ws.getLastRow();
+    if (lr < 2) return { ids: [] };
+    var data = ws.getRange(2, 1, lr - 1, 3).getValues();
+    var scored = [];
+    data.forEach(function(r) {
+      var vec = null; try { vec = JSON.parse(r[2]); } catch (e) {}
+      if (vec) scored.push({ id: String(r[0]), score: _aiCosine(qv, vec) });
+    });
+    scored.sort(function(a, b) { return b.score - a.score; });
+    var top = scored.filter(function(s) { return s.score > 0.45; }).slice(0, 25);
+    return { ids: top.map(function(s) { return s.id; }) };
+  }, {});
+}
+
+// Backfill one-shot (correr desde el editor, head). Embeddea los docs de
+// biblioteca que aún no tengan vector. Idempotente.
+function backfillBiblioEmbeddings() {
+  var ctx = _getAuthContext();
+  if (ctx.role !== 'head') throw new Error('Solo un head puede correr el backfill de embeddings.');
+  if (!_aiApiKey()) throw new Error('Falta GEMINI_API_KEY en Script Properties.');
+  var res = getBibliotecaDocs();
+  var docs = (res && res.items) || [];
+  var ws = _aiEmbedSheet(ctx.ss);
+  var existing = {};
+  var lr = ws.getLastRow();
+  if (lr >= 2) { ws.getRange(2, 1, lr - 1, 1).getValues().forEach(function(r) { existing[String(r[0])] = 1; }); }
+  var done = 0;
+  for (var i = 0; i < docs.length; i++) {
+    var d = docs[i];
+    if (existing[String(d.id)]) continue;
+    if (_aiUpsertEmbedding(ctx.ss, d.id, _aiBiblioText(d))) done++;
+    Utilities.sleep(200); // respeto del rate limit de la API
+  }
+  return 'Embeddings generados: ' + done + ' nuevos (de ' + docs.length + ' docs).';
+}
