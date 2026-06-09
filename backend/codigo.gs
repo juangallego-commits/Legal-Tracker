@@ -908,6 +908,14 @@ function _buildViewForRole(raw, role, user, feriadosByCountry) {
     countries: allCountriesArr,
     hqTeam: hqTeam,
     equipos: visibleEquipos,
+    // Roster names-only de TODOS los países (sin emails/PII) para el picker de
+    // participantes/colaboradores multi-país (equipos completo, antes del recorte).
+    rosterByCountry: equipos.map(function(eq){
+      var mm = []; if (eq && eq.leader) mm.push(eq.leader);
+      ((eq && eq.members) || []).forEach(function(m){ if (m) mm.push(m); });
+      var seen = {}, uniq = []; mm.forEach(function(n){ if (!seen[n]) { seen[n] = 1; uniq.push(n); } });
+      return { code: eq.code, country: eq.country || eq.code, members: uniq };
+    }),
     projects: projects,
     projectList: projectList,
     semana: raw.semana,
