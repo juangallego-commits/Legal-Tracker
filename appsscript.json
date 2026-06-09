@@ -21,8 +21,7 @@
   ],
   "urlFetchWhitelist": [
     "https://slack.com/api/",
-    "https://generativelanguage.googleapis.com/",
-    "https://gmail.googleapis.com/"
+    "https://generativelanguage.googleapis.com/"
   ],
   "addOns": {
     "common": {

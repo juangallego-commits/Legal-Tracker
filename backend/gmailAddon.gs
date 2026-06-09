@@ -88,28 +88,25 @@ function _gmailReadMessage(e) {
   var info = { messageId: '', subject: '', from: '', dateStr: '', threadId: '', body: '', bodySnippet: '', notesPrefill: '', attachments: [] };
   try {
     if (!e || !e.gmail || !e.gmail.accessToken) throw new Error('El evento no trae el token del mensaje.');
-    var token = e.gmail.accessToken;
+    // GmailApp con el token de mensaje del add-on es el método documentado por
+    // Google para el scope angosto gmail.addons.current.message.readonly. Si tira
+    // "no permission", es que ese scope no está consentido → reinstalar el add-on.
+    GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
     info.messageId = e.gmail.messageId || '';
-    info.threadId = e.gmail.threadId || '';
-    // Leemos por la Gmail REST API con el token de mensaje del add-on. Esto
-    // respeta el scope angosto current.message.readonly — GmailApp.getMessageById
-    // en cambio exige scopes amplios de buzón (gmail.readonly/modify) que no
-    // pedimos a propósito.
-    var msg = _gmailApiGet(token, 'messages/' + encodeURIComponent(e.gmail.messageId) + '?format=full');
-    var headers = (msg.payload && msg.payload.headers) || [];
-    info.subject = _gmailHeader(headers, 'Subject');
-    info.from = _gmailHeader(headers, 'From');
-    if (!info.threadId) info.threadId = msg.threadId || '';
-    var rawDate = _gmailHeader(headers, 'Date');
-    var d = rawDate ? new Date(rawDate) : (msg.internalDate ? new Date(Number(msg.internalDate)) : null);
-    info.dateStr = (d && !isNaN(d.getTime())) ? Utilities.formatDate(d, 'America/Bogota', 'dd/MM/yyyy') : '';
-    // Recorremos el árbol MIME: cuerpo de texto + adjuntos (no inline).
-    var parsed = _gmailExtractParts(msg.payload);
-    info.body = (parsed.text || '').slice(0, 8000);
-    info.bodySnippet = info.body.slice(0, 1000);
-    info.attachments = parsed.attachments.map(function(a, idx) {
-      return { name: a.name, size: a.size, idx: idx, attachmentId: a.attachmentId, mimeType: a.mimeType };
-    });
+    var message = GmailApp.getMessageById(e.gmail.messageId);
+    info.subject = message.getSubject() || '';
+    info.from = message.getFrom() || '';
+    var date = message.getDate();
+    info.dateStr = date ? Utilities.formatDate(date, 'America/Bogota', 'dd/MM/yyyy') : '';
+    info.threadId = e.gmail.threadId || message.getThread().getId();
+    try {
+      info.body = (message.getPlainBody() || '').slice(0, 8000);
+      info.bodySnippet = info.body.slice(0, 1000);
+    } catch (e2) {}
+    try {
+      var atts = message.getAttachments({ includeInlineImages: false, includeAttachments: true });
+      info.attachments = atts.map(function(a, idx) { return { name: a.getName(), size: a.getSize(), idx: idx }; });
+    } catch (e3) { info.attachments = []; }
     info.notesPrefill = 'Desde correo de ' + info.from
       + (info.dateStr ? ' · ' + info.dateStr : '')
       + '\nVer correo: ' + _gmailThreadLink(info.threadId);
@@ -119,67 +116,6 @@ function _gmailReadMessage(e) {
     info.tokenPresent = !!(e && e.gmail && e.gmail.accessToken);
   }
   return info;
-}
-
-// GET autenticado a la Gmail REST API con el token del mensaje actual del
-// add-on. Tira con el código/HTTP si falla (lo captura el caller para diagnóstico).
-function _gmailApiGet(accessToken, path) {
-  var resp = UrlFetchApp.fetch('https://gmail.googleapis.com/gmail/v1/users/me/' + path, {
-    method: 'get',
-    headers: { Authorization: 'Bearer ' + accessToken },
-    muteHttpExceptions: true
-  });
-  var code = resp.getResponseCode();
-  if (code !== 200) throw new Error('Gmail API HTTP ' + code + ': ' + resp.getContentText().slice(0, 160));
-  return JSON.parse(resp.getContentText());
-}
-
-// Busca el valor de un header por nombre (case-insensitive).
-function _gmailHeader(headers, name) {
-  for (var i = 0; i < headers.length; i++) {
-    if ((headers[i].name || '').toLowerCase() === name.toLowerCase()) return headers[i].value || '';
-  }
-  return '';
-}
-
-// Decodifica base64url (formato de la Gmail API) a string UTF-8.
-function _gmailB64UrlDecode(data) {
-  if (!data) return '';
-  var b64 = data.replace(/-/g, '+').replace(/_/g, '/');
-  try { return Utilities.newBlob(Utilities.base64Decode(b64)).getDataAsString('UTF-8'); }
-  catch (e) { try { return Utilities.newBlob(Utilities.base64Decode(b64)).getDataAsString(); } catch (e2) { return ''; } }
-}
-
-// Recorre el árbol MIME del payload: junta text/plain (fallback a text/html sin
-// tags) y lista los adjuntos reales (con attachmentId, excluyendo inline).
-function _gmailExtractParts(payload) {
-  var out = { text: '', html: '', attachments: [] };
-  function isInline(part) {
-    var hs = part.headers || [];
-    for (var i = 0; i < hs.length; i++) {
-      if ((hs[i].name || '').toLowerCase() === 'content-disposition' && /inline/i.test(hs[i].value || '')) return true;
-    }
-    return false;
-  }
-  function walk(part) {
-    if (!part) return;
-    var mime = part.mimeType || '';
-    var filename = part.filename || '';
-    var body = part.body || {};
-    if (filename && body.attachmentId && !isInline(part)) {
-      out.attachments.push({ name: filename, size: body.size || 0, attachmentId: body.attachmentId, mimeType: mime });
-    } else if (mime === 'text/plain' && body.data) {
-      out.text += _gmailB64UrlDecode(body.data);
-    } else if (mime === 'text/html' && body.data) {
-      out.html += _gmailB64UrlDecode(body.data);
-    }
-    if (part.parts) part.parts.forEach(walk);
-  }
-  walk(payload);
-  if (!out.text && out.html) {
-    out.text = out.html.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  }
-  return out;
 }
 
 // ── Card de creación ────────────────────────────────────────────────
@@ -717,29 +653,26 @@ function gmailCreateTaskFromEmail(e) {
 function _gmailUploadAttachments(e, taskId, checkedIdx) {
   var ok = 0, fail = 0;
   try {
-    var token = e.gmail.accessToken;
-    // Re-leemos la lista de adjuntos (mismo orden → mismos índices que la card).
-    var atts = (_gmailReadMessage(e).attachments) || [];
+    GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
+    var message = GmailApp.getMessageById(e.gmail.messageId);
+    var atts = message.getAttachments({ includeInlineImages: false, includeAttachments: true });
     var want = {};
     checkedIdx.forEach(function(s) { want[String(s)] = true; });
     var running = 0, count = 0;
     for (var i = 0; i < atts.length; i++) {
       if (!want[String(i)]) continue;
       var a = atts[i];
-      if (count >= _GMAIL_ATT_MAX_COUNT || running + (a.size || 0) > _GMAIL_ATT_MAX_TOTAL) { fail++; continue; }
-      var b64;
-      try {
-        var att = _gmailApiGet(token, 'messages/' + encodeURIComponent(e.gmail.messageId) + '/attachments/' + encodeURIComponent(a.attachmentId));
-        // La Gmail API devuelve base64url; uploadDocument hace base64Decode estándar.
-        b64 = (att.data || '').replace(/-/g, '+').replace(/_/g, '/');
-      } catch (err) { fail++; continue; }
-      var r = uploadDocument('task', taskId, { name: a.name, mimeType: a.mimeType || 'application/octet-stream', data: b64 });
-      if (r && r.success) { ok++; running += (a.size || 0); count++; }
+      if (count >= _GMAIL_ATT_MAX_COUNT || running + a.getSize() > _GMAIL_ATT_MAX_TOTAL) { fail++; continue; }
+      var r = uploadDocument('task', taskId, {
+        name: a.getName(),
+        mimeType: a.getContentType(),
+        data: Utilities.base64Encode(a.getBytes())
+      });
+      if (r && r.success) { ok++; running += a.getSize(); count++; }
       else fail++;
     }
   } catch (err) {
-    // Si falla la lectura del correo, lo que no se subió queda como fallo; la
-    // tarea ya existe igual.
+    // La tarea ya existe; lo que no se subió queda como fallo.
   }
   return { ok: ok, fail: fail };
 }
