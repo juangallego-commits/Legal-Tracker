@@ -7542,14 +7542,15 @@ function _crProjects() {
   });
 }
 
-function _crPillsHtml(field, options, activeVal, modCls) {
+function _crPillsHtml(field, options, activeVal, modCls, handler) {
+  var fn = handler || 'edCrearSetField'; // wizard de tareas por default; proyectos pasa 'edCrearProyectoSetField'
   return options.map(function(opt){
     var val = typeof opt === 'object' ? opt.value : opt;
     var lbl = typeof opt === 'object' ? opt.label : opt;
     var active = String(activeVal) === String(val) ? ' active' : '';
     var mod = modCls ? (' ' + modCls(val)) : '';
     return '<button type="button" class="cr-pill-btn' + mod + active + '" '
-         + 'onclick="edCrearSetField(\'' + field + '\',\'' + escJs(String(val)) + '\')">'
+         + 'onclick="' + fn + '(\'' + field + '\',\'' + escJs(String(val)) + '\')">'
          + esc(lbl) + '</button>';
   }).join('');
 }
@@ -8517,14 +8518,15 @@ function rEdProyectosIndex(D) {
     // Cards grid de proyectos
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));gap:12px;margin-top:6px">';
     var paletteByIdx = ['#5b8def','#8a7ff0','#d0a86b','#3fa888','#e07a7a','#6aa6e0','#a06bcb','#cc7470'];
-    enriched.forEach(function(p, i) {
+    enriched.forEach(function(w, i) {
+      var p = w.p; // 'enriched' trae wrappers {p, role, ...}; usar el proyecto crudo
       var color = paletteByIdx[i % paletteByIdx.length];
       var open = (D.tasks || []).filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; }).length;
       var done = (D.historial || []).filter(function(t){ return t.proyectoId == p.id; }).length;
       var total = open + done;
       var pct = total > 0 ? Math.round((done / total) * 100) : 0;
       var role = p.lider === userName ? 'Líder' : 'Participante';
-      html += '<div class="pa-card" style="padding:16px;cursor:pointer" onclick="edPiOpen(' + p.id + ')">'
+      html += '<div class="pa-card" style="padding:16px;cursor:pointer" onclick="edPiOpen(\'' + esc(p.id) + '\')">'
            +    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">'
            +      '<span style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.04em">' + esc(role) + (p.pais ? ' · ' + esc(p.pais) : '') + '</span>'
            +      paStatusPill(p.status === 'Activo' ? 'En curso'
@@ -9898,7 +9900,7 @@ function _crpRenderStep1() {
     +   paisField
     +   '<div class="cr-field">'
     +     '<div class="cr-label">Prioridad <span class="req">*</span></div>'
-    +     '<div class="cr-pills-row">' + _crPillsHtml('priority', _CR_PRIOS, v.priority, _crPrioMod) + '</div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('priority', _CR_PRIOS, v.priority, _crPrioMod, 'edCrearProyectoSetField') + '</div>'
     +   '</div>'
     + '</div>';
 }
@@ -9932,11 +9934,11 @@ function _crpRenderStep2() {
     + '<div class="cr-grid2">'
     +   '<div class="cr-field">'
     +     '<div class="cr-label">Tipo de trabajo</div>'
-    +     '<div class="cr-pills-row">' + _crPillsHtml('tipoTrabajo', _CR_TIPOS, v.tipoTrabajo) + '</div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('tipoTrabajo', _CR_TIPOS, v.tipoTrabajo, null, 'edCrearProyectoSetField') + '</div>'
     +   '</div>'
     +   '<div class="cr-field">'
     +     '<div class="cr-label">Riesgo</div>'
-    +     '<div class="cr-pills-row">' + _crPillsHtml('riesgo', _CR_RIESGOS, v.riesgo, _crRiesgoMod) + '</div>'
+    +     '<div class="cr-pills-row">' + _crPillsHtml('riesgo', _CR_RIESGOS, v.riesgo, _crRiesgoMod, 'edCrearProyectoSetField') + '</div>'
     +   '</div>'
     + '</div>'
     + '<div class="cr-grid2">'
