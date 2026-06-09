@@ -3845,7 +3845,8 @@ function rEdHomeSpecialist(D) {
   }).length;
 
   var projs = (D && D.projects) ? D.projects.filter(function(p){
-    if (p.lider === name) return true;
+    if (p.lider === name || p.responsable === name) return true;
+    if ((p.participantes || []).indexOf(name) >= 0) return true;
     return (D.tasks || []).some(function(t){ return t.proyectoId == p.id && t.resp === name; });
   }) : [];
 
@@ -7581,7 +7582,8 @@ function edCrearOpen() {
     resp: currentName || '',
     deadline: '',
     proyectoId: '',
-    confidencialidad: 'estandar'
+    confidencialidad: 'estandar',
+    areaSolicitante: ''
   };
   // Restaurar borrador de localStorage si existe contenido útil (titulo o
   // descripcion). Solo override campos NO vacíos del draft — sino una
@@ -7788,6 +7790,7 @@ function _piBucket(projects, tab, userName, tasks) {
   if (tab === 'lideras')    return open.filter(function(p){ return p.lider === userName; });
   if (tab === 'participas') return open.filter(function(p){
     if (p.lider === userName) return false;
+    if (p.responsable === userName || (p.participantes || []).indexOf(userName) >= 0) return true;
     return tasks.some(function(t){ return t.proyectoId == p.id && t.resp === userName; });
   });
   return open;
@@ -8058,6 +8061,7 @@ function rEdProyectosIndex(D) {
   var cActivos    = open.length;
   var cParticipas = open.filter(function(p){
     if (p.lider === userName) return false;
+    if (p.responsable === userName || (p.participantes || []).indexOf(userName) >= 0) return true;
     return tasks.some(function(t){ return t.proyectoId == p.id && t.resp === userName; });
   }).length;
   var cLideras    = open.filter(function(p){ return p.lider === userName; }).length;
@@ -9451,6 +9455,18 @@ function _crpLideres(paisCode) {
   return out;
 }
 
+// Todos los miembros del país (líder + members) para elegir participantes.
+function _crpMembers(paisCode) {
+  var equipos = (D && D.equipos) || [];
+  var out = [];
+  equipos.forEach(function(eq) {
+    if (!eq || (paisCode && eq.code !== paisCode)) return;
+    if (eq.leader) out.push(eq.leader);
+    (eq.members || []).forEach(function(m){ if (m) out.push(m); });
+  });
+  return out.filter(function(n, i){ return out.indexOf(n) === i; });
+}
+
 function _crpRenderStep1() {
   var v = EDCP.values;
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
@@ -9507,10 +9523,7 @@ function _crpRenderStep2() {
   // Lista de miembros del país: si no hay país seleccionado, vacío.
   // El user selecciona participantes con checkboxes (multi-select); el state
   // se persiste en v.participantes como CSV.
-  var allMembers = _crpLideres(v.pais);
-  // Agregar también miembros del país (no solo líderes) — los líderes son
-  // subset de members. _crpLideres filtra equipos.code === pais y trae
-  // leader + members.
+  var allMembers = _crpMembers(v.pais); // líder + todos los miembros del país
   var partList = (v.participantes || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
   var partChips = allMembers.map(function(name) {
     var on = partList.indexOf(name) >= 0;
@@ -9766,7 +9779,7 @@ function edCrearProyectoSubmit() {
     .addProject({
       nombre: v.nombre.trim(),
       descripcion: (v.descripcion || '').trim(),
-      responsable: v.lider || '',
+      responsable: (typeof _effectiveUserName === 'function' && _effectiveUserName()) || v.lider || '',
       lider: v.lider || '',
       pais: v.pais || '',
       priority: v.priority || 'Media',
