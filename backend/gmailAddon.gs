@@ -33,6 +33,10 @@ var _GMAIL_TIPOS = ['Contractual', 'Regulatorio', 'Contencioso', 'Privacy', 'Ope
 var _GMAIL_ATT_MAX_COUNT = 5;
 var _GMAIL_ATT_MAX_TOTAL = 15 * 1024 * 1024; // 15 MB
 
+// Motivo del último fallo de IA (para mostrarlo en la card). Se setea en
+// _gmailAIEnrich; vive por ejecución (Apps Script resetea el global por request).
+var _GMAIL_AI_ERROR = '';
+
 // ── Homepage: card que se ve al abrir el add-on sin un correo seleccionado ──
 // Mejora descubribilidad: sin esto, el add-on solo muestra algo al abrir un
 // correo, lo que confunde ("instalé y no veo nada"). Acá explicamos el flujo.
@@ -177,7 +181,7 @@ function _gmailBuildCreateCard(info, ctx, clientes, ai) {
     try { keyPresent = !!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY'); } catch (e) {}
     form.addWidget(CardService.newDecoratedText()
       .setText(keyPresent
-        ? 'ℹ️ La IA no respondió (red/quota). Los campos quedan con la heurística básica.'
+        ? ('ℹ️ IA no respondió: ' + (_GMAIL_AI_ERROR || 'motivo desconocido') + ' · campos con heurística básica.')
         : 'ℹ️ IA desactivada: falta GEMINI_API_KEY en Propiedades del script.')
       .setWrapText(true));
   }
@@ -193,7 +197,7 @@ function _gmailBuildCreateCard(info, ctx, clientes, ai) {
     .setType(CardService.SelectionInputType.DROPDOWN)
     .setFieldName('tipoTrabajo')
     .setTitle('Tipo de trabajo');
-  tipoInput.addItem('— Sin definir —', '', pre.tipoTrabajo === '');
+  tipoInput.addItem('Sin definir', '', pre.tipoTrabajo === '');
   _GMAIL_TIPOS.forEach(function(tp) { tipoInput.addItem(tp, tp, tp === pre.tipoTrabajo); });
   form.addWidget(tipoInput);
 
@@ -224,7 +228,7 @@ function _gmailBuildCreateCard(info, ctx, clientes, ai) {
       .setType(CardService.SelectionInputType.DROPDOWN)
       .setFieldName('areaSolicitante')
       .setTitle('Área solicitante (cliente interno)');
-    cliInput.addItem('— Sin definir —', '', !pre.areaSolicitante);
+    cliInput.addItem('Sin definir', '', !pre.areaSolicitante);
     clientes.forEach(function(c) { cliInput.addItem(c, c, c === pre.areaSolicitante); });
     form.addWidget(cliInput);
   }
@@ -254,7 +258,7 @@ function _gmailBuildCreateCard(info, ctx, clientes, ai) {
       .setType(CardService.SelectionInputType.DROPDOWN)
       .setFieldName('riesgo')
       .setTitle('Nivel de riesgo');
-    riesgoInput.addItem('— Sin definir —', '', !pre.riesgo);
+    riesgoInput.addItem('Sin definir', '', !pre.riesgo);
     ['Legal', 'Reputacional', 'Negocio'].forEach(function(r) { riesgoInput.addItem(r, r, r === pre.riesgo); });
     form.addWidget(riesgoInput);
   }
@@ -394,10 +398,11 @@ function gmailForceCreate(e) {
 // Cacheamos por messageId (UserCache, 5 min) para que reabrir el mismo correo no
 // vuelva a gastar la cuota.
 function _gmailAIEnrich(info, clientes) {
+  _GMAIL_AI_ERROR = '';
   var apiKey;
   try { apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY'); } catch (err) { return null; }
   if (!apiKey) return null;
-  if (!info || (!info.subject && !info.body)) return null;
+  if (!info || (!info.subject && !info.body)) { _GMAIL_AI_ERROR = 'correo sin contenido'; return null; }
 
   var cache = null;
   try { cache = CacheService.getUserCache(); } catch (err) {}
@@ -425,18 +430,20 @@ function _gmailAIEnrich(info, clientes) {
       muteHttpExceptions: true
     });
   } catch (err) {
-    Logger.log('gmailAI: fetch error · ' + ((err && err.message) || err));
+    _GMAIL_AI_ERROR = 'fetch: ' + ((err && err.message) || err);
+    Logger.log('gmailAI: ' + _GMAIL_AI_ERROR);
     return null;
   }
   if (resp.getResponseCode() !== 200) {
-    Logger.log('gmailAI: HTTP ' + resp.getResponseCode() + ' · ' + resp.getContentText().slice(0, 200));
+    _GMAIL_AI_ERROR = 'HTTP ' + resp.getResponseCode() + ' · ' + resp.getContentText().slice(0, 220);
+    Logger.log('gmailAI: ' + _GMAIL_AI_ERROR);
     return null;
   }
   var json;
-  try { json = JSON.parse(resp.getContentText()); } catch (err) { return null; }
+  try { json = JSON.parse(resp.getContentText()); } catch (err) { _GMAIL_AI_ERROR = 'respuesta no-JSON'; return null; }
   var text = '';
   try { text = json.candidates[0].content.parts[0].text || ''; } catch (err) {}
-  if (!text) return null;
+  if (!text) { _GMAIL_AI_ERROR = 'respuesta vacía (posible filtro de seguridad)'; return null; }
   var out;
   try { out = JSON.parse(text); } catch (err) { return null; }
 
