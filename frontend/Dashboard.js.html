@@ -730,16 +730,21 @@ function attachDocLinkFromForm(kind, itemId) {
 // el modal con la lista refrescada (sin cerrar/volver a abrir visualmente).
 function reopenEditWithFreshData() {
   var id = EDIT_ID, kind = EDIT_KIND;
-  if (!id) return;
+  var modalOpen = !!($('editOv') && $('editOv').classList.contains('show'));
+  // El detalle de proyecto también embebe la sección de Documentos; si está
+  // abierto (EDP.detailId), refrescamos esa vista en vez del modal.
+  var detailOpen = (typeof EDP !== 'undefined') && !!EDP.detailId;
+  if (!id && !detailOpen) return;
   showLoader();
   google.script.run
     .withSuccessHandler(function(d) {
       hideLoader();
       D = d;
-      // Refresh solo el modal body con data nueva
-      if ($('editOv').classList.contains('show')) {
+      if (modalOpen && id) {
         if (kind === 'task') openEdit(id);
         else if (kind === 'project') openEditProj(id);
+      } else if (detailOpen && typeof rEdProyectosIndex === 'function') {
+        rEdProyectosIndex(D);
       }
     })
     .withFailureHandler(function(e){ hideLoader(); toast('Error al refrescar: ' + e.message, 'error'); })
@@ -827,7 +832,6 @@ function openEditProj(id) {
 
   var members    = getAllMembers();
   var respOpts   = buildOptions(members, p.responsable, true);
-  var liderOpts  = buildOptions(members, p.lider, true);
   var paisOpts   = buildOptions((D.equipos || []).map(function(eq){ return { value: eq.code, label: eq.code }; }), p.pais, true);
   var prioOpts   = buildOptions([{value:'Alta',label:'🔴 Alta'},{value:'Media',label:'🟡 Media'},{value:'Baja',label:'🟢 Baja'}], p.priority);
   var statOpts   = buildOptions(['Activo','En pausa','Completado','Cancelado'], p.status);
@@ -849,7 +853,6 @@ function openEditProj(id) {
     + '</div>'
     + '<div class="form-3col" style="margin-bottom:14px">'
     +   '<div class="form-group"><label>' + t('Responsable') + '</label><select id="epResp">' + respOpts + '</select></div>'
-    +   '<div class="form-group"><label>' + t('Líder') + '</label><select id="epLider">' + liderOpts + '</select></div>'
     +   '<div class="form-group"><label>' + t('Estado') + '</label><select id="epStat">' + statOpts + '</select></div>'
     + '</div>'
     + '<div class="form-grid" style="margin-bottom:14px">'
@@ -861,8 +864,7 @@ function openEditProj(id) {
     + '<div class="form-group" style="margin-bottom:14px"><label>' + t('Notas') + '</label>'
     +   '<input type="text" id="epNot" value="' + esc(p.notas || '') + '"></div>'
     + '<div class="form-group" style="margin-bottom:14px"><label>' + t('Contrapartes en conflicto') + ' <span style="font-weight:400;color:var(--text-dim)">' + t('(separadas por coma · alertan conflicto de interés al crear tareas)') + '</span></label>'
-    +   '<input type="text" id="epConf" value="' + esc((p.contrapartesConflicto || []).join(', ')) + '"></div>'
-    + renderDocsSection('project', id, p.documentos || []);
+    +   '<input type="text" id="epConf" value="' + esc((p.contrapartesConflicto || []).join(', ')) + '"></div>';
   $('editOv').classList.add('show');
 }
 
@@ -945,7 +947,6 @@ function saveEditProj() {
     descripcion: $('epDesc').value,
     pais:        $('epPais').value,
     responsable: $('epResp').value,
-    lider:       $('epLider').value,
     deadline:    $('epDl').value,
     priority:    $('epPrio').value,
     status:      $('epStat').value,
@@ -3380,7 +3381,7 @@ function _edSearchRender() {
            +    '<span class="ed-search-r-kind">proyecto</span>'
            +    '<span class="ed-search-r-id">#' + esc(p.id) + '</span>'
            +    '<span class="ed-search-r-name">' + _edSearchHighlight(p.nombre || '', q) + '</span>'
-           +    '<span class="ed-search-r-resp">' + _edSearchHighlight(p.lider || p.responsable || '—', q) + '</span>'
+           +    '<span class="ed-search-r-resp">' + _edSearchHighlight(p.responsable || p.lider || '—', q) + '</span>'
            +    '<span class="ed-pill">' + esc(p.status || 'Activo') + '</span>'
            +    '<span class="ed-search-r-eta">' + esc(p.deadline || '') + '</span>'
            +  '</div>';
@@ -3951,7 +3952,7 @@ function rEdHomeSpecialist(D) {
            +    '<div style="min-width:0">'
            +      '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:13px;font-weight:500">' + esc(p.nombre || '') + '</span>'
            +        (p.pais ? ' <span class="pa-pill pa-pill-country">' + esc(p.pais) + '</span>' : '') + '</div>'
-           +      '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">' + esc(t('Líder')) + ': ' + esc(p.lider || '—') + ' · ' + openP + ' ' + esc(LANG === 'pt' ? 'ativas de ' : 'activas de ') + totalP + '</div>'
+           +      '<div style="font-size:11px;color:var(--fg-3);margin-top:2px">' + esc(t('Responsable')) + ': ' + esc(p.responsable || '—') + ' · ' + openP + ' ' + esc(LANG === 'pt' ? 'ativas de ' : 'activas de ') + totalP + '</div>'
            +    '</div>'
            +    '<div class="pa-flex-center">'
            +      '<div style="width:70px;height:4px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + pct + '%;background:' + color + '"></span></div>'
@@ -4345,7 +4346,7 @@ function rEdHomeHQ(D) {
       html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr 130px 80px 110px" onclick="edSetCountryFilter(\'' + esc(rPais) + '\');goEd(\'tracker\')">'
            +    '<div class="title">'
            +      '<span class="t">' + esc(x.p.nombre || (t('Proyecto') + ' #' + x.p.id)) + '</span>'
-           +      '<span class="meta">' + esc(rPais) + (x.p.lider ? ' · ' + esc(x.p.lider.split(' ').slice(0,2).join(' ')) : '') + ' · ' + x.total + ' ' + esc(t('activas')) + '</span>'
+           +      '<span class="meta">' + esc(rPais) + (x.p.responsable ? ' · ' + esc(x.p.responsable.split(' ').slice(0,2).join(' ')) : '') + ' · ' + x.total + ' ' + esc(t('activas')) + '</span>'
            +    '</div>'
            +    '<span class="pa-pill pa-pill-country">' + esc(paCountryLabel(rPais)) + '</span>'
            +    '<span class="mono" style="font-size:12px;color:var(--critical-fg)">' + x.overdue + ' ' + esc(t('venc.')) + '</span>'
@@ -8171,9 +8172,105 @@ function edPiClose() {
   if (D) rEdProyectosIndex(D);
 }
 
+// ¿Puede ELIMINAR este proyecto? Más estricto que editar: NO alcanza con ser
+// participante. Espeja _deleteProjectImpl del backend (head; manager de su país;
+// o el responsable/creador). Si tiene tareas, el backend igual lo bloquea.
+function _piCanDeleteProject(p) {
+  if (!p) return false;
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  if (role === 'head') return true;
+  if (role === 'manager') return !p.pais || p.pais === _effectiveUserCode();
+  return !!(p.responsable && p.responsable === _effectiveUserName());
+}
+
+// Abre el wizard de Crear tarea con el proyecto pre-seleccionado. Centraliza el
+// timeout que antes estaba inline en cada botón "Nueva tarea en proyecto".
+function edPiNewTaskInProject(id) {
+  if (typeof edCrearOpen === 'function') edCrearOpen();
+  setTimeout(function() {
+    var s = $('crProj');
+    if (s) { s.value = String(id); }
+    if (typeof edCrearSetField === 'function') edCrearSetField('proyectoId', String(id));
+  }, 120);
+}
+
+// Eliminar proyecto (responsable/creador, manager o head). El backend bloquea si
+// el proyecto tiene tareas vinculadas (STATE_CONFLICT) — lo mostramos como aviso.
+function edPiDeleteProject(id) {
+  var p = ((D && D.projects) || []).find(function(x){ return String(x.id) === String(id); });
+  var nm = p ? (p.nombre || ('#' + id)) : ('#' + id);
+  confirm_(t('¿Eliminar el proyecto «') + esc(nm) + t('»? Esta acción no se puede deshacer.'), function() {
+    showLoader();
+    google.script.run
+      .withSuccessHandler(function(res) {
+        hideLoader();
+        if (res && res.success) {
+          toast(t('🗑 Proyecto eliminado'), 'success');
+          EDP.detailId = null;
+          reload();
+        } else {
+          toast((res && res.error) || t('No se pudo eliminar'), (res && res.code === 'STATE_CONFLICT') ? 'warn' : 'error');
+        }
+      })
+      .withFailureHandler(function(e){ hideLoader(); toast(t('Error: ') + (e && e.message), 'error'); })
+      .deleteProject(id);
+  }, { danger: true, confirmLabel: t('Eliminar') });
+}
+
+// Guarda las notas del proyecto desde el textarea del detalle.
+function edPiSaveNotas(id) {
+  var ta = $('piDetailNotas'); if (!ta) return;
+  var val = ta.value;
+  showLoader();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      hideLoader();
+      if (res && res.success) { toast(t('✅ Notas guardadas'), 'success'); reload(); }
+      else toast((res && res.error) || t('No se pudo guardar'), 'error');
+    })
+    .withFailureHandler(function(e){ hideLoader(); toast(t('Error: ') + (e && e.message), 'error'); })
+    .updateProjectFields(id, { notas: val });
+}
+
+// Línea de tiempo del proyecto: hitos con fecha (creación, deadlines de tareas,
+// cierres, plazo del proyecto) ordenados cronológicamente. Las filas de tarea son
+// clickeables. Devuelve '' si no hay eventos con fecha.
+function _piRenderTimeline(p, D) {
+  function dmy(s){ var m = (s || '').toString().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? new Date(+m[3], +m[2]-1, +m[1]) : null; }
+  function iso(s){ var m = (s || '').toString().match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2]-1, +m[3]) : null; }
+  var events = [];
+  var c0 = dmy(p.creado); if (c0) events.push({ d: c0, label: t('Proyecto creado'), tone: 'done' });
+  ((D && D.tasks) || []).filter(function(tk){ return tk.proyectoId == p.id; }).forEach(function(tk){
+    var d = iso(tk.deadlineISO) || dmy(tk.deadline); if (!d) return;
+    events.push({ d: d, label: (tk.nombre || t('Tarea')) + ' · ' + _statusLabel(tk.status), tone: _etaToneClass(tk.etaDays, tk.status), taskId: tk.id });
+  });
+  ((D && D.historial) || []).filter(function(tk){ return tk.proyectoId == p.id; }).forEach(function(tk){
+    var d = dmy(tk.cerrado); if (!d) return;
+    events.push({ d: d, label: (tk.nombre || t('Tarea')) + ' · ' + t('cerrada'), tone: 'done', taskId: tk.id });
+  });
+  var pd = iso(p.deadlineISO) || dmy(p.deadline); if (pd) events.push({ d: pd, label: t('Plazo del proyecto'), tone: 'warn', deadline: true });
+  if (!events.length) return '';
+  events.sort(function(a, b){ return a.d - b.d; });
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var rows = events.map(function(e){
+    var past = e.d < today && !e.deadline;
+    var dotColor = e.tone === 'crit' ? 'var(--critical)' : (e.tone === 'warn' ? 'var(--warn)' : (e.tone === 'done' ? '#3fa888' : 'var(--accent)'));
+    var dateStr = e.d.getDate() + '/' + (e.d.getMonth() + 1) + '/' + e.d.getFullYear();
+    var click = e.taskId ? (' style="cursor:pointer" onclick="edGoTaskInTracker(\'' + esc(String(e.taskId)) + '\')"') : '';
+    return '<div' + click + ' style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;opacity:' + (past ? '0.65' : '1') + '">'
+      +   '<div style="flex-shrink:0;width:10px;height:10px;border-radius:50%;background:' + dotColor + ';margin-top:4px"></div>'
+      +   '<div style="flex:1;min-width:0">'
+      +     '<div style="font-size:13px;color:var(--fg-1)' + (e.deadline ? ';font-weight:600' : '') + '">' + esc(e.label) + '</div>'
+      +     '<div style="font-size:11px;color:var(--fg-3)">' + dateStr + '</div>'
+      +   '</div>'
+      + '</div>';
+  }).join('');
+  return '<div style="border-left:2px solid var(--line-1);padding-left:16px;margin:8px 0 0 4px">' + rows + '</div>';
+}
+
 function _piRoleOf(project, userName, tasks) {
   if (!project) return 'Observador';
-  if (project.lider === userName) return 'Owner';
+  if (project.responsable === userName) return 'Owner';
   var hasMyTask = (tasks || []).some(function(t){ return t.proyectoId == project.id && t.resp === userName; });
   return hasMyTask ? 'Participante' : 'Observador';
 }
@@ -8251,9 +8348,9 @@ function _piBucket(projects, tab, userName, tasks) {
     return projects.filter(function(p){ return p.status === 'Completado' || p.status === 'Cancelado'; });
   }
   var open = projects.filter(function(p){ return p.status === 'Activo' || p.status === 'En pausa'; });
-  if (tab === 'lideras')    return open.filter(function(p){ return p.lider === userName; });
+  if (tab === 'lideras')    return open.filter(function(p){ return p.responsable === userName; });
   if (tab === 'participas') return open.filter(function(p){
-    if (p.lider === userName) return false;
+    if (p.responsable === userName) return false;
     if (p.responsable === userName || (p.participantes || []).indexOf(userName) >= 0) return true;
     return tasks.some(function(t){ return t.proyectoId == p.id && t.resp === userName; });
   });
@@ -8419,12 +8516,14 @@ function _piRenderDetail(p, D) {
   // Editar/cerrar: head, manager de su país, o el responsable/participante del
   // proyecto (incl. specialists). Espeja _authorizeProjectWrite del backend.
   var piCanEdit = _piCanEditProject(p);
+  var piCanDelete = _piCanDeleteProject(p);
   var html = ''
     + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">'
     +   '<button class="ed-btn pi-detail-back" style="margin:0" onclick="edPiClose()">' + t('← Volver a proyectos') + '</button>'
     +   '<div style="margin-left:auto;display:flex;gap:6px">'
-    +     '<button class="pa-btn pa-btn-outline" onclick="edCrearOpen();setTimeout(function(){var s=$(\'crProj\');if(s){s.value=\'' + esc(String(p.id)) + '\';edCrearSetField(\'proyectoId\',\'' + esc(String(p.id)) + '\');}},100)">' + paIcon('plus', 12) + ' ' + t('Nueva tarea en proyecto') + '</button>'
+    +     '<button class="pa-btn pa-btn-outline" onclick="edPiNewTaskInProject(\'' + esc(String(p.id)) + '\')">' + paIcon('plus', 12) + ' ' + t('Nueva tarea en proyecto') + '</button>'
     +     (piCanEdit ? '<button class="pa-btn pa-btn-outline" onclick="openEditProj(\'' + esc(String(p.id)) + '\')">' + paIcon('save', 12) + ' ' + t('Editar proyecto') + '</button>' : '')
+    +     (piCanDelete ? '<button class="pa-btn pa-btn-outline" style="color:var(--critical-fg);border-color:var(--critical)" onclick="edPiDeleteProject(\'' + esc(String(p.id)) + '\')">🗑 ' + t('Eliminar') + '</button>' : '')
     +   '</div>'
     + '</div>'
     + '<div class="pi-detail-head">'
@@ -8434,7 +8533,7 @@ function _piRenderDetail(p, D) {
     +     '<span class="ed-pill">' + esc(t(p.status || 'Activo')) + '</span>'
     +   '</div>'
     +   '<div class="pi-detail-meta">'
-    +     '<span><span class="lbl">' + t('Líder') + '</span>' + esc(p.lider || '—') + '</span>'
+    +     '<span><span class="lbl">' + t('Responsable') + '</span>' + esc(p.responsable || '—') + '</span>'
     +     '<span><span class="lbl">' + t('Plazo') + '</span>' + esc(p.deadline || '—') + '</span>'
     +     (p.pais ? '<span><span class="lbl">' + t('País') + '</span>' + esc(p.pais) + '</span>' : '')
     +     (p.tipoTrabajo ? '<span><span class="lbl">' + t('Tipo') + '</span>' + esc(p.tipoTrabajo) + '</span>' : '')
@@ -8468,12 +8567,50 @@ function _piRenderDetail(p, D) {
        +    '<div class="pi-detail-kpi"><div class="num small">' + esc(nextDlText) + '</div><div class="lbl">' + t('Próximo deadline') + '</div></div>'
        + '</div>';
 
+  // Participantes (nombres)
+  if ((p.participantes || []).length) {
+    html += '<div style="font-size:12px;color:var(--fg-3);margin:0 0 14px"><span style="color:var(--fg-2);font-weight:600">' + t('Participantes: ') + '</span>' + esc((p.participantes || []).join(', ')) + '</div>';
+  }
+
+  // Contrapartes en conflicto declaradas (antes invisibles en la UI)
+  if (p.contrapartesConflicto && p.contrapartesConflicto.length) {
+    html += '<section class="ed-section"><div class="ed-h2">— ' + t('Contrapartes en conflicto') + '</div>'
+         +    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">'
+         +      p.contrapartesConflicto.map(function(c){ return '<span class="ed-pill" style="border-color:var(--warn);color:var(--warn)">⚠ ' + esc(c) + '</span>'; }).join('')
+         +    '</div>'
+         +    '<div style="font-size:11px;color:var(--fg-3);margin-top:6px">' + t('Al crear una tarea con una de estas contrapartes, salta una alerta de conflicto de interés.') + '</div>'
+         + '</section>';
+  }
+
+  // Notas del proyecto (editable si tiene permiso)
+  html += '<section class="ed-section"><div class="ed-h2">— ' + t('Notas') + '</div>'
+       +    (piCanEdit
+          ? '<textarea id="piDetailNotas" rows="3" style="width:100%;resize:vertical;padding:10px;border-radius:8px;border:1px solid var(--line-1);background:var(--bg-2);color:var(--fg-1);font-family:inherit;font-size:13px" placeholder="' + esc(t('Agregá contexto, links, decisiones…')) + '">' + esc(p.notas || '') + '</textarea>'
+            + '<div style="margin-top:8px"><button class="pa-btn pa-btn-outline" onclick="edPiSaveNotas(\'' + esc(String(p.id)) + '\')">' + t('Guardar notas') + '</button></div>'
+          : (p.notas ? '<p class="pi-detail-desc">' + esc(p.notas) + '</p>' : '<div style="font-size:12px;color:var(--fg-3)">' + t('Sin notas.') + '</div>'))
+       + '</section>';
+
+  // Documentos del proyecto (componente completo si puede editar; lista read-only si no)
+  if (piCanEdit) {
+    html += renderDocsSection('project', p.id, p.documentos || []);
+  } else if ((p.documentos || []).length) {
+    html += '<section class="ed-section"><div class="ed-h2">— ' + t('Documentos del proyecto') + '</div><div class="doc-list">'
+         +    (p.documentos || []).map(function(d){ return '<span class="doc-chip"><a href="' + esc(d.url || '#') + '" target="_blank" rel="noopener">📄 ' + esc(d.name || 'Documento') + '</a></span>'; }).join('')
+         +    '</div></section>';
+  }
+
+  // Línea de tiempo del proyecto
+  var _tl = _piRenderTimeline(p, D);
+  if (_tl) html += '<section class="ed-section"><div class="ed-h2">— ' + t('Línea de tiempo') + '</div>' + _tl + '</section>';
+
   // Tabla de tareas del proyecto
   html += '<section class="ed-section">'
        +    '<div class="ed-h2">— ' + t('Tareas del proyecto') + '</div>';
   if (allP.length === 0) {
     html += _emptyState('📋', t('Sin tareas asignadas todavía'),
-                        t('Cuando se creen tareas para este proyecto, aparecerán acá.'), null, null);
+                        t('Creá la primera tarea de este proyecto para empezar a trackear.'),
+                        piCanEdit ? t('+ Crear primera tarea') : null,
+                        piCanEdit ? ("edPiNewTaskInProject('" + esc(String(p.id)) + "')") : null);
   } else {
     // Activas primero, luego cerradas. Dentro de cada grupo, por etaDays asc.
     var activeSorted = pTasksActive.slice().sort(function(a, b) {
@@ -8524,11 +8661,11 @@ function rEdProyectosIndex(D) {
   var open = projects.filter(function(p){ return p.status === 'Activo' || p.status === 'En pausa'; });
   var cActivos    = open.length;
   var cParticipas = open.filter(function(p){
-    if (p.lider === userName) return false;
+    if (p.responsable === userName) return false;
     if (p.responsable === userName || (p.participantes || []).indexOf(userName) >= 0) return true;
     return tasks.some(function(t){ return t.proyectoId == p.id && t.resp === userName; });
   }).length;
-  var cLideras    = open.filter(function(p){ return p.lider === userName; }).length;
+  var cLideras    = open.filter(function(p){ return p.responsable === userName; }).length;
   var cCerrados   = projects.filter(function(p){ return p.status === 'Completado' || p.status === 'Cancelado'; }).length;
 
   var bucket = _piBucket(projects, EDP.tab, userName, tasks);
@@ -8539,7 +8676,7 @@ function rEdProyectosIndex(D) {
     return ad - bd;
   });
 
-  var totalOwner       = open.filter(function(p){ return p.lider === userName; }).length;
+  var totalOwner       = open.filter(function(p){ return p.responsable === userName; }).length;
   var totalParticipant = open.length - totalOwner;
   var myTasksInOpen    = open.reduce(function(acc, p){ return acc + tasks.filter(function(t){ return t.proyectoId == p.id && t.resp === userName; }).length; }, 0);
 
@@ -8567,7 +8704,7 @@ function rEdProyectosIndex(D) {
   html += '<div class="pa-filterbar">'
        +    chip('activos', t('Activos'), cActivos)
        +    chip('participas', t('Donde participo'), cParticipas)
-       +    chip('lideras', t('Que lidero'), cLideras)
+       +    chip('lideras', t('A mi cargo'), cLideras)
        +    '<div class="pa-chip-divider"></div>'
        +    chip('cerrados', t('Cerrados'), cCerrados)
        +    '<div style="margin-left:auto;font-size:11px;color:var(--fg-3)">' + t('Orden: por urgencia') + '</div>'
@@ -8591,7 +8728,7 @@ function rEdProyectosIndex(D) {
       var done = (D.historial || []).filter(function(t){ return t.proyectoId == p.id; }).length;
       var total = open + done;
       var pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      var role = p.lider === userName ? t('Líder') : t('Participante');
+      var role = p.responsable === userName ? t('Responsable') : t('Participante');
       html += '<div class="pa-card" style="padding:16px;cursor:pointer" onclick="edPiOpen(\'' + esc(p.id) + '\')">'
            +    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">'
            +      '<span style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.04em">' + esc(role) + (p.pais ? ' · ' + esc(p.pais) : '') + '</span>'
@@ -8604,7 +8741,7 @@ function rEdProyectosIndex(D) {
            +      '<span style="width:3px;height:32px;background:' + color + ';border-radius:2px;flex-shrink:0;margin-top:2px"></span>'
            +      '<div style="flex:1;min-width:0">'
            +        '<div style="font-size:14px;font-weight:600;color:var(--fg-1);line-height:1.3">' + esc(p.nombre || '') + '</div>'
-           +        '<div style="font-size:11px;color:var(--fg-3);margin-top:4px">' + t('Líder: ') + esc(p.lider || '—') + '</div>'
+           +        '<div style="font-size:11px;color:var(--fg-3);margin-top:4px">' + t('Responsable: ') + esc(p.responsable || '—') + '</div>'
            +      '</div>'
            +    '</div>'
            +    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
@@ -9138,7 +9275,7 @@ function _edaHQRiskSection(D) {
     html += '<div class="hq-risk-row" onclick="edPiOpen(\'' + esc(r.p.id) + '\');goEd(\'proyectos\')">'
          +    '<div class="hq-risk-name">'
          +      '<div class="hq-risk-title">' + esc(r.p.nombre || '') + '</div>'
-         +      '<div class="hq-risk-meta">' + esc((r.p.pais || '—') + ' · ' + (r.p.lider || '—')) + '</div>'
+         +      '<div class="hq-risk-meta">' + esc((r.p.pais || '—') + ' · ' + (r.p.responsable || '—')) + '</div>'
          +    '</div>'
          +    '<div class="hq-risk-count crit">' + r.overdue + '<em> vencidas</em></div>'
          + '</div>';
@@ -10004,18 +10141,8 @@ function _crpParticipantPicker(v) {
 
 function _crpRenderStep2() {
   var v = EDCP.values;
-  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
-  var canPickLider = (role === 'head');
-  var lideres = _crpLideres(v.pais).map(function(n){ return { value: n, label: n }; });
-  var hasPais = !!v.pais;
-  // Auto-asignar líder = leader del país si está vacío. Para specialist/
-  // manager es siempre obvio (el manager de su país); para head queda
-  // editable por si quiere asignar a otro.
-  if (hasPais && !v.lider) {
-    var equipos = (D && D.equipos) || [];
-    var eq = equipos.find(function(e){ return e && e.code === v.pais; });
-    if (eq && eq.leader) v.lider = eq.leader;
-  }
+  // El "líder" se quitó del flujo de proyectos: el dueño es su creador
+  // (responsable). El backend completa el líder del país por compatibilidad.
   // Participantes: picker multi-país colapsable (ver _crpParticipantPicker).
   return ''
     + '<div class="cr-grid2">'
@@ -10028,24 +10155,11 @@ function _crpRenderStep2() {
     +     '<div class="cr-pills-row">' + _crPillsHtml('riesgo', _CR_RIESGOS, v.riesgo, _crRiesgoMod, 'edCrearProyectoSetField') + '</div>'
     +   '</div>'
     + '</div>'
-    + '<div class="cr-grid2">'
-    +   '<div class="cr-field">'
-    +     '<div class="cr-label">' + t('Líder') + (canPickLider ? ' <span class="req">*</span>' : '') + '</div>'
-    +     (canPickLider
-        ? (hasPais
-            ? _crSelectHtml('crpLider', lideres, v.lider, t('Seleccionar…')).replace('<select id="crpLider"', '<select id="crpLider" onchange="edCrearProyectoSetField(\'lider\', this.value)"')
-            : '<select class="cr-input" disabled><option>' + t('Elegí un país en el paso 1') + '</option></select>')
-        : '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;background:var(--bg-2);border:1px solid var(--line-1);font-size:13px">'
-          + paIcon('users', 12, '', 'color:var(--fg-3)')
-          + '<span><b>' + esc(v.lider || '—') + '</b> <span style="color:var(--fg-3);font-weight:400">' + t('· líder de ') + esc(v.pais || '') + '</span></span>'
-          + '</div>')
-    +   '</div>'
-    +   '<div class="cr-field">'
-    +     '<div class="cr-label">' + t('Plazo') + ' <span class="req">*</span></div>'
-    +     '<input type="date" class="cr-input" id="crpDeadline" value="' + esc(v.deadline) + '" '
-    +       'min="' + esc((D && D.today) || '') + '" '
-    +       'onchange="edCrearProyectoSetField(\'deadline\', this.value)">'
-    +   '</div>'
+    + '<div class="cr-field">'
+    +   '<div class="cr-label">' + t('Plazo') + ' <span class="req">*</span></div>'
+    +   '<input type="date" class="cr-input" id="crpDeadline" value="' + esc(v.deadline) + '" '
+    +     'min="' + esc((D && D.today) || '') + '" '
+    +     'onchange="edCrearProyectoSetField(\'deadline\', this.value)">'
     + '</div>'
     + '<div class="cr-field">'
     +   '<div class="cr-label">' + t('Participantes') + ' <span style="font-weight:400;color:var(--fg-3);font-size:11px;margin-left:4px">' + t('Click para incluir/excluir · agrupados por país') + '</span></div>'
@@ -10081,7 +10195,7 @@ function _crpRenderStep3() {
   var html = ''
     + '<div class="cr-conf-banner">'
     +   '<div class="cr-conf-mark">✓</div>'
-    +   '<div class="cr-conf-msg">' + t('Listo para publicar. Cuando confirmes, <b>') + esc(v.lider || t('el líder asignado')) + t('</b> recibirá el proyecto.') + '</div>'
+    +   '<div class="cr-conf-msg">' + t('Listo para publicar. Vas a quedar como responsable del proyecto.') + '</div>'
     + '</div>'
     + '<div class="cr-conf-section">'
     +   '<div class="cr-conf-eye">— ' + t('Resumen') + '</div>'
@@ -10109,11 +10223,11 @@ function _crpRender(step) {
   var s = step || EDCP.step || 1;
   var titles = {
     1: t('Empezá por lo esencial'),
-    2: t('Detalles, líder y plazo'),
+    2: t('Detalles y plazo'),
     3: t('Listo para publicar')
   };
   var infos = {
-    1: t('Siguiente: <b>tipo, riesgo, líder y plazo.</b>'),
+    1: t('Siguiente: <b>tipo, riesgo y plazo.</b>'),
     2: t('Cuando estés listo, te llevamos al review final antes de publicar.'),
     3: t('Revisión final. Cuando confirmes, se crea el proyecto.')
   };
@@ -10234,7 +10348,6 @@ function edCrearProyectoGoStep(n) {
       if (!v.pais) { toast(t('Seleccioná un país'), 'error'); return; }
       if (!v.priority) { toast(t('Seleccioná una prioridad'), 'error'); return; }
     } else if (EDCP.step === 2) {
-      if (!v.lider) { toast(t('Seleccioná un líder'), 'error'); return; }
       if (!v.deadline) { toast(t('Plazo requerido'), 'error'); return; }
     }
   }
@@ -10246,7 +10359,6 @@ function edCrearProyectoSubmit() {
   var v = EDCP.values;
   if (!v.nombre || !v.nombre.trim()) { toast(t('Nombre requerido'), 'error'); return; }
   if (!v.pais) { toast(t('País requerido'), 'error'); return; }
-  if (!v.lider) { toast(t('Líder requerido'), 'error'); return; }
   var btn = $('crpSubmit'); if (btn) btn.disabled = true;
   if (typeof showLoader === 'function') showLoader();
   google.script.run
@@ -10270,8 +10382,8 @@ function edCrearProyectoSubmit() {
     .addProject({
       nombre: v.nombre.trim(),
       descripcion: (v.descripcion || '').trim(),
-      responsable: (typeof _effectiveUserName === 'function' && _effectiveUserName()) || v.lider || '',
-      lider: v.lider || '',
+      responsable: (typeof _effectiveUserName === 'function' && _effectiveUserName()) || '',
+      lider: '',
       pais: v.pais || '',
       priority: v.priority || 'Media',
       tipoTrabajo: v.tipoTrabajo || '',
