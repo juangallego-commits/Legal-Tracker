@@ -3845,7 +3845,7 @@ function rEdHomeManager(D) {
            +    '<span class="resp">' + paAvatar(t.resp || '?', 18) + '<span style="font-size:12px">' + esc(t.resp || '—') + '</span></span>'
            +    paPriorityPill(t.priority)
            +    paStatusPill(t.status)
-           +    '<span class="eta mono' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(t.eta || paEtaText(t.etaDays)) + '</span>'
+           +    '<span class="eta' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(t.eta || paEtaText(t.etaDays)) + '</span>'
            + '</div>';
     });
     html += '</div></div>';
@@ -6568,7 +6568,7 @@ function _edTkRowHtml(t, role, sel) {
   }
   h += paPriorityPill(t.priority)
     +  paStatusPill(t.status)
-    +  '<span class="eta mono' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(etaTxt) + '</span>'
+    +  '<span class="eta' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(etaTxt) + '</span>'
     + '</div>';
   return h;
 }

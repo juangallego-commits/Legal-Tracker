@@ -1207,12 +1207,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 }
 .pa-pill-baja .dot { background: var(--good); }
 
-/* Border-left + color = doble canal de información (accesibilidad daltonismo). */
-.pa-pill-state-pendiente   { background: var(--bg-3); color: var(--fg-2); border-left: 3px solid var(--info); }
+/* Acento izquierdo (border-left) del MISMO color del estado — segundo canal de
+   info para daltonismo sin chocar con el fondo del pill. Antes pendiente/curso/
+   revisión usaban un color que no matcheaba y se veía como una capa encima. */
+.pa-pill-state-pendiente   { background: var(--bg-3); color: var(--fg-2); border-left: 3px solid var(--fg-3); }
 .pa-pill-state-pendiente .dot { background: var(--fg-3); }
-.pa-pill-state-curso       { background: var(--info-soft); color: var(--info-fg); border-left: 3px solid var(--accent); }
+.pa-pill-state-curso       { background: var(--info-soft); color: var(--info-fg); border-left: 3px solid var(--info); }
 .pa-pill-state-curso .dot  { background: var(--info); }
-.pa-pill-state-revision    { background: var(--accent-soft); color: var(--accent); border-left: 3px solid var(--warn); }
+.pa-pill-state-revision    { background: var(--accent-soft); color: var(--accent); border-left: 3px solid var(--accent); }
 .pa-pill-state-revision .dot { background: var(--accent); }
 .pa-pill-state-listo       { background: var(--good-soft); color: var(--good-fg); border-left: 3px solid var(--good); }
 .pa-pill-state-listo .dot  { background: var(--good); }
@@ -1319,7 +1321,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 }
 .pa-tbl-r .resp { display: flex; align-items: center; gap: 6px; color: var(--fg-2); }
 .pa-tbl-r .eta {
-  font-family: var(--font-mono);
   font-size: 11px; color: var(--fg-2);
   font-variant-numeric: tabular-nums;
 }
