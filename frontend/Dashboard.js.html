@@ -288,8 +288,12 @@ function getAllMembers() {
 }
 
 // Checks if a task is overdue by SLA (business days since creation).
+// Preferir t.slaState del backend: viene calculado con los feriados del país
+// de la tarea. El cálculo local (solo lun–vie) queda como fallback y
+// sobre-cuenta en países con feriados.
 function taskOverdueBySLA(t) {
   if (t.status === 'Listo' || !t.creadoRaw) return false;
+  if (t.slaState) return t.slaState === 'overdue';
   var created = new Date(t.creadoRaw), now = new Date(), bizDays = 0, cur = new Date(created);
   while (cur < now) {
     cur.setDate(cur.getDate() + 1);
@@ -1106,8 +1110,10 @@ function _emptyState(icon, title, subtitle, ctaLabel, ctaOnclick) {
   return html + '</div>';
 }
 
-// NOTA: escJs ya no se usa (reemplazado por event delegation con data-act).
-// Se conserva por si algún hotfix futuro lo necesita.
+// escJs: escape para strings interpolados DENTRO de un onclick inline.
+// esc() solo no alcanza ahí: el parser HTML decodifica &#39; de vuelta a '
+// antes de evaluar el JS. Patrón correcto: esc(escJs(valor)).
+// (Para handlers nuevos preferí event delegation con data-act.)
 function escJs(s) {
   if (s == null) return '';
   return String(s)
@@ -1550,18 +1556,28 @@ document.addEventListener('keydown', function(e) {
     if ($('edTourOv')) { if (typeof edFinishTour === 'function') edFinishTour(); return; }
     // User menu del avatar — dropdown chico, también cerrable con Esc.
     if ($('edUserMenu')) { if (typeof edUserMenuClose === 'function') edUserMenuClose(); return; }
+    // Búsqueda global (Cmd+K): overlay top-level. Sin esto, Esc con el foco
+    // fuera del input cerraba lo que estuviera DETRÁS del cmdk.
+    if ($('edSearchOv') && $('edSearchOv').classList.contains('show')) { if (typeof edSearchClose === 'function') edSearchClose(); return; }
     // Help y Notificaciones — overlays top-level, cierran antes que el resto.
     if ($('edHelpOv') && $('edHelpOv').classList.contains('show')) { if (typeof edHelpClose === 'function') edHelpClose(); return; }
     if (document.getElementById('edNotifOv')) { if (typeof edNotifClose === 'function') edNotifClose(); return; }
     // Editoriales (más nuevos / más prominentes visualmente)
     if ($('uaHost') && $('uaHost').innerHTML) { if (typeof edUClose === 'function') edUClose(); return; }
-    if ($('crHost') && $('crHost').innerHTML) { if (typeof edCrearClose === 'function') edCrearClose(); return; }
+    if ($('crHost') && $('crHost').innerHTML) {
+      // crHost se comparte entre el wizard de crear, el wizard de bulk-close y
+      // el modal de reasignación masiva — despachar al close de quien lo ocupa
+      // (cada close limpia su propio estado; edCrearClose no conoce los otros).
+      if (EDT && EDT._pendingReassignIds) { if (typeof edTkBulkReasignClose === 'function') edTkBulkReasignClose(); return; }
+      if (typeof _EDT_BULK_CLOSE !== 'undefined' && _EDT_BULK_CLOSE.ids && _EDT_BULK_CLOSE.ids.length) { if (typeof edBulkCloseClose === 'function') edBulkCloseClose(); return; }
+      if (typeof edCrearClose === 'function') edCrearClose();
+      return;
+    }
     if ($('crpHost') && $('crpHost').innerHTML) { if (typeof edCrearProyectoClose === 'function') edCrearProyectoClose(); return; }
     if ($('edPltHost') && $('edPltHost').innerHTML) { if (typeof edPltCloseEditor === 'function') edPltCloseEditor(); return; }
     if ($('ddM') && $('ddM').style.display === 'block') { closeDD(); return; }
     if ($('editOv') && $('editOv').classList.contains('show')) { closeEdit(); return; }
     if ($('confOv') && $('confOv').classList.contains('show')) { closeCf(); return; }
-    if (document.getElementById('bulkReasignOv')) { if (typeof edTkBulkReasignClose === 'function') edTkBulkReasignClose(); return; }
     if (document.getElementById('tkPanelOv')) { if (typeof edClosePanel === 'function') edClosePanel(); return; }
     return;
   }
@@ -1579,8 +1595,11 @@ document.addEventListener('keydown', function(e) {
     }
     return;
   }
-  // N → abrir wizard editorial de crear
+  // N → abrir wizard editorial de crear. Guard: con un modal/wizard abierto
+  // no disparar — edCrearOpen monta en crHost y pisaría un bulk-close o
+  // reasignación a medio completar.
   if (e.key === 'n' || e.key === 'N') {
+    if (typeof _anyModalOpen === 'function' && _anyModalOpen()) return;
     if (typeof edCrearOpen === 'function') {
       e.preventDefault();
       edCrearOpen();
@@ -1810,7 +1829,8 @@ function paAvatar(name, size, country) {
 }
 function paSparkline(data, w, h, tone) {
   w = w || 110; h = h || 28; tone = tone || 'accent';
-  if (!data || !data.length) return '';
+  // Con <2 puntos, step = w/0 = Infinity y el path SVG sale roto.
+  if (!data || data.length < 2) return '';
   var max = Math.max.apply(null, data.concat([1]));
   var min = Math.min.apply(null, data.concat([0]));
   var span = max - min || 1;
@@ -1845,7 +1865,10 @@ function paPriorityPill(prio) {
 function paStatusPill(status) {
   var map = { 'Pendiente':'pendiente','En curso':'curso','En revisión':'revision','Listo':'listo','Bloqueado':'bloqueado','Cancelado':'cancelado' };
   var cls = map[status] || 'pendiente';
-  return '<span class="pa-pill pa-pill-state-' + cls + '"><span class="dot"></span>' + esc(status || 'Pendiente') + '</span>';
+  // Display layer: el sheet guarda 'Bloqueado' pero el user ve 'On hold',
+  // igual que chips/bulkbar/cmdk — la fila era la única en disonancia.
+  var label = (typeof _statusLabel === 'function') ? (_statusLabel(status) || 'Pendiente') : (status || 'Pendiente');
+  return '<span class="pa-pill pa-pill-state-' + cls + '"><span class="dot"></span>' + esc(label) + '</span>';
 }
 function paConfDot(level, title) {
   level = level || 'estandar';
@@ -2575,7 +2598,10 @@ function _tourStepsForRole(role) {
   ];
   if (role === 'specialist') return common.concat(bySpecialist).concat(tail);
   if (role === 'manager')    return common.concat(byManager).concat(tail);
-  if (role === 'head')       return common.concat(byHead).concat(byManager).concat(tail);
+  // Head: solo su bloque. Antes concatenaba también byManager y el tour
+  // llegaba a 18 pasos con copy incorrecto ("miembros de tu país" no aplica
+  // a quien ve LATAM entero) y solapado con byHead.
+  if (role === 'head')       return common.concat(byHead).concat(tail);
   return common.concat(tail);
 }
 
@@ -3182,6 +3208,16 @@ function edSearchPickTask(taskId) {
     EDT.selectedId = taskId;
     var inHist = ((D && D.historial) || []).some(function(t){ return String(t.id) === String(taskId); });
     if (inHist) EDT.filter = 'closed';
+    // Si hay drill-down de país activo (head) y la tarea elegida es de otro
+    // país, mover el drill al país de la tarea: sino _edFilterByRole la
+    // excluye, rEdTracker no la encuentra y el pick "no hace nada".
+    var picked = ((D && D.tasks) || []).concat((D && D.historial) || [])
+      .find(function(t){ return String(t.id) === String(taskId); });
+    if (picked && EDT.country && (picked.pais || '') !== EDT.country) {
+      EDT.country = picked.pais || null;
+      if (!EDT.country) EDT.skipCountriesView = true;
+      if (typeof _edPersistEDT === 'function') _edPersistEDT();
+    }
   }
   edSearchClose();
   if (typeof goEd === 'function') goEd('tracker');
@@ -3200,7 +3236,12 @@ function edSearchPickProject(projectId) {
 function edSearchPickDoc(url, parentId, kind) {
   edSearchClose();
   if (url && url !== '#') {
-    try { window.open(decodeURIComponent(url), '_blank', 'noopener'); } catch(e) { window.open(url, '_blank'); }
+    // Solo http(s): mismo guard que el panel de tarea (evita javascript: y
+    // esquemas raros si una celda del sheet vino con un link malformado).
+    var decoded = url; try { decoded = decodeURIComponent(url); } catch(e) {}
+    if (/^https?:\/\//i.test(decoded)) {
+      try { window.open(decoded, '_blank', 'noopener'); } catch(e2) {}
+    }
   }
   // Optional: drill into the parent context (task panel or project detail)
   if (kind === 'task' && parentId && typeof EDT !== 'undefined') {
@@ -3753,7 +3794,10 @@ function rEdHomeManager(D) {
   var loadPct = totalCap ? Math.round((totalLoad / totalCap) * 100) : 0;
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
   // SLA del país del manager (últimos 30 días). Calculado en backend (data.countries[].slaPct).
-  var myCountry = ((D && D.countries) || []).find(function(c){ return c.code === userCode; });
+  // Comparación normalizada (trim+upper): si el code de Equipos difiere en
+  // mayúsculas/espacios, sin esto todo el bloque SLA mostraba "—" sin pista.
+  var _ucNorm = String(userCode || '').trim().toUpperCase();
+  var myCountry = ((D && D.countries) || []).find(function(c){ return String(c.code || '').trim().toUpperCase() === _ucNorm; });
   var slaCountry = myCountry ? myCountry.slaPct : null;
   var slaThisW = myCountry ? myCountry.slaPctThisWeek : null;
   var slaPrevW = myCountry ? myCountry.slaPctLastWeek : null;
@@ -3798,12 +3842,12 @@ function rEdHomeManager(D) {
 
   // KPIs
   html += '<div class="pa-kpis">'
-       +    '<div class="pa-kpi ' + (overdue ? 'is-critical' : '') + '" onclick="goEd(\'tracker\')">'
+       +    '<div class="pa-kpi ' + (overdue ? 'is-critical' : '') + '" onclick="edGoTrackerFiltered(\'overdue\')">'
        +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> ' + esc(t('Vencidas')) + '</div>'
        +      '<div class="val">' + overdue + '</div>'
        +      '<div class="delta">' + esc(overdue ? t('requieren atención') : t('todo en orden')) + '</div>'
        +    '</div>'
-       +    '<div class="pa-kpi ' + (dueToday ? 'is-warn' : '') + '" onclick="goEd(\'tracker\')">'
+       +    '<div class="pa-kpi ' + (dueToday ? 'is-warn' : '') + '" onclick="edGoTrackerFiltered(\'today\')">'
        +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> ' + esc(t('Vencen hoy')) + '</div>'
        +      '<div class="val">' + dueToday + '</div>'
        +      '<div class="delta">' + esc(dueToday ? t('cerrar hoy') : t('día limpio')) + '</div>'
@@ -3899,7 +3943,7 @@ function rEdHomeManager(D) {
            +    '<div class="mono" style="font-size:12px;color:' + ((m.overdue || 0) ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + (m.overdue || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + ((m.blocked || 0) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + (m.blocked || 0) + '</div>'
            +    '<div class="mono" style="font-size:12px;color:' + slaColorM + '">' + (slaM != null ? slaM + '%' : '—') + '</div>'
-           +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="edSetRespFilter(\'' + esc(m.name || '') + '\');goEd(\'tracker\')">' + esc(t('Ver tareas →')) + '</button></div>'
+           +    '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="edSetRespFilter(\'' + esc(escJs(m.name || '')) + '\');goEd(\'tracker\')">' + esc(t('Ver tareas →')) + '</button></div>'
            + '</div>';
     });
     html += '</div></div>';
@@ -4154,9 +4198,12 @@ function _etaTextFromDays(d) {
 
 function _edFilterByRole(tasks, role, userName, userCode) {
   // Specialist: solo sus tareas. Manager: su país. Head: todo.
+  // Las tareas compartidas conmigo (soy colaborador, no responsable) pasan el
+  // corte aunque no cumplan la regla de rol: el backend ya decidió mandarlas
+  // en D.tasks; sin esto el chip/filtro "Compartidas" quedaba siempre vacío.
   var visible;
-  if (role === 'specialist')      visible = tasks.filter(function(t){ return t.resp === userName; });
-  else if (role === 'manager')    visible = tasks.filter(function(t){ return (t.pais || '') === userCode; });
+  if (role === 'specialist')      visible = tasks.filter(function(t){ return t.resp === userName || _isSharedWithMe(t); });
+  else if (role === 'manager')    visible = tasks.filter(function(t){ return (t.pais || '') === userCode || _isSharedWithMe(t); });
   else                            visible = tasks;
   // Filtro por país desde HQ (sólo aplicable cuando el rol no lo restringe ya)
   if (EDT.country) {
@@ -4199,9 +4246,10 @@ function _edApplyFilter(tasks, filter) {
   // 'shared': tareas donde soy colaborador (ver/editar) y NO el responsable.
   // El backend ya las incluye en D.tasks; acá solo aislamos esa porción.
   if (filter === 'shared')  return tasks.filter(function(t){ return _isSharedWithMe(t) && t.status !== 'Listo'; });
-  // 'closed': mostrar cerradas (vienen del historial, no de D.tasks; rEdTracker
-  // las concatena cuando filter === 'closed').
-  if (filter === 'closed')  return tasks.filter(function(t){ return t.status === 'Listo'; });
+  // 'closed': la fuente ya es el historial completo (rEdTracker cambia de
+  // D.tasks a roleHist). No re-filtrar por status: una Cancelada también vive
+  // en Historial y el chip "Cerradas" cuenta roleHist.length — deben coincidir.
+  if (filter === 'closed')  return tasks;
   return tasks.filter(function(t){ return t.status !== 'Listo'; });
 }
 
@@ -4327,7 +4375,7 @@ function edSetSearch(q) {
   clearTimeout(window._tkSearchT);
   window._tkSearchT = setTimeout(function(){
     if (D) rEdTracker(D);
-    var newInput = document.querySelector('.tk-search');
+    var newInput = document.querySelector('#vEdTracker .pa-search input');
     if (newInput) {
       newInput.focus();
       try { newInput.setSelectionRange(EDT.search.length, EDT.search.length); } catch(e){}
@@ -4593,6 +4641,7 @@ function _edBulkMixedThenDone(label, ok, fail, onDone) {
 // Muestra los candidates según rol: head ve todos, manager solo su país.
 // Reuse cr-overlay/cr-modal styling.
 var _EDT_BULK_REASSIGN_SELECTED = '';
+var _EDT_BULK_REASSIGN_RUNNING = false;
 
 function _edTkBulkReasignPickPerson(name) {
   _EDT_BULK_REASSIGN_SELECTED = name || '';
@@ -4629,11 +4678,13 @@ function edTkBulkReasignOpen(ids) {
   EDT._pendingReassignIds = ids.slice();
   var n = ids.length;
 
-  // Sample tasks to show in summary
+  // Sample tasks to show in summary.
+  // OJO: la var se llama `found` (no `t`) — `var t` se hoistea a toda la
+  // función y shadowearía la función i18n t() usada por memberCard y el modal.
   var sampleTasks = [];
   for (var i = 0; i < ids.length && i < 3; i++) {
-    var t = (D.tasks || []).find(function(x){ return String(x.id) === String(ids[i]); });
-    if (t) sampleTasks.push(t);
+    var found = (D.tasks || []).find(function(x){ return String(x.id) === String(ids[i]); });
+    if (found) sampleTasks.push(found);
   }
 
   function memberCard(m) {
@@ -4642,7 +4693,7 @@ function edTkBulkReasignOpen(ids) {
     var loadColor = over ? 'var(--critical)' : pct > 0.85 ? 'var(--warn)' : 'var(--accent)';
     var isSel = m.name === selectedName;
     var isSug = suggested && m.name === suggested.name;
-    var esct = esc(m.name).replace(/'/g, "\\'");
+    var esct = esc(escJs(m.name));
     return '<div onclick="_edTkBulkReasignPickPerson(\'' + esct + '\')" style="'
       + 'display:grid;grid-template-columns:32px 1fr auto;align-items:center;gap:10px;'
       + 'padding:10px 12px;border-radius:8px;cursor:pointer;'
@@ -4724,16 +4775,18 @@ function edTkBulkReasignClose() {
   var host = $('crHost'); if (host) host.innerHTML = '';
   EDT._pendingReassignIds = null;
   _EDT_BULK_REASSIGN_SELECTED = '';
+  _EDT_BULK_REASSIGN_RUNNING = false;
 }
 function edTkBulkReasignConfirm() {
+  if (_EDT_BULK_REASSIGN_RUNNING) return; // double-submit guard
   var newResp = _EDT_BULK_REASSIGN_SELECTED;
-  if (!newResp) { toast('Primero elegí un responsable.', 'error'); return; }
+  if (!newResp) { toast(t('Primero elegí un responsable.'), 'error'); return; }
   var ids = EDT._pendingReassignIds || [];
   if (!ids.length) { edTkBulkReasignClose(); return; }
   // No cerramos el modal antes del network — mostramos loading state en el CTA
   // y cerramos al final del bulk (_edTkBulkDone llama edTkBulkReasignClose).
-  var btn = document.querySelector('#bulkReasignOv .pa-btn-primary');
-  if (btn) { btn.disabled = true; btn.textContent = 'Reasignando…'; }
+  var btn = document.querySelector('#crHost .cr-foot .pa-btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = t('Reasignando…'); }
   _EDT_BULK_REASSIGN_RUNNING = true;
   _edTkBulkRun(ids, 'resp', newResp, 'Reasignadas');
 }
@@ -4775,6 +4828,9 @@ function _edTkBulkDone(label, ok, fail) {
   if (fail === 0) toast('✅ ' + label + ': ' + ok, 'success');
   else if (ok === 0) toast(t('Error: no se pudo aplicar ninguna'), 'error');
   else toast('⚠ ' + label + ': ' + ok + ' OK, ' + fail + ' ' + t('fallaron'), 'info');
+  // Si el bulk venía del modal de reasignación, cerrarlo acá: es el único
+  // punto post-network (el confirm deja el modal abierto con el CTA en loading).
+  if (_EDT_BULK_REASSIGN_RUNNING) edTkBulkReasignClose();
   EDT.selectedIds = [];
   // Reconcile sin spinner: el cambio optimista ya se ve; esto sincroniza stats
   // y corrige fallos parciales contra la verdad del server.
@@ -5285,6 +5341,7 @@ function _collectTrackerFilters() {
     project: EDT.projectFilter || 'ALL',
     owner: EDT.respFilter || 'ALL',
     confidentiality: EDT.confFilter || 'ALL',
+    cliente: EDT.clienteFilter || 'ALL',
     search: EDT.search || '',
     myOnly: false
   };
@@ -6083,11 +6140,14 @@ function _rEdTrackerHQCountries(D, v) {
   var allTasks = (D && D.tasks) || [];
   var totalOpen   = allTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
   var totalOver   = countries.reduce(function(a, c){ return a + (c.overdue || 0); }, 0);
-  var totalAtRisk = countries.filter(function(c){ return (c.overdue || 0) > 3 || (c.slaPct || 100) < 85; }).length;
-  var slaAvg = 0;
-  if (countries.length) {
-    var slaSum = countries.reduce(function(a, c){ return a + (c.slaPct || 0); }, 0);
-    slaAvg = Math.round(slaSum / countries.length);
+  var totalAtRisk = countries.filter(function(c){ return (c.overdue || 0) > 3 || (c.slaPct != null && c.slaPct < 85); }).length;
+  // SLA LATAM: usar el agregado del backend (ponderado por cierres — el mismo
+  // número que la home HQ). El promedio simple por país contaba los null como
+  // 0 y cada vista del head mostraba un "SLA LATAM" distinto.
+  var slaAvg = (D && D.latam && typeof D.latam.slaPct === 'number') ? D.latam.slaPct : null;
+  if (slaAvg == null) {
+    var _withSla = countries.filter(function(c){ return typeof c.slaPct === 'number'; });
+    slaAvg = _withSla.length ? Math.round(_withSla.reduce(function(a, c){ return a + c.slaPct; }, 0) / _withSla.length) : 0;
   }
   // Sort: worst first (overdue desc, then sla asc)
   var sorted = countries.slice().sort(function(a, b) {
@@ -6210,6 +6270,15 @@ function rEdTracker(D) {
   var sourceTasks = EDT.filter === 'closed' ? roleHist : roleTasks;
   var rows = _edApplySearch(_edApplySecondaryFilters(_edApplyFilter(sourceTasks, EDT.filter)), EDT.search);
   rows = _edSortByUrgency(rows);
+
+  // La selección bulk solo puede contener tareas actualmente visibles: si el
+  // usuario cambió filtro/búsqueda/país, descartamos lo que quedó fuera. Sin
+  // esto, la bulkbar decía "3 seleccionadas" y mutaba tareas que ya no se ven.
+  if ((EDT.selectedIds || []).length) {
+    var _visIds = {};
+    rows.forEach(function(r){ _visIds[String(r.id)] = 1; });
+    EDT.selectedIds = EDT.selectedIds.filter(function(id){ return _visIds[String(id)] === 1; });
+  }
 
   // sel puede venir de rows visibles, de roleTasks (activas) o de roleHist (cerradas).
   // Necesario buscar en historial también para abrir tareas Listo desde el panel.
@@ -6522,53 +6591,54 @@ function edTkSetGroupBy(mode) {
 
 // Markup de una fila del Tracker. Extraído para reusarlo tanto en la lista
 // plana como en los buckets del modo "Por urgencia".
-function _edTkRowHtml(t, role, sel) {
-  var pn = _projNameForTask(t);
+// OJO: el parámetro se llama `tk` (no `t`) para no shadowear la función i18n t().
+function _edTkRowHtml(tk, role, sel) {
+  var pn = _projNameForTask(tk);
   // Meta = "tipo · país" como contexto pasivo + chips clickeables para
   // proyecto y cliente (filtran el tracker al clickear). Tag-able y accionable
   // sin saturar la fila como hacía el bullet-separated text de 4 dimensiones.
-  var metaTxt = (t.tipoTrabajo || '—') + ' · ' + (t.pais || '—');
+  var metaTxt = (tk.tipoTrabajo || '—') + ' · ' + (tk.pais || '—');
   var chips = '';
   if (pn && pn !== 'Sin proyecto') {
-    chips += '<span class="pa-meta-chip" onclick="event.stopPropagation();edSetProjectFilter(\'' + esc(String(t.proyectoId || '')) + '\')" title="Filtrar el tracker por este proyecto">' + paIcon('folder', 10, '', 'opacity:.7') + ' ' + esc(pn) + '</span>';
+    chips += '<span class="pa-meta-chip" onclick="event.stopPropagation();edSetProjectFilter(\'' + esc(escJs(String(tk.proyectoId || ''))) + '\')" title="Filtrar el tracker por este proyecto">' + paIcon('folder', 10, '', 'opacity:.7') + ' ' + esc(pn) + '</span>';
   }
-  if (t.areaSolicitante) {
-    chips += '<span class="pa-meta-chip" onclick="event.stopPropagation();edSetClienteFilter(\'' + esc(t.areaSolicitante) + '\')" title="Filtrar el tracker por este cliente">' + paIcon('users', 10, '', 'opacity:.7') + ' ' + esc(t.areaSolicitante) + '</span>';
+  if (tk.areaSolicitante) {
+    chips += '<span class="pa-meta-chip" onclick="event.stopPropagation();edSetClienteFilter(\'' + esc(escJs(tk.areaSolicitante)) + '\')" title="Filtrar el tracker por este cliente">' + paIcon('users', 10, '', 'opacity:.7') + ' ' + esc(tk.areaSolicitante) + '</span>';
   }
   var blockReasonSuffix = '';
-  if (t.status === 'Bloqueado' && t.blockedReason) {
-    var rsn = String(t.blockedReason).trim();
+  if (tk.status === 'Bloqueado' && tk.blockedReason) {
+    var rsn = String(tk.blockedReason).trim();
     if (rsn) {
       var shortRsn = rsn.length > 50 ? rsn.substring(0, 50) + '…' : rsn;
       blockReasonSuffix = ' · <span style="color:var(--warn-fg)">' + paIcon('block', 9, '', 'opacity:.7;vertical-align:-1px') + ' ' + esc(shortRsn) + '</span>';
     }
   }
-  var etaTxt = t.eta || paEtaText(t.etaDays);
-  var isSel = sel && sel.id == t.id;
-  var isChecked = (EDT.selectedIds || []).indexOf(String(t.id)) >= 0;
-  var cfLvl = _confLevel(t);
+  var etaTxt = tk.eta || paEtaText(tk.etaDays);
+  var isSel = sel && sel.id == tk.id;
+  var isChecked = (EDT.selectedIds || []).indexOf(String(tk.id)) >= 0;
+  var cfLvl = _confLevel(tk);
   // Badge "Compartida": esta tarea aparece en mi tracker porque soy
   // colaborador (no el responsable). Lo distingue de las propias.
-  var sharedBadge = _isSharedWithMe(t)
+  var sharedBadge = _isSharedWithMe(tk)
     ? ' <span class="pa-pill pa-pill-info" style="height:16px;font-size:10px" title="' + esc(t('Compartida conmigo')) + '">' + paIcon('users', 9) + ' ' + esc(t('Compartida')) + '</span>'
     : '';
-  var h = '<div class="pa-tbl-r' + (isSel ? ' is-selected' : '') + '" data-task-id="' + esc(t.id) + '" onclick="edSelectTask(\'' + esc(t.id) + '\')">'
-       +    '<span onclick="event.stopPropagation();edTkToggleSelectId(\'' + esc(t.id) + '\')"><span class="pa-check' + (isChecked ? ' is-checked' : '') + '"></span></span>'
+  var h = '<div class="pa-tbl-r' + (isSel ? ' is-selected' : '') + '" data-task-id="' + esc(tk.id) + '" onclick="edSelectTask(\'' + esc(escJs(String(tk.id))) + '\')">'
+       +    '<span onclick="event.stopPropagation();edTkToggleSelectId(\'' + esc(escJs(String(tk.id))) + '\')"><span class="pa-check' + (isChecked ? ' is-checked' : '') + '"></span></span>'
        +    paConfDot(cfLvl)
-       +    '<span class="id mono">' + esc(t.id) + '</span>'
-       +    '<div class="title"><span class="t">' + esc(t.nombre || '') + sharedBadge + '</span><span class="meta">' + esc(metaTxt) + chips + blockReasonSuffix + '</span></div>';
+       +    '<span class="id mono">' + esc(tk.id) + '</span>'
+       +    '<div class="title"><span class="t">' + esc(tk.nombre || '') + sharedBadge + '</span><span class="meta">' + esc(metaTxt) + chips + blockReasonSuffix + '</span></div>';
   if (role === 'specialist') {
     h += (pn && pn !== 'Sin proyecto')
       ? '<span style="font-size:12px;color:var(--fg-2)">' + esc(pn) + '</span>'
       : '<span style="color:var(--fg-4)">—</span>';
-  } else if (t.resp) {
-    h += '<span class="resp" onclick="event.stopPropagation();edSetRespFilter(\'' + esc(t.resp) + '\')">' + paAvatar(t.resp, 18) + '<span style="font-size:12px">' + esc(t.resp) + '</span></span>';
+  } else if (tk.resp) {
+    h += '<span class="resp" onclick="event.stopPropagation();edSetRespFilter(\'' + esc(escJs(tk.resp)) + '\')">' + paAvatar(tk.resp, 18) + '<span style="font-size:12px">' + esc(tk.resp) + '</span></span>';
   } else {
     h += '<span style="color:var(--fg-3)">—</span>';
   }
-  h += paPriorityPill(t.priority)
-    +  paStatusPill(t.status)
-    +  '<span class="eta' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(etaTxt) + '</span>'
+  h += paPriorityPill(tk.priority)
+    +  paStatusPill(tk.status)
+    +  '<span class="eta' + (tk.etaDays != null && tk.etaDays < 0 ? ' overdue' : '') + '">' + esc(etaTxt) + '</span>'
     + '</div>';
   return h;
 }
@@ -6583,7 +6653,8 @@ function _renderTkPanel(sel) {
   if (sel.status === 'Bloqueado') {
     stateBody = '<b>Bloqueada.</b> ' + esc(sel.blockedReason || sel.accionable || 'Necesita desbloqueo manual.');
   } else if (typeof sel.etaDays === 'number' && sel.etaDays < 0) {
-    stateBody = '<b>Vencida hace ' + Math.abs(sel.etaDays) + ' días.</b> ' + esc(sel.accionable || '');
+    var _odN = Math.abs(sel.etaDays);
+    stateBody = '<b>Vencida hace ' + _odN + (_odN === 1 ? ' día.' : ' días.') + '</b> ' + esc(sel.accionable || '');
   } else {
     stateBody = esc(sel.accionable || 'Sin acción registrada.');
   }
@@ -6884,7 +6955,7 @@ function _agBuckets(tasks) {
 // Sin: AI, adjuntos, notif preview — Fase 2.
 // ───────────────────────────────────────────────────────────────
 
-var EDU = { taskId: null, variant: null, newConf: null };
+var EDU = { taskId: null, variant: null, newConf: null, running: false };
 
 // Helper: el usuario puede opcionalmente cambiar el nivel de confidencialidad
 // al cerrar o bloquear. newConf null = no cambia; valor = se incluye en el update.
@@ -7127,6 +7198,7 @@ function edUClose() {
   EDU.taskId = null;
   EDU.variant = null;
   EDU.newConf = null;
+  EDU.running = false;
   var host = $('uaHost'); if (host) host.innerHTML = '';
 }
 
@@ -7179,6 +7251,13 @@ function edUSubmit() {
   if ((EDU.variant === 'cerrar' || EDU.variant === 'bloquear') && EDU.newConf) {
     fields.confidencialidad = EDU.newConf;
   }
+  // Double-submit guard: doble click (o Enter rápido) en el CTA disparaba dos
+  // updateTaskFields; el segundo, con la tarea ya en Historial, devolvía un
+  // error confuso. El flag se libera en error; en éxito edUClose lo resetea.
+  if (EDU.running) return;
+  EDU.running = true;
+  var _uaBtn = document.querySelector('#uaHost .ed-btn.accent');
+  if (_uaBtn) { _uaBtn.disabled = true; _uaBtn.style.opacity = '0.6'; }
   if (typeof showLoader === 'function') showLoader();
   // Capturamos el variant antes de edUClose() porque ahí se resetea
   // EDU. Lo necesitamos para decidir si auto-seleccionar la siguiente
@@ -7187,7 +7266,12 @@ function edUSubmit() {
   google.script.run
     .withSuccessHandler(function(res) {
       if (typeof hideLoader === 'function') hideLoader();
-      if (res && res.success === false) { if (typeof toast === 'function') toast(res.error || 'Error', 'error'); return; }
+      if (res && res.success === false) {
+        EDU.running = false;
+        if (_uaBtn) { _uaBtn.disabled = false; _uaBtn.style.opacity = ''; }
+        if (typeof toast === 'function') toast(res.error || 'Error', 'error');
+        return;
+      }
       var msg = submittedVariant === 'cerrar' ? 'Tarea cerrada' : submittedVariant === 'bloquear' ? 'Tarea bloqueada' : 'Tarea avanzada';
       if (typeof toast === 'function') toast(msg, 'success');
       edUClose();
@@ -7213,6 +7297,8 @@ function edUSubmit() {
     })
     .withFailureHandler(function(e) {
       if (typeof hideLoader === 'function') hideLoader();
+      EDU.running = false;
+      if (_uaBtn) { _uaBtn.disabled = false; _uaBtn.style.opacity = ''; }
       if (typeof toast === 'function') toast('Error: ' + (e && e.message || 'desconocido'), 'error');
     })
     .updateTaskFields(EDU.taskId, fields);
@@ -8044,6 +8130,18 @@ function _piCanEditProject(p) {
   return (p.participantes || []).indexOf(me) >= 0;
 }
 
+// ¿Puede GOBERNAR el proyecto (estado/cancelar, plazo, prioridad, nombre,
+// participantes)? Más estricto que _piCanEditProject (contenido: notas/docs):
+// responsable, manager del país o head. Espeja _updateProjectFieldsImpl —
+// un participante no-responsable solo puede editar notas y descripción.
+function _piCanGovernProject(p) {
+  if (!p) return false;
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  if (role === 'head') return true;
+  if (role === 'manager') return !p.pais || p.pais === _effectiveUserCode();
+  return !!(p.responsable && p.responsable === _effectiveUserName());
+}
+
 function _piEnrichProject(p, D, userName) {
   var tasks  = (D && D.tasks)     || [];
   var hist   = (D && D.historial) || [];
@@ -8051,11 +8149,27 @@ function _piEnrichProject(p, D, userName) {
   var pHist  = hist.filter(function(t){ return t.proyectoId == p.id; });
   var mine    = pTasks.filter(function(t){ return t.resp === userName; }).length;
   var overdue = pTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
-  var done    = pHist.length;
-  var curso   = pTasks.filter(function(t){ return t.status === 'En curso' || t.status === 'En revisión'; }).length;
-  var crit    = pTasks.filter(function(t){ return t.status === 'Bloqueado' || (typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'); }).length;
-  var total   = pTasks.length + done;
-  var pctNum  = total > 0 ? Math.round(done / total * 100) : 0;
+  // Progreso/total del proyecto: usar p.taskStats/p.pctDone del backend,
+  // calculados sobre TODAS las tareas del proyecto. Recalcular acá desde
+  // D.tasks/D.historial (filtrados por rol) hacía que un specialist viera
+  // "100% · Completado" con solo cerrar SU tarea, y que cada rol viera un %
+  // distinto del mismo proyecto. Fallback local por si llega un snapshot viejo.
+  var s = p.taskStats;
+  var done, curso, crit, total, activeCount;
+  if (s && typeof s.total === 'number') {
+    done  = s.listo || 0;
+    curso = (s.enCurso || 0) + (s.enRevision || 0);
+    crit  = s.bloqueado || 0;
+    total = s.total;
+    activeCount = Math.max(0, total - done);
+  } else {
+    done    = pHist.length;
+    curso   = pTasks.filter(function(t){ return t.status === 'En curso' || t.status === 'En revisión'; }).length;
+    crit    = pTasks.filter(function(t){ return t.status === 'Bloqueado' || (typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'); }).length;
+    total   = pTasks.length + done;
+    activeCount = pTasks.length;
+  }
+  var pctNum  = (typeof p.pctDone === 'number') ? p.pctDone : (total > 0 ? Math.round(done / total * 100) : 0);
   var donePct  = total > 0 ? Math.round(done / total * 100) : 0;
   var cursoPct = total > 0 ? Math.round(curso / total * 100) : 0;
   var critPct  = total > 0 ? Math.round(crit / total * 100) : 0;
@@ -8084,7 +8198,7 @@ function _piEnrichProject(p, D, userName) {
   return {
     p: p,
     role: _piRoleOf(p, userName, tasks),
-    tasks: pTasks.length,
+    tasks: activeCount,
     mine: mine,
     overdue: overdue,
     deadlineDays: deadlineDays,
@@ -8141,12 +8255,14 @@ function _piRenderHero(enriched) {
     miniHtml = '<div style="font-size:12px;color:var(--dim);padding:8px 0">' + t('Sin tareas tuyas activas en este proyecto.') + '</div>';
   } else {
     for (var i = 0; i < myInProj.length; i++) {
-      var t = myInProj[i];
-      var tone = _etaToneClass(t.etaDays, t.status);
-      miniHtml += '<div class="pi-mini-task" style="cursor:pointer" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
-               +   '<span class="pi-mini-id">' + esc(t.id) + '</span>'
-               +   '<span class="pi-mini-name">' + esc(t.nombre || '') + '</span>'
-               +   '<span class="pi-mini-eta ' + tone + '">' + esc(t.eta || '') + '</span>'
+      // `tk`, no `t`: var t se hoistearía a toda la función y shadowearía la
+      // función i18n t() que este mismo render usa (TypeError al renderizar).
+      var tk = myInProj[i];
+      var tone = _etaToneClass(tk.etaDays, tk.status);
+      miniHtml += '<div class="pi-mini-task" style="cursor:pointer" onclick="edGoTaskInTracker(\'' + esc(escJs(String(tk.id))) + '\')">'
+               +   '<span class="pi-mini-id">' + esc(tk.id) + '</span>'
+               +   '<span class="pi-mini-name">' + esc(tk.nombre || '') + '</span>'
+               +   '<span class="pi-mini-eta ' + tone + '">' + esc(tk.eta || '') + '</span>'
                + '</div>';
     }
   }
@@ -8233,12 +8349,27 @@ function _piRenderDetail(p, D) {
   var pTasksDone   = hist.filter(function(t){ return t.proyectoId == p.id; });
   var allP = pTasksActive.concat(pTasksDone);
 
-  // Conteo por status (Pendiente, En curso, En revisión, Bloqueado, Listo)
+  // Conteo por status (Pendiente, En curso, En revisión, Bloqueado, Listo).
+  // Preferir p.taskStats del backend: cubre TODAS las tareas del proyecto,
+  // no solo las visibles para este rol (sino el % difería entre roles y un
+  // participante sin tareas veía "0 totales"). Fallback local por compat.
   var byStatus = { 'Pendiente': 0, 'En curso': 0, 'En revisión': 0, 'Bloqueado': 0, 'Listo': 0 };
-  pTasksActive.forEach(function(t){ if (byStatus[t.status] != null) byStatus[t.status]++; });
-  byStatus['Listo'] = pTasksDone.length;
-  var total = allP.length;
-  var pct = total ? Math.round((byStatus['Listo'] / total) * 100) : 0;
+  var total, pct;
+  var _ps = p.taskStats;
+  if (_ps && typeof _ps.total === 'number') {
+    byStatus['Pendiente']   = _ps.pendiente  || 0;
+    byStatus['En curso']    = _ps.enCurso    || 0;
+    byStatus['En revisión'] = _ps.enRevision || 0;
+    byStatus['Bloqueado']   = _ps.bloqueado  || 0;
+    byStatus['Listo']       = _ps.listo      || 0;
+    total = _ps.total;
+    pct = (typeof p.pctDone === 'number') ? p.pctDone : (total ? Math.round((byStatus['Listo'] / total) * 100) : 0);
+  } else {
+    pTasksActive.forEach(function(t){ if (byStatus[t.status] != null) byStatus[t.status]++; });
+    byStatus['Listo'] = pTasksDone.length;
+    total = allP.length;
+    pct = total ? Math.round((byStatus['Listo'] / total) * 100) : 0;
+  }
 
   // Próximo deadline: tarea activa con deadlineISO más cercano (futuro o pasado).
   var nextDl = null;
@@ -8269,13 +8400,14 @@ function _piRenderDetail(p, D) {
   // Editar/cerrar: head, manager de su país, o el responsable/participante del
   // proyecto (incl. specialists). Espeja _authorizeProjectWrite del backend.
   var piCanEdit = _piCanEditProject(p);
+  var piCanGovern = _piCanGovernProject(p);
   var piCanDelete = _piCanDeleteProject(p);
   var html = ''
     + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">'
     +   '<button class="ed-btn pi-detail-back" style="margin:0" onclick="edPiClose()">' + t('← Volver a proyectos') + '</button>'
     +   '<div style="margin-left:auto;display:flex;gap:6px">'
     +     '<button class="pa-btn pa-btn-outline" onclick="edPiNewTaskInProject(\'' + esc(String(p.id)) + '\')">' + paIcon('plus', 12) + ' ' + t('Nueva tarea en proyecto') + '</button>'
-    +     (piCanEdit ? '<button class="pa-btn pa-btn-outline" onclick="openEditProj(\'' + esc(String(p.id)) + '\')">' + paIcon('save', 12) + ' ' + t('Editar proyecto') + '</button>' : '')
+    +     (piCanGovern ? '<button class="pa-btn pa-btn-outline" onclick="openEditProj(\'' + esc(String(p.id)) + '\')">' + paIcon('save', 12) + ' ' + t('Editar proyecto') + '</button>' : '')
     +     (piCanDelete ? '<button class="pa-btn pa-btn-outline" style="color:var(--critical-fg);border-color:var(--critical)" onclick="edPiDeleteProject(\'' + esc(String(p.id)) + '\')">🗑 ' + t('Eliminar') + '</button>' : '')
     +   '</div>'
     + '</div>'
@@ -8818,12 +8950,12 @@ function rEdMiequipo(D) {
        +      '<div class="val">' + (totalCap ? loadPct + '%' : '—') + '</div>'
        +      '<div class="delta">' + totalLoad + '/' + totalCap + ' capacidad</div>'
        +    '</div>'
-       +    '<div class="pa-kpi ' + (totalOver ? 'is-critical' : '') + '">'
+       +    '<div class="pa-kpi ' + (totalOver ? 'is-critical' : '') + '" style="cursor:pointer" onclick="edGoTrackerFiltered(\'overdue\')" title="' + esc(t('Ver en el tracker')) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas</div>'
        +      '<div class="val">' + totalOver + '</div>'
        +      '<div class="delta">' + (totalOver ? 'reasignar' : 'todo en orden') + '</div>'
        +    '</div>'
-       +    '<div class="pa-kpi ' + (totalBlk ? 'is-warn' : '') + '">'
+       +    '<div class="pa-kpi ' + (totalBlk ? 'is-warn' : '') + '" style="cursor:pointer" onclick="edGoTrackerFiltered(\'blocked\')" title="' + esc(t('Ver en el tracker')) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--warn)"></span> On hold</div>'
        +      '<div class="val">' + totalBlk + '</div>'
        +      '<div class="delta">' + (totalBlk ? 'desbloquear' : '—') + '</div>'
@@ -8872,7 +9004,7 @@ function rEdMiequipo(D) {
          +   '<div class="mono" style="font-size:12px;color:' + (ov ? 'var(--critical-fg)' : 'var(--fg-3)') + '">' + ov + '</div>'
          +   '<div class="mono" style="font-size:12px;color:' + (bl ? 'var(--warn-fg)' : 'var(--fg-3)') + '">' + bl + '</div>'
          +   '<div class="mono" style="font-size:12px;color:' + slaColor + '">' + (sla != null ? sla + '%' : '—') + '</div>'
-         +   '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="event.stopPropagation();_miqOpenPerson(\'' + esc(m.name || '') + '\')">Detalle →</button></div>'
+         +   '<div style="display:flex;justify-content:flex-end"><button class="pa-btn pa-btn-ghost" style="height:24px;font-size:11px" onclick="event.stopPropagation();_miqOpenPerson(\'' + esc(escJs(m.name || '')) + '\')">Detalle →</button></div>'
          + '</div>';
   }
 
@@ -8944,18 +9076,20 @@ function _edaTopResponsables(team, n) {
   }).slice(0, n || 6);
 }
 
-function _edaCerradasMes(tasks) {
-  if (!tasks || !tasks.length) return 0;
+// Cerradas este mes. Las cerradas viven en D.historial (no en D.tasks) y el
+// backend expone la fecha como 'cerrado' en dd/MM/yyyy — 'cerradoRaw' nunca
+// existió, por eso este KPI daba siempre 0. countryCode opcional (manager).
+function _edaCerradasMes(historial, countryCode) {
+  if (!historial || !historial.length) return 0;
   var now = new Date();
   var y = now.getFullYear(), m = now.getMonth();
   var cnt = 0;
-  tasks.forEach(function(t) {
-    if (t.status !== 'Listo') return;
-    var raw = t.cerradoRaw || t.cierreRaw || t.closedRaw || null;
-    if (!raw) return;
-    var d = new Date(raw);
-    if (isNaN(d.getTime())) return;
-    if (d.getFullYear() === y && d.getMonth() === m) cnt++;
+  historial.forEach(function(t) {
+    if (countryCode && (t.pais || '') !== countryCode) return;
+    if (!t.cerrado) return;
+    var parts = String(t.cerrado).split('/');
+    if (parts.length !== 3) return;
+    if (parseInt(parts[1], 10) - 1 === m && parseInt(parts[2], 10) === y) cnt++;
   });
   return cnt;
 }
@@ -9119,7 +9253,7 @@ function _edaAreaSolicitanteSection(tasks) {
     var barPct = Math.round((r.count / max) * 100);
     html += '<div style="display:grid;grid-template-columns:160px 1fr 80px;gap:10px;align-items:center;padding:6px 0;cursor:pointer;border-radius:4px" '
          +   'onmouseover="this.style.background=\'var(--accent-soft)\'" onmouseout="this.style.background=\'transparent\'" '
-         +   'onclick="edSetClienteFilter(\'' + esc(r.name) + '\');goEd(\'tracker\')" title="Ver tareas de ' + esc(r.name) + ' en el tracker">'
+         +   'onclick="edSetClienteFilter(\'' + esc(escJs(r.name)) + '\');goEd(\'tracker\')" title="Ver tareas de ' + esc(r.name) + ' en el tracker">'
          +    '<div style="font-size:13px;color:var(--fg-1);padding-left:6px">' + esc(r.name) + '</div>'
          +    '<div style="background:var(--accent-soft);border-radius:4px;height:8px;overflow:hidden"><div style="background:var(--accent);height:100%;width:' + barPct + '%"></div></div>'
          +    '<div style="text-align:right;font-size:12px;color:var(--fg-2);padding-right:6px"><b>' + r.count + '</b> · ' + pct + '%</div>'
@@ -9217,11 +9351,9 @@ function rEdAnalytics(D) {
   var totalSla = (sla.onTime || 0) + (sla.atRisk || 0) + (sla.overdue || 0);
   var slaPct = totalSla > 0 ? Math.round((sla.onTime || 0) / totalSla * 100) : 0;
 
-  // Activas = no Listo. Cerradas mes = Listo cerradas en mes actual.
+  // Activas = no Listo. Cerradas mes = del Historial, cerradas en mes actual.
   var activas = tasks.filter(function(t){ return t.status !== 'Listo'; }).length;
-  var cerradasMes = _edaCerradasMes(tasks);
-  // On-time %: closed-on-time del histórico si existe, sino aproximamos con SLA.
-  var onTimePct = slaPct;
+  var cerradasMes = _edaCerradasMes((D && D.historial) || [], role === 'manager' ? userCode : null);
 
   var sem = (D && D.semana) ? D.semana : '';
   var eyebrow = 'Analítica' + (sem ? ' · semana ' + sem : '');
@@ -9260,22 +9392,25 @@ function rEdAnalytics(D) {
     html += '<div class="pa-narrative">' + lede + '</div>';
   }
 
-  // KPIs
+  // KPIs — clickeables: drillean al tracker ya filtrado, igual que en los
+  // homes (antes acá eran estáticos y el patrón quedaba inconsistente).
+  // "En tiempo" se reemplazó por "Vencidas": era el mismo número que
+  // "SLA cumplido" con otro label (dos tarjetas idénticas confundían).
   html += '<div class="pa-kpis">'
-       +    '<div class="pa-kpi">'
+       +    '<div class="pa-kpi" style="cursor:pointer" onclick="edGoTrackerFiltered(\'all\')" title="' + esc(t('Ver en el tracker')) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Activas</div>'
        +      '<div class="val">' + activas + '</div>'
        +      '<div class="delta">' + (role === 'head' ? 'en LATAM' : 'en tu equipo') + '</div>'
        +    '</div>'
-       +    '<div class="pa-kpi is-good">'
+       +    '<div class="pa-kpi is-good" style="cursor:pointer" onclick="edGoTrackerFiltered(\'closed\')" title="' + esc(t('Ver en el tracker')) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> Cerradas (mes)</div>'
        +      '<div class="val">' + cerradasMes + '</div>'
        +      '<div class="delta">' + (cerradasMes ? 'completadas' : 'sin cierres aún') + '</div>'
        +    '</div>'
-       +    '<div class="pa-kpi ' + (onTimePct >= 90 ? 'is-good' : (onTimePct >= 75 ? 'is-warn' : 'is-critical')) + '">'
-       +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> En tiempo</div>'
-       +      '<div class="val">' + (totalSla ? onTimePct + '%' : '—') + '</div>'
-       +      '<div class="delta">dentro de SLA</div>'
+       +    '<div class="pa-kpi ' + ((sla.overdue || 0) > 0 ? 'is-critical' : 'is-good') + '" style="cursor:pointer" onclick="edGoTrackerFiltered(\'overdue\')" title="' + esc(t('Ver en el tracker')) + '">'
+       +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas</div>'
+       +      '<div class="val">' + (sla.overdue || 0) + '</div>'
+       +      '<div class="delta">' + ((sla.overdue || 0) ? 'necesitan acción' : 'todo en tiempo') + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (slaPct >= 90 ? 'is-good' : (slaPct >= 75 ? 'is-warn' : 'is-critical')) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--accent)"></span> SLA cumplido</div>'
@@ -9594,13 +9729,14 @@ function rEdResumen(D) {
   // ── Hero KPIs (idéntica lógica que rEdHomeHQ para coherencia visual)
   var totalOpen    = allTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
   var totalOverdue = countries.reduce(function(a, c){ return a + (c.overdue || 0); }, 0);
-  var slaAvg = 0;
-  if (countries.length) {
-    var slaSum = countries.reduce(function(a, c){ return a + (c.slaPct || 0); }, 0);
-    slaAvg = Math.round(slaSum / countries.length);
+  // SLA LATAM: mismo agregado ponderado que la home HQ (ver _rEdTrackerHQCountries).
+  var slaAvg = (D && D.latam && typeof D.latam.slaPct === 'number') ? D.latam.slaPct : null;
+  if (slaAvg == null) {
+    var _withSla = countries.filter(function(c){ return typeof c.slaPct === 'number'; });
+    slaAvg = _withSla.length ? Math.round(_withSla.reduce(function(a, c){ return a + c.slaPct; }, 0) / _withSla.length) : 0;
   }
   var atRiskCountries = countries.filter(function(c){
-    return (c.overdue || 0) > 3 || (c.slaPct || 100) < 85;
+    return (c.overdue || 0) > 3 || (c.slaPct != null && c.slaPct < 85);
   });
   var atRisk = atRiskCountries.length;
 
@@ -9641,19 +9777,19 @@ function rEdResumen(D) {
     html += '<div class="pa-narrative">' + lede + '</div>';
   }
 
-  // KPIs
+  // KPIs (drillean al tracker/analytics, como en las homes)
   html += '<div class="pa-kpis">'
-       +    '<div class="pa-kpi">'
+       +    '<div class="pa-kpi" style="cursor:pointer" onclick="edSetCountryFilter(\'__ALL__\');edGoTrackerFiltered(\'all\')" title="' + esc(t('Ver en el tracker')) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> Total LATAM</div>'
        +      '<div class="val">' + totalOpen + '</div>'
        +      '<div class="delta">' + countries.length + (countries.length === 1 ? ' país' : ' países') + '</div>'
        +    '</div>'
-       +    '<div class="pa-kpi ' + (totalOverdue ? 'is-critical' : '') + '">'
+       +    '<div class="pa-kpi ' + (totalOverdue ? 'is-critical' : '') + '" style="cursor:pointer" onclick="edSetCountryFilter(\'__ALL__\');edGoTrackerFiltered(\'overdue\')" title="' + esc(t('Ver en el tracker')) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> Vencidas</div>'
        +      '<div class="val">' + totalOverdue + '</div>'
        +      '<div class="delta">' + (totalOverdue ? 'reasignar' : 'todo en orden') + '</div>'
        +    '</div>'
-       +    '<div class="pa-kpi ' + (slaAvg >= 90 ? 'is-good' : '') + '">'
+       +    '<div class="pa-kpi ' + (slaAvg >= 90 ? 'is-good' : '') + '" style="cursor:pointer" onclick="goEd(\'analytics\')" title="Analytics">'
        +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> SLA promedio</div>'
        +      '<div class="val">' + (slaAvg || '—') + (slaAvg ? '%' : '') + '</div>'
        +      '<div class="delta">LATAM</div>'

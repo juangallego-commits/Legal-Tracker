@@ -557,7 +557,9 @@ function _gmailFindTaskByThread(ss, threadId) {
   if (!ss || !threadId) return null;
   var hit = _gmailScanSheetForThread(ss, SHEET_ACTIVO, threadId, 4 /*headerOffset*/, false);
   if (hit) return hit;
-  return _gmailScanSheetForThread(ss, SHEET_HISTORIAL, threadId, 2 /*headerOffset*/, true);
+  // Historial tiene el mismo layout de 3 filas de header que Tracking Activo
+  // (la data arranca en la fila 4 — ver _readHistorialDataRows en codigo.gs).
+  return _gmailScanSheetForThread(ss, SHEET_HISTORIAL, threadId, 4 /*headerOffset*/, true);
 }
 
 function _gmailScanSheetForThread(ss, sheetName, threadId, dataStartRow, cerrada) {

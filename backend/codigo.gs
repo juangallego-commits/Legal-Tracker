@@ -744,6 +744,13 @@ function _buildViewForRole(raw, role, user, feriadosByCountry) {
   var projects = filterProjectsForRole(allProjects, role, user);
 
   // Enrich cada proyecto con sus tareas visibles y stats derivadas.
+  // IMPORTANTE: las stats (taskStats/pctDone/auto-status) se calculan sobre
+  // TODAS las tareas del proyecto (raw.tasks/raw.historial, SIN filtro de
+  // rol). Antes se calculaban sobre el subset visible: un specialist con 1
+  // tarea de 5 veía "100% · Completado" al cerrar la suya, y cada rol veía
+  // un % distinto del mismo proyecto. Solo son conteos agregados — no exponen
+  // títulos ni contenido de tareas confidenciales. p.tasks (la lista) sí
+  // queda filtrada por rol: la UI lista únicamente lo que el usuario puede ver.
   var projMap = {};
   projects.forEach(function(p) {
     p.tasks = [];
@@ -754,6 +761,10 @@ function _buildViewForRole(raw, role, user, feriadosByCountry) {
     var pid = t.proyectoId;
     if (!pid || !projMap[pid]) return;
     projMap[pid].tasks.push(t);
+  });
+  allTasks.forEach(function(t) {
+    var pid = t.proyectoId;
+    if (!pid || !projMap[pid]) return;
     var s = projMap[pid].taskStats;
     s.total++;
     if (t.status === 'Pendiente')    s.pendiente++;
@@ -765,7 +776,7 @@ function _buildViewForRole(raw, role, user, feriadosByCountry) {
     if (t.priority === 'Media')      s.media++;
     if (t.priority === 'Baja')       s.baja++;
   });
-  historial.forEach(function(t) {
+  allHist.forEach(function(t) {
     var pid = t.proyectoId;
     if (!pid || !projMap[pid]) return;
     var s = projMap[pid].taskStats;
@@ -867,17 +878,20 @@ function _buildViewForRole(raw, role, user, feriadosByCountry) {
   });
 
   // SLA — días hábiles desde creación, restando feriados del país de la tarea.
+  // Además del agregado, dejamos t.slaState ('onTime'|'atRisk'|'overdue') en
+  // cada tarea: el cliente lo usa (taskOverdueBySLA) en vez de recomputar
+  // días hábiles sin feriados, que sobre-contaba vencidas.
   var now = new Date();
   var sla = { onTime: 0, atRisk: 0, overdue: 0 };
   tasks.forEach(function(t) {
     if (t.status === 'Listo') return;
-    if (!t.creadoRaw) { sla.onTime++; return; }
+    if (!t.creadoRaw) { sla.onTime++; t.slaState = 'onTime'; return; }
     var ferSet = feriadosByCountry[(t.pais || '').toUpperCase()] || null;
     var bizDays = countBizDays(new Date(t.creadoRaw), now, ferSet);
     var limit = SLA_LIMITS[t.priority] || 5;
-    if (bizDays > limit) sla.overdue++;
-    else if (bizDays >= limit - 1) sla.atRisk++;
-    else sla.onTime++;
+    if (bizDays > limit) { sla.overdue++; t.slaState = 'overdue'; }
+    else if (bizDays >= limit - 1) { sla.atRisk++; t.slaState = 'atRisk'; }
+    else { sla.onTime++; t.slaState = 'onTime'; }
   });
 
   // Lista de proyectos para dropdowns (solo activos + en pausa)
@@ -1320,6 +1334,19 @@ function _updateProjectFieldsImpl(projId, fields) {
     if (fields.pais !== undefined && fields.pais !== current.pais) {
       throw new Error('Sin permiso: no puedes cambiar el país del proyecto');
     }
+    // Participante (no responsable): solo contenido colaborativo. El gobierno
+    // del proyecto (estado/cancelación, plazo, prioridad, nombre, lista de
+    // participantes) queda para el responsable, su manager o head — antes
+    // cualquier participante podía cancelar el proyecto o sacar al resto de
+    // la lista de participantes (lockout, porque filterProjectsForRole deja
+    // de mostrárselo a los removidos).
+    if (_normalizeName(current.responsable) !== _normalizeName(ctx.user.name)) {
+      var allowedForParticipant = { notas: 1, descripcion: 1 };
+      var offending = Object.keys(fields).filter(function(k){ return !allowedForParticipant[k]; });
+      if (offending.length) {
+        throw new Error('Sin permiso: como participante podés editar notas y descripción. Estado, plazo y participantes los cambia el responsable o tu manager.');
+      }
+    }
   }
 
   var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
@@ -1535,7 +1562,9 @@ function _addTaskImpl(taskObj) {
     var lc = ws.getLastColumn();
     var rowVals = [
       newId, taskObj.nombre||'', taskObj.resp||'', taskObj.acc||'',
-      taskObj.deadline||'', taskObj.priority||'Media', taskObj.status||'Pendiente',
+      // ISO → Date real (mediodía local): si queda como string, readTasks puede
+      // no derivar deadlineISO según el locale y la tarea nace sin ETA/SLA/digest.
+      _deadlineToCell(taskObj.deadline||''), taskObj.priority||'Media', taskObj.status||'Pendiente',
       taskObj.semana||getCurrentWeekLabel(), new Date(), '', notas,
       pidCell, pais, lider,
       taskObj.tipoTrabajo||'', taskObj.riesgo||''
@@ -2012,6 +2041,10 @@ function _updateTaskFieldImpl(taskId, field, value) {
     var n = parseInt(value, 10);
     value = isNaN(n) ? '' : n;
   }
+  // Deadline ISO → Date real (mediodía local), igual que en proyectos. Si se
+  // escribe como string, readTasks puede no derivar deadlineISO (depende del
+  // locale de la hoja) y la tarea queda sin ETA, fuera del SLA y del digest.
+  if (field === 'deadline') value = _deadlineToCell(value);
   // Lock para serializar la escritura de la celda. moveToHistorial tiene su propio
   // lock interno, por eso lo invocamos FUERA del bloque (el lock de Apps Script no
   // es reentrante de forma garantizada, así evitamos cualquier deadlock).
@@ -2106,6 +2139,8 @@ function _updateTaskFieldsImpl(taskId, fields) {
         var n = parseInt(v, 10);
         v = isNaN(n) ? '' : n;
       }
+      // Deadline ISO → Date real (ver _updateTaskFieldImpl / proyectos).
+      if (k === 'deadline') v = _deadlineToCell(v);
       ws.getRange(row, col).setValue(_sanitizeCell(v));
     });
 
@@ -4619,6 +4654,12 @@ function _applyExportFilters(tasks, filters) {
       var lvl = (t.confidencialidad || 'estandar').toString().trim().toLowerCase() || 'estandar';
       return lvl === cf;
     });
+  }
+  // Cliente interno (área solicitante): espeja EDT.clienteFilter para que
+  // "Excel (vista actual)" devuelva exactamente las filas que el user ve.
+  if (filters.cliente && filters.cliente !== 'ALL') {
+    var cl = String(filters.cliente);
+    out = out.filter(function(t){ return (t.areaSolicitante || '') === cl; });
   }
   if (filters.myOnly && filters.search) {
     // No-op placeholder, mantained for symmetry with frontend search if needed.

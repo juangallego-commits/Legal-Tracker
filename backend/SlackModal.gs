@@ -844,8 +844,11 @@ function postThreadReply(channel, ts, text) {
   callSlackAPI('chat.postMessage', payload);
 }
 
-/** Lee la lista de miembros del equipo desde la hoja Config del sheet */
+/** Lee la lista de miembros del equipo desde la hoja Config del sheet.
+ *  Expuesta a google.script.run → exigir allowlist: sin el check, cualquier
+ *  usuario del dominio (aunque no esté en Equipos) podía enumerar el roster. */
 function getTeamMembers() {
+  _getAuthContext(); // throws si el visitante no está en la allowlist
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const config = readConfig(ss);   // función definida en Codigo.gs
