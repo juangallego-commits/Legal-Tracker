@@ -86,10 +86,10 @@ Salió de 4 agentes Opus revisando flujos, pantallas, biblioteca y Slack. Ordena
 - ✅ **Fix copy del tour de HQ** — hecho (sesión jun-2026): el head ya no recibe el bloque de pasos de manager (18 → 15 pasos, sin copy de "tu país" que no aplica).
 
 ### Medio (≈medio día – 1 día)
-- **PT-BR en pantallas que quedaron en español** — el toggle traduce sidebar/home, pero **Mi equipo, Analytics, Por país, landing HQ del Tracker, el panel de tarea, el flujo avanzar/cerrar/bloquear y el tour** tienen literales hardcodeados sin `t()`. Es el gap #1 para el equipo de Brasil. Mecánico pero amplio (envolver en `t()` + sumar keys a `T_PT`). *(Empecé por el panel/flujo — ver abajo.)*
+- ✅ **PT-BR en pantallas que quedaron en español** — hecho (jun-2026) para **tracker (header/bulkbar/empty/ETA/panel-estado), Cmd+K, Mi equipo, Analytics, Por país y landing HQ** (+129 claves). Queda: **el copy del tour** (~60 strings largos) y podar ~156 claves huérfanas (⚠ antes de podar, auditar los `t(variable)` con enums de data — p. ej. `t(p.status)` en el detalle de proyecto usa claves que el script marca como huérfanas).
 - **SLA al crear** — al elegir prioridad, mostrar "SLA objetivo: 2/5/7 días hábiles" y un botón "usar SLA" que setea el deadline (la lógica de días hábiles ya existe). Estandariza fechas para el reporting.
 - **Filtro/buscador dentro de Biblioteca** — hoy es una lista plana; con 50+ docs se vuelve inusable. Filtro por categoría/tipo + input de búsqueda (client-side sobre el cache).
-- **Checklists rastreables** — los checklists de templates hoy se aplastan a texto en Notas. Renderizarlos como checkboxes reales con barra "3/7 hecho". Convierte los templates de decorativos en workflow. (El más alto valor según el agente.)
+- ✅ **Checklists rastreables** — hecho (jun-2026): las líneas "- ítem" de Notas se renderizan como checkboxes con barra "3/7" en el panel (toggle persistido línea-por-línea, optimistic + revert), mini-progreso "✓ 3/7" en la fila del tracker, CTA "Usar →" en cada plantilla y hint en el wizard ("nace con el checklist de N pasos" / "escribiste descripción, no se inserta"). Las plantillas pasaron de decorativas a workflow.
 - **"Adjuntar desde Biblioteca" a una tarea** — picker para linkear un doc existente en vez de re-subir (reuso de NDAs/plantillas).
 - **Indexar comentarios en la búsqueda** + filtros en el modal (solo documentos / mi país).
 - **De-duplicar HQ home vs "Por país"** — son casi la misma tabla. Profundizar una o eliminar la otra del nav.
