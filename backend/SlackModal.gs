@@ -137,8 +137,25 @@ const EMOJI_BLOCK  = 'no_entry';           // ⛔  → bloquear tarea (con razó
 // doPost — ÚNICO PUNTO DE ENTRADA
 // Maneja: URL verification · Events · Interactions (buttons + modals)
 // ════════════════════════════════════════════════════════════════
+// ── SLACK INBOUND · DESACTIVADO ──────────────────────────────────
+// La integración ENTRANTE de Slack está apagada a propósito (piloto + datos
+// legales sensibles). Además hoy es inoperante: el web app corre con
+// access:"DOMAIN" (Google rechaza el POST anónimo de Slack antes de llegar acá)
+// y las mutaciones usan Session.getActiveUser() (vacío en un POST externo) →
+// "No autorizado". No hay mapeo Slack→email ni verificación de firma
+// (_SLACK_SIG_ENFORCED=false). Para reactivar de forma segura: montar un proxy
+// (Cloud Function) que valide la firma y reenvíe con identidad mapeada al
+// roster, y poner _SLACK_INBOUND_ENABLED=true. El resto del módulo (modales,
+// helpers, salientes) queda intacto para ese día.
+var _SLACK_INBOUND_ENABLED = false;
+
 function doPost(e) {
   try {
+    // Guard de desactivación: no procesar nada entrante mientras esté apagado.
+    if (!_SLACK_INBOUND_ENABLED) {
+      try { console.info('Slack inbound deshabilitado (_SLACK_INBOUND_ENABLED=false) — POST ignorado.'); } catch (_e) {}
+      return jsonResponse({ ok: false, disabled: true });
+    }
     // ── SECURITY: validar firma HMAC de Slack antes de procesar nada ──
     // Si el secret no está seteado, permite (modo dev) con warning.
     // Si está seteado pero los headers no están disponibles, soft-fail según _SLACK_SIG_ENFORCED.

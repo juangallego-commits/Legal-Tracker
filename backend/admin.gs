@@ -99,8 +99,8 @@ function installDigestTrigger() {
     var h = tg.getHandlerFunction();
     if (h === 'sendDailyDigest' || h === 'sendDailyDigests') { ScriptApp.deleteTrigger(tg); removed++; }
   });
-  ScriptApp.newTrigger('sendDailyDigest').timeBased().everyDays(1).atHour(8).create();
-  Logger.log('installDigestTrigger por ' + who + ': ' + removed + ' trigger(s) viejo(s) borrado(s) · 1 nuevo (diario ~8am).');
+  ScriptApp.newTrigger('sendDailyDigests').timeBased().everyDays(1).atHour(8).create();
+  Logger.log('installDigestTrigger por ' + who + ': ' + removed + ' trigger(s) viejo(s) borrado(s) · 1 nuevo: sendDailyDigests (diario ~8am).');
 }
 
 // ════════════════════════════════════════════════════════════════

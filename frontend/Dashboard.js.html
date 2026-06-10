@@ -367,67 +367,6 @@ function mc(n) {
   return '';
 }
 
-// ═══ BUILD ═══
-function buildUI() {
-  // Country dropdowns
-  if (D.equipos) D.equipos.forEach(function(eq) {
-    ['fPais', 'pPais'].forEach(function(id) {
-      var o = document.createElement('option');
-      o.value = eq.code; o.textContent = eq.code + ' — ' + eq.country;
-      $(id).appendChild(o);
-    });
-  });
-
-  // Member dropdowns (5 selects share the same source)
-  getAllMembers().forEach(function(m) {
-    ['fResp', 'fLider', 'pResp', 'pLider', 'pPart'].forEach(function(id) {
-      var o = document.createElement('option');
-      o.value = m; o.textContent = m;
-      $(id).appendChild(o);
-    });
-  });
-
-  // Project dropdown in task form
-  if (D.projectList) D.projectList.forEach(function(p) {
-    var o = document.createElement('option');
-    o.value = p.id; o.textContent = p.nombre;
-    $('fProj').appendChild(o);
-  });
-
-  // Auto-fill país + líder when responsable changes
-  function autoFillFromResp(respId, paisId, liderId) {
-    $(respId).addEventListener('change', function() {
-      var cc = mc(this.value); if (!cc) return;
-      $(paisId).value = cc;
-      var eq = D.equipos.find(function(e) { return e.code === cc; });
-      if (eq) $(liderId).value = eq.leader;
-    });
-  }
-  autoFillFromResp('fResp', 'fPais', 'fLider');
-  autoFillFromResp('pResp', 'pPais', 'pLider');
-
-  // Auto-prefill de notas con checklist del Template cuando cambia el TipoTrabajo.
-  // - Solo prefilla si el textarea de notas está vacío (no pisa lo que el usuario escribió).
-  // - Cache de plantillas a nivel de módulo: una sola llamada server-side por sesión.
-  // - Si la hoja Templates no existe en el sheet, el backend devuelve {} y esto es no-op.
-  if ($('fTipo')) {
-    $('fTipo').addEventListener('change', function() {
-      var tipo = this.value;
-      if (!tipo) return;
-      var notEl = $('fNot');
-      if (!notEl) return;
-      if ((notEl.value || '').replace(/\s+/g, '')) return; // user ya escribió → no pisar
-      _loadTemplates(function(dict) {
-        var checklist = dict && dict[tipo];
-        if (!checklist || !checklist.length) return;
-        // Re-check después del round-trip: el usuario pudo haber escrito mientras.
-        if ((notEl.value || '').replace(/\s+/g, '')) return;
-        notEl.value = checklist.map(function(it){ return '- ' + it; }).join('\n');
-      });
-    });
-  }
-}
-
 // Cache lazy de plantillas (server fetch una vez por sesión).
 var _TEMPLATES_CACHE = null;
 var _TEMPLATES_INFLIGHT = null;
@@ -460,170 +399,6 @@ function _loadBiblioteca(cb) {
     .withSuccessHandler(function(res) { _BIBLIO_CACHE = (res && res.items) || []; cb(); })
     .withFailureHandler(function() { _BIBLIO_CACHE = []; cb(); })
     .getBibliotecaTemplates();
-}
-
-// ═══ CREATE MODAL ═══
-// Abre el modal global de creación. Opcional: tab inicial ('newTask'|'newProj')
-// y proyectoId a preseleccionar (útil para "+tarea" desde una pcard).
-function openCreate(tab, prefillProjectId) {
-  tab = tab || 'newTask';
-  goSub(tab);
-  if (prefillProjectId != null && $('fProj')) {
-    $('fProj').value = prefillProjectId;
-  }
-  $('createT').textContent = tab === 'newProj' ? 'Crear proyecto' : 'Crear tarea';
-  $('createOv').classList.add('show');
-  // Validación en vivo del form de tarea (título + responsable requeridos).
-  if (tab !== 'newProj' && typeof ltWireValidation === 'function') {
-    ltWireValidation([
-      { id: 'fNom', msg: 'El nombre es obligatorio.' },
-      { id: 'fResp', msg: 'Elegí un responsable.' }
-    ], 'btnT');
-  }
-  // Auto-focus en el primer input relevante
-  setTimeout(function() {
-    var input = tab === 'newProj' ? $('pNom') : $('fNom');
-    if (input) input.focus();
-  }, 80);
-}
-
-function closeCreate() {
-  $('createOv').classList.remove('show');
-}
-
-
-function goSub(v) {
-  var subs = ['newTask', 'newProj'];
-  subs.forEach(function(x) {
-    var e = $('sv' + x.charAt(0).toUpperCase() + x.slice(1));
-    if (e) e.classList.toggle('active', x === v);
-  });
-  document.querySelectorAll('.sub-tab').forEach(function(b, i) {
-    b.classList.toggle('active', subs[i] === v);
-  });
-  // Actualizar el título del modal Crear si está abierto
-  if ($('createT')) $('createT').textContent = v === 'newProj' ? 'Crear proyecto' : 'Crear tarea';
-}
-
-// ═══ SUBMIT TASK ═══
-function submitTask() {
-  var n = $('fNom').value.trim(), r = $('fResp').value;
-  if (!n) return fm('fMsg', 'Nombre requerido', 'error');
-  if (!r) return fm('fMsg', 'Responsable requerido', 'error');
-  $('btnT').disabled = true;
-  fm('fMsg', 'Guardando...', 'info');
-  showLoader();
-  google.script.run
-    .withSuccessHandler(function(res) {
-      hideLoader();
-      $('btnT').disabled = false;
-      if (res.success) {
-        fm('fMsg', '✅ Tarea #' + res.id + ' creada', 'success');
-        toast('Tarea #' + res.id + ' creada', 'success');
-        ['fNom', 'fResp'].forEach(function(id){ if (typeof ltFieldValid === 'function') ltFieldValid($(id)); });
-        ['fNom', 'fNot', 'fContraparte'].forEach(function(id){ if ($(id)) $(id).value = ''; });
-        $('fDl').value = '';
-        if (_tagsAccHandle) _tagsAccHandle.clear();
-        var warnEl = $('fConflictWarn');
-        if (warnEl) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
-        reload();
-        closeCreate();
-      } else {
-        fm('fMsg', 'Error: ' + (res.error || ''), 'error');
-      }
-    })
-    .withFailureHandler(function(e) {
-      hideLoader();
-      $('btnT').disabled = false;
-      fm('fMsg', 'Error: ' + e.message, 'error');
-    })
-    .addTask({
-      nombre: n, proyectoId: $('fProj').value || '', pais: $('fPais').value,
-      resp: r, lider: $('fLider').value, deadline: $('fDl').value || '',
-      priority: $('fPrio').value, acc: $('fAcc').value.trim(),
-      notas: $('fNot').value.trim(),
-      tipoTrabajo: $('fTipo').value, riesgo: $('fRiesgo').value,
-      contraparte: ($('fContraparte') ? $('fContraparte').value.trim() : '')
-    });
-}
-
-// Audit/Conflict-of-interest check: si la tarea creada está vinculada a un proyecto que
-// declaró contrapartesConflicto, advertir al usuario (match case-insensitive
-// substring, en cualquier sentido). El warning es solo visual; no bloquea submit.
-function checkContraparteConflict() {
-  var warnEl = $('fConflictWarn');
-  if (!warnEl) return;
-  var cp = ($('fContraparte') && $('fContraparte').value || '').trim();
-  var pid = ($('fProj') && $('fProj').value) || '';
-  if (!cp || !pid) { warnEl.style.display = 'none'; warnEl.textContent = ''; return; }
-  var projects = (typeof D !== 'undefined' && D && (D.projects || D.projectList)) || [];
-  var proj = projects.find(function(p){ return String(p.id) === String(pid); });
-  if (!proj) { warnEl.style.display = 'none'; warnEl.textContent = ''; return; }
-  var declared = proj.contrapartesConflicto || [];
-  if (!Array.isArray(declared) || !declared.length) {
-    warnEl.style.display = 'none'; warnEl.textContent = '';
-    return;
-  }
-  var cpLow = cp.toLowerCase();
-  var hit = null;
-  for (var i = 0; i < declared.length; i++) {
-    var d = (declared[i] || '').toString().trim();
-    if (!d) continue;
-    var dLow = d.toLowerCase();
-    // Exacto o substring en cualquier dirección (auditoría: queremos atrapar variantes).
-    if (cpLow === dLow || cpLow.indexOf(dLow) !== -1 || dLow.indexOf(cpLow) !== -1) {
-      hit = d; break;
-    }
-  }
-  if (hit) {
-    warnEl.textContent = '⚠ Atención: contraparte coincide con conflicto declarado en proyecto "' + (proj.nombre || ('#' + proj.id)) + '" (match: ' + hit + ')';
-    warnEl.style.display = 'block';
-  } else {
-    warnEl.style.display = 'none';
-    warnEl.textContent = '';
-  }
-}
-
-// ═══ SUBMIT PROJECT ═══
-function submitProj() {
-  var n = $('pNom').value.trim();
-  if (!n) return fm('pMsg', 'Nombre requerido', 'error');
-  $('btnP').disabled = true;
-  fm('pMsg', 'Guardando...', 'info');
-  showLoader();
-  google.script.run
-    .withSuccessHandler(function(res) {
-      hideLoader();
-      $('btnP').disabled = false;
-      if (res.success) {
-        fm('pMsg', '✅ Proyecto #' + res.id + ' creado', 'success');
-        toast('Proyecto "' + res.nombre + '" creado', 'success');
-        ['pNom', 'pDesc', 'pNot'].forEach(function(id){ $(id).value = ''; });
-        $('pDl').value = '';
-        if (_tagsPartHandle) _tagsPartHandle.clear();
-        reload();
-        // Añadir el nuevo proyecto al dropdown del formulario de tareas
-        var o = document.createElement('option');
-        o.value = res.id; o.textContent = res.nombre;
-        $('fProj').appendChild(o);
-        closeCreate();
-      } else {
-        fm('pMsg', 'Error: ' + (res.error || ''), 'error');
-      }
-    })
-    .withFailureHandler(function(e) {
-      hideLoader();
-      $('btnP').disabled = false;
-      fm('pMsg', 'Error: ' + e.message, 'error');
-    })
-    .addProject({
-      nombre: n, descripcion: $('pDesc').value.trim(),
-      pais: $('pPais').value, responsable: $('pResp').value,
-      lider: $('pLider').value, deadline: $('pDl').value || '',
-      priority: $('pPrio').value, notas: $('pNot').value.trim(),
-      participantes: $('pPart').value,
-      tipoTrabajo: $('pTipo').value, riesgo: $('pRiesgo').value
-    });
 }
 
 // ═══ EDIT MODAL ═══
@@ -1564,12 +1339,6 @@ function mountUserChip() {
   // 1) Body class para CSS role-gating (.role-head / .role-manager / .role-specialist)
   document.body.classList.add('role-' + (USER.role || 'specialist'));
 
-  // 2) Pre-fill en formularios de creación
-  var fResp = $('fResp');
-  if (fResp) fResp.value = CURRENT_USER;
-  var countryCode = USER.code || mc(CURRENT_USER);
-  if (countryCode && $('fPais')) $('fPais').value = countryCode;
-
   // 4) Specialist: por default entrar al filtro "Mis tareas" (aunque el backend
   //    ya filtra, esto evita el popup de chips de responsable).
   if (USER.role === 'specialist') {
@@ -1694,7 +1463,7 @@ var ACTIONS = {
     if (typeof edCrearOpen === 'function') {
       edCrearOpen();
       setTimeout(function(){ var s = $('crProj'); if (s) s.value = pid; if (typeof edCrearSetField === 'function') edCrearSetField('proyectoId', pid); }, 100);
-    } else { openCreate('newTask', Number(pid)); }
+    }
   },
   'miq-open-person': function(el) {
     // Desde el editorial "Mi equipo / Equipos": placeholder hasta que
@@ -1790,7 +1559,6 @@ document.addEventListener('keydown', function(e) {
     if ($('crpHost') && $('crpHost').innerHTML) { if (typeof edCrearProyectoClose === 'function') edCrearProyectoClose(); return; }
     if ($('edPltHost') && $('edPltHost').innerHTML) { if (typeof edPltCloseEditor === 'function') edPltCloseEditor(); return; }
     if ($('ddM') && $('ddM').style.display === 'block') { closeDD(); return; }
-    if ($('createOv') && $('createOv').classList.contains('show')) { closeCreate(); return; }
     if ($('editOv') && $('editOv').classList.contains('show')) { closeEdit(); return; }
     if ($('confOv') && $('confOv').classList.contains('show')) { closeCf(); return; }
     if (document.getElementById('bulkReasignOv')) { if (typeof edTkBulkReasignClose === 'function') edTkBulkReasignClose(); return; }
@@ -1811,14 +1579,11 @@ document.addEventListener('keydown', function(e) {
     }
     return;
   }
-  // N → abrir wizard editorial de crear (con fallback al modal viejo)
+  // N → abrir wizard editorial de crear
   if (e.key === 'n' || e.key === 'N') {
     if (typeof edCrearOpen === 'function') {
       e.preventDefault();
       edCrearOpen();
-    } else if ($('createOv') && !$('createOv').classList.contains('show')) {
-      e.preventDefault();
-      openCreate();
     }
   }
 });
@@ -1893,18 +1658,6 @@ function _loaderSetLabel(msg) {
 // ═══ INIT OVERRIDE ═══
 // Sobreescribir el DOMContentLoaded original
 document.addEventListener('DOMContentLoaded', function() {
-  buildUI();
-  var members = getAllMembers();
-  // Participants select inside Nuevo Proyecto
-  var pSel = $('pPartSelect');
-  if (pSel) members.forEach(function(m) {
-    var o = document.createElement('option');
-    o.value = m; o.textContent = m;
-    pSel.appendChild(o);
-  });
-  // Tags inputs
-  _tagsAccHandle  = initTagsInput('fAccTags', 'fAcc', null);
-  _tagsPartHandle = initTagsInput('pPartTags', 'pPart', members);
   mountUserChip();
   // Restaurar filtros persistidos ANTES del primer render; refleja el estado
   // en la UI (pills de país, fbtn de estado, sInput, myTasksBtn).
@@ -7472,8 +7225,8 @@ function edUSubmit() {
 // rediseño de pendientes/ed-crear.jsx. Mantiene step indicator, pills, resumen
 // final + submit a addTask. Descarta features que requieren backend nuevo:
 // sugerencias IA, banda IA, niveles de confidencialidad, visibilidad multi-
-// persona, adjuntos drive/local. El modal legacy #createOv se mantiene
-// intacto para crear proyectos (openCreate('newProj')).
+// persona, adjuntos drive/local. (El modal de creación legacy #createOv fue
+// removido: tareas y proyectos se crean solo por los wizards editoriales.)
 // ───────────────────────────────────────────────────────────────
 
 var EDC = {
@@ -7676,8 +7429,8 @@ function _clientesInternos() {
 }
 // ── Conflicto de interés (wizard de tareas) ───────────────────────────
 // Si la tarea se liga a un proyecto que declaró "contrapartes en conflicto" y
-// la contraparte ingresada matchea una, avisamos en vivo. Mismo criterio de
-// match que checkContraparteConflict (legacy): exacto o substring en cualquier
+// la contraparte ingresada matchea una, avisamos en vivo. Criterio de match:
+// exacto o substring en cualquier
 // dirección, case-insensitive. El backend ya soporta el campo (col 19); esto es
 // 100% UI.
 function _crMatchConflict(contraparte, declared) {
@@ -8688,7 +8441,7 @@ function rEdProyectosIndex(D) {
        +    '<span class="pa-page-sub">' + cActivos + t(' activos · ') + totalOwner + t(' tuyos · ') + totalParticipant + t(' acompañando') + '</span>'
        +    '<div class="pa-page-meta">'
        +      '<button class="pa-btn pa-btn-outline" onclick="goEd(\'historial\')">' + paIcon('refresh', 12) + ' ' + t('Historial') + '</button>'
-       +      '<button class="pa-btn pa-btn-primary" onclick="if(typeof edCrearProyectoOpen===\'function\')edCrearProyectoOpen();else openCreate(\'newProj\')">' + paIcon('plus', 12) + ' ' + t('Nuevo proyecto') + '</button>'
+       +      '<button class="pa-btn pa-btn-primary" onclick="if(typeof edCrearProyectoOpen===\'function\')edCrearProyectoOpen()">' + paIcon('plus', 12) + ' ' + t('Nuevo proyecto') + '</button>'
        +    '</div>'
        + '</div>';
 
@@ -8715,7 +8468,7 @@ function rEdProyectosIndex(D) {
          +    '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg-2);display:grid;place-items:center;color:var(--fg-3);margin:0 auto 12px">' + paIcon('folder', 20) + '</div>'
          +    '<div style="font-size:13px;font-weight:600;color:var(--fg-1)">' + t('No hay proyectos en este filtro') + '</div>'
          +    '<div style="font-size:12px;color:var(--fg-3);margin:6px 0 14px">' + t('Cambiá el filtro o creá uno nuevo.') + '</div>'
-         +    '<button class="pa-btn pa-btn-outline" onclick="if(typeof edCrearProyectoOpen===\'function\')edCrearProyectoOpen();else openCreate(\'newProj\')">' + t('+ Nuevo proyecto') + '</button>'
+         +    '<button class="pa-btn pa-btn-outline" onclick="if(typeof edCrearProyectoOpen===\'function\')edCrearProyectoOpen()">' + t('+ Nuevo proyecto') + '</button>'
          + '</div>';
   } else {
     // Cards grid de proyectos
@@ -10005,10 +9758,9 @@ function rEdResumen(D) {
 // Wizard editorial de 3 pasos para crear PROYECTO — espejo del de tarea
 // (MARKER:EDITORIAL_CREAR). Reusa CSS .cr-* y helpers del wizard de tarea
 // (_crPillsHtml, _crSelectHtml, _crStepClasses, _crCountries, _crPrioMod,
-// _crRiesgoMod). Submit: google.script.run.addProject(payload). El modal
-// LEGACY (#createOv → openCreate('newProj')) queda accesible para
-// retrocompat aunque el botón de la vista Proyectos editorial ya
-// invoca a edCrearProyectoOpen().
+// _crRiesgoMod). Submit: google.script.run.addProject(payload). El botón de la
+// vista Proyectos editorial invoca a edCrearProyectoOpen() (el modal de
+// creación legacy fue removido).
 // ───────────────────────────────────────────────────────────────
 
 var EDCP = {
