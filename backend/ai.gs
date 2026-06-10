@@ -374,7 +374,15 @@ function semanticSearchBiblioteca(query) {
     });
     scored.sort(function(a, b) { return b.score - a.score; });
     var top = scored.filter(function(s) { return s.score > 0.45; }).slice(0, 25);
-    return { ids: top.map(function(s) { return s.id; }) };
+    // Filtro server-side por rol/confidencialidad: la hoja de embeddings cubre
+    // TODOS los docs, así que sin esta intersección el endpoint le enumeraba a
+    // cualquier usuario los ids (con ranking) de documentos que
+    // getBibliotecaDocs jamás le mostraría. El frontend ya intersectaba con su
+    // cache filtrado, pero la regla de confidencialidad debe vivir acá.
+    var visible = {};
+    var res = getBibliotecaDocs();
+    (((res && res.items) || [])).forEach(function(d) { visible[String(d.id)] = 1; });
+    return { ids: top.map(function(s) { return s.id; }).filter(function(id) { return visible[id] === 1; }) };
   }, {});
 }
 

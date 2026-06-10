@@ -4,6 +4,21 @@
 > redundancias a eliminar y mejoras. Las referencias son `archivo:línea` —
 > ubicá por nombre de función si los números se corrieron por merges.
 
+> **ESTADO (2ª pasada, jun-2026):** los P0 #1 y #2 quedaron **resueltos**
+> (stats de proyecto sobre todas las tareas + gobierno del proyecto restringido
+> a responsable/manager/head). También #7 (fuga de semanticSearch, filtrada
+> server-side) y #11 (draft del wizard de proyecto; el mutate de `v.lider` ya
+> no existía). #3, #4, #5, #6, #10 y el ternario de #13 ya habían quedado
+> resueltos por los PRs #83–#85. El deep-dive de frontend que esta revisión
+> recomendaba se hizo y encontró 3 funciones con **shadowing de `t()`**
+> (parámetro/var `t` tapando la función i18n) que rompían el tracker con
+> tareas compartidas, la reasignación masiva y el hero de Proyectos — los tres
+> arreglados; el patrón queda anotado en PENDIENTES.md. Pendientes que siguen
+> vivos: #8 (decisión Slack), #9 (i18n masivo + huérfanas), #12 parcial
+> (el detalle ya muestra contrapartes; el setTimeout quedó centralizado en
+> `edPiNewTaskInProject`), #14 (docs), #15 (scopes) y la unificación
+> HQ home vs "Por país". El detalle nuevo vive en PENDIENTES.md.
+
 ## Cobertura de esta revisión
 
 | Área | Profundidad |
