@@ -1333,6 +1333,53 @@ function _updateProjectFieldsImpl(projId, fields) {
   }
 }
 
+// Elimina un proyecto. Permiso (más estricto que editar: NO alcanza con ser
+// participante): el responsable (creador del proyecto), el manager del país, o head.
+// Seguridad: si el proyecto tiene tareas vinculadas (activas o en historial) NO se
+// borra en duro — se pide reasignar o cancelar primero, para no dejar tareas
+// huérfanas apuntando a un proyectoId inexistente.
+function deleteProject(projId) { return _safeMutation(function() { return _deleteProjectImpl(projId); }); }
+function _deleteProjectImpl(projId) {
+  var ctx = _getAuthContext();
+  var current = _readProjectById(ctx.ss, projId);
+  if (!current) return _err('NOT_FOUND', 'Proyecto #' + projId + ' no encontrado');
+  var canDelete = ctx.role === 'head'
+    || (ctx.role === 'manager' && (!current.pais || current.pais === ctx.user.code))
+    || (_normalizeName(current.responsable) === _normalizeName(ctx.user.name));
+  if (!canDelete) return _err('PERM_DENIED', 'Solo el responsable, el manager del país o un head pueden eliminar el proyecto.');
+  var n = _countTasksForProject(ctx.ss, projId);
+  if (n > 0) {
+    return _err('STATE_CONFLICT', 'El proyecto tiene ' + n + ' tarea' + (n === 1 ? '' : 's') + ' vinculada' + (n === 1 ? '' : 's') + '. Reasignalas o cancelá el proyecto (Editar → Estado: Cancelado) antes de eliminarlo.');
+  }
+  var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch (e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  try {
+    ws.deleteRow(current.row);
+    return { success: true, id: projId };
+  } finally {
+    lock.releaseLock();
+    // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
+  }
+}
+
+// Cuenta tareas (activas + historial) vinculadas a un proyecto. Lectura barata:
+// solo la col 12 (Proyecto/ID). Usada por _deleteProjectImpl como guard.
+function _countTasksForProject(ss, projId) {
+  var target = parseInt(projId, 10);
+  if (isNaN(target)) return 0;
+  var n = 0;
+  [SHEET_ACTIVO, SHEET_HISTORIAL].forEach(function(name) {
+    var ws = ss.getSheetByName(name); if (!ws) return;
+    var lr = ws.getLastRow(); if (lr < 4) return;
+    var col = ws.getRange(4, 12, lr - 3, 1).getValues(); // col 12 = Proyecto(ID)
+    for (var i = 0; i < col.length; i++) {
+      if (parseInt(col[i][0], 10) === target) n++;
+    }
+  });
+  return n;
+}
+
 // ════════════════════════════════════════════════════════════════
 // TASKS
 // ════════════════════════════════════════════════════════════════
