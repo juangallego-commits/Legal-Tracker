@@ -7988,6 +7988,41 @@ function edCrearSubmit() {
     });
 }
 
+// Atajos de teclado de los wizards de crear (tarea y proyecto):
+// · Enter desde un input de texto/fecha → avanzar de paso (con la validación
+//   de goStep); en el paso 3, enviar.
+// · Cmd/Ctrl+Enter desde cualquier lado del wizard → avanzar/enviar.
+// Antes había que ir al mouse en cada paso (quick win del backlog).
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Enter') return;
+  var taskOpen = $('crHost') && $('crHost').innerHTML;
+  var projOpen = $('crpHost') && $('crpHost').innerHTML;
+  if (!taskOpen && !projOpen) return;
+  // crHost también hospeda el wizard de bulk-close y el modal de reasignación
+  // masiva — esos tienen su propio flujo, no interferir.
+  if (taskOpen && typeof EDT !== 'undefined' && EDT._pendingReassignIds) return;
+  if (taskOpen && typeof _EDT_BULK_CLOSE !== 'undefined' && _EDT_BULK_CLOSE.ids && _EDT_BULK_CLOSE.ids.length) return;
+  var meta = e.metaKey || e.ctrlKey;
+  var ae = document.activeElement;
+  var tag = ae ? ae.tagName : '';
+  if (tag === 'TEXTAREA' && !meta) return; // Enter escribe newline; Cmd+Enter envía
+  if (!meta) {
+    // Enter "a secas": solo desde inputs de texto/fecha — sobre selects,
+    // botones y pills dejamos el comportamiento nativo.
+    if (tag !== 'INPUT') return;
+    var tp = (ae.type || 'text').toLowerCase();
+    if (tp !== 'text' && tp !== 'date' && tp !== 'search') return;
+  }
+  e.preventDefault();
+  if (taskOpen) {
+    if (EDC.step < 3) edCrearGoStep(EDC.step + 1);
+    else edCrearSubmit();
+  } else {
+    if (EDCP.step < 3) edCrearProyectoGoStep(EDCP.step + 1);
+    else edCrearProyectoSubmit();
+  }
+});
+
 // MARKER:EDITORIAL_CREAR_END
 
 // ───────────────────────────────────────────────────────────────
@@ -9113,7 +9148,7 @@ function _edaHQCountriesSection(D) {
     var trend = (c.trend && c.trend.length) ? c.trend : [];
     var maxT = trend.reduce(function(m, n){ return Math.max(m, n); }, 0);
     var sparkSvg = '<svg class="hq-cmp-spark" viewBox="0 0 120 24" preserveAspectRatio="none">';
-    if (maxT > 0) {
+    if (maxT > 0 && trend.length > 1) { // con 1 punto, 0/0 = NaN en el path
       var pts = trend.map(function(n, i) {
         var x = (i / (trend.length - 1)) * 120;
         var y = 24 - (n / maxT) * 22;
@@ -10195,7 +10230,12 @@ function edCrearProyectoOpen() {
     if (saved) {
       var v = JSON.parse(saved);
       if (v && (v.nombre || v.descripcion)) {
-        EDCP.values = Object.assign(EDCP.values, v);
+        // Copiar solo claves con contenido: un draft viejo con pais/lider
+        // vacíos no debe pisar el prefill recién calculado (mismo criterio
+        // que el restore del wizard de tareas).
+        Object.keys(EDCP.values).forEach(function(k) {
+          if (v[k] != null && String(v[k]) !== '') EDCP.values[k] = v[k];
+        });
         if (typeof toast === 'function') toast(t('Restauré tu borrador anterior.'), 'info');
       }
     }
