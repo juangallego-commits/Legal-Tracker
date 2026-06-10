@@ -4385,6 +4385,7 @@ function edSetSearch(q) {
 }
 function edSelectTask(id) {
   EDT.selectedId = (EDT.selectedId === id) ? null : id;
+  EDT.notesRawMode = false; // cada tarea arranca en modo checklist (si tiene)
   if (D) rEdTracker(D);
 }
 function edClosePanel() {
@@ -6614,6 +6615,17 @@ function _edTkRowHtml(tk, role, sel) {
       blockReasonSuffix = ' · <span style="color:var(--warn-fg)">' + paIcon('block', 9, '', 'opacity:.7;vertical-align:-1px') + ' ' + esc(shortRsn) + '</span>';
     }
   }
+  // Mini-progreso del checklist (plantillas): "✓ 3/7" en el meta de la fila.
+  // Guard barato: solo parsear si las notas tienen pinta de checklist.
+  var checkChip = '';
+  if (tk.notas && tk.notas.indexOf('- ') >= 0 && typeof _tkParseNotes === 'function') {
+    var _cp = _tkParseNotes(tk.notas);
+    if (_cp.items.length > 0) {
+      var _cd = _cp.items.filter(function(it){ return it.done; }).length;
+      var _cdAll = _cd === _cp.items.length;
+      checkChip = ' · <span class="mono" style="font-size:10px;color:' + (_cdAll ? 'var(--good-fg)' : 'var(--fg-3)') + '" title="' + esc(t('Checklist de la tarea')) + '">✓ ' + _cd + '/' + _cp.items.length + '</span>';
+    }
+  }
   // Preferir el cálculo local (traducible vía t()) cuando etaDays es numérico;
   // tk.eta del server viene pre-armado en español y no pasa por i18n.
   var etaTxt = (typeof tk.etaDays === 'number') ? paEtaText(tk.etaDays) : (tk.eta || '—');
@@ -6629,7 +6641,7 @@ function _edTkRowHtml(tk, role, sel) {
        +    '<span onclick="event.stopPropagation();edTkToggleSelectId(\'' + esc(escJs(String(tk.id))) + '\')"><span class="pa-check' + (isChecked ? ' is-checked' : '') + '"></span></span>'
        +    paConfDot(cfLvl)
        +    '<span class="id mono">' + esc(tk.id) + '</span>'
-       +    '<div class="title"><span class="t">' + esc(tk.nombre || '') + sharedBadge + '</span><span class="meta">' + esc(metaTxt) + chips + blockReasonSuffix + '</span></div>';
+       +    '<div class="title"><span class="t">' + esc(tk.nombre || '') + sharedBadge + '</span><span class="meta">' + esc(metaTxt) + chips + checkChip + blockReasonSuffix + '</span></div>';
   if (role === 'specialist') {
     h += (pn && pn !== 'Sin proyecto')
       ? '<span style="font-size:12px;color:var(--fg-2)">' + esc(pn) + '</span>'
@@ -6644,6 +6656,93 @@ function _edTkRowHtml(tk, role, sel) {
     +  '<span class="eta' + (tk.etaDays != null && tk.etaDays < 0 ? ' overdue' : '') + '">' + esc(etaTxt) + '</span>'
     + '</div>';
   return h;
+}
+
+// ─── CHECKLIST RASTREABLE EN NOTAS ───────────────────────────────
+// Las plantillas insertan en Notas líneas "- ítem" (ver _addTaskImpl). Acá
+// se vuelven workflow real: "- ítem" = pendiente, "- [x] ítem" = hecho
+// (también se acepta "- [ ] ítem"). El resto de líneas sigue siendo texto.
+// El toggle reescribe SOLO esa línea y guarda por updateTaskField('notas'),
+// así el formato sobrevive a cierres/bloqueos (que anteponen texto arriba).
+function _tkParseNotes(notas) {
+  var lines = String(notas == null ? '' : notas).split('\n');
+  var items = [];   // { idx, done, text } — idx = línea dentro de notas
+  var others = [];  // { idx, text } — líneas que no son checklist
+  lines.forEach(function(ln, i) {
+    var m = ln.match(/^\s*-\s*\[(x|X| )?\]\s*(.*)$/);
+    if (m) { items.push({ idx: i, done: (m[1] || '').toLowerCase() === 'x', text: m[2] }); return; }
+    var m2 = ln.match(/^\s*-\s+(.+)$/);
+    if (m2) { items.push({ idx: i, done: false, text: m2[1] }); return; }
+    others.push({ idx: i, text: ln });
+  });
+  return { lines: lines, items: items, others: others };
+}
+
+function _tkRenderChecklist(sel, parsed, readOnly) {
+  var done = parsed.items.filter(function(it){ return it.done; }).length;
+  var total = parsed.items.length;
+  var pct = total ? Math.round(done / total * 100) : 0;
+  var barColor = pct === 100 ? 'var(--good)' : 'var(--accent)';
+  var h = '<div class="tk-checklist">'
+        +   '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
+        +     '<span style="flex:1;height:6px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + pct + '%;background:' + barColor + ';transition:width .25s"></span></span>'
+        +     '<span class="mono" style="font-size:11px;color:' + (pct === 100 ? 'var(--good-fg)' : 'var(--fg-2)') + ';white-space:nowrap">' + done + '/' + total + (pct === 100 ? ' ✓' : '') + '</span>'
+        +   '</div>';
+  parsed.items.forEach(function(it) {
+    h += '<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 2px;border-radius:6px;' + (readOnly ? '' : 'cursor:pointer;') + '" '
+      +    (readOnly ? '' : 'onmouseover="this.style.background=\'var(--bg-2)\'" onmouseout="this.style.background=\'transparent\'" onclick="edTkToggleCheckItem(\'' + esc(escJs(String(sel.id))) + '\',' + it.idx + ')" ')
+      +  '>'
+      +    '<span class="pa-check' + (it.done ? ' is-checked' : '') + '" style="margin-top:1px;flex-shrink:0"></span>'
+      +    '<span style="font-size:13px;line-height:1.45;color:' + (it.done ? 'var(--fg-3)' : 'var(--fg-1)') + ';' + (it.done ? 'text-decoration:line-through;' : '') + '">' + esc(it.text) + '</span>'
+      + '</div>';
+  });
+  // Líneas no-checklist (contexto, "CIERRE: …", razones de bloqueo) — texto plano.
+  var otherTxt = parsed.others.map(function(o){ return o.text; }).join('\n').replace(/^\n+|\n+$/g, '');
+  if (otherTxt) {
+    h += '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--line-1);font-size:12px;color:var(--fg-2);white-space:pre-wrap">' + esc(otherTxt) + '</div>';
+  }
+  return h + '</div>';
+}
+
+function edTkToggleNotesMode() {
+  EDT.notesRawMode = !EDT.notesRawMode;
+  if (D) rEdTracker(D);
+}
+
+function edTkToggleCheckItem(taskId, lineIdx) {
+  var task = ((D && D.tasks) || []).find(function(x){ return String(x.id) === String(taskId); });
+  if (!task) return;
+  var prev = task.notas || '';
+  var lines = String(prev).split('\n');
+  var ln = lines[lineIdx];
+  if (ln == null) return;
+  var mDone = ln.match(/^(\s*)-\s*\[(?:x|X)\]\s*(.*)$/);
+  var mOpen = ln.match(/^(\s*)-\s*(?:\[\s?\]\s*)?(.+)$/);
+  if (mDone)      lines[lineIdx] = mDone[1] + '- ' + mDone[2];
+  else if (mOpen) lines[lineIdx] = mOpen[1] + '- [x] ' + mOpen[2];
+  else return;
+  var nuevo = lines.join('\n');
+  // Optimistic: reflejar ya el check + barra; revert si el server rechaza.
+  task.notas = nuevo;
+  if (D) rEdTracker(D);
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || res.success === false) {
+        task.notas = prev;
+        if (D) rEdTracker(D);
+        toast(_friendlyError(res, t('No se pudo guardar el checklist')), 'error');
+        return;
+      }
+      // El backend puede auto-promover Pendiente → En curso al tocar notas
+      // (marcar un paso ES empezar a trabajar) — reflejarlo sin esperar reload.
+      if (res.promoted) { task.status = res.promoted; if (D) rEdTracker(D); }
+    })
+    .withFailureHandler(function() {
+      task.notas = prev;
+      if (D) rEdTracker(D);
+      toast(t('No se pudo guardar el checklist'), 'error');
+    })
+    .updateTaskField(taskId, 'notas', nuevo);
 }
 
 // Render del panel detalle (sliding overlay desde la derecha)
@@ -6745,12 +6844,28 @@ function _renderTkPanel(sel) {
   html += _renderColabSection(sel, canManageColab);
 
   // Notas — read-only si la tarea está cerrada o si soy colaborador 'ver'.
+  // Si las notas traen un checklist (líneas "- ítem", insertadas por las
+  // plantillas), se renderiza como checkboxes interactivos con progreso —
+  // el modo texto queda disponible con el toggle "✎ Editar como texto".
+  var _notesReadOnly = (sel.status === 'Listo' || colabReadOnly);
+  var _parsed = _tkParseNotes(sel.notas);
+  var _useChecklist = _parsed.items.length > 0 && !EDT.notesRawMode;
   html += '<div class="tk-section">'
-       +    '<div class="tk-section-h">' + esc(t('Notas')) + '</div>'
-       +    ((sel.status === 'Listo' || colabReadOnly)
-            ? '<textarea class="tk-notes" readonly placeholder="Sin notas…" style="width:100%;border:1px solid var(--line-1);background:var(--bg-2);color:var(--fg-2);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>'
-            : '<textarea class="tk-notes" data-task-id="' + esc(sel.id) + '" placeholder="Sin notas…" oninput="edPanelAutosizeNotes(this)" onblur="edPanelSaveNotes(this)" style="width:100%;border:1px solid var(--line-1);background:var(--bg-1);color:var(--fg-1);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>')
-       + '</div>';
+       +    '<div class="tk-section-h" style="display:flex;align-items:center;gap:8px">' + esc(t('Notas'))
+       +      (_parsed.items.length > 0 && !_notesReadOnly
+              ? '<button class="pa-btn pa-btn-ghost" style="height:20px;font-size:10px;padding:0 6px;margin-left:auto" onclick="edTkToggleNotesMode()">'
+                + (_useChecklist ? '✎ ' + esc(t('Editar como texto')) : '☑ ' + esc(t('Ver como checklist')))
+                + '</button>'
+              : '')
+       +    '</div>';
+  if (_useChecklist) {
+    html += _tkRenderChecklist(sel, _parsed, _notesReadOnly);
+  } else {
+    html += (_notesReadOnly
+            ? '<textarea class="tk-notes" readonly placeholder="' + esc(t('Sin notas…')) + '" style="width:100%;border:1px solid var(--line-1);background:var(--bg-2);color:var(--fg-2);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>'
+            : '<textarea class="tk-notes" data-task-id="' + esc(sel.id) + '" placeholder="' + esc(t('Sin notas…')) + '" oninput="edPanelAutosizeNotes(this)" onblur="edPanelSaveNotes(this)" style="width:100%;border:1px solid var(--line-1);background:var(--bg-1);color:var(--fg-1);font-family:inherit;outline:none;resize:none;min-height:80px">' + esc(sel.notas || '') + '</textarea>');
+  }
+  html += '</div>';
 
   // Historial — el sintético se muestra primero, luego lazy-load reemplaza
   // con activity log real (audit trail desde sheet Activity).
@@ -7485,6 +7600,25 @@ function _crRenderStep1() {
       +   '<span><b>' + esc(v.pais || '') + '</b> <span style="color:var(--fg-3);font-weight:400">· según tu equipo</span></span>'
       + '</div>'
       + '</div>';
+  // Hint de plantilla: si el tipo elegido tiene checklist aprobado y el user
+  // no escribió descripción, la tarea va a nacer con esos pasos (backend
+  // _addTaskImpl). Hacerlo visible cierra el ciclo Plantillas → tarea.
+  var tplHint = '';
+  if (v.tipo) {
+    if (_TEMPLATES_CACHE == null) {
+      // Carga lazy: cuando llegue, re-render del wizard si sigue abierto.
+      _loadTemplates(function() {
+        if ($('crHost') && $('crHost').innerHTML && EDC.step === 1) _crMount();
+      });
+    } else {
+      var tplItems = _TEMPLATES_CACHE[v.tipo];
+      if (tplItems && tplItems.length) {
+        tplHint = ((v.descripcion || '').replace(/\s+/g, ''))
+          ? '<div style="margin-top:10px;font-size:12px;color:var(--fg-3);display:flex;align-items:center;gap:6px">' + paIcon('doc', 12) + ' ' + esc(t('Este tipo tiene una plantilla de')) + ' ' + tplItems.length + ' ' + esc(t('pasos, pero como escribiste descripción, no se inserta.')) + '</div>'
+          : '<div style="margin-top:10px;font-size:12px;color:var(--good-fg);display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--bg-2);border-radius:6px">☑ ' + esc(t('Esta tarea va a nacer con el checklist de')) + ' <b>' + tplItems.length + ' ' + esc(t('pasos')) + '</b> ' + esc(t('de la plantilla')) + ' «' + esc(v.tipo) + '».</div>';
+      }
+    }
+  }
   return ''
     + '<div class="' + _crFieldCls('titulo') + '">'
     +   '<div class="cr-label">Título de la tarea <span class="req">*</span></div>'
@@ -7507,7 +7641,8 @@ function _crRenderStep1() {
     +     _crErr('tipo')
     +   '</div>'
     +   paisField
-    + '</div>';
+    + '</div>'
+    + tplHint;
 }
 
 // Lista de clientes internos / áreas solicitantes. Editable desde la hoja Config
@@ -10347,9 +10482,22 @@ function edBibSetTab(tab) {
 }
 function _bibSubnav(active) {
   return '<div style="display:flex;gap:6px;margin:0 0 16px">'
-    +    '<div class="pa-chip' + (active === 'plantillas' ? ' is-active' : '') + '" onclick="edBibSetTab(\'plantillas\')">Plantillas</div>'
-    +    '<div class="pa-chip' + (active === 'documentos' ? ' is-active' : '') + '" onclick="edBibSetTab(\'documentos\')">Documentos</div>'
+    +    '<div class="pa-chip' + (active === 'plantillas' ? ' is-active' : '') + '" onclick="edBibSetTab(\'plantillas\')">' + esc(t('Plantillas')) + '</div>'
+    +    '<div class="pa-chip' + (active === 'documentos' ? ' is-active' : '') + '" onclick="edBibSetTab(\'documentos\')">' + esc(t('Documentos')) + '</div>'
     + '</div>';
+}
+
+// "Usar plantilla": abre el wizard de crear con el tipo de trabajo ya
+// seleccionado — el backend inserta el checklist en las notas al crear
+// (si la descripción queda vacía). Es lo que vuelve accionable la vista
+// de Plantillas para cualquier rol (antes era una tabla solo-lectura).
+function edPltUseTemplate(tipo) {
+  if (typeof edCrearOpen === 'function') edCrearOpen();
+  // edCrearOpen resetea EDC.values y puede restaurar un draft — seteamos el
+  // tipo después para que gane la plantilla elegida.
+  setTimeout(function() {
+    if (typeof edCrearSetField === 'function') edCrearSetField('tipo', tipo);
+  }, 80);
 }
 function rEdPlantillas(D) {
   if (EDBIB_TAB === 'documentos') return _rEdBibDocs(D);
@@ -10378,51 +10526,64 @@ function _rEdBibPlantillas(D) {
 
   var html = '<div class="pa-page">' + _bibSubnav('plantillas');
   html += '<div class="pa-page-h">'
-       +    '<span class="pa-page-title">Biblioteca</span>'
-       +    '<span class="pa-page-sub">' + items.length + (items.length === 1 ? ' plantilla' : ' plantillas')
-       +      (pendCount ? ' · ' + pendCount + ' pendiente' + (pendCount === 1 ? '' : 's') + ' de aprobación' : '') + '</span>'
+       +    '<span class="pa-page-title">' + esc(t('Biblioteca')) + '</span>'
+       +    '<span class="pa-page-sub">' + items.length + ' ' + esc(items.length === 1 ? t('plantilla') : t('plantillas'))
+       +      (pendCount ? ' · ' + pendCount + ' ' + esc(pendCount === 1 ? t('pendiente de aprobación') : t('pendientes de aprobación')) : '') + '</span>'
        +    '<div class="pa-page-meta">'
-       +      '<button class="pa-btn pa-btn-primary" onclick="edPltOpenEditor(null,null)">' + paIcon('plus', 12) + ' Nueva plantilla</button>'
+       +      '<button class="pa-btn pa-btn-primary" onclick="edPltOpenEditor(null,null)">' + paIcon('plus', 12) + ' ' + esc(t('Nueva plantilla')) + '</button>'
        +    '</div>'
        + '</div>';
 
-  html += '<div class="pa-narrative">' + (canApprove
-    ? 'Las plantillas pre-cargan el checklist de Notas al crear una tarea. Cualquiera puede proponer una; las creadas por specialists quedan <b>pendientes</b> hasta que las apruebes.'
-    : 'Las plantillas pre-cargan el checklist de Notas al crear una tarea. Podés proponer una: quedará <b>pendiente</b> hasta que un manager o Global la apruebe.') + '</div>';
+  // El ciclo completo en una frase: plantilla → tarea de ese tipo → checklist
+  // con progreso en el panel. Antes el copy solo hablaba de "pre-cargar notas"
+  // y la feature parecía decorativa.
+  html += '<div class="pa-narrative">'
+       +    t('Una plantilla define los <b>pasos estándar</b> de un tipo de trabajo. Al crear una tarea de ese tipo, los pasos aparecen como un <b>checklist con progreso</b> en el panel de la tarea — usá <b>Usar →</b> para arrancar una ya.')
+       +    ' ' + (canApprove
+            ? t('Las propuestas de specialists quedan <b>pendientes</b> hasta que las apruebes.')
+            : t('Podés proponer una: quedará <b>pendiente</b> hasta que un manager o Global la apruebe.'))
+       + '</div>';
 
   if (items.length === 0) {
-    html += paEmpty('doc', 'Tu biblioteca está vacía.', 'Creá la primera con "Nueva plantilla". Cada tipo de trabajo puede tener una.');
+    html += paEmpty('doc', t('Tu biblioteca está vacía.'), t('Creá la primera con "Nueva plantilla". Cada tipo de trabajo puede tener una.'));
     html += '</div>';
     v.innerHTML = html;
     return;
   }
 
   html += '<div class="pa-tbl" style="margin-top:14px">'
-       +    '<div class="pa-tbl-h" style="grid-template-columns: 170px 1fr 110px 150px 200px">'
-       +      '<div>Tipo</div><div>Checklist</div><div>Estado</div><div>Autor</div><div></div>'
+       +    '<div class="pa-tbl-h" style="grid-template-columns: 170px 1fr 80px 110px 130px 230px">'
+       +      '<div>' + esc(t('Tipo')) + '</div><div>Checklist</div><div>' + esc(t('Pasos')) + '</div><div>' + esc(t('Estado')) + '</div><div>' + esc(t('Autor')) + '</div><div></div>'
        +    '</div>';
-  items.forEach(function(t) {
-    var preview = t.checklist.slice(0, 3).join(' · ');
-    if (t.checklist.length > 3) preview += ' · …';
-    var estadoPill = t.estado === 'pendiente'
-      ? '<span class="pa-pill pa-pill-warn">Pendiente</span>'
-      : '<span class="pa-pill pa-pill-good">Aprobada</span>';
-    var mine = _sameName(t.autor, myName);
-    var canDelete = canApprove || (t.estado === 'pendiente' && mine);
+  items.forEach(function(it) {
+    var preview = it.checklist.slice(0, 3).join(' · ');
+    if (it.checklist.length > 3) preview += ' · …';
+    var estadoPill = it.estado === 'pendiente'
+      ? '<span class="pa-pill pa-pill-warn">' + esc(t('Pendiente')) + '</span>'
+      : '<span class="pa-pill pa-pill-good">' + esc(t('Aprobada')) + '</span>';
+    var mine = _sameName(it.autor, myName);
+    var canDelete = canApprove || (it.estado === 'pendiente' && mine);
     var btns = '<div style="display:flex;gap:6px;justify-content:flex-end">';
-    if (canApprove && t.estado === 'pendiente') {
-      btns += '<button class="pa-btn pa-btn-primary" style="height:26px;font-size:11px;padding:0 8px" onclick="event.stopPropagation();edPltApprove(\'' + esc(t.tipo) + '\')">Aprobar</button>';
+    // CTA principal: crear una tarea de este tipo con el checklist puesto.
+    // Solo para aprobadas (las pendientes aún no prellenan — backend usa el
+    // dict aprobado).
+    if (it.estado !== 'pendiente') {
+      btns += '<button class="pa-btn pa-btn-primary" style="height:26px;font-size:11px;padding:0 10px" title="' + esc(t('Crear una tarea de este tipo con el checklist puesto')) + '" onclick="event.stopPropagation();edPltUseTemplate(\'' + esc(escJs(it.tipo)) + '\')">' + esc(t('Usar')) + ' →</button>';
     }
-    btns += '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="event.stopPropagation();edPltOpenEditor(\'' + esc(t.tipo) + '\',\'' + esc(t.estado) + '\')">' + (canApprove || mine ? 'Editar' : 'Proponer cambio') + '</button>';
+    if (canApprove && it.estado === 'pendiente') {
+      btns += '<button class="pa-btn pa-btn-primary" style="height:26px;font-size:11px;padding:0 8px" onclick="event.stopPropagation();edPltApprove(\'' + esc(escJs(it.tipo)) + '\')">' + esc(t('Aprobar')) + '</button>';
+    }
+    btns += '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px" onclick="event.stopPropagation();edPltOpenEditor(\'' + esc(escJs(it.tipo)) + '\',\'' + esc(it.estado) + '\')">' + esc(canApprove || mine ? t('Editar') : t('Proponer cambio')) + '</button>';
     if (canDelete) {
-      btns += '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px;color:var(--critical-fg)" onclick="event.stopPropagation();edPltDelete(\'' + esc(t.tipo) + '\',\'' + esc(t.estado) + '\')">Eliminar</button>';
+      btns += '<button class="pa-btn pa-btn-ghost" style="height:26px;font-size:11px;padding:0 8px;color:var(--critical-fg)" onclick="event.stopPropagation();edPltDelete(\'' + esc(escJs(it.tipo)) + '\',\'' + esc(it.estado) + '\')">' + esc(t('Eliminar')) + '</button>';
     }
     btns += '</div>';
-    html += '<div class="pa-tbl-r" style="grid-template-columns: 170px 1fr 110px 150px 200px;height:48px">'
-         +    '<div><span class="pa-pill pa-pill-tipo">' + esc(t.tipo) + '</span></div>'
+    html += '<div class="pa-tbl-r" style="grid-template-columns: 170px 1fr 80px 110px 130px 230px;height:48px">'
+         +    '<div><span class="pa-pill pa-pill-tipo">' + esc(it.tipo) + '</span></div>'
          +    '<div style="font-size:12px;color:var(--fg-2);line-height:1.45">' + esc(preview) + '</div>'
+         +    '<div class="mono" style="font-size:12px;color:var(--fg-2)">' + it.checklist.length + '</div>'
          +    '<div>' + estadoPill + '</div>'
-         +    '<div style="font-size:12px;color:var(--fg-3)">' + esc(t.autor || '—') + '</div>'
+         +    '<div style="font-size:12px;color:var(--fg-3)">' + esc(it.autor || '—') + '</div>'
          +    btns
          + '</div>';
   });
