@@ -79,11 +79,11 @@ siempre**. Ya no hay que hacer "Versión nueva" a mano. (Secret
 Salió de 4 agentes Opus revisando flujos, pantallas, biblioteca y Slack. Ordenado por **valor/esfuerzo**. Lo marcado ✅ ya lo implementé esta sesión (ver abajo).
 
 ### Quick wins (≤1h c/u)
-- **Atajos de teclado en el wizard de crear** — Enter para avanzar paso, Cmd+Enter para enviar. Hoy hay que ir al mouse en cada tarea.
+- ✅ **Atajos de teclado en el wizard de crear** — hecho (sesión jun-2026): Enter avanza paso desde inputs de texto/fecha, Cmd/Ctrl+Enter avanza/envía. Aplica a tarea y proyecto.
 - **Bell de notificaciones en el header** — hoy el inbox (`_NOTIF_RECENT`: reasignaciones, comentarios) está escondido en el menú del avatar. Sacarlo a un ícono con badge en el header. Reusa `edNotifOpen`.
-- **KPIs clickeables en Analytics y Mi equipo** — en los homes los KPIs drillean al tracker filtrado; en Analytics/Mi equipo no. Igualarlo.
-- **Biblioteca: mostrar la fecha** (se captura pero no se muestra) y **picker de categoría en upload de archivo** (hoy sube con categoría vacía).
-- **Fix copy del tour de HQ** — dice "6 pasos" pero renderiza más (mezcla bloque de manager).
+- ✅ **KPIs clickeables en Analytics y Mi equipo** — hecho (sesión jun-2026), también en "Por país". Drillean al tracker filtrado como en los homes.
+- ✅ **Biblioteca: fecha + picker de categoría en upload** — verificado: ya estaba resuelto (el modal único de clasificación cubre el upload, y `_bibRelTime(d.fecha)` se muestra en cada card).
+- ✅ **Fix copy del tour de HQ** — hecho (sesión jun-2026): el head ya no recibe el bloque de pasos de manager (18 → 15 pasos, sin copy de "tu país" que no aplica).
 
 ### Medio (≈medio día – 1 día)
 - **PT-BR en pantallas que quedaron en español** — el toggle traduce sidebar/home, pero **Mi equipo, Analytics, Por país, landing HQ del Tracker, el panel de tarea, el flujo avanzar/cerrar/bloquear y el tour** tienen literales hardcodeados sin `t()`. Es el gap #1 para el equipo de Brasil. Mecánico pero amplio (envolver en `t()` + sumar keys a `T_PT`). *(Empecé por el panel/flujo — ver abajo.)*
@@ -107,7 +107,34 @@ Salió de 4 agentes Opus revisando flujos, pantallas, biblioteca y Slack. Ordena
 
 ---
 
-## ✅ Hecho en esta sesión (no requiere acción tuya)
+## ✅ Hecho en la revisión profunda de jun-2026 (no requiere acción tuya)
+
+**Bugs P0 (rompían flujos completos)**
+- **Shadowing de `t()`**: tres funciones usaban una variable/parámetro `t` que tapaba la función i18n → TypeError al renderizar. Rompía: el tracker entero si había una tarea "compartida conmigo" visible, la **reasignación masiva** (el modal nunca se montaba) y el **hero de Proyectos**. ⚠ Patrón a vigilar: en este archivo casi todo se llama `function(t)` — si una función usa `t('...')` para i18n, su variable de tarea debe llamarse `tk`.
+- **Stats de proyectos por rol**: % de avance, conteos y auto-status se calculaban sobre las tareas filtradas por rol (un specialist veía "100% · Completado" cerrando solo su tarea; cada rol veía un % distinto). Backend ahora computa `taskStats`/`pctDone` sobre TODAS las tareas; cards y detalle los consumen.
+
+**Permisos / seguridad**
+- Participante no-responsable ya no puede cancelar el proyecto, cambiar plazo/prioridad/nombre ni reescribir `participantes` (lockout) — solo notas y descripción. UI espejada (`_piCanGovernProject`).
+- `semanticSearchBiblioteca` ahora filtra server-side por rol/confidencialidad (antes enumeraba ids de docs confidenciales vía `google.script.run` directo).
+- `getTeamMembers` exige allowlist. Escape JS correcto (`escJs`) en los `onclick` con texto libre (nombres/clientes — un apóstrofo rompía el handler; un valor malicioso en la hoja ejecutaba JS).
+
+**Tracker / bulk / búsqueda**
+- La selección bulk se intersecta con las filas visibles (cambiar filtro/búsqueda/país ya no deja la bulkbar mutando tareas invisibles). Reasignación masiva con double-submit guard, CTA en loading y cierre al terminar. Esc despacha al close correcto en `crHost`; cmdk se cierra con Esc siempre; atajo N no pisa wizards abiertos. Filtro "Compartidas conmigo" funciona para specialist/manager. Filtro "Cerradas" incluye Canceladas (chip = filas). Pick de búsqueda de otro país mueve el drill. Foco del buscador sobrevive al re-render. `edUSubmit` con double-submit guard. Export Excel respeta el filtro de cliente. Pill de fila dice "On hold" (consistente con chips/bulkbar).
+
+**Homes / Analytics**
+- KPI "Cerradas (mes)" siempre daba 0 (leía un campo inexistente sobre la colección equivocada) — ahora cuenta el Historial real. KPI duplicado "En tiempo" → "Vencidas" accionable. "SLA promedio LATAM" unificado al agregado del backend (3 vistas daban 3 números). `taskOverdueBySLA` usa `slaState` del backend (con feriados). Sparklines con <2 puntos ya no rompen el SVG. Home manager: KPIs drillean filtrado y el lookup de país es normalizado.
+
+**Datos**
+- Deadlines de tareas se escriben como `Date` real (`_deadlineToCell`) en los 3 paths de escritura — como string la tarea podía quedar sin ETA/SLA/digest según el locale. Gmail add-on: dedupe escanea Historial desde la fila 4 (layout real).
+- Wizard de proyecto: el borrador restaurado ya no pisa el prefill de país/líder.
+
+**Deuda que quedó anotada (no resuelta en esta sesión)**
+- **i18n masivo**: Mi equipo, Analytics, Por país, landing HQ del tracker, el tour completo, la bulkbar, el cmdk y los empty-states del tracker siguen con literales hardcodeados sin `t()` (el gate da 0 missing porque esas vistas no llaman `t()` en absoluto). Es el gap #1 para Brasil. Además hay ~178 claves huérfanas en `T_PT` para podar.
+- Hoja `Activity` crece sin cota (id "best-effort" documentado); decidir política de retención.
+- Aging buckets de Analytics usan días calendario (el resto del sistema usa hábiles) — documentar o unificar.
+- HQ home vs "Por país": siguen ~80% solapadas; decidir si se unifican.
+
+## ✅ Hecho en sesión anterior (no requiere acción tuya)
 
 **Seguridad / privacidad**
 - Fuga tapada: el **PDF mensual** filtraba data sin aplicar rol → un manager veía tareas confidenciales de su país. Ahora aplica `filterTasksForRole`.
