@@ -1237,6 +1237,25 @@ function _addProjectImpl(obj) {
     responsable: obj.responsable || ctx.user.name,
     participantes: parts
   });
+
+  // Paridad con addTask: validar enums, rechazar deadline en el pasado y cerrar
+  // el create cross-country del specialist (que _authorizeProjectWrite no cubre).
+  var VALID_PRIO_P   = { 'Alta': 1, 'Media': 1, 'Baja': 1 };
+  var VALID_STATUS_P = { 'Activo': 1, 'En pausa': 1, 'Completado': 1, 'Cancelado': 1 };
+  if (obj.priority && !VALID_PRIO_P[obj.priority]) obj.priority = 'Media';
+  if (obj.status && !VALID_STATUS_P[obj.status]) obj.status = 'Activo';
+  if (ctx.role === 'specialist' && obj.pais && ctx.user.code && obj.pais !== ctx.user.code) {
+    return { success: false, error: 'Solo podés crear proyectos de tu país.' };
+  }
+  if (obj.deadline) {
+    var _dlRaw = String(obj.deadline).trim();
+    var _dlm = _dlRaw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (_dlm) {
+      var _dlDate = new Date(parseInt(_dlm[1], 10), parseInt(_dlm[2], 10) - 1, parseInt(_dlm[3], 10));
+      var _todayBog = new Date(Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy/MM/dd'));
+      if (_dlDate < _todayBog) return { success: false, error: 'El plazo no puede estar en el pasado.' };
+    }
+  }
   var ss = ctx.ss;
   var ws = ss.getSheetByName(SHEET_PROYECTOS);
   if (!ws) {
