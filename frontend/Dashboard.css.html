@@ -1212,6 +1212,22 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
    revisión usaban un color que no matcheaba y se veía como una capa encima. */
 .pa-pill-state-pendiente   { background: var(--bg-3); color: var(--fg-2); border-left: 3px solid var(--fg-3); }
 .pa-pill-state-pendiente .dot { background: var(--fg-3); }
+/* Defaults discretos SOLO en filas del tracker: con data real casi todas las
+   filas son "Media · Pendiente" — si lo default tiene fondo y color, Alta y
+   On hold no resaltan (Von Restorff). El borde queda transparente (mismo
+   ancho, sin salto de layout). Wizard y panel de detalle no se tocan: ahí
+   la selección activa necesita el color. */
+#vEdTracker .pa-tbl-r .pa-pill-media,
+#vEdTracker .pa-tbl-r .pa-pill-state-pendiente {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-3);
+}
+#vEdTracker .pa-tbl-r .pa-pill-media .dot,
+#vEdTracker .pa-tbl-r .pa-pill-state-pendiente .dot {
+  background: var(--fg-3);
+  opacity: .45;
+}
 .pa-pill-state-curso       { background: var(--info-soft); color: var(--info-fg); border-left: 3px solid var(--info); }
 .pa-pill-state-curso .dot  { background: var(--info); }
 .pa-pill-state-revision    { background: var(--accent-soft); color: var(--accent); border-left: 3px solid var(--accent); }
