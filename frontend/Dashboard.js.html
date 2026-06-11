@@ -3681,8 +3681,10 @@ function rEdHomeSpecialist(D) {
   var firstName = name ? name.split(/\s+/)[0] : 'Hola';
   var tasks = (D && D.tasks) ? D.tasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; }) : [];
   var overdue   = tasks.filter(_isOverdueTask).length;
-  var dueToday  = tasks.filter(function(t){ return t.etaDays === 0; }).length;
-  var thisWeek  = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= ED_WEEK_DAYS; }).length;
+  // Reloj pausado: las On hold tampoco cuentan en "hoy"/"esta semana" — no
+  // son accionables y tienen su propio KPI (blocked).
+  var dueToday  = tasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Bloqueado'; }).length;
+  var thisWeek  = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= ED_WEEK_DAYS && t.status !== 'Bloqueado'; }).length;
   var blocked   = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
   // "Tu próxima tarea" se elige SOLO entre accionables: una bloqueada, por
@@ -3941,7 +3943,7 @@ function rEdHomeManager(D) {
   var paisTasks = allTasks.filter(function(t){ return (t.pais || '') === userCode; });
   var active = paisTasks.filter(function(t){ return t.status !== 'Listo'; });
   var overdue = active.filter(_isOverdueTask).length;
-  var dueToday = active.filter(function(t){ return t.etaDays === 0; }).length;
+  var dueToday = active.filter(function(t){ return t.etaDays === 0 && t.status !== 'Bloqueado'; }).length;
   var altaActive = active.filter(function(t){ return t.priority === 'Alta'; }).length;
   var teamMine = (D && D.team || []).filter(function(m){ return m.country === userCode; });
   var totalLoad = 0, totalCap = 0;
@@ -4277,7 +4279,9 @@ function rEdHomeHQ(D) {
   // Proyectos en riesgo — movido acá desde la vista "Por país" (eliminada,
   // era duplicada). Lista los proyectos con tareas vencidas, ordenados por %.
   var riskyHq = (D && D.projects || [])
-    .filter(function(p){ return p.status !== 'Completado' && p.status !== 'Cancelado'; })
+    // En pausa = reloj pausado (mismo criterio que tareas On hold): un proyecto
+    // deliberadamente pausado no es "riesgo accionable" — vive en su bucket.
+    .filter(function(p){ return p.status !== 'Completado' && p.status !== 'Cancelado' && p.status !== 'En pausa'; })
     .map(function(p) {
       var pTasks = ((D && D.tasks) || []).filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; });
       var ovc = pTasks.filter(function(tk){ return (typeof taskOverdueBySLA === 'function') ? taskOverdueBySLA(tk) : false; }).length;
@@ -4404,7 +4408,7 @@ function edClearCountryFilter() {
 
 function _edApplyFilter(tasks, filter) {
   if (filter === 'overdue') return tasks.filter(_isOverdueTask);
-  if (filter === 'today')   return tasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; });
+  if (filter === 'today')   return tasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo' && t.status !== 'Bloqueado'; });
   if (filter === 'blocked') return tasks.filter(function(t){ return t.status === 'Bloqueado'; });
   if (filter === 'alta')    return tasks.filter(function(t){ return t.priority === 'Alta' && t.status !== 'Listo'; });
   if (filter === 'mine')    return tasks.filter(function(t){ return t.resp === _effectiveUserName() && t.status !== 'Listo'; });
@@ -6562,7 +6566,7 @@ function rEdTracker(D) {
 
   var cAll      = roleTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
   var cOverdue  = roleTasks.filter(_isOverdueTask).length;
-  var cToday    = roleTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; }).length;
+  var cToday    = roleTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo' && t.status !== 'Bloqueado'; }).length;
   var cBlocked  = roleTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var cMine     = roleTasks.filter(function(t){ return t.resp === userName && t.status !== 'Listo'; }).length;
   var cShared   = roleTasks.filter(function(t){ return _isSharedWithMe(t) && t.status !== 'Listo'; }).length;
@@ -7616,7 +7620,9 @@ function edUDesbloquear(taskId) {
 // Confirma primero porque mueve la fila de Historial → Activo.
 function edReabrir(taskId) {
   if (!taskId) return;
-  confirm_(t('¿Reabrir esta tarea? Volverá a tus tareas activas como "En curso".'), function() {
+  // Aviso del plazo: una reabierta conserva su deadline original — si ya pasó,
+  // nace vencida. Mejor avisarlo acá que sorprender con el rojo después.
+  confirm_(t('¿Reabrir esta tarea? Volverá a tus tareas activas como "En curso".') + ' ' + t('Si su plazo ya pasó, actualizalo al reabrirla.'), function() {
     if (typeof showLoader === 'function') showLoader();
     google.script.run
       .withSuccessHandler(function(res) {
@@ -9820,6 +9826,10 @@ function rEdAnalytics(D) {
   // Activas = no Listo. Cerradas mes = del Historial, cerradas en mes actual.
   var activas = tasks.filter(function(t){ return t.status !== 'Listo'; }).length;
   var cerradasMes = _edaCerradasMes((D && D.historial) || [], role === 'manager' ? userCode : null);
+  // Vencidas por DEADLINE (mismo predicado que el tracker/home, a donde
+  // drillea el KPI). sla.overdue es otra métrica (días desde creación vs SLA)
+  // y abajo se rotula "fuera de SLA" para no mezclar vocabularios.
+  var vencidasDl = tasks.filter(_isOverdueTask).length;
 
   var sem = (D && D.semana) ? D.semana : '';
   var eyebrow = t('Analítica') + (sem ? ' · ' + t('semana') + ' ' + sem : '');
@@ -9835,13 +9845,13 @@ function rEdAnalytics(D) {
     lede = t('LATAM tiene') + ' <b>' + activas + ' ' + t('tareas activas') + '</b>'
          + (altaLede ? ', <b>' + altaLede + ' ' + t('de prioridad alta') + '</b>' : '')
          + '. ' + t('El cumplimiento de SLA es') + ' <b>' + slaPct + '%</b>'
-         + (sla.overdue ? ' — <span class="crit">' + sla.overdue + ' ' + t('vencidas') + '</span> ' + t('necesitan reasignación.') : '.')
+         + (vencidasDl ? ' — <span class="crit">' + vencidasDl + ' ' + t('vencidas') + '</span> ' + t('necesitan reasignación.') : '.')
          + (cerradasMes ? ' ' + t('Este mes los equipos cerraron') + ' <b>' + cerradasMes + ' ' + t('tareas') + '</b>.' : '');
   } else {
     lede = t('Tu equipo tiene') + ' <b>' + activas + ' ' + t('tareas activas') + '</b>'
          + (altaLede ? ' (' + altaLede + ' Alta, ' + (kpi.media || 0) + ' Media, ' + (kpi.baja || 0) + ' Baja)' : '')
          + '. ' + t('El cumplimiento de SLA es') + ' <b>' + slaPct + '%</b>'
-         + (sla.overdue ? ', <span class="crit">' + sla.overdue + ' ' + t('vencidas') + '</span>' : '')
+         + (vencidasDl ? ', <span class="crit">' + vencidasDl + ' ' + t('vencidas') + '</span>' : '')
          + (bloquLede ? ' ' + t('y') + ' <span class="warn">' + bloquLede + ' ' + t('bloqueadas') + '</span>.' : '.')
          + (cerradasMes ? ' ' + t('Se cerraron') + ' <b>' + cerradasMes + ' ' + t('tareas') + '</b> ' + t('este mes') + '.' : '');
   }
@@ -9873,15 +9883,15 @@ function rEdAnalytics(D) {
        +      '<div class="val">' + cerradasMes + '</div>'
        +      '<div class="delta">' + esc(cerradasMes ? t('completadas') : t('sin cierres aún')) + '</div>'
        +    '</div>'
-       +    '<div class="pa-kpi ' + ((sla.overdue || 0) > 0 ? 'is-critical' : 'is-good') + '" style="cursor:pointer" onclick="edGoTrackerFiltered(\'overdue\')" title="' + esc(t('Ver en el tracker')) + '">'
+       +    '<div class="pa-kpi ' + (vencidasDl > 0 ? 'is-critical' : 'is-good') + '" style="cursor:pointer" onclick="edGoTrackerFiltered(\'overdue\')" title="' + esc(t('Ver en el tracker')) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--critical)"></span> ' + esc(t('Vencidas')) + '</div>'
-       +      '<div class="val">' + (sla.overdue || 0) + '</div>'
-       +      '<div class="delta">' + esc((sla.overdue || 0) ? t('necesitan acción') : t('todo en tiempo')) + '</div>'
+       +      '<div class="val">' + vencidasDl + '</div>'
+       +      '<div class="delta">' + esc(vencidasDl ? t('necesitan acción') : t('todo en tiempo')) + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (slaPct >= 90 ? 'is-good' : (slaPct >= 75 ? 'is-warn' : 'is-critical')) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--accent)"></span> ' + esc(t('SLA cumplido')) + '</div>'
        +      '<div class="val">' + (totalSla ? slaPct + '%' : '—') + '</div>'
-       +      '<div class="delta">' + esc(sla.overdue ? sla.overdue + ' ' + t('vencidas') : t('sin vencidas')) + '</div>'
+       +      '<div class="delta">' + esc(sla.overdue ? sla.overdue + ' ' + t('fuera de SLA') : t('todo dentro de SLA')) + '</div>'
        +    '</div>'
        + '</div>';
 
@@ -10306,7 +10316,8 @@ function rEdResumen(D) {
 
   // ── Proyectos en riesgo (derivado de tasks; ordenado por % atrasadas).
   var risky = projects
-    .filter(function(p){ return p.status !== 'Completado' && p.status !== 'Cancelado'; })
+    // En pausa fuera de "riesgo": reloj pausado, igual que tareas On hold.
+    .filter(function(p){ return p.status !== 'Completado' && p.status !== 'Cancelado' && p.status !== 'En pausa'; })
     .map(function(p) {
       var pTasks = allTasks.filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; });
       var overdue = pTasks.filter(function(t){
