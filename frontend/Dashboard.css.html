@@ -1897,6 +1897,33 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   border-top: 1px solid var(--line-1);
   padding: 12px;
 }
+/* @mención resaltada en el cuerpo del comentario */
+.tk-mention {
+  color: var(--accent);
+  font-weight: 600;
+  background: var(--accent-soft);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+/* Picker flotante de @menciones (anclado al body, posicionado en JS) */
+.tk-mention-pop {
+  position: fixed;
+  z-index: 120;
+  background: var(--bg-0);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  max-height: 200px; overflow-y: auto;
+}
+.tk-mention-opt {
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.tk-mention-opt.is-active,
+.tk-mention-opt:hover { background: var(--accent-soft); color: var(--accent); }
 .tk-panel-actions {
   position: absolute; left: 0; right: 360px; bottom: 0;
   padding: 12px 28px;

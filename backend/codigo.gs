@@ -1065,7 +1065,7 @@ function _getAuthContext() {
   var auth = resolveVisitor(equipos);
   if (!auth.ok) throw new Error('No autorizado: ' + auth.message);
   var role = determineRole(auth.email, auth.user, config);
-  return { email: auth.email, user: auth.user, role: role, equipos: equipos, ss: ss };
+  return { email: auth.email, user: auth.user, role: role, equipos: equipos, ss: ss, config: config };
 }
 
 // Valida que el visitante pueda modificar una tarea específica.
@@ -1574,15 +1574,24 @@ function _addTaskImpl(taskObj) {
     if (lc >= 18) rowVals.push(conf); // Confidencialidad
     if (lc >= TASK_CONTRAPARTE_COL) rowVals.push(contraparte); // Contraparte
     if (lc >= TASK_AREASOL_COL) rowVals.push(areaSolicitante); // Área solicitante
+    var _colabs = [];
     if (lc >= TASK_COLAB_COL) {
       // Colaboradores (col 21): valida/normaliza y excluye al propio resp.
-      var _colabs = _parseColaboradores(JSON.stringify(taskObj.colaboradores || [])).filter(function(c){
+      _colabs = _parseColaboradores(JSON.stringify(taskObj.colaboradores || [])).filter(function(c){
         return _normalizeName(c.name) !== _normalizeName(taskObj.resp || '');
       });
       rowVals.push(_stringifyColaboradores(_colabs));
     }
     ws.appendRow(_sanitizeRow(rowVals));
     _logActivity(ctx, newId, 'create', '', '', taskObj.nombre || '');
+    // Avisos de creación: al responsable si NO es el creador ("te asignaron"),
+    // y a cada colaborador inicial. canSeeName: ambos ya tienen acceso.
+    if (taskObj.resp && _normalizeName(taskObj.resp) !== _normalizeName((ctx.user && ctx.user.name) || '')) {
+      _notify(ctx, taskObj.resp, { kind: 'reassign', taskId: newId, taskName: taskObj.nombre, conf: conf, canSeeName: true });
+    }
+    _colabs.forEach(function(c){
+      _notify(ctx, c.name, { kind: 'colaborador', role: c.role, taskId: newId, taskName: taskObj.nombre, conf: conf, canSeeName: true });
+    });
     return {success:true, id:newId};
   } finally {
     lock.releaseLock();
@@ -1983,6 +1992,22 @@ function _addTaskCommentImpl(taskId, body) {
     var row = [newId, taskId, authorEmail, authorName, ts, trimmed];
     ws.appendRow(_sanitizeRow(row));
     _logActivity(ctx, taskId, 'comment', 'comment', '', trimmed.substring(0, 100));
+    // Avisar a los mencionados con @nombre. canSeeName solo si el mencionado
+    // ya tiene acceso (es el resp o un colaborador) — sino el nombre de una
+    // tarea sensible no viaja (el aviso va genérico con el #id).
+    var mentioned = _extractMentions(ctx, trimmed);
+    if (mentioned.length) {
+      var taskNow = taskForPromote || _readTaskById(ctx.ss, taskId);
+      var respNorm = taskNow ? _normalizeName(taskNow.resp) : '';
+      var colabNorms = {};
+      (taskNow && taskNow.colaboradores || []).forEach(function(c){ colabNorms[_normalizeName(c.name)] = 1; });
+      mentioned.forEach(function(nm){
+        var nn = _normalizeName(nm);
+        var hasAccess = (nn === respNorm) || !!colabNorms[nn];
+        _notify(ctx, nm, { kind: 'mention', taskId: taskId, taskName: taskNow && taskNow.nombre,
+                           conf: taskNow && taskNow.confidencialidad, snippet: trimmed, canSeeName: hasAccess });
+      });
+    }
     return {
       success: true,
       promoted: promotedStatus, // 'En curso' si el comentario promovió la tarea; sino null
@@ -2063,6 +2088,13 @@ function _updateTaskFieldImpl(taskId, field, value) {
   }
   // Activity log (best-effort, no aborta mutation)
   _logActivity(ctx, taskId, field === 'status' ? 'status_change' : (field === 'resp' ? 'reassign' : 'update'), field, oldValue, value);
+  // Aviso al nuevo responsable (cubre reasignación individual y bulk — el bulk
+  // llama updateTaskField por id). Solo si el resp realmente cambió a otra
+  // persona. canSeeName: ya es el responsable, ve la tarea.
+  if (field === 'resp' && value && _normalizeName(value) !== _normalizeName(current.resp)) {
+    _notify(ctx, value, { kind: 'reassign', taskId: taskId, taskName: current.nombre,
+                          conf: current.confidencialidad, canSeeName: true });
+  }
   if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, current.row);
     return { success: true, moved: true, message: 'Tarea movida a Historial' };
@@ -2154,6 +2186,11 @@ function _updateTaskFieldsImpl(taskId, fields) {
     }
   } finally {
     lock.releaseLock();
+  }
+  // Aviso al nuevo responsable si la reasignación vino en el batch.
+  if (fields.resp !== undefined && fields.resp && _normalizeName(fields.resp) !== _normalizeName(current.resp)) {
+    _notify(ctx, fields.resp, { kind: 'reassign', taskId: taskId, taskName: current.nombre,
+                                conf: (fields.confidencialidad || current.confidencialidad), canSeeName: true });
   }
   if (movedToHistorial) {
     moveToHistorial(ctx.ss, ws, row);
@@ -4222,6 +4259,16 @@ function _setTaskColaboradoresImpl(taskId, lista) {
   ws.getRange(current.row, TASK_COLAB_COL).setValue(_sanitizeCell(json));
   // Activity log best-effort (no aborta la mutation si falla).
   _logActivity(ctx, taskId, 'colaboradores', 'colaboradores', oldJson, json);
+  // Aviso a los colaboradores NUEVOS (diff contra la lista previa) — no a los
+  // que ya estaban. canSeeName: como colaborador ya ve la tarea.
+  var prevNorm = {};
+  (current.colaboradores || []).forEach(function(c){ prevNorm[_normalizeName(c.name)] = 1; });
+  out.forEach(function(c){
+    if (!prevNorm[_normalizeName(c.name)]) {
+      _notify(ctx, c.name, { kind: 'colaborador', role: c.role, taskId: taskId,
+                             taskName: current.nombre, conf: current.confidencialidad, canSeeName: true });
+    }
+  });
   // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   return { success: true, colaboradores: out };
 }
@@ -4473,6 +4520,137 @@ function _digestEsc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// ════════════════════════════════════════════════════════════════
+// NOTIFICACIONES · aviso personal por email (Slack: mismo punto, más adelante)
+// ════════════════════════════════════════════════════════════════
+// Punto ÚNICO de salida para avisos personales disparados por una acción:
+//   · 'reassign'     — te asignaron una tarea
+//   · 'colaborador'  — te sumaron a una tarea (ver/editar)
+//   · 'mention'      — te mencionaron en un comentario (@nombre)
+//
+// Corre dentro de la sesión del OWNER (executeAs: USER_DEPLOYING) → MailApp
+// manda como la cuenta del Tracker, sin pedirle scope nuevo al visitante.
+// Best-effort absoluto: cualquier fallo se traga en try/catch — un aviso que
+// no sale NUNCA debe abortar la mutación que lo originó.
+//
+// Kill-switch sin tocar código: Config!NotificacionesEmail = 'off'.
+// Confidencialidad: el NOMBRE de una tarea restringido/confidencial no viaja
+// en el cuerpo salvo que el destinatario ya tenga acceso explícito (lo acaban
+// de asignar / sumar como colaborador). Para @menciones a tareas sensibles se
+// manda un aviso genérico con el #id y un link al tracker. Mismo criterio que
+// ya se aplica para los posts a canales compartidos.
+
+function _notifEmailEnabled(ctx) {
+  var cfg = (ctx && ctx.config) || {};
+  var v = (cfg['NotificacionesEmail'] == null ? '' : String(cfg['NotificacionesEmail'])).trim().toLowerCase();
+  return v !== 'off' && v !== 'no' && v !== '0' && v !== 'false';
+}
+
+// Email del roster para un nombre (tolerante a acentos/orden). '' si no está.
+function _notifEmailFor(ctx, name) {
+  if (!name) return '';
+  var m = getMemberByName(name, ctx.equipos);
+  return (m && m.email) ? m.email : '';
+}
+
+// Envía UN aviso a `toName`. opts: { kind, taskId, taskName, conf, snippet,
+// role (colab), canSeeName }. Devuelve true si salió un mail.
+function _notify(ctx, toName, opts) {
+  try {
+    opts = opts || {};
+    if (!_notifEmailEnabled(ctx)) return false;
+    var to = _notifEmailFor(ctx, toName);
+    if (!to) return false;
+    // Nunca auto-notificarse (te mencionás/te reasignás a vos mismo).
+    if (ctx.email && to.toLowerCase() === String(ctx.email).toLowerCase()) return false;
+
+    var actor = _digestEsc((ctx.user && ctx.user.name) || 'Alguien');
+    var firstName = _digestEsc((((toName || '').toString().trim().split(/\s+/)[0]) || '').trim());
+    var conf = (opts.conf || 'estandar').toString().toLowerCase();
+    var sensitive = (conf === 'restringido' || conf === 'confidencial');
+    var showName = (!sensitive || opts.canSeeName) && opts.taskName;
+    var taskLabel = showName ? ('«' + _digestEsc(opts.taskName) + '»') : ('#' + _digestEsc(opts.taskId));
+
+    var subject, lead;
+    if (opts.kind === 'reassign') {
+      subject = 'Te asignaron una tarea · ' + (showName ? _digestEsc(opts.taskName) : '#' + opts.taskId);
+      lead = actor + ' te asignó la tarea ' + taskLabel + '. Ahora figura en tu tracker.';
+    } else if (opts.kind === 'colaborador') {
+      var roleTxt = (opts.role === 'editar') ? 'editar' : 'ver';
+      subject = 'Te sumaron a una tarea · ' + (showName ? _digestEsc(opts.taskName) : '#' + opts.taskId);
+      lead = actor + ' te agregó como colaborador (<b>' + roleTxt + '</b>) en ' + taskLabel + '.';
+    } else if (opts.kind === 'mention') {
+      subject = 'Te mencionaron en un comentario · ' + (showName ? _digestEsc(opts.taskName) : '#' + opts.taskId);
+      lead = actor + ' te mencionó en un comentario de la tarea ' + taskLabel + '.';
+    } else {
+      return false;
+    }
+
+    var snippetHtml = '';
+    if (opts.snippet) {
+      var snip = String(opts.snippet).substring(0, 300);
+      snippetHtml = '<blockquote style="margin:14px 0;padding:8px 14px;border-left:3px solid #ddd;color:#555;font-style:italic;">'
+        + _digestEsc(snip) + '</blockquote>';
+    }
+
+    var html =
+      '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;color:#222;max-width:600px;">' +
+        '<p style="margin:0 0 8px;font-size:15px;">Hola' + (firstName ? ' ' + firstName : '') + ',</p>' +
+        '<p style="margin:0 0 4px;font-size:15px;">' + lead + '</p>' +
+        snippetHtml +
+        '<p style="margin:20px 0 0;"><a href="' + _digestEsc(WEB_APP_URL) +
+          '" style="display:inline-block;background:#FF441F;color:#fff;text-decoration:none;padding:9px 16px;border-radius:6px;font-size:14px;">Abrir en el Tracker →</a></p>' +
+        '<p style="margin:24px 0 0;color:#999;font-size:12px;border-top:1px solid #eee;padding-top:12px;">' +
+          'Recibís este aviso porque sos parte del equipo Legal en MyDash. ' +
+          'Para dejar de recibirlos, escribile a tu líder de equipo.' +
+        '</p>' +
+      '</div>';
+
+    MailApp.sendEmail({ to: to, subject: subject, htmlBody: html, name: 'Legal Tracker' });
+
+    // ── EXTENSIÓN SLACK (cuando SecOps lo destrabe): despachar acá el MISMO
+    // evento al DM del destinatario (mapeo email→Slack vía users.lookupByEmail),
+    // respetando `sensitive` igual que arriba. Un solo punto, sin duplicar la
+    // lógica de a-quién/qué-mostrar.
+
+    return true;
+  } catch (e) {
+    Logger.log('_notify skipped (' + (opts && opts.kind) + '): ' + ((e && e.message) || e));
+    return false;
+  }
+}
+
+// Normalización laxa que CONSERVA el '@' (a diferencia de _normalizeName, que
+// lo descarta). Acentos fuera, minúsculas, espacios colapsados.
+function _normLoose(s) {
+  var out = (s == null ? '' : String(s));
+  try { out = out.normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), ''); } catch (e) {}
+  return out.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+// Extrae los nombres del roster mencionados con @ en un texto. Matching robusto:
+// para cada miembro del roster busca "@" + su nombre completo normalizado en el
+// cuerpo. Evita el parsing ambiguo de "@Juan" (¿qué Juan?) — la mención se
+// inserta con el nombre completo desde la UI; un typer manual que escriba el
+// nombre completo también matchea. Devuelve nombres canónicos (dedup), cap 10.
+function _extractMentions(ctx, body) {
+  var text = (body || '').toString();
+  if (text.indexOf('@') < 0) return [];
+  var hay = ' ' + _normLoose(text) + ' ';
+  var idx = _buildEquiposIndex(ctx.equipos);
+  var out = [], seen = {};
+  for (var i = 0; i < idx.entries.length && out.length < 10; i++) {
+    var e = idx.entries[i];
+    if (!e.norm || seen[e.norm]) continue;
+    // "@nombre completo" (con o sin espacio tras el @).
+    if (hay.indexOf('@' + e.norm) >= 0 || hay.indexOf('@ ' + e.norm) >= 0) {
+      seen[e.norm] = 1;
+      out.push(e.name);
+    }
+  }
+  return out;
 }
 
 // ════════════════════════════════════════════════════════════════
