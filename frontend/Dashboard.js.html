@@ -8732,7 +8732,6 @@ function rEdProyectosIndex(D) {
 
   var totalOwner       = open.filter(function(p){ return p.responsable === userName; }).length;
   var totalParticipant = open.length - totalOwner;
-  var myTasksInOpen    = open.reduce(function(acc, p){ return acc + tasks.filter(function(t){ return t.proyectoId == p.id && t.resp === userName; }).length; }, 0);
 
   var html = '<div class="pa-page">';
 
@@ -8746,9 +8745,8 @@ function rEdProyectosIndex(D) {
        +    '</div>'
        + '</div>';
 
-  if (cActivos > 0) {
-    html += '<div class="pa-narrative">' + t('Estás en <b>') + cActivos + t(' proyectos activos</b> con <b>') + myTasksInOpen + t(' tarea') + (myTasksInOpen === 1 ? '' : 's') + t(' tuya') + (myTasksInOpen === 1 ? '' : 's') + '</b>.</div>';
-  }
+  // (Se quitó el lede "Estás en N proyectos activos con N tareas tuyas." —
+  // repetía lo que el meta del título ya dice una línea más arriba.)
 
   // Filter chips
   function chip(key, label, count) {
