@@ -3566,21 +3566,9 @@ function rEdHomeSpecialist(D) {
        +    (todayLine ? '<span class="pa-greet-meta">' + esc(todayLine) + '</span>' : '')
        + '</div>';
 
-  // Banner si hay overdue
-  if (overdue > 0) {
-    var oldestId = '';
-    var oldest = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; })
-      .sort(function(a,b){ return (a.etaDays||0) - (b.etaDays||0); })[0];
-    if (oldest) oldestId = oldest.id || '';
-    var ovrLbl = overdue + ' ' + (overdue === 1 ? t('tarea vencida') : t('tareas vencidas'));
-    html += '<div class="pa-banner">'
-         +    paIcon('alert', 16, 'ico')
-         +    '<div class="msg"><b>' + esc(ovrLbl) + '</b>'
-         +      (oldestId ? ' · ' + esc(t('la más antigua es')) + ' <b>#' + esc(oldestId) + '</b>' : '')
-         +    '</div>'
-         +    '<button class="act" onclick="edGoTrackerFiltered(\'overdue\')">' + esc(t('Ver vencidas →')) + '</button>'
-         + '</div>';
-  }
+  // (El banner rojo de vencidas se eliminó: la misma señal ya vive en el KPI
+  // "Vencidas" clickeable y en el hero "Tu próxima tarea" — tres avisos del
+  // mismo dato en el primer viewport diluían la jerarquía. Economía de señal.)
 
   // KPIs
   html += '<div class="pa-kpis">'
@@ -3696,8 +3684,9 @@ function rEdHomeSpecialist(D) {
        +    '</div>'
        +    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">'
        +      '<div>'
-       +        '<div class="pa-meta-sm">' + esc(t('Racha en tiempo')) + '</div>'
-       +        '<div class="mono" style="font-size:26px;font-weight:600;letter-spacing:-0.02em">' + (streak ? '🔥 ' + streak : '0') + ' <span style="font-size:12px;color:var(--fg-3);font-weight:400">' + esc(t('tareas')) + '</span></div>'
+       +        '<div class="pa-meta-sm">' + esc(t('Cierres en tiempo seguidos')) + '</div>'
+       +        '<div class="mono" style="font-size:26px;font-weight:600;letter-spacing:-0.02em">' + (streak ? '🔥 ' + streak : '0') + '</div>'
+       +        (streak ? '' : '<div style="font-size:11px;color:var(--fg-3);margin-top:2px;line-height:1.4">' + esc(t('Cerrá una tarea dentro del plazo para arrancar tu racha')) + '</div>')
        +      '</div>'
        +      '<div>'
        +        '<div class="pa-meta-sm">' + esc(t('Cerradas este mes')) + '</div>'
@@ -3716,10 +3705,12 @@ function rEdHomeSpecialist(D) {
     rows.forEach(function(r) {
       // Antes había una barra decorativa con width:60% fijo (no representaba el
       // dato → engañosa en un scorecard). La reemplazamos por un punto de color
-      // por prioridad + el valor real.
+      // por prioridad + el valor real. El "—" pelado lleva tooltip que explica
+      // la ausencia (sin cierres de esa prioridad este mes).
+      var noData = !r.v || r.v === '—';
       html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;">'
            +    '<span style="font-size:12px;color:var(--fg-2);display:flex;align-items:center;gap:7px"><span style="width:8px;height:8px;border-radius:50%;background:' + r.color + ';display:inline-block;flex:0 0 auto"></span>' + r.l + '</span>'
-           +    '<span class="mono" style="font-size:12px;color:var(--fg-1);font-weight:600">' + esc(r.v) + '</span>'
+           +    '<span class="mono" style="font-size:12px;color:var(--fg-1);font-weight:600"' + (noData ? ' title="' + esc(t('Sin cierres de esta prioridad este mes')) + '"' : '') + '>' + esc(r.v) + '</span>'
            + '</div>';
     });
     html += '</div>';
@@ -6462,12 +6453,17 @@ function rEdTracker(D) {
   if (totalRows > 0 && selN === totalRows) masterCls += ' is-checked';
   else if (selN > 0) masterCls += ' is-indeterminate';
   var masterTitle = (selN === totalRows && totalRows > 0) ? t('Deseleccionar todo') : t('Seleccionar todo');
+  // Specialist: sin columna Proyecto — siempre mostraba "—" o duplicaba el
+  // chip de proyecto que ya vive bajo el título. El ancho liberado va a la
+  // columna Tarea (variante .is-no-proj del grid). Manager/head conservan
+  // su columna Responsable.
+  var tblCls = 'pa-tbl' + (role === 'specialist' ? ' is-no-proj' : '');
   var tblHeader = '<div class="pa-tbl-h">'
        +      '<div onclick="edTkMasterToggle()" title="' + esc(masterTitle) + '" style="cursor:pointer;display:grid;place-items:center"><span class="' + masterCls + '"></span></div>'
        +      '<div title="' + esc(t('Confidencialidad')) + '" aria-label="' + esc(t('Confidencialidad')) + '"></div>'
        +      '<div>ID</div>'
        +      '<div>' + esc(t('Tarea')) + '</div>'
-       +      '<div>' + esc(role === 'specialist' ? t('Proyecto') : t('Responsable')) + '</div>'
+       +      (role === 'specialist' ? '' : '<div>' + esc(t('Responsable')) + '</div>')
        +      '<div>' + esc(t('Prioridad')) + '</div>'
        +      '<div>' + esc(t('Estado')) + '</div>'
        +      '<div>ETA</div>'
@@ -6495,7 +6491,7 @@ function rEdTracker(D) {
       ctaBtn = '<button class="pa-btn pa-btn-outline" onclick="edClearSecondaryFilters();edSetFilter(\'all\');edSetSearch(\'\')" style="margin-top:6px">' + esc(t('Limpiar filtros')) + '</button>';
     }
     // Empty state homogéneo con resto de la app (paEmpty helper) + CTA centrado.
-    html += '<div class="pa-tbl">' + tblHeader;
+    html += '<div class="' + tblCls + '">' + tblHeader;
     html += paEmpty(emptyIc, emptyMsg, emptyHint);
     if (ctaBtn) html += '<div style="margin-top:8px;text-align:center">' + ctaBtn + '</div>';
     html += '</div>';
@@ -6515,13 +6511,13 @@ function rEdTracker(D) {
       if (bk.arr.length === 0) {
         html += '<div class="pa-card" style="padding:12px 16px;color:var(--fg-3);font-size:12px;margin-bottom:6px">' + esc(t('Sin tareas en esta franja.')) + '</div>';
       } else {
-        html += '<div class="pa-tbl">';
+        html += '<div class="' + tblCls + '">';
         bk.arr.forEach(function(rowTask){ html += _edTkRowHtml(rowTask, role, sel); });
         html += '</div>';
       }
     });
   } else {
-    html += '<div class="pa-tbl">' + tblHeader;
+    html += '<div class="' + tblCls + '">' + tblHeader;
     rows.forEach(function(rowTask){ html += _edTkRowHtml(rowTask, role, sel); });
     html += '</div>';
     html += '<div style="text-align:center;padding:12px 0 4px;font-size:11px;color:var(--fg-4)">' + rows.length + ' ' + esc(rows.length === 1 ? t('tarea') : t('tareas')) + ' · ' + esc(t('fin de lista')) + '</div>';
@@ -6642,14 +6638,14 @@ function _edTkRowHtml(tk, role, sel) {
        +    paConfDot(cfLvl)
        +    '<span class="id mono">' + esc(tk.id) + '</span>'
        +    '<div class="title"><span class="t">' + esc(tk.nombre || '') + sharedBadge + '</span><span class="meta">' + esc(metaTxt) + chips + checkChip + blockReasonSuffix + '</span></div>';
-  if (role === 'specialist') {
-    h += (pn && pn !== 'Sin proyecto')
-      ? '<span style="font-size:12px;color:var(--fg-2)">' + esc(pn) + '</span>'
-      : '<span style="color:var(--fg-4)">—</span>';
-  } else if (tk.resp) {
-    h += '<span class="resp" onclick="event.stopPropagation();edSetRespFilter(\'' + esc(escJs(tk.resp)) + '\')">' + paAvatar(tk.resp, 18) + '<span style="font-size:12px">' + esc(tk.resp) + '</span></span>';
-  } else {
-    h += '<span style="color:var(--fg-3)">—</span>';
+  // Specialist no tiene celda de Proyecto/Responsable (grid .is-no-proj):
+  // el proyecto ya aparece como chip clickeable bajo el título.
+  if (role !== 'specialist') {
+    if (tk.resp) {
+      h += '<span class="resp" onclick="event.stopPropagation();edSetRespFilter(\'' + esc(escJs(tk.resp)) + '\')">' + paAvatar(tk.resp, 18) + '<span style="font-size:12px">' + esc(tk.resp) + '</span></span>';
+    } else {
+      h += '<span style="color:var(--fg-3)">—</span>';
+    }
   }
   h += paPriorityPill(tk.priority)
     +  paStatusPill(tk.status)
@@ -8736,7 +8732,6 @@ function rEdProyectosIndex(D) {
 
   var totalOwner       = open.filter(function(p){ return p.responsable === userName; }).length;
   var totalParticipant = open.length - totalOwner;
-  var myTasksInOpen    = open.reduce(function(acc, p){ return acc + tasks.filter(function(t){ return t.proyectoId == p.id && t.resp === userName; }).length; }, 0);
 
   var html = '<div class="pa-page">';
 
@@ -8750,9 +8745,8 @@ function rEdProyectosIndex(D) {
        +    '</div>'
        + '</div>';
 
-  if (cActivos > 0) {
-    html += '<div class="pa-narrative">' + t('Estás en <b>') + cActivos + t(' proyectos activos</b> con <b>') + myTasksInOpen + t(' tarea') + (myTasksInOpen === 1 ? '' : 's') + t(' tuya') + (myTasksInOpen === 1 ? '' : 's') + '</b>.</div>';
-  }
+  // (Se quitó el lede "Estás en N proyectos activos con N tareas tuyas." —
+  // repetía lo que el meta del título ya dice una línea más arriba.)
 
   // Filter chips
   function chip(key, label, count) {
@@ -10524,7 +10518,8 @@ function _rEdBibPlantillas(D) {
   });
   var pendCount = items.filter(function(x){ return x.estado === 'pendiente'; }).length;
 
-  var html = '<div class="pa-page">' + _bibSubnav('plantillas');
+  // Jerarquía: título primero, tabs después (mismo patrón que Proyectos).
+  var html = '<div class="pa-page">';
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">' + esc(t('Biblioteca')) + '</span>'
        +    '<span class="pa-page-sub">' + items.length + ' ' + esc(items.length === 1 ? t('plantilla') : t('plantillas'))
@@ -10533,6 +10528,7 @@ function _rEdBibPlantillas(D) {
        +      '<button class="pa-btn pa-btn-primary" onclick="edPltOpenEditor(null,null)">' + paIcon('plus', 12) + ' ' + esc(t('Nueva plantilla')) + '</button>'
        +    '</div>'
        + '</div>';
+  html += _bibSubnav('plantillas');
 
   // El ciclo completo en una frase: plantilla → tarea de ese tipo → checklist
   // con progreso en el panel. Antes el copy solo hablaba de "pre-cargar notas"
@@ -10872,7 +10868,9 @@ function _rEdBibDocs(D) {
   var all = (_BIBDOCS_CACHE || []).slice().sort(function(a, b){ return (b.fecha || '').localeCompare(a.fecha || ''); });
   var docs = _bibApplyFilters(all);
 
-  var html = '<div class="pa-page">' + _bibSubnav('documentos');
+  // Jerarquía: título primero, tabs después (mismo patrón que Proyectos) —
+  // el subnav arriba del H1 invertía la jerarquía visual de la página.
+  var html = '<div class="pa-page">';
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">Biblioteca</span>'
        +    '<span class="pa-page-sub">' + docs.length + (docs.length === all.length ? '' : ' de ' + all.length) + ' documento' + (all.length === 1 ? '' : 's') + '</span>'
@@ -10884,6 +10882,7 @@ function _rEdBibDocs(D) {
        +      '<input type="file" id="bibDocFileInput" style="display:none" onchange="edBibDocUpload(this)">'
        +    '</div>'
        + '</div>';
+  html += _bibSubnav('documentos');
   if (_BIB_SEMANTIC) {
     html += '<div class="pa-narrative" style="border-left:3px solid var(--accent);padding-left:10px;margin-bottom:12px;display:flex;align-items:center;gap:8px">'
          +    '<span>✨ <b>Búsqueda IA</b> por significado · ' + docs.length + ' resultado' + (docs.length === 1 ? '' : 's') + ' para "' + esc(_BIB_FILTERS.query || '') + '"</span>'
