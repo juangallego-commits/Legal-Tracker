@@ -8093,47 +8093,54 @@ function edCrearSubmit() {
   if (!v.titulo || !v.titulo.trim()) { toast('Falta el título', 'error'); return; }
   if (!v.resp) { toast('Falta el responsable', 'error'); return; }
   if (!v.pais) { toast('Falta el país', 'error'); return; }
-  var btn = $('crSubmit'); if (btn) btn.disabled = true;
-  if (typeof showLoader === 'function') showLoader();
-  toast('Creando tarea…', 'info');
-  console.log('[create-task] payload', v);
+  var payload = {
+    nombre: v.titulo.trim(),
+    proyectoId: v.proyectoId || '',
+    pais: v.pais || '',
+    priority: v.prioridad || 'Media',
+    tipoTrabajo: v.tipo || '',
+    riesgo: v.riesgo || '',
+    resp: v.resp || '',
+    lider: '',
+    deadline: v.deadline || '',
+    acc: '',
+    notas: (v.descripcion || '').trim(),
+    confidencialidad: v.confidencialidad || 'estandar',
+    areaSolicitante: v.areaSolicitante || '',
+    contraparte: v.contraparte || '',
+    colaboradores: Array.isArray(v.colaboradores) ? v.colaboradores : []
+  };
+  // Crear es la mutación más frecuente del specialist y era la única que
+  // bloqueaba la UI de punta a punta: loader fullscreen + reload() completo
+  // con segundo loader (~2-6s sin control). Ahora: cerrar el wizard YA,
+  // devolver el control, y reconciliar con _reloadSilent cuando el server
+  // responda (la fila aparece sola, sin loader). No insertamos fila optimista:
+  // addTask devuelve solo {success,id} y el server completa datos que el
+  // cliente no puede calcular bien (checklist del template, ETA con feriados)
+  // — una fila provisional clickeable con id falso rompería el panel.
+  // El draft de localStorage NO se borra hasta el éxito: si falla, el wizard
+  // se reabre con todo lo escrito intacto.
+  edCrearClose();
+  toast(t('Creando tarea…'), 'info');
+  console.log('[create-task] payload', payload);
   google.script.run
     .withSuccessHandler(function(res) {
-      if (typeof hideLoader === 'function') hideLoader();
-      if (btn) btn.disabled = false;
       console.log('[create-task] response', res);
       if (res && res.success) {
         toast('✅ Tarea #' + res.id + ' creada', 'success');
         try { localStorage.removeItem('lt-edc-draft'); } catch(e){}
-        edCrearClose();
-        if (typeof reload === 'function') reload();
+        _reloadSilent();
       } else {
-        toast(_friendlyError(res, 'No se pudo crear la tarea'), 'error');
+        toast(_friendlyError(res, t('No se pudo crear la tarea. Revisá y reintentá.')), 'error');
+        edCrearOpen(); // restaura el borrador con los datos intactos
       }
     })
     .withFailureHandler(function(e) {
-      if (typeof hideLoader === 'function') hideLoader();
-      if (btn) btn.disabled = false;
       console.error('[create-task] failure', e);
-      toast('Error del backend: ' + (e && e.message || 'desconocido'), 'error');
+      toast(t('No se pudo crear la tarea. Revisá y reintentá.'), 'error');
+      edCrearOpen();
     })
-    .addTask({
-      nombre: v.titulo.trim(),
-      proyectoId: v.proyectoId || '',
-      pais: v.pais || '',
-      priority: v.prioridad || 'Media',
-      tipoTrabajo: v.tipo || '',
-      riesgo: v.riesgo || '',
-      resp: v.resp || '',
-      lider: '',
-      deadline: v.deadline || '',
-      acc: '',
-      notas: (v.descripcion || '').trim(),
-      confidencialidad: v.confidencialidad || 'estandar',
-      areaSolicitante: v.areaSolicitante || '',
-      contraparte: v.contraparte || '',
-      colaboradores: Array.isArray(v.colaboradores) ? v.colaboradores : []
-    });
+    .addTask(payload);
 }
 
 // Atajos de teclado de los wizards de crear (tarea y proyecto):
