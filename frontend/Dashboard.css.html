@@ -1290,6 +1290,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   z-index: 2;
 }
 .pa-tbl-h > * { display: flex; align-items: center; gap: 4px; }
+/* Variante specialist del tracker: sin columna Proyecto/Responsable (su
+   responsable es siempre él; el proyecto vive como chip bajo el título).
+   El ancho liberado (160px) lo absorbe la columna Tarea (1fr). */
+.pa-tbl.is-no-proj .pa-tbl-h,
+.pa-tbl.is-no-proj .pa-tbl-r {
+  grid-template-columns: 28px 20px 64px 1fr 90px 110px 80px;
+}
 .pa-tbl-r {
   display: grid;
   grid-template-columns: 28px 20px 64px 1fr 160px 90px 110px 80px;

@@ -6453,12 +6453,17 @@ function rEdTracker(D) {
   if (totalRows > 0 && selN === totalRows) masterCls += ' is-checked';
   else if (selN > 0) masterCls += ' is-indeterminate';
   var masterTitle = (selN === totalRows && totalRows > 0) ? t('Deseleccionar todo') : t('Seleccionar todo');
+  // Specialist: sin columna Proyecto — siempre mostraba "—" o duplicaba el
+  // chip de proyecto que ya vive bajo el título. El ancho liberado va a la
+  // columna Tarea (variante .is-no-proj del grid). Manager/head conservan
+  // su columna Responsable.
+  var tblCls = 'pa-tbl' + (role === 'specialist' ? ' is-no-proj' : '');
   var tblHeader = '<div class="pa-tbl-h">'
        +      '<div onclick="edTkMasterToggle()" title="' + esc(masterTitle) + '" style="cursor:pointer;display:grid;place-items:center"><span class="' + masterCls + '"></span></div>'
        +      '<div title="' + esc(t('Confidencialidad')) + '" aria-label="' + esc(t('Confidencialidad')) + '"></div>'
        +      '<div>ID</div>'
        +      '<div>' + esc(t('Tarea')) + '</div>'
-       +      '<div>' + esc(role === 'specialist' ? t('Proyecto') : t('Responsable')) + '</div>'
+       +      (role === 'specialist' ? '' : '<div>' + esc(t('Responsable')) + '</div>')
        +      '<div>' + esc(t('Prioridad')) + '</div>'
        +      '<div>' + esc(t('Estado')) + '</div>'
        +      '<div>ETA</div>'
@@ -6486,7 +6491,7 @@ function rEdTracker(D) {
       ctaBtn = '<button class="pa-btn pa-btn-outline" onclick="edClearSecondaryFilters();edSetFilter(\'all\');edSetSearch(\'\')" style="margin-top:6px">' + esc(t('Limpiar filtros')) + '</button>';
     }
     // Empty state homogéneo con resto de la app (paEmpty helper) + CTA centrado.
-    html += '<div class="pa-tbl">' + tblHeader;
+    html += '<div class="' + tblCls + '">' + tblHeader;
     html += paEmpty(emptyIc, emptyMsg, emptyHint);
     if (ctaBtn) html += '<div style="margin-top:8px;text-align:center">' + ctaBtn + '</div>';
     html += '</div>';
@@ -6506,13 +6511,13 @@ function rEdTracker(D) {
       if (bk.arr.length === 0) {
         html += '<div class="pa-card" style="padding:12px 16px;color:var(--fg-3);font-size:12px;margin-bottom:6px">' + esc(t('Sin tareas en esta franja.')) + '</div>';
       } else {
-        html += '<div class="pa-tbl">';
+        html += '<div class="' + tblCls + '">';
         bk.arr.forEach(function(rowTask){ html += _edTkRowHtml(rowTask, role, sel); });
         html += '</div>';
       }
     });
   } else {
-    html += '<div class="pa-tbl">' + tblHeader;
+    html += '<div class="' + tblCls + '">' + tblHeader;
     rows.forEach(function(rowTask){ html += _edTkRowHtml(rowTask, role, sel); });
     html += '</div>';
     html += '<div style="text-align:center;padding:12px 0 4px;font-size:11px;color:var(--fg-4)">' + rows.length + ' ' + esc(rows.length === 1 ? t('tarea') : t('tareas')) + ' · ' + esc(t('fin de lista')) + '</div>';
@@ -6633,14 +6638,14 @@ function _edTkRowHtml(tk, role, sel) {
        +    paConfDot(cfLvl)
        +    '<span class="id mono">' + esc(tk.id) + '</span>'
        +    '<div class="title"><span class="t">' + esc(tk.nombre || '') + sharedBadge + '</span><span class="meta">' + esc(metaTxt) + chips + checkChip + blockReasonSuffix + '</span></div>';
-  if (role === 'specialist') {
-    h += (pn && pn !== 'Sin proyecto')
-      ? '<span style="font-size:12px;color:var(--fg-2)">' + esc(pn) + '</span>'
-      : '<span style="color:var(--fg-4)">—</span>';
-  } else if (tk.resp) {
-    h += '<span class="resp" onclick="event.stopPropagation();edSetRespFilter(\'' + esc(escJs(tk.resp)) + '\')">' + paAvatar(tk.resp, 18) + '<span style="font-size:12px">' + esc(tk.resp) + '</span></span>';
-  } else {
-    h += '<span style="color:var(--fg-3)">—</span>';
+  // Specialist no tiene celda de Proyecto/Responsable (grid .is-no-proj):
+  // el proyecto ya aparece como chip clickeable bajo el título.
+  if (role !== 'specialist') {
+    if (tk.resp) {
+      h += '<span class="resp" onclick="event.stopPropagation();edSetRespFilter(\'' + esc(escJs(tk.resp)) + '\')">' + paAvatar(tk.resp, 18) + '<span style="font-size:12px">' + esc(tk.resp) + '</span></span>';
+    } else {
+      h += '<span style="color:var(--fg-3)">—</span>';
+    }
   }
   h += paPriorityPill(tk.priority)
     +  paStatusPill(tk.status)
