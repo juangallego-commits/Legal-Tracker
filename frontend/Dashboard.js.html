@@ -2396,6 +2396,7 @@ function renderEdHead(viewId) {
     +   '</div>'
     + '</div>'
     + '<div class="pa-hd-actions">'
+    +   '<button class="pa-btn pa-btn-icon" id="edBellBtn" style="position:relative" title="' + esc(t('Actividad reciente')) + '" onclick="edNotifOpen()">' + paIcon('bell', 14) + '</button>'
     +   '<button class="pa-btn pa-btn-icon" title="Atajos (?)" onclick="edHelpOpen()">' + paIcon('help', 14) + '</button>'
     +   '<button class="pa-btn pa-btn-primary" title="' + esc(t('Nueva tarea (N)')) + '" onclick="edCrearOpen()">' + paIcon('plus', 12) + ' ' + esc(t('Nueva tarea')) + '</button>'
     +   '<button class="pa-hd-avatar" style="background:' + paAvatarColor(name) + ';color:#fff" title="' + esc(name) + ' · Click para opciones" onclick="edUserMenuToggle(event)" type="button">' + esc(initial) + '</button>'
@@ -6138,7 +6139,10 @@ function edNotifLoad() {
     .getMyRecentActivity(_activitySeenTs());
 }
 function edNotifRenderBadge() {
-  var btn = document.querySelector('.pa-hd-avatar'); if (!btn) return;
+  // El badge vive en el bell del header (más visible); fallback al avatar
+  // si por algún motivo el bell no está montado.
+  var btn = document.getElementById('edBellBtn') || document.querySelector('.pa-hd-avatar');
+  if (!btn) return;
   var dot = document.getElementById('paAvNotifDot');
   if (dot) dot.remove();
   if (!_NOTIF_RECENT.length) return;
@@ -6146,7 +6150,6 @@ function edNotifRenderBadge() {
   d.id = 'paAvNotifDot';
   d.className = 'pa-av-notif-dot';
   d.textContent = _NOTIF_RECENT.length > 9 ? '9+' : String(_NOTIF_RECENT.length);
-  // ubicar relativo al avatar — abs positioning vía CSS
   btn.style.position = 'relative';
   btn.appendChild(d);
 }
