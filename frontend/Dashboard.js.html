@@ -4040,6 +4040,9 @@ function rEdHomeManager(D) {
     html += paEmpty('check', t('Tu equipo está al día.'), t('Nada vencido, bloqueado, ni de prioridad alta sin avance.'));
   } else {
     html += '<div class="pa-tbl-wrap"><div class="pa-tbl">';
+    // i18n hoisteado: dentro del forEach 't' es la TAREA — llamar t('hace')
+    // ahí lo trata como función y tira "t is not a function".
+    var _haceLbl = t('hace');
     att.forEach(function(t) {
       var pn = _projNameForTask(t);
       var conf = _confLevel(t);
@@ -4053,7 +4056,7 @@ function rEdHomeManager(D) {
            +    paStatusPill(t.status)
            // On hold: cuánto lleva bloqueada (reloj pausado), no "Vencida" roja.
            +    (t.status === 'Bloqueado'
-                ? '<span class="eta" style="color:' + ((typeof t.blockedDays === 'number' && t.blockedDays >= 7) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">⏸ ' + ((typeof t.blockedDays === 'number') ? esc(t('hace')) + ' ' + t.blockedDays + 'd' : esc(t.deadline || '—')) + '</span>'
+                ? '<span class="eta" style="color:' + ((typeof t.blockedDays === 'number' && t.blockedDays >= 7) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">⏸ ' + ((typeof t.blockedDays === 'number') ? esc(_haceLbl) + ' ' + t.blockedDays + 'd' : esc(t.deadline || '—')) + '</span>'
                 : '<span class="eta' + (_isOverdueTask(t) ? ' overdue' : '') + '">' + esc((typeof t.etaDays === 'number') ? paEtaText(t.etaDays) : (t.eta || '—')) + '</span>')
            + '</div>';
     });
