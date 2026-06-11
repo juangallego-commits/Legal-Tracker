@@ -2745,6 +2745,11 @@ function uploadBibliotecaDocFile(fileData, metadata) {
       var bibCli  = _ensureSubfolder(bibTipo, v.meta.areaSolicitante || 'Genérico');
       var folder  = _ensureSubfolder(bibCli, v.meta.pais || 'Sin país');
       var file = folder.createFile(Utilities.newBlob(bytes, mime, fileData.name));
+      // Sharing por nivel: la app corre como owner y la carpeta raíz es privada
+      // → sin esto, el resto del equipo NO podía ni abrir lo subido. Los docs
+      // 'estandar' nacen legibles por el dominio (con link); restringido/
+      // confidencial NO se comparten (el filtrado de la app decide quién los ve).
+      _bibEnsureSharing(file, v.meta.confidencialidad);
       var m = v.meta, now = new Date().toISOString();
       var id = 'D' + Date.now() + Math.floor(Math.random() * 1000);
       ws.appendRow(_sanitizeRow([id, file.getName(), 'file', file.getUrl(), m.tipoDocumento, m.areaTrabajo, m.pais, m.confidencialidad, m.tags, (ctx.user && ctx.user.name) || ctx.email || '', ctx.email || '', now, 'si', m.notas, '', '', m.areaSolicitante]));
@@ -2752,6 +2757,68 @@ function uploadBibliotecaDocFile(fileData, metadata) {
       return { success: true, id: id, url: file.getUrl() };
     });
   }, {});
+}
+
+// Asegura lectura por dominio (con link) para documentos 'estandar' de la
+// Biblioteca. Best-effort: si el admin de Workspace deshabilitó el sharing por
+// dominio, no rompe (devuelve false y la app sigue — el dueño puede compartir
+// a mano). Para restringido/confidencial NO se toca el sharing (gap de Drive
+// documentado en PENDIENTES: la app filtra, pero el link directo manda).
+function _bibEnsureSharing(file, conf) {
+  try {
+    if ((conf || 'estandar') !== 'estandar') return false;
+    file.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW);
+    return true;
+  } catch (e) {
+    Logger.log('_bibEnsureSharing skipped: ' + ((e && e.message) || e));
+    return false;
+  }
+}
+
+// "Usar modelo": devuelve cómo llevarse una copia de trabajo de un doc de
+// Biblioteca SIN tocar el original (sin makeCopy: la app corre como owner y
+// la copia quedaría a nombre de la cuenta del Tracker, no del usuario).
+//   · file  → URL de descarga directa (uc?export=download). Para docs
+//             'estandar' asegura el sharing por dominio (idempotente — cubre
+//             también archivos subidos antes de este fix).
+//   · link  → la URL tal cual (no se puede copiar un enlace externo).
+// Confidencialidad server-side: el doc se busca en la lista YA filtrada por
+// rol (getBibliotecaDocs) — si el rol no puede verlo, NOT_FOUND.
+function usarModelo(docId) {
+  return _telemetry('usarModelo', function() {
+    var did = (docId || '').toString().trim();
+    if (!did) return _err('VALIDATION', 'ID requerido.');
+    var res = getBibliotecaDocs(); // valida allowlist + filtra por rol/conf
+    var doc = ((res && res.items) || []).filter(function(d){ return String(d.id) === did; })[0];
+    if (!doc) return _err('NOT_FOUND', 'Documento no encontrado o sin acceso.');
+    if ((doc.tipo || 'link') === 'link') {
+      return { success: true, mode: 'link', url: doc.url || '' };
+    }
+    var fileId = _extractDriveId(doc.url || '');
+    if (!fileId) return _err('VALIDATION', 'El documento no tiene un archivo de Drive válido.');
+    var shared = false;
+    try {
+      var file = DriveApp.getFileById(fileId);
+      shared = _bibEnsureSharing(file, doc.confidencialidad);
+    } catch (e) {
+      Logger.log('usarModelo sharing check skipped: ' + ((e && e.message) || e));
+    }
+    // Semilla para "lo más usado" (Fase 3.3): registro best-effort en Activity.
+    // No aparece en los feeds de tareas (filtran por taskIds reales).
+    try {
+      var ctx2 = _getAuthContext();
+      _logActivity(ctx2, did, 'modelo_usado', doc.tipoDocumento || '', '', doc.nombre || '');
+    } catch (e2) {}
+    return {
+      success: true,
+      mode: 'file',
+      url: doc.url || '',
+      downloadUrl: 'https://drive.google.com/uc?export=download&id=' + fileId,
+      // true solo si la lectura por dominio quedó asegurada — el front avisa
+      // "puede pedirte acceso" cuando es false (docs sensibles / sharing off).
+      shared: shared
+    };
+  }, { docId: docId });
 }
 
 function deleteBibliotecaDoc(id) {

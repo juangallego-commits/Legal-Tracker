@@ -11276,6 +11276,16 @@ function _rEdBibDocs(D) {
     var autorStr = d.autor ? 'Por ' + d.autor : 'Sin autor';
     var fechaStr = d.fecha ? ' · ' + _bibRelTime(d.fecha) : '';
 
+    // "Usar →": la acción estrella de los tipos reutilizables (modelos).
+    // Descarga una copia de trabajo (file) o abre el enlace (link), sin tocar
+    // el original. Solo en docs vigentes de tipo modelo.
+    var isModelo = _BIB_MODELO_TIPOS.indexOf(d.tipoDocumento) >= 0 && !noVig;
+    var usarBtn = isModelo
+      ? '<button type="button" class="pa-btn pa-btn-primary" style="height:22px;font-size:11px;padding:0 8px" '
+        + 'title="' + esc(t('Descarga una copia para trabajar — el original no se toca.')) + '" '
+        + 'onclick="event.stopPropagation();edBibUsarModelo(\'' + esc(escJs(String(d.id))) + '\')">' + esc(t('Usar')) + ' →</button>'
+      : '';
+
     html += '<div class="bib-card' + confCls + '" onclick="edBibDocOpen(\'' + esc(d.id) + '\')" role="button" tabindex="0" title="' + esc(d.nombre) + '">'
          +    '<div class="bib-card-h">'
          +      '<span class="bib-card-icon">' + paIcon('doc', 16) + '</span>'
@@ -11287,7 +11297,8 @@ function _rEdBibDocs(D) {
          +    chipsHtml
          +    '<div class="bib-card-f">'
          +      '<span class="author">' + esc(autorStr) + esc(fechaStr) + '</span>'
-         +      '<span class="open-hint">↗ Abrir</span>'
+         +      usarBtn
+         +      '<span class="open-hint">↗ ' + esc(t('Abrir')) + '</span>'
          +    '</div>'
          + '</div>';
   });
@@ -11297,6 +11308,42 @@ function _rEdBibDocs(D) {
 function edBibDocOpen(id) {
   var d = (_BIBDOCS_CACHE || []).filter(function(x){ return x.id === id; })[0];
   if (d && d.url) { try { window.open(d.url, '_blank'); } catch (e) {} }
+}
+// "Usar modelo": pide al backend cómo llevarse una copia de trabajo. file →
+// descarga directa (el original no se toca); link → abrir en pestaña nueva.
+// El backend valida rol/confidencialidad server-side (no confía en la UI).
+var _BIB_USAR_INFLIGHT = false;
+function edBibUsarModelo(id) {
+  if (_BIB_USAR_INFLIGHT) return; // double-click guard
+  _BIB_USAR_INFLIGHT = true;
+  toast(t('Preparando tu copia…'), 'info');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      _BIB_USAR_INFLIGHT = false;
+      if (!res || !res.success) {
+        toast(_friendlyError(res, t('No se pudo usar el modelo.')), 'error');
+        return;
+      }
+      var target = res.mode === 'file' ? res.downloadUrl : res.url;
+      if (!target || !/^https?:\/\//i.test(target)) {
+        toast(t('No se pudo usar el modelo.'), 'error');
+        return;
+      }
+      try { window.open(target, '_blank', 'noopener'); } catch (e) {}
+      if (res.mode === 'file') {
+        toast('⬇ ' + t('Descargando tu copia — el original no se toca.'), 'success');
+        if (!res.shared) {
+          // Doc sensible o sharing por dominio deshabilitado: el link puede
+          // pedir acceso. Avisar en vez de dejar al usuario ante un muro mudo.
+          toast(t('Si Drive te pide acceso, solicitálo ahí mismo (documento de circulación limitada).'), 'info');
+        }
+      }
+    })
+    .withFailureHandler(function(e) {
+      _BIB_USAR_INFLIGHT = false;
+      toast('Error: ' + (e && e.message || 'desconocido'), 'error');
+    })
+    .usarModelo(id);
 }
 function edBibDocDelete(id) {
   confirm_('¿Quitar este documento de la biblioteca? Si es un archivo, el original queda en Drive.', function() {
