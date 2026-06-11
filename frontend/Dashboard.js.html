@@ -2450,7 +2450,7 @@ function _tourStepsForRole(role) {
       body: '<p>La vista más usada. Arriba tenés filtros rápidos: <b>Activas</b> · Vencidas · Hoy · Bloqueadas · Cerradas.</p>'
           + '<p>Y dropdowns secundarios: <b>Proyecto</b> · <b>Responsable</b> · <b>Confidencialidad</b> · <b>Cliente</b> (área solicitante). Todos se acumulan y persisten entre sesiones.</p>'
           + '<p>En cada fila, los chips de <b>proyecto</b> y <b>cliente</b> (debajo del nombre) son clickeables → filtran el tracker al toque.</p>'
-          + '<p><kbd>↓</kbd>/<kbd>↑</kbd> navegan filas con teclado · <kbd>Enter</kbd> avanza el estado.</p>',
+          + '<p><kbd>↓</kbd>/<kbd>↑</kbd> navegan filas · <kbd>Enter</kbd> abre la tarea · <kbd>A</kbd> avanza el estado.</p>',
       action: { label: 'Ir al Tracker', fnCode: "edFinishTour();goEd('tracker')" },
       target: '.pa-sb-item[data-viewid="tracker"]'
     },
@@ -3301,7 +3301,8 @@ function edHelpOpen() {
     { title: t('Tracker'), items: [
       { keys: ['↓'], desc: t('Seleccionar la siguiente tarea') },
       { keys: ['↑'], desc: t('Seleccionar la tarea anterior') },
-      { keys: ['Enter'], desc: t('Avanzar la tarea seleccionada al siguiente estado') },
+      { keys: ['Enter'], desc: t('Abrir la tarea seleccionada') },
+      { keys: ['A'], desc: t('Avanzar la tarea seleccionada al siguiente estado') },
       { keys: ['Esc'], desc: t('Cerrar el panel de detalle') }
     ]},
     { title: t('Panel de detalle'), items: [
@@ -3368,7 +3369,7 @@ function _anyModalOpen() {
 }
 
 document.addEventListener('keydown', function(e) {
-  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter' && e.key !== 'Escape') return;
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter' && e.key !== 'Escape' && e.key !== 'a' && e.key !== 'A') return;
 
   var active = document.querySelector('.view.active');
   if (!active || active.id !== 'vEdTracker') return;
@@ -3404,7 +3405,28 @@ document.addEventListener('keydown', function(e) {
     return;
   }
 
+  // Enter ABRE la tarea (no la muta): convención universal de tablas (Ley de
+  // Jakob — Linear/Notion/Gmail). Antes Enter abría el modal de AVANZAR
+  // estado: iniciar una mutación con la tecla de "abrir" era un mismatch
+  // mental. Avanzar ahora es la tecla A (la que el README siempre prometió).
   if (e.key === 'Enter') {
+    if (typeof EDT === 'undefined') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (EDT.selectedId == null) {
+      // Sin selección: abrir la primera fila visible.
+      var firstRow = document.querySelector('#vEdTracker .pa-tbl-r[data-task-id]');
+      if (firstRow && firstRow.dataset.taskId) {
+        EDT.selectedId = firstRow.dataset.taskId;
+        if (D && typeof rEdTracker === 'function') rEdTracker(D);
+      }
+    }
+    // Con selección, el panel ya está abierto (seleccionar = abrir) — no-op.
+    return;
+  }
+
+  // A → avanzar el estado de la tarea seleccionada (acción deliberada).
+  if (e.key === 'a' || e.key === 'A') {
     if (typeof EDT !== 'undefined' && EDT.selectedId != null && typeof edUOpen === 'function') {
       e.preventDefault();
       e.stopImmediatePropagation();
