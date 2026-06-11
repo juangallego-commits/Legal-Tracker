@@ -2233,17 +2233,24 @@ function _badgeFor(itemId, role) {
   if (!D || !D.tasks) return null;
   var userName = _effectiveUserName();
   var userCode = _effectiveUserCode();
+  // Regla de producto: el badge muestra EXACTAMENTE lo que la vista lista al
+  // abrirla con su filtro default para el rol efectivo. Antes Tracker contaba
+  // el snapshot entero para specialist (sin su corte de rol), Cerradas contaba
+  // todo el Historial y Proyectos contaba todos los estados — tres números que
+  // no coincidían con sus vistas y minaban la confianza en los datos.
   if (itemId === 'mistareas') {
     return D.tasks.filter(function(t){ return t.resp === userName && t.status !== 'Listo'; }).length || null;
   }
   if (itemId === 'tracker') {
-    var visible = D.tasks.filter(function(t){ return t.status !== 'Listo'; });
-    if (role === 'manager') visible = visible.filter(function(t){ return (t.pais || '') === userCode; });
-    return visible.length || null;
+    return _edRoleScopeTasks(D.tasks, role, userName, userCode)
+      .filter(function(t){ return t.status !== 'Listo'; }).length || null;
   }
-  if (itemId === 'proyectos') return (D.projects || []).length || null;
+  if (itemId === 'proyectos') {
+    // La vista abre en el tab "Activos" (Activo + En pausa).
+    return (D.projects || []).filter(function(p){ return p.status === 'Activo' || p.status === 'En pausa'; }).length || null;
+  }
   if (itemId === 'paises')    return (D.countries || []).length || null;
-  if (itemId === 'historial') return (D.historial || []).length || null;
+  if (itemId === 'historial') return _edRoleScopeTasks((D.historial || []), role, userName, userCode).length || null;
   // Biblioteca: badge de propuestas pendientes de aprobar (solo para quienes
   // aprueban — manager/head). Para specialist no es accionable.
   if (itemId === 'plantillas') return (role !== 'specialist' && D.templatesPending) ? D.templatesPending : null;
@@ -2294,10 +2301,10 @@ function renderEdSidebar(role, activeViewId) {
       if ((it.id === 'tracker' || it.id === 'mistareas' || it.id === 'agrupadas') && D && D.tasks) {
         var userN = _effectiveUserName();
         var userC = _effectiveUserCode();
-        alert = D.tasks.some(function(t) {
+        // El dot de alerta sigue el mismo scope que el badge (rol efectivo).
+        alert = _edRoleScopeTasks(D.tasks, navRole, userN, userC).some(function(t) {
           if (!(typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo')) return false;
           if (it.id === 'mistareas') return t.resp === userN;
-          if (navRole === 'manager') return (t.pais || '') === userC;
           return true;
         });
       }
@@ -4188,15 +4195,22 @@ function _etaTextFromDays(d) {
   return paEtaText(d);
 }
 
+// Corte de ROL puro (sin el drill-down de país del head): qué tareas le
+// pertenecen al scope del rol efectivo. Única fuente para la vista del
+// tracker (vía _edFilterByRole) y para los badges del sidebar — la regla de
+// producto es "el badge muestra el mismo número que la vista al abrirla".
+function _edRoleScopeTasks(tasks, role, userName, userCode) {
+  if (role === 'specialist') return tasks.filter(function(t){ return t.resp === userName || _isSharedWithMe(t); });
+  if (role === 'manager')    return tasks.filter(function(t){ return (t.pais || '') === userCode || _isSharedWithMe(t); });
+  return tasks;
+}
+
 function _edFilterByRole(tasks, role, userName, userCode) {
   // Specialist: solo sus tareas. Manager: su país. Head: todo.
   // Las tareas compartidas conmigo (soy colaborador, no responsable) pasan el
   // corte aunque no cumplan la regla de rol: el backend ya decidió mandarlas
   // en D.tasks; sin esto el chip/filtro "Compartidas" quedaba siempre vacío.
-  var visible;
-  if (role === 'specialist')      visible = tasks.filter(function(t){ return t.resp === userName || _isSharedWithMe(t); });
-  else if (role === 'manager')    visible = tasks.filter(function(t){ return (t.pais || '') === userCode || _isSharedWithMe(t); });
-  else                            visible = tasks;
+  var visible = _edRoleScopeTasks(tasks, role, userName, userCode);
   // Filtro por país desde HQ (sólo aplicable cuando el rol no lo restringe ya)
   if (EDT.country) {
     visible = visible.filter(function(t){ return (t.pais || '') === EDT.country; });
