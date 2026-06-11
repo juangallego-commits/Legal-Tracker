@@ -10773,8 +10773,12 @@ function edPltUseTemplate(tipo) {
   }, 80);
 }
 function rEdPlantillas(D) {
-  if (EDBIB_TAB === 'documentos') return _rEdBibDocs(D);
-  return _rEdBibPlantillas(D);
+  // Biblioteca = vista única de Documentos. La pestaña "Plantillas" (checklists
+  // por tipo de trabajo) se retiró de la UI: confundía con Documentos y el
+  // estante de modelos es lo que el equipo realmente necesita. El motor de
+  // checklists del backend queda dormido (recuperable); el panel de tarea
+  // sigue renderizando listas "- ítem" manuales.
+  return _rEdBibDocs(D);
 }
 function _rEdBibPlantillas(D) {
   var v = $('vEdPlantillas'); if (!v) return;
@@ -11033,13 +11037,16 @@ function edPltDelete(tipo, estado) {
 var _BIBDOCS_CACHE = null;
 var _BIB_CONFIG = null;          // vocabularios + país/rol del usuario (del backend)
 var _BIB_PENDING_FILE = null;    // archivo elegido, en espera de clasificar antes de subir
+// Tipos de documento "reutilizables" = lo que el equipo llama modelos. El chip
+// "Modelos" filtra a este subconjunto (filtro client-side, sin columna nueva).
+var _BIB_MODELO_TIPOS = ['Contrato modelo', 'Poder', 'Minuta', 'Política', 'Formato / Checklist'];
 var _BIB_FILTERS = (function() {
   try { var s = JSON.parse(localStorage.getItem('lt_bib_filters') || '{}');
-    return { tipoDoc: s.tipoDoc || '', area: s.area || '', pais: s.pais || '', cliente: s.cliente || '', soloVigentes: s.soloVigentes !== false, query: '' };
-  } catch (e) { return { tipoDoc: '', area: '', pais: '', cliente: '', soloVigentes: true, query: '' }; }
+    return { tipoDoc: s.tipoDoc || '', area: s.area || '', pais: s.pais || '', cliente: s.cliente || '', soloVigentes: s.soloVigentes !== false, modelos: !!s.modelos, query: '' };
+  } catch (e) { return { tipoDoc: '', area: '', pais: '', cliente: '', soloVigentes: true, modelos: false, query: '' }; }
 })();
 function _bibPersistFilters() {
-  try { localStorage.setItem('lt_bib_filters', JSON.stringify({ tipoDoc: _BIB_FILTERS.tipoDoc, area: _BIB_FILTERS.area, pais: _BIB_FILTERS.pais, cliente: _BIB_FILTERS.cliente, soloVigentes: _BIB_FILTERS.soloVigentes })); } catch (e) {}
+  try { localStorage.setItem('lt_bib_filters', JSON.stringify({ tipoDoc: _BIB_FILTERS.tipoDoc, area: _BIB_FILTERS.area, pais: _BIB_FILTERS.pais, cliente: _BIB_FILTERS.cliente, soloVigentes: _BIB_FILTERS.soloVigentes, modelos: _BIB_FILTERS.modelos })); } catch (e) {}
 }
 function _bibConfLabel(lvl) {
   return lvl === 'confidencial' ? 'Altamente confidencial' : (lvl === 'restringido' ? 'Confidencial' : 'Normal');
@@ -11084,6 +11091,7 @@ function _bibApplyFilters(docs) {
   var f = _BIB_FILTERS;
   var q = (f.query || '').toString().trim().toLowerCase();
   var out = docs.filter(function(d) {
+    if (f.modelos && _BIB_MODELO_TIPOS.indexOf(d.tipoDocumento) < 0) return false;
     if (f.tipoDoc && d.tipoDocumento !== f.tipoDoc) return false;
     if (f.area && d.areaTrabajo !== f.area) return false;
     if (f.pais && d.pais !== f.pais) return false;
@@ -11105,6 +11113,7 @@ function _bibApplyFilters(docs) {
 }
 function _bibSetFacet(key, val) { _BIB_FILTERS[key] = val; _bibPersistFilters(); _rEdBibDocs(D); }
 function _bibSetVigentes(checked) { _BIB_FILTERS.soloVigentes = !!checked; _bibPersistFilters(); _rEdBibDocs(D); }
+function _bibToggleModelos() { _BIB_FILTERS.modelos = !_BIB_FILTERS.modelos; _bibPersistFilters(); _rEdBibDocs(D); }
 // Escribir en el buscador vuelve a modo substring (limpia la búsqueda IA).
 function _bibLocalSearch(q) { _BIB_SEMANTIC = null; _BIB_FILTERS.query = q || ''; _rEdBibDocs(D); }
 // Búsqueda semántica: embeddea el query y rankea por significado, no substring.
@@ -11135,7 +11144,7 @@ function _bibFacetSelect(key, label, options, current) {
 function _rEdBibDocs(D) {
   var v = $('vEdPlantillas'); if (!v) return;
   if (_BIBDOCS_CACHE == null || _BIB_CONFIG == null) {
-    v.innerHTML = '<div class="pa-page">' + _bibSubnav('documentos') + ltSkeleton(5) + '</div>';
+    v.innerHTML = '<div class="pa-page">' + ltSkeleton(5) + '</div>';
     _loadBibConfig(function() { _loadBibDocs(function() { _rEdBibDocs(D); }); });
     return;
   }
@@ -11147,28 +11156,27 @@ function _rEdBibDocs(D) {
   var all = (_BIBDOCS_CACHE || []).slice().sort(function(a, b){ return (b.fecha || '').localeCompare(a.fecha || ''); });
   var docs = _bibApplyFilters(all);
 
-  // Jerarquía: título primero, tabs después (mismo patrón que Proyectos) —
-  // el subnav arriba del H1 invertía la jerarquía visual de la página.
+  // Biblioteca = vista única (sin pestañas). El estante de modelos + documentos
+  // de referencia es lo central; el chip "Modelos" pre-filtra a lo reutilizable.
   var html = '<div class="pa-page">';
   html += '<div class="pa-page-h">'
-       +    '<span class="pa-page-title">Biblioteca</span>'
-       +    '<span class="pa-page-sub">' + docs.length + (docs.length === all.length ? '' : ' de ' + all.length) + ' documento' + (all.length === 1 ? '' : 's') + '</span>'
+       +    '<span class="pa-page-title">' + esc(t('Biblioteca')) + '</span>'
+       +    '<span class="pa-page-sub">' + docs.length + (docs.length === all.length ? '' : ' de ' + all.length) + ' ' + esc(all.length === 1 ? t('documento') : t('documentos')) + '</span>'
        +    '<div class="pa-page-meta" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
-       +      '<input type="text" class="cr-input" placeholder="Buscar en biblioteca…" value="' + esc(_BIB_FILTERS.query || '') + '" style="width:190px;height:30px;font-size:12px" oninput="_bibLocalSearch(this.value)">'
-       +      '<button class="pa-btn pa-btn-outline" style="height:30px;font-size:12px" title="Búsqueda semántica: encuentra por significado, no por palabra exacta" onclick="edBibSemanticSearch()">✨ IA</button>'
-       +      '<button class="pa-btn pa-btn-outline" onclick="edBibDocLinkOpen()">' + paIcon('doc', 12) + ' Agregar enlace</button>'
-       +      '<button class="pa-btn pa-btn-primary" onclick="var i=$(\'bibDocFileInput\'); if(i) i.click();">' + paIcon('plus', 12) + ' Subir archivo</button>'
+       +      '<input type="text" class="cr-input" placeholder="' + esc(t('Buscar en biblioteca…')) + '" value="' + esc(_BIB_FILTERS.query || '') + '" style="width:190px;height:30px;font-size:12px" oninput="_bibLocalSearch(this.value)">'
+       +      '<button class="pa-btn pa-btn-outline" style="height:30px;font-size:12px" title="' + esc(t('Búsqueda semántica: encuentra por significado, no por palabra exacta')) + '" onclick="edBibSemanticSearch()">✨ IA</button>'
+       +      '<button class="pa-btn pa-btn-outline" onclick="edBibDocLinkOpen()">' + paIcon('doc', 12) + ' ' + esc(t('Agregar enlace')) + '</button>'
+       +      '<button class="pa-btn pa-btn-primary" onclick="var i=$(\'bibDocFileInput\'); if(i) i.click();">' + paIcon('plus', 12) + ' ' + esc(t('Subir archivo')) + '</button>'
        +      '<input type="file" id="bibDocFileInput" style="display:none" onchange="edBibDocUpload(this)">'
        +    '</div>'
        + '</div>';
-  html += _bibSubnav('documentos');
   if (_BIB_SEMANTIC) {
     html += '<div class="pa-narrative" style="border-left:3px solid var(--accent);padding-left:10px;margin-bottom:12px;display:flex;align-items:center;gap:8px">'
          +    '<span>✨ <b>Búsqueda IA</b> por significado · ' + docs.length + ' resultado' + (docs.length === 1 ? '' : 's') + ' para "' + esc(_BIB_FILTERS.query || '') + '"</span>'
          +    '<button class="pa-btn pa-btn-ghost" style="height:22px;font-size:11px;margin-left:auto" onclick="edBibClearSemantic()">Limpiar IA</button>'
          + '</div>';
   } else {
-    html += '<div class="pa-narrative">Centro de conocimiento legal del equipo. Clasificá cada documento por tipo, área, país y confidencialidad para que el equipo lo encuentre. Probá <b>✨ IA</b> para buscar por significado.</div>';
+    html += '<div class="pa-narrative">' + esc(t('Modelos aprobados y documentos de referencia del equipo. Filtrá por tipo, área o país — o usá ✨ IA para buscar por significado.')) + '</div>';
   }
 
   var sinClasificar = all.filter(function(d){ return d.tipoDocumento === 'Otro'; });
@@ -11178,8 +11186,10 @@ function _rEdBibDocs(D) {
          + '</div>';
   }
 
-  // Filtros por facetas
+  // Filtros por facetas. El chip "Modelos" va primero y destacado: es el
+  // atajo al subconjunto reutilizable (contrato modelo, poder, minuta…).
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px">'
+       +    '<button class="pa-chip' + (_BIB_FILTERS.modelos ? ' is-active' : '') + '" onclick="_bibToggleModelos()" title="' + esc(t('Solo modelos reutilizables')) + '">' + paIcon('doc', 11) + ' ' + esc(t('Modelos')) + '</button>'
        +    _bibFacetSelect('tipoDoc', 'Tipo', cfg.tiposDocumento, _BIB_FILTERS.tipoDoc)
        +    _bibFacetSelect('area', 'Área', cfg.areas, _BIB_FILTERS.area)
        +    _bibFacetSelect('pais', 'País', cfg.paises, _BIB_FILTERS.pais)
