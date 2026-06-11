@@ -7786,7 +7786,11 @@ function _crCountries() {
 // Display label de un country code: "HQ" → "Global", otros se muestran tal cual.
 function paCountryLabel(code) {
   if (!code) return '';
-  return code === 'HQ' ? 'Global' : code;
+  // Codes de equipos no-país: HQ (head global) y COMP (equipo Compliance,
+  // global, transversal a países). El resto son ISO de país y se muestran tal cual.
+  if (code === 'HQ') return 'Global';
+  if (code === 'COMP') return 'Compliance';
+  return code;
 }
 
 function _crResponsables() {
@@ -11414,7 +11418,10 @@ function _bibModalOpen(mode, doc) {
     }
     fields += _bibSelectField('bibTipoDoc', 'Tipo de documento', cfg.tiposDocumento, d.tipoDocumento || '', true);
     fields += _bibSelectField('bibArea', 'Área de trabajo', cfg.areas, d.areaTrabajo || '', true);
-    fields += _bibSelectField('bibPais', 'País', cfg.paises, d.pais || cfg.userCountry || 'CO', true);
+    // Equipos no-país (COMP/HQ): su code no existe en el vocabulario de países
+    // de Biblioteca → preseleccionar 'Global' (sus docs son transversales).
+    var _bibPaisDefault = (cfg.paises || []).indexOf(cfg.userCountry) >= 0 ? cfg.userCountry : 'Global';
+    fields += _bibSelectField('bibPais', 'País', cfg.paises, d.pais || _bibPaisDefault, true);
     fields += _bibClienteSelect(d.areaSolicitante, cfg.clientesInternos);
     fields += confSel;
     fields += '<div class="cr-field"><div class="cr-label">Tags</div><input id="bibTags" class="cr-input" maxlength="200" value="' + esc(d.tags || '') + '" placeholder="ej: farmacias, ads, mundial"></div>';
@@ -11959,6 +11966,21 @@ function _recRenderIntegracionesTab(v) {
 // Filtro por estado de la pestaña integraciones → re-render.
 function edRecursoSetIntFilter(estado) { _INTEGRACIONES_FILTER = estado; rEdRecursos(D); }
 
+// Select de "Área" del recurso: usa la MISMA lista de clientes internos /
+// áreas que tareas y biblioteca (Config!ClientesInternos vía _clientesInternos)
+// en vez del input libre que generaba valores inconsistentes ("Tax" vs "tax"
+// vs "Impuestos"). Preserva un valor legacy que ya no esté en la lista.
+function _recAreaSelect(current) {
+  var sel = (current || '').toString().trim(), found = false;
+  var opts = '<option value=""' + (!sel ? ' selected' : '') + '>' + esc(t('Sin definir')) + '</option>';
+  _clientesInternos().forEach(function(c) {
+    var on = (c === sel); if (on) found = true;
+    opts += '<option value="' + esc(c) + '"' + (on ? ' selected' : '') + '>' + esc(c) + '</option>';
+  });
+  if (sel && !found) opts += '<option value="' + esc(sel) + '" selected>' + esc(sel) + '</option>';
+  return '<select id="recArea" class="cr-input">' + opts + '</select>';
+}
+
 // HTML del form de alta/edición. En modo edición (_RECURSOS_EDIT_ID) viene
 // prefilled con el recurso del cache y el botón llama a edRecursoSave().
 function _recursoFormHtml() {
@@ -11999,8 +12021,7 @@ function _recursoFormHtml() {
        +      '<div class="cr-field"><div class="cr-label">' + esc(t('Tipo')) + '</div>' + pills + '</div>'
        +      '<div class="cr-field"><div class="cr-label">' + esc(t('Etiquetas (separadas por coma)')) + '</div>'
        +        '<input id="recTags" class="cr-input" maxlength="240" placeholder="' + esc(t('ej: contratos, ia, plantilla')) + '" value="' + esc(val.tags) + '"></div>'
-       +      '<div class="cr-field"><div class="cr-label">' + esc(t('Área')) + '</div>'
-       +        '<input id="recArea" class="cr-input" maxlength="80" placeholder="' + esc(t('Área (opcional)')) + '" value="' + esc(val.area) + '"></div>'
+       +      '<div class="cr-field"><div class="cr-label">' + esc(t('Área')) + '</div>' + _recAreaSelect(val.area) + '</div>'
        +      '<div class="cr-field"><div class="cr-label">' + esc(t('Categoría')) + '</div>'
        +        '<input id="recCategoria" class="cr-input" maxlength="80" placeholder="' + esc(t('ej: Guías legales / AI')) + '" value="' + esc(val.categoria) + '"></div>'
        +      '<div class="cr-field"><div class="cr-label">' + esc(t('Descripción')) + '</div>'
