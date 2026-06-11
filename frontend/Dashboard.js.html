@@ -2233,17 +2233,24 @@ function _badgeFor(itemId, role) {
   if (!D || !D.tasks) return null;
   var userName = _effectiveUserName();
   var userCode = _effectiveUserCode();
+  // Regla de producto: el badge muestra EXACTAMENTE lo que la vista lista al
+  // abrirla con su filtro default para el rol efectivo. Antes Tracker contaba
+  // el snapshot entero para specialist (sin su corte de rol), Cerradas contaba
+  // todo el Historial y Proyectos contaba todos los estados — tres números que
+  // no coincidían con sus vistas y minaban la confianza en los datos.
   if (itemId === 'mistareas') {
     return D.tasks.filter(function(t){ return t.resp === userName && t.status !== 'Listo'; }).length || null;
   }
   if (itemId === 'tracker') {
-    var visible = D.tasks.filter(function(t){ return t.status !== 'Listo'; });
-    if (role === 'manager') visible = visible.filter(function(t){ return (t.pais || '') === userCode; });
-    return visible.length || null;
+    return _edRoleScopeTasks(D.tasks, role, userName, userCode)
+      .filter(function(t){ return t.status !== 'Listo'; }).length || null;
   }
-  if (itemId === 'proyectos') return (D.projects || []).length || null;
+  if (itemId === 'proyectos') {
+    // La vista abre en el tab "Activos" (Activo + En pausa).
+    return (D.projects || []).filter(function(p){ return p.status === 'Activo' || p.status === 'En pausa'; }).length || null;
+  }
   if (itemId === 'paises')    return (D.countries || []).length || null;
-  if (itemId === 'historial') return (D.historial || []).length || null;
+  if (itemId === 'historial') return _edRoleScopeTasks((D.historial || []), role, userName, userCode).length || null;
   // Biblioteca: badge de propuestas pendientes de aprobar (solo para quienes
   // aprueban — manager/head). Para specialist no es accionable.
   if (itemId === 'plantillas') return (role !== 'specialist' && D.templatesPending) ? D.templatesPending : null;
@@ -2294,10 +2301,10 @@ function renderEdSidebar(role, activeViewId) {
       if ((it.id === 'tracker' || it.id === 'mistareas' || it.id === 'agrupadas') && D && D.tasks) {
         var userN = _effectiveUserName();
         var userC = _effectiveUserCode();
-        alert = D.tasks.some(function(t) {
+        // El dot de alerta sigue el mismo scope que el badge (rol efectivo).
+        alert = _edRoleScopeTasks(D.tasks, navRole, userN, userC).some(function(t) {
           if (!(typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo')) return false;
           if (it.id === 'mistareas') return t.resp === userN;
-          if (navRole === 'manager') return (t.pais || '') === userC;
           return true;
         });
       }
@@ -2443,7 +2450,7 @@ function _tourStepsForRole(role) {
       body: '<p>La vista más usada. Arriba tenés filtros rápidos: <b>Activas</b> · Vencidas · Hoy · Bloqueadas · Cerradas.</p>'
           + '<p>Y dropdowns secundarios: <b>Proyecto</b> · <b>Responsable</b> · <b>Confidencialidad</b> · <b>Cliente</b> (área solicitante). Todos se acumulan y persisten entre sesiones.</p>'
           + '<p>En cada fila, los chips de <b>proyecto</b> y <b>cliente</b> (debajo del nombre) son clickeables → filtran el tracker al toque.</p>'
-          + '<p><kbd>↓</kbd>/<kbd>↑</kbd> navegan filas con teclado · <kbd>Enter</kbd> avanza el estado.</p>',
+          + '<p><kbd>↓</kbd>/<kbd>↑</kbd> navegan filas · <kbd>Enter</kbd> abre la tarea · <kbd>A</kbd> avanza el estado.</p>',
       action: { label: 'Ir al Tracker', fnCode: "edFinishTour();goEd('tracker')" },
       target: '.pa-sb-item[data-viewid="tracker"]'
     },
@@ -3294,7 +3301,8 @@ function edHelpOpen() {
     { title: t('Tracker'), items: [
       { keys: ['↓'], desc: t('Seleccionar la siguiente tarea') },
       { keys: ['↑'], desc: t('Seleccionar la tarea anterior') },
-      { keys: ['Enter'], desc: t('Avanzar la tarea seleccionada al siguiente estado') },
+      { keys: ['Enter'], desc: t('Abrir la tarea seleccionada') },
+      { keys: ['A'], desc: t('Avanzar la tarea seleccionada al siguiente estado') },
       { keys: ['Esc'], desc: t('Cerrar el panel de detalle') }
     ]},
     { title: t('Panel de detalle'), items: [
@@ -3361,7 +3369,7 @@ function _anyModalOpen() {
 }
 
 document.addEventListener('keydown', function(e) {
-  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter' && e.key !== 'Escape') return;
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter' && e.key !== 'Escape' && e.key !== 'a' && e.key !== 'A') return;
 
   var active = document.querySelector('.view.active');
   if (!active || active.id !== 'vEdTracker') return;
@@ -3397,7 +3405,28 @@ document.addEventListener('keydown', function(e) {
     return;
   }
 
+  // Enter ABRE la tarea (no la muta): convención universal de tablas (Ley de
+  // Jakob — Linear/Notion/Gmail). Antes Enter abría el modal de AVANZAR
+  // estado: iniciar una mutación con la tecla de "abrir" era un mismatch
+  // mental. Avanzar ahora es la tecla A (la que el README siempre prometió).
   if (e.key === 'Enter') {
+    if (typeof EDT === 'undefined') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (EDT.selectedId == null) {
+      // Sin selección: abrir la primera fila visible.
+      var firstRow = document.querySelector('#vEdTracker .pa-tbl-r[data-task-id]');
+      if (firstRow && firstRow.dataset.taskId) {
+        EDT.selectedId = firstRow.dataset.taskId;
+        if (D && typeof rEdTracker === 'function') rEdTracker(D);
+      }
+    }
+    // Con selección, el panel ya está abierto (seleccionar = abrir) — no-op.
+    return;
+  }
+
+  // A → avanzar el estado de la tarea seleccionada (acción deliberada).
+  if (e.key === 'a' || e.key === 'A') {
     if (typeof EDT !== 'undefined' && EDT.selectedId != null && typeof edUOpen === 'function') {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -3546,15 +3575,17 @@ function rEdHomeSpecialist(D) {
   var thisWeek  = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= ED_WEEK_DAYS; }).length;
   var blocked   = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
-  // Top 4 ordenadas por urgencia
-  var top = tasks.slice().sort(function(a, b) {
-    var aBlk = a.status === 'Bloqueado' ? -1 : 0;
-    var bBlk = b.status === 'Bloqueado' ? -1 : 0;
-    if (aBlk !== bBlk) return aBlk - bBlk;
-    var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
-    var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
-    return ad - bd;
-  }).slice(0, 4);
+  // "Tu próxima tarea" se elige SOLO entre accionables: una bloqueada, por
+  // definición, no se puede cerrar hoy — antes el sort las ponía PRIMERAS y
+  // el hero ofrecía "Trabajar en esta tarea →" sobre algo que está esperando
+  // a un tercero, mientras las que vencen hoy quedaban tapadas. Las
+  // bloqueadas tienen su propia línea clickeable bajo el hero.
+  var top = tasks.filter(function(t){ return t.status !== 'Bloqueado'; })
+    .sort(function(a, b) {
+      var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
+      var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
+      return ad - bd;
+    }).slice(0, 4);
 
   var html = '<div class="pa-page">';
 
@@ -3651,6 +3682,28 @@ function rEdHomeSpecialist(D) {
            +    '<button class="pa-btn pa-btn-ghost" style="font-size:12px" onclick="goEd(\'agrupadas\')">' + (tasks.length - 1) + ' ' + esc(LANG === 'pt' ? 'mais pendentes →' : 'pendientes más →') + '</button>'
            + '</div>';
     }
+  }
+
+  // Bloqueadas: línea aparte, clickeable → tracker filtrado por On hold.
+  // Fuera del hero (no son accionables hoy) pero nunca invisibles.
+  if (blocked > 0) {
+    html += '<div class="pa-card" style="margin-top:10px;padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg-2)" onclick="edGoTrackerFiltered(\'blocked\')">'
+         +    '<span>⏸</span>'
+         +    '<span>' + blocked + ' ' + esc(blocked === 1 ? t('bloqueada — revisá si ya se destrabó') : t('bloqueadas — revisá si alguna ya se destrabó')) + '</span>'
+         +    '<span style="margin-left:auto;color:var(--fg-3)">→</span>'
+         + '</div>';
+  }
+
+  // Sin plazo: el sistema sabe que falta el dato — decirlo (Nielsen #1).
+  // Una tarea sin deadline cae al fondo de todos los órdenes y desaparece
+  // del radar; esta línea la trae de vuelta. Click → tracker filtrado.
+  var noDateMine = tasks.filter(function(t){ return t.etaDays == null; }).length;
+  if (noDateMine > 0) {
+    html += '<div class="pa-card" style="margin-top:8px;padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--warn-fg)" onclick="edGoTrackerFiltered(\'nodate\')">'
+         +    '<span>📅</span>'
+         +    '<span>' + noDateMine + ' ' + esc(noDateMine === 1 ? t('tarea tuya no tiene plazo definido') : t('tareas tuyas no tienen plazo definido')) + '</span>'
+         +    '<span style="margin-left:auto;color:var(--fg-3)">→</span>'
+         + '</div>';
   }
 
   // Grid 2 cols: month + projects
@@ -4188,15 +4241,22 @@ function _etaTextFromDays(d) {
   return paEtaText(d);
 }
 
+// Corte de ROL puro (sin el drill-down de país del head): qué tareas le
+// pertenecen al scope del rol efectivo. Única fuente para la vista del
+// tracker (vía _edFilterByRole) y para los badges del sidebar — la regla de
+// producto es "el badge muestra el mismo número que la vista al abrirla".
+function _edRoleScopeTasks(tasks, role, userName, userCode) {
+  if (role === 'specialist') return tasks.filter(function(t){ return t.resp === userName || _isSharedWithMe(t); });
+  if (role === 'manager')    return tasks.filter(function(t){ return (t.pais || '') === userCode || _isSharedWithMe(t); });
+  return tasks;
+}
+
 function _edFilterByRole(tasks, role, userName, userCode) {
   // Specialist: solo sus tareas. Manager: su país. Head: todo.
   // Las tareas compartidas conmigo (soy colaborador, no responsable) pasan el
   // corte aunque no cumplan la regla de rol: el backend ya decidió mandarlas
   // en D.tasks; sin esto el chip/filtro "Compartidas" quedaba siempre vacío.
-  var visible;
-  if (role === 'specialist')      visible = tasks.filter(function(t){ return t.resp === userName || _isSharedWithMe(t); });
-  else if (role === 'manager')    visible = tasks.filter(function(t){ return (t.pais || '') === userCode || _isSharedWithMe(t); });
-  else                            visible = tasks;
+  var visible = _edRoleScopeTasks(tasks, role, userName, userCode);
   // Filtro por país desde HQ (sólo aplicable cuando el rol no lo restringe ya)
   if (EDT.country) {
     visible = visible.filter(function(t){ return (t.pais || '') === EDT.country; });
@@ -4238,6 +4298,9 @@ function _edApplyFilter(tasks, filter) {
   // 'shared': tareas donde soy colaborador (ver/editar) y NO el responsable.
   // El backend ya las incluye en D.tasks; acá solo aislamos esa porción.
   if (filter === 'shared')  return tasks.filter(function(t){ return _isSharedWithMe(t) && t.status !== 'Listo'; });
+  // 'nodate': activas sin deadline (etaDays null) — el chip solo aparece
+  // cuando existen; el link del home también llega acá.
+  if (filter === 'nodate')  return tasks.filter(function(t){ return t.etaDays == null && t.status !== 'Listo'; });
   // 'closed': la fuente ya es el historial completo (rEdTracker cambia de
   // D.tasks a roleHist). No re-filtrar por status: una Cancelada también vive
   // en Historial y el chip "Cerradas" cuenta roleHist.length — deben coincidir.
@@ -4398,6 +4461,11 @@ function _edNextUrgent() {
   var roleTasks = _edFilterByRole(D.tasks, role, userName, userCode);
   var filtered = (typeof _edApplyFilter === 'function') ? _edApplyFilter(roleTasks, EDT.filter) : roleTasks;
   filtered = (typeof _edApplySearch === 'function') ? _edApplySearch(filtered, EDT.search) : filtered;
+  // No auto-ofrecer una bloqueada como "siguiente": no se puede trabajar en
+  // ella (salvo que el usuario esté justamente filtrando por bloqueadas).
+  if (EDT.filter !== 'blocked') {
+    filtered = filtered.filter(function(t){ return t.status !== 'Bloqueado'; });
+  }
   var sorted = (typeof _edSortByUrgency === 'function') ? _edSortByUrgency(filtered) : filtered;
   return sorted[0] || null;
 }
@@ -6257,6 +6325,7 @@ function rEdTracker(D) {
   var cMine     = roleTasks.filter(function(t){ return t.resp === userName && t.status !== 'Listo'; }).length;
   var cShared   = roleTasks.filter(function(t){ return _isSharedWithMe(t) && t.status !== 'Listo'; }).length;
   var cAlta     = roleTasks.filter(function(t){ return t.priority === 'Alta' && t.status !== 'Listo'; }).length;
+  var cNoDate   = roleTasks.filter(function(t){ return t.etaDays == null && t.status !== 'Listo'; }).length;
 
   // Cuando el filtro es 'closed', la fuente de tareas es el historial (las que
   // ya fueron movidas al sheet Historial). Sino, la fuente es D.tasks (activas).
@@ -6324,6 +6393,7 @@ function rEdTracker(D) {
        +    '<div class="pa-chip-divider"></div>'
        +    (role !== 'specialist' ? chip('mine', t('Asignadas a mí'), cMine, null, EDT.filter === 'mine') : '')
        +    ((cShared > 0 || EDT.filter === 'shared') ? chip('shared', t('Compartidas conmigo'), cShared, 'info', EDT.filter === 'shared') : '')
+       +    ((cNoDate > 0 || EDT.filter === 'nodate') ? chip('nodate', t('Sin plazo'), cNoDate, 'warn', EDT.filter === 'nodate') : '')
        +    chip('closed',  t('Cerradas'),        cClosed,  null,       EDT.filter === 'closed')
        +    '<div style="margin-left:auto;display:flex;gap:6px;align-items:center">'
        +      '<div class="pa-search" style="width:220px">'
@@ -6624,7 +6694,17 @@ function _edTkRowHtml(tk, role, sel) {
   }
   // Preferir el cálculo local (traducible vía t()) cuando etaDays es numérico;
   // tk.eta del server viene pre-armado en español y no pasa por i18n.
-  var etaTxt = (typeof tk.etaDays === 'number') ? paEtaText(tk.etaDays) : (tk.eta || '—');
+  // Sin deadline (etaDays null) en una tarea activa: chip "Sin plazo" en vez
+  // del '—' invisible — en legal, una tarea sin plazo que sale del radar es
+  // justo el riesgo que la app existe para evitar (el dato falta y se dice).
+  var etaCell;
+  if (typeof tk.etaDays === 'number') {
+    etaCell = esc(paEtaText(tk.etaDays));
+  } else if (tk.status !== 'Listo' && tk.status !== 'Cancelado') {
+    etaCell = '<span class="pa-pill pa-pill-warn" style="height:18px;font-size:10px">' + esc(t('Sin plazo')) + '</span>';
+  } else {
+    etaCell = esc(tk.eta || '—');
+  }
   var isSel = sel && sel.id == tk.id;
   var isChecked = (EDT.selectedIds || []).indexOf(String(tk.id)) >= 0;
   var cfLvl = _confLevel(tk);
@@ -6649,7 +6729,7 @@ function _edTkRowHtml(tk, role, sel) {
   }
   h += paPriorityPill(tk.priority)
     +  paStatusPill(tk.status)
-    +  '<span class="eta' + (tk.etaDays != null && tk.etaDays < 0 ? ' overdue' : '') + '">' + esc(etaTxt) + '</span>'
+    +  '<span class="eta' + (tk.etaDays != null && tk.etaDays < 0 ? ' overdue' : '') + '">' + etaCell + '</span>'
     + '</div>';
   return h;
 }
@@ -8079,47 +8159,54 @@ function edCrearSubmit() {
   if (!v.titulo || !v.titulo.trim()) { toast('Falta el título', 'error'); return; }
   if (!v.resp) { toast('Falta el responsable', 'error'); return; }
   if (!v.pais) { toast('Falta el país', 'error'); return; }
-  var btn = $('crSubmit'); if (btn) btn.disabled = true;
-  if (typeof showLoader === 'function') showLoader();
-  toast('Creando tarea…', 'info');
-  console.log('[create-task] payload', v);
+  var payload = {
+    nombre: v.titulo.trim(),
+    proyectoId: v.proyectoId || '',
+    pais: v.pais || '',
+    priority: v.prioridad || 'Media',
+    tipoTrabajo: v.tipo || '',
+    riesgo: v.riesgo || '',
+    resp: v.resp || '',
+    lider: '',
+    deadline: v.deadline || '',
+    acc: '',
+    notas: (v.descripcion || '').trim(),
+    confidencialidad: v.confidencialidad || 'estandar',
+    areaSolicitante: v.areaSolicitante || '',
+    contraparte: v.contraparte || '',
+    colaboradores: Array.isArray(v.colaboradores) ? v.colaboradores : []
+  };
+  // Crear es la mutación más frecuente del specialist y era la única que
+  // bloqueaba la UI de punta a punta: loader fullscreen + reload() completo
+  // con segundo loader (~2-6s sin control). Ahora: cerrar el wizard YA,
+  // devolver el control, y reconciliar con _reloadSilent cuando el server
+  // responda (la fila aparece sola, sin loader). No insertamos fila optimista:
+  // addTask devuelve solo {success,id} y el server completa datos que el
+  // cliente no puede calcular bien (checklist del template, ETA con feriados)
+  // — una fila provisional clickeable con id falso rompería el panel.
+  // El draft de localStorage NO se borra hasta el éxito: si falla, el wizard
+  // se reabre con todo lo escrito intacto.
+  edCrearClose();
+  toast(t('Creando tarea…'), 'info');
+  console.log('[create-task] payload', payload);
   google.script.run
     .withSuccessHandler(function(res) {
-      if (typeof hideLoader === 'function') hideLoader();
-      if (btn) btn.disabled = false;
       console.log('[create-task] response', res);
       if (res && res.success) {
         toast('✅ Tarea #' + res.id + ' creada', 'success');
         try { localStorage.removeItem('lt-edc-draft'); } catch(e){}
-        edCrearClose();
-        if (typeof reload === 'function') reload();
+        _reloadSilent();
       } else {
-        toast(_friendlyError(res, 'No se pudo crear la tarea'), 'error');
+        toast(_friendlyError(res, t('No se pudo crear la tarea. Revisá y reintentá.')), 'error');
+        edCrearOpen(); // restaura el borrador con los datos intactos
       }
     })
     .withFailureHandler(function(e) {
-      if (typeof hideLoader === 'function') hideLoader();
-      if (btn) btn.disabled = false;
       console.error('[create-task] failure', e);
-      toast('Error del backend: ' + (e && e.message || 'desconocido'), 'error');
+      toast(t('No se pudo crear la tarea. Revisá y reintentá.'), 'error');
+      edCrearOpen();
     })
-    .addTask({
-      nombre: v.titulo.trim(),
-      proyectoId: v.proyectoId || '',
-      pais: v.pais || '',
-      priority: v.prioridad || 'Media',
-      tipoTrabajo: v.tipo || '',
-      riesgo: v.riesgo || '',
-      resp: v.resp || '',
-      lider: '',
-      deadline: v.deadline || '',
-      acc: '',
-      notas: (v.descripcion || '').trim(),
-      confidencialidad: v.confidencialidad || 'estandar',
-      areaSolicitante: v.areaSolicitante || '',
-      contraparte: v.contraparte || '',
-      colaboradores: Array.isArray(v.colaboradores) ? v.colaboradores : []
-    });
+    .addTask(payload);
 }
 
 // Atajos de teclado de los wizards de crear (tarea y proyecto):
@@ -8276,11 +8363,24 @@ function _piRenderTimeline(p, D) {
   return '<div style="border-left:2px solid var(--line-1);padding-left:16px;margin:8px 0 0 4px">' + rows + '</div>';
 }
 
+// ── Participación en proyectos: UNA definición para header, tabs y cards ──
+// Matching laxo de nombres: en la data real conviven "Juan Camilo Gallego",
+// "Juan Gallego" y hasta emails como responsable de tareas.
+function _piNameEq(a, b) {
+  return (a || '').toString().trim().toLowerCase() === (b || '').toString().trim().toLowerCase();
+}
+// ¿userName participa en p sin ser el responsable? Participar = estar en la
+// lista de Participantes O tener tareas propias dentro del proyecto.
+function _piParticipa(p, userName, tasks) {
+  if (!p || !userName) return false;
+  if (_piNameEq(p.responsable, userName)) return false;
+  if ((p.participantes || []).some(function(n){ return _piNameEq(n, userName); })) return true;
+  return (tasks || []).some(function(t){ return t.proyectoId == p.id && _piNameEq(t.resp, userName); });
+}
 function _piRoleOf(project, userName, tasks) {
   if (!project) return 'Observador';
-  if (project.responsable === userName) return 'Owner';
-  var hasMyTask = (tasks || []).some(function(t){ return t.proyectoId == project.id && t.resp === userName; });
-  return hasMyTask ? 'Participante' : 'Observador';
+  if (_piNameEq(project.responsable, userName)) return 'Owner';
+  return _piParticipa(project, userName, tasks) ? 'Participante' : 'Observador';
 }
 
 // ¿El usuario actual puede editar/cerrar ESTE proyecto? Espeja exactamente
@@ -8384,12 +8484,8 @@ function _piBucket(projects, tab, userName, tasks) {
     return projects.filter(function(p){ return p.status === 'Completado' || p.status === 'Cancelado'; });
   }
   var open = projects.filter(function(p){ return p.status === 'Activo' || p.status === 'En pausa'; });
-  if (tab === 'lideras')    return open.filter(function(p){ return p.responsable === userName; });
-  if (tab === 'participas') return open.filter(function(p){
-    if (p.responsable === userName) return false;
-    if (p.responsable === userName || (p.participantes || []).indexOf(userName) >= 0) return true;
-    return tasks.some(function(t){ return t.proyectoId == p.id && t.resp === userName; });
-  });
+  if (tab === 'lideras')    return open.filter(function(p){ return _piNameEq(p.responsable, userName); });
+  if (tab === 'participas') return open.filter(function(p){ return _piParticipa(p, userName, tasks); });
   return open;
 }
 
@@ -8400,110 +8496,10 @@ function _piPersonAvatar(person, isMore) {
   return '<div class="pi-person' + (isMore ? ' more' : '') + '" style="background:' + bg + ';color:' + color + '">' + esc(label) + '</div>';
 }
 
-function _piRenderHero(enriched) {
-  var p = enriched.p;
-  var dl = enriched.deadlineDays;
-  var dlText = dl == null ? '—' : (dl < 0 ? t('venció hace ') + Math.abs(dl) + 'd' : t('en ') + dl + 'd');
-  var dlCls = dl == null ? '' : (dl < 0 ? 'crit' : (dl <= 14 ? 'warn' : ''));
-  var lede = p.descripcion
-    ? esc(p.descripcion)
-    : (t('Proyecto activo con <b>') + enriched.tasks + t(' tareas</b>') + (enriched.overdue ? ', <span class="crit">' + enriched.overdue + t(' vencida') + (enriched.overdue === 1 ? '' : 's') + '</span>' : '') + '.');
-  var teamCount = enriched.people.length + enriched.more;
+// (Se eliminaron _piRenderHero y _piRenderRow: renders legacy sin call sites
+//  que mantenían una tercera definición del rol de participación. El índice
+//  usa el grid de cards de rEdProyectosIndex con _piRoleOf/_piParticipa.)
 
-  var allTasks = (D && D.tasks) || [];
-  var userName = _effectiveUserName();
-  var myInProj = allTasks.filter(function(t){ return t.proyectoId == p.id && t.resp === userName && t.status !== 'Listo'; })
-    .sort(function(a, b) {
-      var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
-      var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
-      return ad - bd;
-    }).slice(0, 3);
-
-  var miniHtml = '';
-  if (myInProj.length === 0) {
-    miniHtml = '<div style="font-size:12px;color:var(--dim);padding:8px 0">' + t('Sin tareas tuyas activas en este proyecto.') + '</div>';
-  } else {
-    for (var i = 0; i < myInProj.length; i++) {
-      // `tk`, no `t`: var t se hoistearía a toda la función y shadowearía la
-      // función i18n t() que este mismo render usa (TypeError al renderizar).
-      var tk = myInProj[i];
-      var tone = _etaToneClass(tk.etaDays, tk.status);
-      miniHtml += '<div class="pi-mini-task" style="cursor:pointer" onclick="edGoTaskInTracker(\'' + esc(escJs(String(tk.id))) + '\')">'
-               +   '<span class="pi-mini-id">' + esc(tk.id) + '</span>'
-               +   '<span class="pi-mini-name">' + esc(tk.nombre || '') + '</span>'
-               +   '<span class="pi-mini-eta ' + tone + '">' + esc(tk.eta || '') + '</span>'
-               + '</div>';
-    }
-  }
-
-  var heroHeadline = enriched.overdue
-    ? t('Hay <b>') + enriched.overdue + t(' vencida') + (enriched.overdue === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">' + t('Resolver primero.') + '</span>'
-    : (myInProj.length ? t('Tenés <b>') + myInProj.length + t(' tarea') + (myInProj.length === 1 ? '' : 's') + t(' tuya') + (myInProj.length === 1 ? '' : 's') + '</b>. <span style="color:var(--muted);font-weight:600">' + t('Por urgencia.') + '</span>'
-                       : t('Sin tareas tuyas activas.') + ' <span style="color:var(--muted);font-weight:600">' + t('Solo seguimiento.') + '</span>');
-
-  return '<div class="pi-hero">'
-       +   '<div>'
-       +     '<div class="pi-hero-eye">— ' + (dl != null && dl <= 14 ? t('Más urgente · ') : '') + esc(dlText) + '</div>'
-       +     '<div class="pi-hero-name">' + esc(p.nombre || '') + '</div>'
-       +     '<p class="pi-hero-lede">' + lede + '</p>'
-       +     '<div class="pi-hero-meta">'
-       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num">' + (enriched.tasks ? String(enriched.tasks) : "—") + '</div><div class="pi-hero-stat-lbl">' + t('tareas activas') + '</div></div>'
-       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num ' + (enriched.overdue ? 'crit' : '') + '">' + (enriched.overdue ? String(enriched.overdue) : "—") + '</div><div class="pi-hero-stat-lbl">' + t('vencida') + (enriched.overdue === 1 ? '' : 's') + '</div></div>'
-       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num">' + (teamCount ? String(teamCount) : "—") + '</div><div class="pi-hero-stat-lbl">' + t('equipo') + '</div></div>'
-       +       '<div class="pi-hero-stat"><div class="pi-hero-stat-num ' + dlCls + '">' + (dl == null ? '—' : (dl < 0 ? Math.abs(dl) : dl)) + '<em>d</em></div><div class="pi-hero-stat-lbl">' + (dl != null && dl < 0 ? t('vencido') : t('al cierre')) + '</div></div>'
-       +     '</div>'
-       +   '</div>'
-       +   '<div class="pi-hero-card">'
-       +     '<div class="pi-hero-card-eye">— ' + t('Próximas tareas tuyas') + '</div>'
-       +     '<div class="pi-hero-card-h">' + heroHeadline + '</div>'
-       +     miniHtml
-       +     '<div style="margin-top:14px"><button class="ed-btn primary" onclick="edPiOpen(\'' + esc(p.id) + '\')">' + t('Abrir proyecto →') + '</button></div>'
-       +   '</div>'
-       + '</div>';
-}
-
-function _piRenderRow(enriched, idx) {
-  var p = enriched.p;
-  var dl = enriched.deadlineDays;
-  var dlCls = dl == null ? '' : (dl < 0 ? 'crit' : (dl <= 14 ? 'warn' : ''));
-  var dlVal = dl == null ? '—' : (dl < 0 ? Math.abs(dl) : dl);
-  var isOwner = enriched.role === 'Owner';
-  var roleClass = isOwner ? 'role' : 'role muted';
-  var tag = (p.lider && p.lider !== _effectiveUserName()) ? (t('Lidera ') + p.lider) : '';
-  var prog = enriched.progress;
-  var peopleHtml = '';
-  for (var i = 0; i < enriched.people.length; i++) peopleHtml += _piPersonAvatar(enriched.people[i], false);
-  if (enriched.more > 0) peopleHtml += _piPersonAvatar({ initials: '+' + enriched.more }, true);
-
-  return '<div class="pi-row" onclick="edPiOpen(\'' + esc(p.id) + '\')">'
-       +   '<div class="pi-rank">' + String(idx).padStart(2,'0') + '</div>'
-       +   '<div class="pi-name-block">'
-       +     '<div class="pi-name-eye">'
-       +       '<span class="' + roleClass + '">' + esc(t(enriched.role)) + '</span>'
-       +       (tag ? '<span style="color:var(--dim)">·</span><span>' + esc(tag) + '</span>' : '')
-       +     '</div>'
-       +     '<div class="pi-name">' + esc(p.nombre || '') + '</div>'
-       +     '<div class="pi-sub">' + esc(p.descripcion || '') + '</div>'
-       +   '</div>'
-       +   '<div class="pi-stat-cell">'
-       +     '<div class="pi-stat-num">' + (enriched.tasks ? String(enriched.tasks) : "—") + '</div>'
-       +     '<div class="pi-stat-lbl">' + t('tareas · ') + enriched.mine + t(' tuya') + (enriched.mine === 1 ? '' : 's') + '</div>'
-       +   '</div>'
-       +   '<div class="pi-stat-cell">'
-       +     '<div class="pi-prog">'
-       +       '<div class="pi-prog-seg done"  style="width:' + prog.done  + '%"></div>'
-       +       '<div class="pi-prog-seg curso" style="width:' + prog.curso + '%"></div>'
-       +       '<div class="pi-prog-seg crit"  style="width:' + prog.crit  + '%"></div>'
-       +     '</div>'
-       +     '<div class="pi-prog-pct"><b>' + enriched.pctNum + '%</b> · ' + (enriched.overdue > 0 ? '<span style="color:var(--critical);font-weight:700">' + enriched.overdue + t(' vencida') + (enriched.overdue === 1 ? '' : 's') + '</span>' : t('al día')) + '</div>'
-       +   '</div>'
-       +   '<div class="pi-stat-cell">'
-       +     '<div class="pi-stat-num ' + dlCls + '">' + dlVal + '<em>d</em></div>'
-       +     '<div class="pi-stat-lbl">' + (dl != null && dl < 0 ? t('vencido') : t('al cierre')) + '</div>'
-       +   '</div>'
-       +   '<div class="pi-people">' + peopleHtml + '</div>'
-       + '</div>';
-}
 
 function edPSetTab(key) { EDP.tab = key; if (D) rEdProyectosIndex(D); }
 
@@ -8714,12 +8710,11 @@ function rEdProyectosIndex(D) {
 
   var open = projects.filter(function(p){ return p.status === 'Activo' || p.status === 'En pausa'; });
   var cActivos    = open.length;
-  var cParticipas = open.filter(function(p){
-    if (p.responsable === userName) return false;
-    if (p.responsable === userName || (p.participantes || []).indexOf(userName) >= 0) return true;
-    return tasks.some(function(t){ return t.proyectoId == p.id && t.resp === userName; });
-  }).length;
-  var cLideras    = open.filter(function(p){ return p.responsable === userName; }).length;
+  // Mismo predicado que el tab "Donde participo" y el eyebrow de las cards
+  // (_piParticipa). Antes convivían tres definiciones distintas y el header
+  // contaba "acompañando" como TODO lo no-propio (mera visibilidad).
+  var cParticipas = open.filter(function(p){ return _piParticipa(p, userName, tasks); }).length;
+  var cLideras    = open.filter(function(p){ return _piNameEq(p.responsable, userName); }).length;
   var cCerrados   = projects.filter(function(p){ return p.status === 'Completado' || p.status === 'Cancelado'; }).length;
 
   var bucket = _piBucket(projects, EDP.tab, userName, tasks);
@@ -8730,15 +8725,19 @@ function rEdProyectosIndex(D) {
     return ad - bd;
   });
 
-  var totalOwner       = open.filter(function(p){ return p.responsable === userName; }).length;
-  var totalParticipant = open.length - totalOwner;
+  // "Acompañando" = participación REAL (lista de participantes o tareas
+  // propias en el proyecto), no "todo lo que no es tuyo". Era open - tuyos:
+  // el head veía "3 acompañando" en proyectos donde no participaba de nada.
+  var totalOwner       = cLideras;
+  var totalParticipant = cParticipas;
 
   var html = '<div class="pa-page">';
 
-  // Page header
+  // Page header — el segmento "acompañando" se omite cuando es 0 (un cero
+  // más no informa; el tab "Donde participo" ya lo dice si hace falta).
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">' + t('Proyectos') + '</span>'
-       +    '<span class="pa-page-sub">' + cActivos + t(' activos · ') + totalOwner + t(' tuyos · ') + totalParticipant + t(' acompañando') + '</span>'
+       +    '<span class="pa-page-sub">' + cActivos + t(' activos · ') + totalOwner + t(' tuyos') + (totalParticipant ? ' · ' + totalParticipant + t(' acompañando') : '') + '</span>'
        +    '<div class="pa-page-meta">'
        +      '<button class="pa-btn pa-btn-outline" onclick="goEd(\'historial\')">' + paIcon('refresh', 12) + ' ' + t('Historial') + '</button>'
        +      '<button class="pa-btn pa-btn-primary" onclick="if(typeof edCrearProyectoOpen===\'function\')edCrearProyectoOpen()">' + paIcon('plus', 12) + ' ' + t('Nuevo proyecto') + '</button>'
@@ -8780,7 +8779,12 @@ function rEdProyectosIndex(D) {
       var done = (D.historial || []).filter(function(t){ return t.proyectoId == p.id; }).length;
       var total = open + done;
       var pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      var role = p.responsable === userName ? t('Responsable') : t('Participante');
+      // Eyebrow con el rol REAL (w.role viene de _piRoleOf, predicado único).
+      // Antes era un binario responsable/participante: todo proyecto ajeno
+      // decía "PARTICIPANTE" aunque solo fuera visible por país.
+      var role = w.role === 'Owner' ? t('A tu cargo')
+               : w.role === 'Participante' ? t('Participante')
+               : t('Equipo');
       html += '<div class="pa-card" style="padding:16px;cursor:pointer" onclick="edPiOpen(\'' + esc(p.id) + '\')">'
            +    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">'
            +      '<span style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.04em">' + esc(role) + (p.pais ? ' · ' + esc(p.pais) : '') + '</span>'
@@ -8826,16 +8830,10 @@ function rEdProyectosIndex(D) {
 function _edHistFilterByRole(D) {
   var hist = (D && D.historial) || [];
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
-  if (role === 'specialist') {
-    var name = _effectiveUserName();
-    return hist.filter(function(t){ return t.resp === name; });
-  }
-  if (role === 'manager') {
-    var code = _effectiveUserCode();
-    return hist.filter(function(t){ return t.pais === code; });
-  }
-  // head: todo
-  return hist.slice();
+  // Mismo scope de rol que el tracker y el badge del sidebar (incluye las
+  // compartidas conmigo) — antes esta vista era la única que las excluía y
+  // su número no cuadraba con el chip "Cerradas" del tracker.
+  return _edRoleScopeTasks(hist, role, _effectiveUserName(), _effectiveUserCode()).slice();
 }
 
 // Días hábiles entre dos Date.
@@ -10131,7 +10129,11 @@ function _crpRenderStep1() {
   var paisField = canPickCountry
     ? '<div class="cr-field">'
       + '<div class="cr-label">' + t('País') + ' <span class="req">*</span></div>'
-      + '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
+      // 5º arg obligatorio acá: sin él _crPillsHtml usa el setter del wizard
+      // de TAREAS (edCrearSetField) → el click del head escribía el país en
+      // EDC.values (estado ajeno), la pill nunca se activaba y el submit
+      // moría en "País requerido".
+      + '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais, null, 'edCrearProyectoSetField') + '</div>'
       + '</div>'
     : '<div class="cr-field">'
       + '<div class="cr-label">' + t('País') + '</div>'
