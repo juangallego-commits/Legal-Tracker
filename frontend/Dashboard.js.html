@@ -5821,7 +5821,10 @@ function edPanelLoadComments(taskId) {
       // Bind Cmd+Enter en el textarea
       var ta = $('tkCommentInput');
       if (ta) {
+        _mentionAttach(ta);
         ta.onkeydown = function(e) {
+          // El picker de @menciones tiene prioridad sobre las teclas del textarea.
+          if (typeof _mentionKeydown === 'function' && _mentionKeydown(e)) { e.preventDefault(); return; }
           if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
             e.preventDefault();
             edPanelSubmitComment(taskId);
@@ -5838,6 +5841,107 @@ function edPanelLoadComments(taskId) {
 function _meCommentEmail() {
   return (USER && USER.email) || (D && D._user && D._user.email) || '';
 }
+
+// ── @MENCIONES EN COMENTARIOS ───────────────────────────────────
+// Escribir "@" en el textarea de comentario abre un picker del roster;
+// elegir inserta "@Nombre Completo". El backend (_extractMentions) matchea
+// ese nombre completo y le manda un aviso al mencionado. Al mostrar el
+// comentario, las menciones se resaltan.
+function _mentionNames() {
+  return ((D && D.team) || []).map(function(m){ return m && m.name; }).filter(Boolean);
+}
+function _mentionNorm(s) {
+  var out = (s == null ? '' : String(s));
+  // Regex de diacríticos vía \u-escape (independiente del encoding del archivo).
+  try { out = out.normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), ''); } catch (e) {}
+  return out.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+// Resalta "@Nombre" en HTML YA escapado. Reemplaza el nombre más largo primero
+// para no cortar "Juan" dentro de "Juan Camilo Gallego".
+function _highlightMentions(escapedHtml) {
+  var names = _mentionNames().slice().sort(function(a, b){ return b.length - a.length; });
+  if (!names.length || escapedHtml.indexOf('@') < 0) return escapedHtml;
+  var alt = names.map(function(n){
+    return esc(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }).join('|');
+  if (!alt) return escapedHtml;
+  var re = new RegExp('@(' + alt + ')', 'gi');
+  return escapedHtml.replace(re, '<span class="tk-mention">@$1</span>');
+}
+
+var _MENTION_STATE = { ta: null, pop: null, items: [], active: 0, start: -1 };
+function _mentionClose() {
+  if (_MENTION_STATE.pop && _MENTION_STATE.pop.parentNode) _MENTION_STATE.pop.parentNode.removeChild(_MENTION_STATE.pop);
+  _MENTION_STATE.pop = null; _MENTION_STATE.items = []; _MENTION_STATE.start = -1;
+}
+// Detecta si el caret está dentro de un token "@..." (precedido por inicio o
+// espacio) y devuelve {start, query} o null.
+function _mentionContext(ta) {
+  var pos = ta.selectionStart;
+  var val = ta.value.slice(0, pos);
+  var at = val.lastIndexOf('@');
+  if (at < 0) return null;
+  if (at > 0 && !/\s/.test(val.charAt(at - 1))) return null; // @ pegado a texto (email) → no
+  var frag = val.slice(at + 1);
+  // El query puede tener UN espacio (nombre + apellido) pero no saltos ni doble espacio.
+  if (/[\n]/.test(frag) || frag.length > 40) return null;
+  return { start: at, query: frag };
+}
+function _mentionRender(ta) {
+  var ctx = _mentionContext(ta);
+  if (!ctx) { _mentionClose(); return; }
+  var q = _mentionNorm(ctx.query);
+  var matches = _mentionNames().filter(function(n){
+    var nn = _mentionNorm(n);
+    return q === '' ? true : nn.indexOf(q) >= 0;
+  }).slice(0, 6);
+  if (!matches.length) { _mentionClose(); return; }
+  _MENTION_STATE.ta = ta; _MENTION_STATE.items = matches; _MENTION_STATE.start = ctx.start;
+  if (_MENTION_STATE.active >= matches.length) _MENTION_STATE.active = 0;
+  if (!_MENTION_STATE.pop) {
+    var pop = document.createElement('div');
+    pop.className = 'tk-mention-pop';
+    document.body.appendChild(pop);
+    _MENTION_STATE.pop = pop;
+  }
+  var pop = _MENTION_STATE.pop;
+  pop.innerHTML = matches.map(function(n, i){
+    return '<div class="tk-mention-opt' + (i === _MENTION_STATE.active ? ' is-active' : '') + '" data-i="' + i + '" onmousedown="event.preventDefault();_mentionPick(' + i + ')">' + esc(n) + '</div>';
+  }).join('');
+  // Posicionar sobre el textarea.
+  var r = ta.getBoundingClientRect();
+  pop.style.left = r.left + 'px';
+  pop.style.width = Math.max(180, r.width) + 'px';
+  pop.style.top = (r.top - pop.offsetHeight - 4) + 'px';
+}
+function _mentionPick(i) {
+  var st = _MENTION_STATE, ta = st.ta;
+  if (!ta || st.start < 0) return;
+  var name = st.items[i]; if (!name) return;
+  var pos = ta.selectionStart;
+  var before = ta.value.slice(0, st.start);
+  var after = ta.value.slice(pos);
+  var insert = '@' + name + ' ';
+  ta.value = before + insert + after;
+  var caret = (before + insert).length;
+  ta.focus();
+  try { ta.setSelectionRange(caret, caret); } catch (e) {}
+  _mentionClose();
+}
+// Devuelve true si consumió la tecla (el caller debe frenar su default).
+function _mentionKeydown(e) {
+  if (!_MENTION_STATE.pop || !_MENTION_STATE.items.length) return false;
+  if (e.key === 'ArrowDown') { _MENTION_STATE.active = (_MENTION_STATE.active + 1) % _MENTION_STATE.items.length; _mentionRender(_MENTION_STATE.ta); return true; }
+  if (e.key === 'ArrowUp')   { _MENTION_STATE.active = (_MENTION_STATE.active - 1 + _MENTION_STATE.items.length) % _MENTION_STATE.items.length; _mentionRender(_MENTION_STATE.ta); return true; }
+  if (e.key === 'Enter' || e.key === 'Tab') { _mentionPick(_MENTION_STATE.active); return true; }
+  if (e.key === 'Escape') { _mentionClose(); return true; }
+  return false;
+}
+function _mentionAttach(ta) {
+  if (!ta) return;
+  ta.addEventListener('input', function(){ _mentionRender(ta); });
+  ta.addEventListener('blur', function(){ setTimeout(_mentionClose, 150); });
+}
 // Render de un solo comment item — usado por load (todos) y submit (append optimistic).
 // `c` = { id, author_name, author_email, ts, body, edited_ts, deleted_ts }
 function _commentItemHtml(c, opts) {
@@ -5849,7 +5953,7 @@ function _commentItemHtml(c, opts) {
   var edited = !!c.edited_ts && !deleted;
   var bodyHtml = deleted
     ? '<i style="color:var(--fg-3)">(comentario eliminado)</i>'
-    : esc(c.body || '').replace(/\n/g, '<br>');
+    : _highlightMentions(esc(c.body || '')).replace(/\n/g, '<br>');
   var actions = '';
   if (mine && !deleted) {
     actions = '<div class="tk-comment-actions">'
@@ -7015,7 +7119,7 @@ function _renderTkPanel(sel) {
   html += '</div></div>';
   // Comment input
   html += '<div class="tk-panel-rail-input">'
-       +    '<textarea class="tk-comment-input" id="tkCommentInput" placeholder="Agregá un comentario… ' + (_isMac() ? '⌘+↵' : 'Ctrl+↵') + ' enviar" rows="2"></textarea>'
+       +    '<textarea class="tk-comment-input" id="tkCommentInput" placeholder="Comentá… @ menciona a alguien · ' + (_isMac() ? '⌘+↵' : 'Ctrl+↵') + ' enviar" rows="2"></textarea>'
        +    '<div style="display:flex;justify-content:flex-end;margin-top:6px">'
        +      '<button class="pa-btn pa-btn-primary" id="tkCommentSubmit" onclick="edPanelSubmitComment(\'' + esc(sel.id) + '\')">' + paIcon('msg', 11) + ' Enviar</button>'
        +    '</div>'
