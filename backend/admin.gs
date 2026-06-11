@@ -495,3 +495,55 @@ function migrarColaboradores() {
   log('—— migrarColaboradores terminó ——');
   return report;
 }
+
+// ════════════════════════════════════════════════════════════════
+// TIDY SHEETS · ordena el spreadsheet para humanos
+// ════════════════════════════════════════════════════════════════
+// El spreadsheet acumuló ~15 hojas y la mayoría son TABLAS INTERNAS de la
+// app (auto-creadas, leídas/escritas por código) que nadie debería tocar a
+// mano. No se pueden fusionar sin reescribir la app (cada una es una tabla
+// de la "DB"), pero sí se pueden OCULTAR: getSheetByName() las sigue
+// encontrando igual. Esta función deja visible solo lo que se gestiona a
+// mano y ordena las visibles en orden de uso. Idempotente y reversible
+// (clic derecho → Mostrar hoja, o volver a correrla tras crear hojas nuevas).
+// Gated por HEAD. NO borra ninguna hoja ni toca data.
+function tidySheets() {
+  var who = _requireAdminEmail();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  // Visibles, en este orden: las que un humano consulta/edita.
+  var VISIBLE_ORDER = [
+    SHEET_ACTIVO,      // la operación diaria
+    SHEET_HISTORIAL,   // cerradas (consulta)
+    SHEET_PROYECTOS,   // proyectos (consulta)
+    SHEET_EQUIPOS,     // roster + allowlist (se edita a mano)
+    SHEET_CONFIG,      // configuración (se edita a mano)
+    SHEET_FERIADOS     // feriados por país (se edita a mano)
+  ];
+  // Técnicas/auto-gestionadas: la app las administra; ocultas no molestan.
+  var HIDE = [
+    SHEET_COMMENTS, SHEET_ACTIVITY, SHEET_TEMPLATES, SHEET_BIBLIO_DOCS,
+    SHEET_RECURSOS, SHEET_INTEGRACIONES, '_Embeddings', 'Feedback', 'Telemetry'
+  ];
+  var report = [];
+  HIDE.forEach(function(name) {
+    var ws = ss.getSheetByName(name);
+    if (!ws) { report.push('· ' + name + ': no existe — skip'); return; }
+    if (ws.isSheetHidden()) { report.push('· ' + name + ': ya oculta'); return; }
+    try { ws.hideSheet(); report.push('✓ ' + name + ': oculta'); }
+    catch (e) { report.push('⚠ ' + name + ': no se pudo ocultar (' + e.message + ')'); }
+  });
+  // Mostrar + ordenar las core al frente (posiciones 1..n).
+  VISIBLE_ORDER.forEach(function(name, i) {
+    var ws = ss.getSheetByName(name);
+    if (!ws) { report.push('⚠ ' + name + ': no existe'); return; }
+    try {
+      if (ws.isSheetHidden()) ws.showSheet();
+      ss.setActiveSheet(ws);
+      ss.moveActiveSheet(i + 1);
+      report.push('✓ ' + name + ': visible en posición ' + (i + 1));
+    } catch (e) { report.push('⚠ ' + name + ': ' + e.message); }
+  });
+  var out = 'tidySheets por ' + who + ':\n' + report.join('\n');
+  Logger.log(out);
+  return out;
+}
