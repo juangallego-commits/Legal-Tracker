@@ -1416,30 +1416,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   BANNER alert
-   ═══════════════════════════════════════════════════════════════ */
-.pa-banner {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 14px;
-  border-radius: var(--r-3);
-  background: var(--critical-soft);
-  color: var(--critical-fg);
-  margin-top: 16px;
-  border: 1px solid color-mix(in oklab, var(--critical) 28%, transparent);
-}
-.pa-banner .ico { width: 16px; height: 16px; flex: 0 0 16px; }
-.pa-banner .msg { font-size: 13px; flex: 1; }
-.pa-banner .msg b { font-weight: 600; }
-.pa-banner .act {
-  font-size: 12px; font-weight: 500;
-  cursor: pointer; padding: 4px 8px; border-radius: 5px;
-  background: none; border: none; color: inherit;
-}
-.pa-banner .act:hover { background: var(--critical-soft); }
-.pa-banner.is-warn { background: var(--warn-soft); color: var(--warn-fg); border-color: color-mix(in oklab, var(--warn) 28%, transparent); }
-.pa-banner.is-info { background: var(--info-soft); color: var(--info-fg); border-color: color-mix(in oklab, var(--info) 28%, transparent); }
-
-/* ═══════════════════════════════════════════════════════════════
    CARDS (genéricas)
    ═══════════════════════════════════════════════════════════════ */
 .pa-card {

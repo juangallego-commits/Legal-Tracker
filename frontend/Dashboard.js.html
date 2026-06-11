@@ -3566,21 +3566,9 @@ function rEdHomeSpecialist(D) {
        +    (todayLine ? '<span class="pa-greet-meta">' + esc(todayLine) + '</span>' : '')
        + '</div>';
 
-  // Banner si hay overdue
-  if (overdue > 0) {
-    var oldestId = '';
-    var oldest = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; })
-      .sort(function(a,b){ return (a.etaDays||0) - (b.etaDays||0); })[0];
-    if (oldest) oldestId = oldest.id || '';
-    var ovrLbl = overdue + ' ' + (overdue === 1 ? t('tarea vencida') : t('tareas vencidas'));
-    html += '<div class="pa-banner">'
-         +    paIcon('alert', 16, 'ico')
-         +    '<div class="msg"><b>' + esc(ovrLbl) + '</b>'
-         +      (oldestId ? ' · ' + esc(t('la más antigua es')) + ' <b>#' + esc(oldestId) + '</b>' : '')
-         +    '</div>'
-         +    '<button class="act" onclick="edGoTrackerFiltered(\'overdue\')">' + esc(t('Ver vencidas →')) + '</button>'
-         + '</div>';
-  }
+  // (El banner rojo de vencidas se eliminó: la misma señal ya vive en el KPI
+  // "Vencidas" clickeable y en el hero "Tu próxima tarea" — tres avisos del
+  // mismo dato en el primer viewport diluían la jerarquía. Economía de señal.)
 
   // KPIs
   html += '<div class="pa-kpis">'
