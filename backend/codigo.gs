@@ -398,7 +398,7 @@ function _getEditorialDataImpl() {
       c.open     = countryTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
       // Vencida = tarde y accionable: las bloqueadas (On hold) no cuentan acá.
       c.overdue  = countryTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo' && t.status !== 'Bloqueado'; }).length;
-      c.dueToday = countryTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; }).length;
+      c.dueToday = countryTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo' && t.status !== 'Bloqueado'; }).length;
       var countryHist = histByPais[c.code] || [];
 
       // slaPct: % de cierres dentro de SLA en los últimos 30 días.
@@ -4555,7 +4555,7 @@ function _blockTaskByIdImpl(taskId, reason, slackUser) {
 function _sendManagerDigest(email, team, teamTasks, originalRecipient) {
   // Vencidas accionables (las On hold no — el digest las separa en su bucket).
   var nO = teamTasks.filter(function(t){ return t.etaDays < 0 && t.status !== 'Bloqueado'; }).length;
-  var nT = teamTasks.filter(function(t){ return t.etaDays === 0; }).length;
+  var nT = teamTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Bloqueado'; }).length;
   var nS = teamTasks.filter(function(t){ return t.etaDays > 0; }).length;
 
   var overdueByPerson = {};
