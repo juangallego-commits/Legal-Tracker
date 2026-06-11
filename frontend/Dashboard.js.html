@@ -4159,7 +4159,12 @@ function rEdHomeHQ(D) {
   var totalMgr = Object.keys(_seenMgr).length
               || (D && D.team || []).filter(function(m){ return (m.role || '').toLowerCase().indexOf('manager') !== -1; }).length;
   // Países con actividad (tareas abiertas) vs configurados, para no inflar "N activos".
-  var activeCountries = countries.filter(function(c){ return (c.open || 0) > 0; }).length;
+  // Lista derivada (ordenada por activas desc) para el resumen del home: el detalle
+  // completo con los inactivos vive en la página "Por país".
+  var activeCountryList = countries.filter(function(c){ return (c.open || 0) > 0; })
+    .sort(function(a, b){ return (b.open || 0) - (a.open || 0); });
+  var activeCountries = activeCountryList.length;
+  var inactiveCountries = countries.length - activeCountries;
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
   // Mayor caída de SLA esta semana (para insight contextual).
   var biggestDrop = null;
@@ -4236,7 +4241,10 @@ function rEdHomeHQ(D) {
        +    '<div class="pa-kpi" onclick="goEd(\'tracker\')">'
        +      '<div class="lab"><span class="dot" style="background:var(--info)"></span> ' + esc(t('Activas LATAM')) + '</div>'
        +      '<div class="val">' + totalOpen + '</div>'
-       +      '<div class="delta">' + countries.map(function(c){ return c.code + ' ' + (c.open || 0); }).join(' · ') + '</div>'
+       +      '<div class="delta">' + (activeCountryList.length
+              ? activeCountryList.slice(0, 6).map(function(c){ return c.code + ' ' + (c.open || 0); }).join(' · ')
+                  + (activeCountryList.length > 6 ? ' · +' + (activeCountryList.length - 6) : '')
+              : esc(t('sin actividad'))) + '</div>'
        +    '</div>'
        +    '<div class="pa-kpi ' + (slaAvg != null && slaAvg >= 90 ? 'is-good' : (slaAvg != null && slaAvg < 85 ? 'is-warn' : '')) + '">'
        +      '<div class="lab"><span class="dot" style="background:var(--good)"></span> ' + esc(t('SLA agregado')) + '</div>'
@@ -4251,10 +4259,62 @@ function rEdHomeHQ(D) {
        +    '</div>'
        + '</div>';
 
+  // Requieren tu atención (cross-LATAM) — el "qué me necesita" antes del "dónde"
+  // (la tabla de países). Mismo patrón que rEdHomeManager pero sin filtrar por
+  // país y sin la cláusula "tuyas" (el head no es responsable de tareas):
+  // vencidas, bloqueadas o prioridad alta urgente, ordenadas por urgencia.
+  var allTasksHQ = (D && D.tasks) || [];
+  var attHQ = allTasksHQ.filter(function(t) {
+    if (t.status === 'Listo' || t.status === 'Cancelado') return false; // solo activas
+    if (t.status === 'Bloqueado') return true; // requieren desbloqueo
+    if (_isOverdueTask(t)) return true; // vencidas
+    if (t.priority === 'Alta' && typeof t.etaDays === 'number' && t.etaDays <= 1) return true; // alta urgente
+    return false;
+  }).sort(function(a, b) {
+    var aBlk = a.status === 'Bloqueado' ? -1 : 0;
+    var bBlk = b.status === 'Bloqueado' ? -1 : 0;
+    if (aBlk !== bBlk) return aBlk - bBlk;
+    var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
+    var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
+    return ad - bd;
+  });
+  var attHQTop = attHQ.slice(0, 7);
+  html += '<div class="pa-section-h">'
+       +    '<h3>' + esc(t('Requieren tu atención')) + '</h3>'
+       +    '<span class="meta">' + esc(t('Lo que requiere acción ahora en LATAM')) + '</span>'
+       +    '<button class="link" onclick="goEd(\'tracker\')">' + esc(t('Ver todas →')) + '</button>'
+       + '</div>';
+  if (attHQTop.length === 0) {
+    html += paEmpty('check', t('LATAM está al día.'), t('Nada vencido, bloqueado, ni de prioridad alta sin avance.'));
+  } else {
+    html += '<div class="pa-tbl-wrap"><div class="pa-tbl">';
+    // i18n hoisteado: dentro del forEach 't' es la TAREA — llamar t('hace')
+    // ahí lo trata como función y tira "t is not a function".
+    var _haceLblHQ = t('hace');
+    attHQTop.forEach(function(t) {
+      var pn = _projNameForTask(t);
+      var conf = _confLevel(t);
+      // Cross-país: incluímos el país en la meta (el manager no lo necesita).
+      var meta = (t.tipoTrabajo || 'Tarea') + ' · ' + (t.pais || '—') + (pn && pn !== 'Sin proyecto' ? ' · ' + pn : '');
+      html += '<div class="pa-tbl-r" style="grid-template-columns: 20px 64px 1fr 130px 100px 100px 90px" onclick="edGoTaskInTracker(\'' + esc(t.id) + '\')">'
+           +    paConfDot(conf)
+           +    '<span class="id mono">' + esc(t.id) + '</span>'
+           +    '<div class="title"><span class="t">' + esc(t.nombre || '') + '</span><span class="meta">' + esc(meta) + '</span></div>'
+           +    '<span class="resp">' + paAvatar(t.resp || '?', 18) + '<span style="font-size:12px">' + esc(t.resp || '—') + '</span></span>'
+           +    paPriorityPill(t.priority)
+           +    paStatusPill(t.status)
+           +    (t.status === 'Bloqueado'
+                ? '<span class="eta" style="color:' + ((typeof t.blockedDays === 'number' && t.blockedDays >= 7) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">⏸ ' + ((typeof t.blockedDays === 'number') ? esc(_haceLblHQ) + ' ' + t.blockedDays + 'd' : esc(t.deadline || '—')) + '</span>'
+                : '<span class="eta' + (_isOverdueTask(t) ? ' overdue' : '') + '">' + esc((typeof t.etaDays === 'number') ? paEtaText(t.etaDays) : (t.eta || '—')) + '</span>')
+           + '</div>';
+    });
+    html += '</div></div>';
+  }
+
   // Per country
   html += '<div class="pa-section-h">'
        +    '<h3>' + esc(t('Por país')) + '</h3>'
-       +    '<span class="meta">' + esc(t('Tendencia 12 semanas — cierres por semana')) + '</span>'
+       +    '<span class="meta">' + esc(t('Resumen — países con actividad')) + '</span>'
        +    '<button class="link" onclick="goEd(\'paises\')">' + esc(t('Ir a Por país →')) + '</button>'
        + '</div>';
   if (countries.length === 0) {
@@ -4264,26 +4324,20 @@ function rEdHomeHQ(D) {
          +    '<div class="pa-tbl-h" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px">'
          +      '<div>' + esc(t('País')) + '</div><div>' + esc(t('Manager · equipo')) + '</div><div>' + esc(t('Activas')) + '</div><div>' + esc(t('Vencidas')) + '</div><div>' + esc(t('SLA mes')) + '</div><div>' + esc(t('Tendencia 12s')) + '</div>'
          +    '</div>';
-    // Pre-sort: países con datos primero (más activos arriba), inactivos al final.
-    var sortedC = countries.slice().sort(function(a, b) {
-      var aActive = (a.open || 0) + (a.specialists || 0) > 0 ? 1 : 0;
-      var bActive = (b.open || 0) + (b.specialists || 0) > 0 ? 1 : 0;
-      if (aActive !== bActive) return bActive - aActive;
-      return (b.open || 0) - (a.open || 0);
-    });
-    sortedC.forEach(function(c) {
-      var hasData = (c.open || 0) > 0 || (c.specialists || 0) > 0;
+    // Resumen del home: solo países CON actividad (ya viene ordenado por activas
+    // desc en activeCountryList). El detalle completo —incluidos los inactivos—
+    // vive en la página "Por país"; acá no mostramos la "pared de ceros".
+    activeCountryList.forEach(function(c) {
       var sla = c.slaPct;
       var ovColor = (c.overdue || 0) > 3 ? 'var(--critical-fg)' : 'var(--fg-2)';
       var slaColor = sla == null ? 'var(--fg-3)' : (sla < 85 ? 'var(--warn-fg)' : 'var(--good-fg)');
       var sparkTone = sla != null && sla < 85 ? 'warn' : 'accent';
       var trend = c.trend || [0,0,0,0,0,0,0,0,0,0,0,0];
       var hasTrend = trend.some(function(x){ return x > 0; });
-      var rowOpacity = hasData ? '' : ';opacity:0.55';
-      html += '<div class="pa-tbl-r" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px;height:52px' + rowOpacity + '" onclick="edSetCountryFilter(\'' + esc(c.code) + '\');goEd(\'tracker\')">'
+      html += '<div class="pa-tbl-r" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px;height:52px" onclick="edSetCountryFilter(\'' + esc(c.code) + '\');goEd(\'tracker\')">'
            +    '<div style="display:flex;align-items:center;gap:10px">'
-           +      '<span style="width:28px;height:20px;border-radius:4px;background:var(--bg-2);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:' + (hasData ? 'var(--fg-1)' : 'var(--fg-3)') + ';font-weight:600">' + esc(c.code || '') + '</span>'
-           +      '<span style="font-size:13px;font-weight:' + (hasData ? '500' : '400') + ';color:' + (hasData ? 'var(--fg-1)' : 'var(--fg-3)') + '">' + esc(c.code === 'HQ' ? t('Global') : (c.name || '')) + '</span>'
+           +      '<span style="width:28px;height:20px;border-radius:4px;background:var(--bg-2);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:var(--fg-1);font-weight:600">' + esc(c.code || '') + '</span>'
+           +      '<span style="font-size:13px;font-weight:500;color:var(--fg-1)">' + esc(c.code === 'HQ' ? t('Global') : (c.name || '')) + '</span>'
            +    '</div>'
            +    '<div>'
            +      '<div style="font-size:13px;color:' + (c.leader ? 'var(--fg-1)' : 'var(--fg-3)') + '">' + esc(c.leader || t('Pendiente onboarding')) + '</div>'
@@ -4295,6 +4349,14 @@ function rEdHomeHQ(D) {
            +    '<div>' + (hasTrend ? paSparkline(trend, 110, 28, sparkTone) : '<span style="font-size:11px;color:var(--fg-4)">—</span>') + '</div>'
            + '</div>';
     });
+    // Affordance: los países sin actividad se resumen en una sola línea que
+    // navega a "Por país" (donde está el leaderboard completo). Nada se pierde.
+    if (inactiveCountries > 0) {
+      html += '<div class="pa-tbl-r" style="grid-template-columns: 1fr auto;height:42px;cursor:pointer" onclick="goEd(\'paises\')">'
+           +    '<span style="font-size:12px;color:var(--fg-3)">+ ' + inactiveCountries + ' ' + esc(inactiveCountries === 1 ? t('país sin actividad') : t('países sin actividad')) + '</span>'
+           +    '<span class="link" style="font-size:12px">' + esc(t('Ir a Por país →')) + '</span>'
+           + '</div>';
+    }
     html += '</div></div>';
   }
 
