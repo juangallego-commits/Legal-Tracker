@@ -10518,7 +10518,8 @@ function _rEdBibPlantillas(D) {
   });
   var pendCount = items.filter(function(x){ return x.estado === 'pendiente'; }).length;
 
-  var html = '<div class="pa-page">' + _bibSubnav('plantillas');
+  // Jerarquía: título primero, tabs después (mismo patrón que Proyectos).
+  var html = '<div class="pa-page">';
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">' + esc(t('Biblioteca')) + '</span>'
        +    '<span class="pa-page-sub">' + items.length + ' ' + esc(items.length === 1 ? t('plantilla') : t('plantillas'))
@@ -10527,6 +10528,7 @@ function _rEdBibPlantillas(D) {
        +      '<button class="pa-btn pa-btn-primary" onclick="edPltOpenEditor(null,null)">' + paIcon('plus', 12) + ' ' + esc(t('Nueva plantilla')) + '</button>'
        +    '</div>'
        + '</div>';
+  html += _bibSubnav('plantillas');
 
   // El ciclo completo en una frase: plantilla → tarea de ese tipo → checklist
   // con progreso en el panel. Antes el copy solo hablaba de "pre-cargar notas"
@@ -10866,7 +10868,9 @@ function _rEdBibDocs(D) {
   var all = (_BIBDOCS_CACHE || []).slice().sort(function(a, b){ return (b.fecha || '').localeCompare(a.fecha || ''); });
   var docs = _bibApplyFilters(all);
 
-  var html = '<div class="pa-page">' + _bibSubnav('documentos');
+  // Jerarquía: título primero, tabs después (mismo patrón que Proyectos) —
+  // el subnav arriba del H1 invertía la jerarquía visual de la página.
+  var html = '<div class="pa-page">';
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">Biblioteca</span>'
        +    '<span class="pa-page-sub">' + docs.length + (docs.length === all.length ? '' : ' de ' + all.length) + ' documento' + (all.length === 1 ? '' : 's') + '</span>'
@@ -10878,6 +10882,7 @@ function _rEdBibDocs(D) {
        +      '<input type="file" id="bibDocFileInput" style="display:none" onchange="edBibDocUpload(this)">'
        +    '</div>'
        + '</div>';
+  html += _bibSubnav('documentos');
   if (_BIB_SEMANTIC) {
     html += '<div class="pa-narrative" style="border-left:3px solid var(--accent);padding-left:10px;margin-bottom:12px;display:flex;align-items:center;gap:8px">'
          +    '<span>✨ <b>Búsqueda IA</b> por significado · ' + docs.length + ' resultado' + (docs.length === 1 ? '' : 's') + ' para "' + esc(_BIB_FILTERS.query || '') + '"</span>'
