@@ -3672,6 +3672,18 @@ function rEdHomeSpecialist(D) {
          + '</div>';
   }
 
+  // Sin plazo: el sistema sabe que falta el dato — decirlo (Nielsen #1).
+  // Una tarea sin deadline cae al fondo de todos los órdenes y desaparece
+  // del radar; esta línea la trae de vuelta. Click → tracker filtrado.
+  var noDateMine = tasks.filter(function(t){ return t.etaDays == null; }).length;
+  if (noDateMine > 0) {
+    html += '<div class="pa-card" style="margin-top:8px;padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--warn-fg)" onclick="edGoTrackerFiltered(\'nodate\')">'
+         +    '<span>📅</span>'
+         +    '<span>' + noDateMine + ' ' + esc(noDateMine === 1 ? t('tarea tuya no tiene plazo definido') : t('tareas tuyas no tienen plazo definido')) + '</span>'
+         +    '<span style="margin-left:auto;color:var(--fg-3)">→</span>'
+         + '</div>';
+  }
+
   // Grid 2 cols: month + projects
   var me = (D && D.team || []).find(function(m){ return m.name === name; }) || {};
   var streak = (typeof me.streak === 'number' && me.streak > 0) ? me.streak : 0;
@@ -4264,6 +4276,9 @@ function _edApplyFilter(tasks, filter) {
   // 'shared': tareas donde soy colaborador (ver/editar) y NO el responsable.
   // El backend ya las incluye en D.tasks; acá solo aislamos esa porción.
   if (filter === 'shared')  return tasks.filter(function(t){ return _isSharedWithMe(t) && t.status !== 'Listo'; });
+  // 'nodate': activas sin deadline (etaDays null) — el chip solo aparece
+  // cuando existen; el link del home también llega acá.
+  if (filter === 'nodate')  return tasks.filter(function(t){ return t.etaDays == null && t.status !== 'Listo'; });
   // 'closed': la fuente ya es el historial completo (rEdTracker cambia de
   // D.tasks a roleHist). No re-filtrar por status: una Cancelada también vive
   // en Historial y el chip "Cerradas" cuenta roleHist.length — deben coincidir.
@@ -6288,6 +6303,7 @@ function rEdTracker(D) {
   var cMine     = roleTasks.filter(function(t){ return t.resp === userName && t.status !== 'Listo'; }).length;
   var cShared   = roleTasks.filter(function(t){ return _isSharedWithMe(t) && t.status !== 'Listo'; }).length;
   var cAlta     = roleTasks.filter(function(t){ return t.priority === 'Alta' && t.status !== 'Listo'; }).length;
+  var cNoDate   = roleTasks.filter(function(t){ return t.etaDays == null && t.status !== 'Listo'; }).length;
 
   // Cuando el filtro es 'closed', la fuente de tareas es el historial (las que
   // ya fueron movidas al sheet Historial). Sino, la fuente es D.tasks (activas).
@@ -6355,6 +6371,7 @@ function rEdTracker(D) {
        +    '<div class="pa-chip-divider"></div>'
        +    (role !== 'specialist' ? chip('mine', t('Asignadas a mí'), cMine, null, EDT.filter === 'mine') : '')
        +    ((cShared > 0 || EDT.filter === 'shared') ? chip('shared', t('Compartidas conmigo'), cShared, 'info', EDT.filter === 'shared') : '')
+       +    ((cNoDate > 0 || EDT.filter === 'nodate') ? chip('nodate', t('Sin plazo'), cNoDate, 'warn', EDT.filter === 'nodate') : '')
        +    chip('closed',  t('Cerradas'),        cClosed,  null,       EDT.filter === 'closed')
        +    '<div style="margin-left:auto;display:flex;gap:6px;align-items:center">'
        +      '<div class="pa-search" style="width:220px">'
@@ -6655,7 +6672,17 @@ function _edTkRowHtml(tk, role, sel) {
   }
   // Preferir el cálculo local (traducible vía t()) cuando etaDays es numérico;
   // tk.eta del server viene pre-armado en español y no pasa por i18n.
-  var etaTxt = (typeof tk.etaDays === 'number') ? paEtaText(tk.etaDays) : (tk.eta || '—');
+  // Sin deadline (etaDays null) en una tarea activa: chip "Sin plazo" en vez
+  // del '—' invisible — en legal, una tarea sin plazo que sale del radar es
+  // justo el riesgo que la app existe para evitar (el dato falta y se dice).
+  var etaCell;
+  if (typeof tk.etaDays === 'number') {
+    etaCell = esc(paEtaText(tk.etaDays));
+  } else if (tk.status !== 'Listo' && tk.status !== 'Cancelado') {
+    etaCell = '<span class="pa-pill pa-pill-warn" style="height:18px;font-size:10px">' + esc(t('Sin plazo')) + '</span>';
+  } else {
+    etaCell = esc(tk.eta || '—');
+  }
   var isSel = sel && sel.id == tk.id;
   var isChecked = (EDT.selectedIds || []).indexOf(String(tk.id)) >= 0;
   var cfLvl = _confLevel(tk);
@@ -6680,7 +6707,7 @@ function _edTkRowHtml(tk, role, sel) {
   }
   h += paPriorityPill(tk.priority)
     +  paStatusPill(tk.status)
-    +  '<span class="eta' + (tk.etaDays != null && tk.etaDays < 0 ? ' overdue' : '') + '">' + esc(etaTxt) + '</span>'
+    +  '<span class="eta' + (tk.etaDays != null && tk.etaDays < 0 ? ' overdue' : '') + '">' + etaCell + '</span>'
     + '</div>';
   return h;
 }
