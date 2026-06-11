@@ -10056,7 +10056,11 @@ function _crpRenderStep1() {
   var paisField = canPickCountry
     ? '<div class="cr-field">'
       + '<div class="cr-label">' + t('País') + ' <span class="req">*</span></div>'
-      + '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais) + '</div>'
+      // 5º arg obligatorio acá: sin él _crPillsHtml usa el setter del wizard
+      // de TAREAS (edCrearSetField) → el click del head escribía el país en
+      // EDC.values (estado ajeno), la pill nunca se activaba y el submit
+      // moría en "País requerido".
+      + '<div class="cr-pills-row">' + _crPillsHtml('pais', _crCountries(), v.pais, null, 'edCrearProyectoSetField') + '</div>'
       + '</div>'
     : '<div class="cr-field">'
       + '<div class="cr-label">' + t('País') + '</div>'
