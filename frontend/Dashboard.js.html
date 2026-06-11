@@ -3701,11 +3701,15 @@ function rEdHomeSpecialist(D) {
 
   var html = '<div class="pa-page">';
 
-  // Greeting con eyebrow contextual + nombre destacado en accent
+  // Greeting con eyebrow contextual + nombre destacado en accent. En modo demo
+  // (head viendo "como Specialist") el saludo por nombre confunde — neutralizamos.
   var todayLabel = todayLine ? todayLine.split(' ').slice(0, 2).join(' ') : '';
+  var specH1 = _demoRole()
+    ? '<span class="pa-greet-name">' + esc(t('Vista de Specialist')) + '</span>'
+    : esc(t('Hola')) + ', <span class="pa-greet-name">' + esc(firstName) + '</span>';
   html += '<div class="pa-greet">'
        +    '<div class="pa-greet-eye">' + esc(todayLabel ? t('— Tu') + ' ' + todayLabel : t('Hoy')) + '</div>'
-       +    '<h1>' + esc(t('Hola')) + ', <span class="pa-greet-name">' + esc(firstName) + '</span></h1>'
+       +    '<h1>' + specH1 + '</h1>'
        +    (todayLine ? '<span class="pa-greet-meta">' + esc(todayLine) + '</span>' : '')
        + '</div>';
 
@@ -3985,11 +3989,15 @@ function rEdHomeManager(D) {
 
   var html = '<div class="pa-page">';
 
-  // Greeting con eyebrow + nombre destacado
+  // Greeting con eyebrow + nombre destacado. En modo demo (head viendo "como
+  // Manager") el saludo "Hola, Juan" confunde — mostramos un encabezado neutral.
   var mgrTodayLabel = todayLine ? todayLine.split(' ').slice(0, 2).join(' ') : '';
+  var mgrH1 = _demoRole()
+    ? esc(t('Vista de Manager')) + ' <span class="pa-greet-name">' + esc(userCode || 'LATAM') + '</span>'
+    : esc(t('Hola')) + ', <span class="pa-greet-name">' + esc(firstName) + '</span>';
   html += '<div class="pa-greet">'
-       +    '<div class="pa-greet-eye">' + esc(mgrTodayLabel ? t('— Tu') + ' ' + mgrTodayLabel : t('Hoy')) + ' · ' + esc((userCode || '—') + ' · ' + teamMine.length + ' ' + t('specialists')) + '</div>'
-       +    '<h1>' + esc(t('Hola')) + ', <span class="pa-greet-name">' + esc(firstName) + '</span></h1>'
+       +    '<div class="pa-greet-eye">' + esc(mgrTodayLabel ? t('— Tu') + ' ' + mgrTodayLabel : t('Hoy')) + ' · ' + esc((userCode || '—') + ' · ' + teamMine.filter(function(m){ return !m.isLead; }).length + ' ' + t('specialists')) + '</div>'
+       +    '<h1>' + mgrH1 + '</h1>'
        +    (todayLine ? '<span class="pa-greet-meta">' + esc(todayLine) + '</span>' : '')
        + '</div>';
 
@@ -4102,7 +4110,7 @@ function rEdHomeManager(D) {
       html += '<div class="pa-tbl-r" title="' + esc(_why.join(' · ')) + '" style="grid-template-columns: 1fr 200px 80px 90px 90px 100px;height:46px">'
            +    '<div class="pa-flex-center">' + paAvatar(m.name || '?', 22)
            +      '<div><div style="font-size:13px;font-weight:500">' + esc(m.name || '') + '</div>'
-           +      '<div class="pa-meta-sm">' + esc(m.role || 'Specialist') + '</div></div>'
+           +      '<div class="pa-meta-sm">' + esc(m.isLead ? t('Líder') : (m.role || 'Specialist')) + '</div></div>'
            +    '</div>'
            +    '<div class="pa-flex-center">'
            +      '<span style="flex:1;height:6px;background:var(--bg-2);border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:' + Math.min(pct, 100) + '%;background:' + loadColor + '"></span></span>'
@@ -4141,8 +4149,17 @@ function rEdHomeHQ(D) {
   if (!totalSpec) {
     totalSpec = (D && D.team || []).filter(function(m){ return (m.role || '').toLowerCase().indexOf('special') !== -1; }).length;
   }
-  var totalMgr = countries.filter(function(c){ return c.leader; }).length
+  // Líderes DISTINTOS por nombre: la misma persona puede liderar varios países
+  // (Carlos: CO+CR), así que contar slots país-con-líder sobreestima "managers".
+  var _seenMgr = {};
+  countries.forEach(function(c) {
+    var ln = String(c.leader || '').trim().toLowerCase();
+    if (ln) _seenMgr[ln] = true;
+  });
+  var totalMgr = Object.keys(_seenMgr).length
               || (D && D.team || []).filter(function(m){ return (m.role || '').toLowerCase().indexOf('manager') !== -1; }).length;
+  // Países con actividad (tareas abiertas) vs configurados, para no inflar "N activos".
+  var activeCountries = countries.filter(function(c){ return (c.open || 0) > 0; }).length;
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
   // Mayor caída de SLA esta semana (para insight contextual).
   var biggestDrop = null;
@@ -4162,7 +4179,7 @@ function rEdHomeHQ(D) {
 
   // Greeting global con eyebrow contextual
   html += '<div class="pa-greet">'
-       +    '<div class="pa-greet-eye">— ' + esc(todayLine || t('Hoy')) + ' · ' + countries.length + ' ' + esc(t('países')) + ' · ' + (totalSpec || (D && D.team || []).length) + ' specialists · ' + totalMgr + ' managers</div>'
+       +    '<div class="pa-greet-eye">— ' + esc(todayLine || t('Hoy')) + ' · ' + countries.length + ' ' + esc(t('países')) + (activeCountries < countries.length ? ' · ' + activeCountries + ' ' + esc(activeCountries === 1 ? t('activo') : t('activos')) : '') + ' · ' + (totalSpec || (D && D.team || []).length) + ' specialists · ' + totalMgr + ' managers</div>'
        +    '<h1>' + esc(t('Operaciones')) + ' <span class="pa-greet-name">' + esc(t('legales globales')) + '</span></h1>'
        + '</div>';
 
@@ -6808,9 +6825,17 @@ function rEdTracker(D) {
        +    '</div>';
 
   if (rows.length === 0) {
-    var emptyIc = cAll === 0 ? 'inbox' : 'search';
+    // Head drilleado en un país sin tareas (p.ej. HQ) pero con tareas activas en
+    // otros países: no es "creá tu primera tarea" (eso miente), es "este país está
+    // vacío, volvé a países". Detecta drill activo + tareas activas en el dataset.
+    var emptyDrillNoTasks = cAll === 0 && role === 'head' && EDT.country
+      && allTasks.some(function(t){ return t.status !== 'Listo'; });
+    var emptyIc = cAll === 0 ? (emptyDrillNoTasks ? 'globe' : 'inbox') : 'search';
     var emptyMsg, emptyHint;
-    if (cAll === 0) {
+    if (emptyDrillNoTasks) {
+      emptyMsg = t('{país} no tiene tareas activas.').replace('{país}', paCountryLabel(EDT.country) || EDT.country);
+      emptyHint = t('Volvé a países para ver el resto de LATAM.');
+    } else if (cAll === 0) {
       emptyMsg = role === 'specialist' ? t('No tenés tareas activas en tu agenda.') : t('No hay tareas activas que trackear.');
       emptyHint = role === 'specialist' ? t('Aprovechá para trabajo de proyecto.') : t('Creá una tarea para empezar.');
     } else if (EDT.search) {
@@ -6823,7 +6848,9 @@ function rEdTracker(D) {
     // CTA: si está vacío porque no hay tareas (no por filtros), invitar
     // a crear la primera. Si está vacío por filtros/search, ofrecer limpiar.
     var ctaBtn = '';
-    if (cAll === 0) {
+    if (emptyDrillNoTasks) {
+      ctaBtn = '<button class="pa-btn pa-btn-outline" onclick="edClearCountryFilter()" style="margin-top:6px">' + paIcon('arrowR', 12, '', 'transform:rotate(180deg)') + ' ' + esc(t('Volver a países')) + '</button>';
+    } else if (cAll === 0) {
       ctaBtn = '<button class="pa-btn pa-btn-primary" onclick="edCrearOpen()" style="margin-top:6px">' + paIcon('plus', 12) + ' ' + esc(t('Crear tu primera tarea')) + '</button>';
     } else if (EDT.search || EDT.filter !== 'all' || EDT.projectFilter || EDT.respFilter || EDT.confFilter) {
       ctaBtn = '<button class="pa-btn pa-btn-outline" onclick="edClearSecondaryFilters();edSetFilter(\'all\');edSetSearch(\'\')" style="margin-top:6px">' + esc(t('Limpiar filtros')) + '</button>';
@@ -10234,6 +10261,13 @@ function rEdResumen(D) {
   var allTasks  = (D && D.tasks) || [];
   var projects  = (D && D.projects) || [];
 
+  // Países con actividad (tareas abiertas) vs configurados: "N países activos" mentía
+  // cuando solo 1 tiene movimiento. Mostramos total · activos cuando difieren.
+  var activeCountries = countries.filter(function(c){ return (c.open || 0) > 0; }).length;
+  var paisesLabel = (activeCountries === countries.length)
+    ? countries.length + ' ' + (countries.length === 1 ? t('país activo') : t('países activos'))
+    : countries.length + ' ' + (countries.length === 1 ? t('país') : t('países')) + ' · ' + activeCountries + ' ' + (activeCountries === 1 ? t('activo') : t('activos'));
+
   // ── Hero KPIs (idéntica lógica que rEdHomeHQ para coherencia visual)
   var totalOpen    = allTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
   var totalOverdue = countries.reduce(function(a, c){ return a + (c.overdue || 0); }, 0);
@@ -10270,7 +10304,7 @@ function rEdResumen(D) {
   }
 
   var sem = (D && D.semana) ? (t('semana') + ' ' + D.semana) : '';
-  var eyeBits = [t('Por país'), countries.length + ' ' + (countries.length === 1 ? t('país activo') : t('países activos'))];
+  var eyeBits = [t('Por país'), paisesLabel];
   if (sem) eyeBits.push(sem);
 
   var html = '<div class="pa-page">';
@@ -10278,7 +10312,7 @@ function rEdResumen(D) {
   // Page header
   html += '<div class="pa-page-h">'
        +    '<span class="pa-page-title">' + esc(t('Por país')) + '</span>'
-       +    '<span class="pa-page-sub">' + countries.length + ' ' + esc(countries.length === 1 ? t('país activo') : t('países activos')) + (sem ? ' · ' + esc(sem) : '') + '</span>'
+       +    '<span class="pa-page-sub">' + esc(paisesLabel) + (sem ? ' · ' + esc(sem) : '') + '</span>'
        + '</div>';
 
   if (lede) {
@@ -10318,8 +10352,8 @@ function rEdResumen(D) {
     html += paEmpty('globe', t('No hay datos de países disponibles.'), t('Verificá que la hoja Equipos tenga al menos un país configurado.'));
   } else {
     html += '<div class="pa-tbl">'
-         +    '<div class="pa-tbl-h" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px">'
-         +      '<div>' + esc(t('País')) + '</div><div>' + esc(t('Líder')) + '</div><div>' + esc(t('Activas')) + '</div><div>' + esc(t('Vencidas')) + '</div><div>' + esc(t('SLA mes')) + '</div><div>' + esc(t('Tendencia 12s')) + '</div>'
+         +    '<div class="pa-tbl-h" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px;gap:16px">'
+         +      '<div>' + esc(t('País')) + '</div><div>' + esc(t('Líder')) + '</div><div style="text-align:right">' + esc(t('Activas')) + '</div><div style="text-align:right">' + esc(t('Vencidas')) + '</div><div style="text-align:right">' + esc(t('SLA mes')) + '</div><div>' + esc(t('Tendencia 12s')) + '</div>'
          +    '</div>';
     countries.forEach(function(c) {
       var sla = c.slaPct || 0;
@@ -10330,16 +10364,16 @@ function rEdResumen(D) {
       // "—" en vez de una línea ficticia que el head interpretaría como real.
       var trend = c.trend || [0,0,0,0,0,0,0,0,0,0,0,0];
       var hasTrend = trend.some(function(x){ return x > 0; });
-      html += '<div class="pa-tbl-r" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px;height:52px" onclick="edSetCountryFilter(\'' + esc(c.code) + '\');goEd(\'tracker\')">'
-           +    '<div style="display:flex;align-items:center;gap:10px">'
-           +      '<span style="width:28px;height:20px;border-radius:4px;background:var(--bg-2);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:var(--fg-1);font-weight:600">' + esc(c.code || '') + '</span>'
-           +      '<span style="font-size:13px;font-weight:500">' + esc(c.name || '') + '</span>'
+      html += '<div class="pa-tbl-r" style="grid-template-columns: 180px 1fr 80px 90px 90px 130px;gap:16px;height:52px" onclick="edSetCountryFilter(\'' + esc(c.code) + '\');goEd(\'tracker\')">'
+           +    '<div style="display:flex;align-items:center;gap:10px;min-width:0">'
+           +      '<span style="width:28px;height:20px;border-radius:4px;background:var(--bg-2);display:grid;place-items:center;font-family:var(--font-mono);font-size:11px;color:var(--fg-1);font-weight:600;flex:none">' + esc(c.code || '') + '</span>'
+           +      '<span style="font-size:13px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(c.name || '') + '</span>'
            +    '</div>'
-           +    '<div class="pa-flex-center">' + paAvatar(c.leader || '?', 22)
-           +      '<span style="font-size:13px">' + esc(c.leader || '—') + '</span></div>'
-           +    '<div class="mono" style="font-size:13px">' + (c.open || 0) + '</div>'
-           +    '<div class="mono" style="font-size:13px;color:' + ovColor + '">' + (c.overdue || 0) + '</div>'
-           +    '<div class="mono" style="font-size:13px;color:' + slaColor + '">' + (sla || '—') + (sla ? '%' : '') + '</div>'
+           +    '<div class="pa-flex-center" style="min-width:0">' + paAvatar(c.leader || '?', 22)
+           +      '<span style="font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(c.leader || '—') + '</span></div>'
+           +    '<div class="mono" style="font-size:13px;text-align:right">' + (c.open || 0) + '</div>'
+           +    '<div class="mono" style="font-size:13px;text-align:right;color:' + ovColor + '">' + (c.overdue || 0) + '</div>'
+           +    '<div class="mono" style="font-size:13px;text-align:right;color:' + slaColor + '">' + (sla || '—') + (sla ? '%' : '') + '</div>'
            +    '<div>' + (hasTrend ? paSparkline(trend, 110, 28, sparkTone) : '<span style="font-size:11px;color:var(--fg-4)">—</span>') + '</div>'
            + '</div>';
     });

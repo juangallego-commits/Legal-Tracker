@@ -311,7 +311,24 @@ function _getEditorialDataImpl() {
     var THIRTY_DAYS_MS_M = 30 * 24 * 60 * 60 * 1000;
     var capMap = _resolveCapacityMap(data.config);
 
+    // Mapa code(upper) → nombre normalizado del LÍDER del país. Fuente: data.countries[].leader
+    // (no recortado por PII, a diferencia de data.equipos que para spec/manager se filtra a su
+    // propio país). El líder de un país NO es un specialist; el frontend usa member.isLead para
+    // no contarlo ni etiquetarlo como tal. Si no hay líder conocido → no entra al mapa → isLead=false.
+    var leaderByCode = {};
+    (data.countries || []).forEach(function(c) {
+      if (!c || !c.code) return;
+      var ln = _normalizeName(c.leader);
+      if (ln) leaderByCode[c.code.toUpperCase()] = ln;
+    });
+
     data.team.forEach(function(member) {
+      // isLead: true sii este miembro es el líder de SU país (match por nombre normalizado).
+      // Degradación segura: sin country o sin líder conocido → false. Campo nuevo y aditivo:
+      // no toca member.role, así que lecturas viejas (sin isLead) siguen funcionando.
+      var memCode = (member.country || '').toUpperCase();
+      var leadNorm = leaderByCode[memCode];
+      member.isLead = !!(leadNorm && _normalizeName(member.name) === leadNorm);
       // Tareas del miembro: como resp + como colaborador-editar. Dedup por id
       // (un mismo task no debe contar doble; el CRUD impide ser resp y colab a la vez,
       // pero deduplicamos por las dudas ante data inconsistente).
