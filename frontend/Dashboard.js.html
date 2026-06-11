@@ -3684,8 +3684,9 @@ function rEdHomeSpecialist(D) {
        +    '</div>'
        +    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">'
        +      '<div>'
-       +        '<div class="pa-meta-sm">' + esc(t('Racha en tiempo')) + '</div>'
-       +        '<div class="mono" style="font-size:26px;font-weight:600;letter-spacing:-0.02em">' + (streak ? '🔥 ' + streak : '0') + ' <span style="font-size:12px;color:var(--fg-3);font-weight:400">' + esc(t('tareas')) + '</span></div>'
+       +        '<div class="pa-meta-sm">' + esc(t('Cierres en tiempo seguidos')) + '</div>'
+       +        '<div class="mono" style="font-size:26px;font-weight:600;letter-spacing:-0.02em">' + (streak ? '🔥 ' + streak : '0') + '</div>'
+       +        (streak ? '' : '<div style="font-size:11px;color:var(--fg-3);margin-top:2px;line-height:1.4">' + esc(t('Cerrá una tarea dentro del plazo para arrancar tu racha')) + '</div>')
        +      '</div>'
        +      '<div>'
        +        '<div class="pa-meta-sm">' + esc(t('Cerradas este mes')) + '</div>'
@@ -3704,10 +3705,12 @@ function rEdHomeSpecialist(D) {
     rows.forEach(function(r) {
       // Antes había una barra decorativa con width:60% fijo (no representaba el
       // dato → engañosa en un scorecard). La reemplazamos por un punto de color
-      // por prioridad + el valor real.
+      // por prioridad + el valor real. El "—" pelado lleva tooltip que explica
+      // la ausencia (sin cierres de esa prioridad este mes).
+      var noData = !r.v || r.v === '—';
       html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;">'
            +    '<span style="font-size:12px;color:var(--fg-2);display:flex;align-items:center;gap:7px"><span style="width:8px;height:8px;border-radius:50%;background:' + r.color + ';display:inline-block;flex:0 0 auto"></span>' + r.l + '</span>'
-           +    '<span class="mono" style="font-size:12px;color:var(--fg-1);font-weight:600">' + esc(r.v) + '</span>'
+           +    '<span class="mono" style="font-size:12px;color:var(--fg-1);font-weight:600"' + (noData ? ' title="' + esc(t('Sin cierres de esta prioridad este mes')) + '"' : '') + '>' + esc(r.v) + '</span>'
            + '</div>';
     });
     html += '</div>';
