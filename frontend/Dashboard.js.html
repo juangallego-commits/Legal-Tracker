@@ -7871,6 +7871,38 @@ function _crRefreshConflict() {
   if (el) el.innerHTML = _crConflictMsg(EDC.values);
 }
 
+// Fecha objetivo de SLA: hoy + N días hábiles (N = SLA de la prioridad).
+// Solo cuenta lun–vie (los feriados por país los aplica el backend al medir;
+// acá es una sugerencia, el usuario puede cambiarla). Devuelve ISO yyyy-MM-dd.
+function _slaTargetISO(prio) {
+  var todayISO = (D && D.today) || '';
+  var m = todayISO.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return '';
+  var n = _slaLimit(prio);
+  var d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+  var added = 0;
+  while (added < n) {
+    d.setDate(d.getDate() + 1);
+    var wd = d.getDay();
+    if (wd !== 0 && wd !== 6) added++;
+  }
+  var mm = String(d.getMonth() + 1); if (mm.length < 2) mm = '0' + mm;
+  var dd = String(d.getDate()); if (dd.length < 2) dd = '0' + dd;
+  return d.getFullYear() + '-' + mm + '-' + dd;
+}
+function _isoToDDMM(iso) {
+  var m = (iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? (m[3] + '/' + m[2]) : '';
+}
+// Setea el deadline al objetivo de SLA de la prioridad elegida y re-renderiza.
+function edCrearUseSLA() {
+  var iso = _slaTargetISO(EDC.values.prioridad || 'Media');
+  if (!iso) return;
+  EDC.values.deadline = iso;
+  try { localStorage.setItem('lt-edc-draft', JSON.stringify(EDC.values)); } catch (e) {}
+  _crMount();
+}
+
 function _crRenderStep2() {
   var v = EDC.values;
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
@@ -7903,10 +7935,26 @@ function _crRenderStep2() {
   // "Nivel de riesgo" se quitó del wizard de tareas (no alimentaba métricas y
   // confundía). riesgo queda '' y el backend lo acepta. Sigue disponible en el
   // wizard de proyectos y en la edición del panel. Prioridad pasa a full-width.
+  // SLA objetivo según la prioridad: muestra el plazo recomendado y un botón
+  // para usarlo (estandariza fechas para el reporting). El target ya seteado
+  // no vuelve a ofrecerse.
+  var slaN = _slaLimit(v.prioridad || 'Media');
+  var slaISO = _slaTargetISO(v.prioridad || 'Media');
+  var slaAlreadySet = (v.deadline && v.deadline === slaISO);
+  var slaHint = slaISO
+    ? '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--fg-3)">'
+        + paIcon('flag', 11, '', 'opacity:.7')
+        + '<span>' + esc(t('SLA objetivo') + ': ' + slaN + ' ' + t('días hábiles') + ' · ' + t('vence el') + ' ' + _isoToDDMM(slaISO)) + '</span>'
+        + (slaAlreadySet
+            ? '<span style="color:var(--good-fg);display:flex;align-items:center;gap:3px">' + paIcon('check', 11) + ' ' + esc(t('usado')) + '</span>'
+            : '<button type="button" class="pa-btn pa-btn-ghost" style="height:22px;font-size:11px;padding:0 8px" onclick="edCrearUseSLA()">' + esc(t('Usar este plazo')) + '</button>')
+      + '</div>'
+    : '';
   return ''
     + '<div class="cr-field">'
     +   '<div class="cr-label">Prioridad</div>'
     +   '<div class="cr-pills-row">' + _crPillsHtml('prioridad', _CR_PRIOS, v.prioridad, _crPrioMod) + '</div>'
+    +   slaHint
     + '</div>'
     + '<div class="cr-grid2">'
     +   respFieldHtml
