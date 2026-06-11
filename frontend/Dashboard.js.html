@@ -3553,15 +3553,17 @@ function rEdHomeSpecialist(D) {
   var thisWeek  = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= ED_WEEK_DAYS; }).length;
   var blocked   = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var todayLine = D && D.today ? _todayHumanStr(D.today) : '';
-  // Top 4 ordenadas por urgencia
-  var top = tasks.slice().sort(function(a, b) {
-    var aBlk = a.status === 'Bloqueado' ? -1 : 0;
-    var bBlk = b.status === 'Bloqueado' ? -1 : 0;
-    if (aBlk !== bBlk) return aBlk - bBlk;
-    var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
-    var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
-    return ad - bd;
-  }).slice(0, 4);
+  // "Tu próxima tarea" se elige SOLO entre accionables: una bloqueada, por
+  // definición, no se puede cerrar hoy — antes el sort las ponía PRIMERAS y
+  // el hero ofrecía "Trabajar en esta tarea →" sobre algo que está esperando
+  // a un tercero, mientras las que vencen hoy quedaban tapadas. Las
+  // bloqueadas tienen su propia línea clickeable bajo el hero.
+  var top = tasks.filter(function(t){ return t.status !== 'Bloqueado'; })
+    .sort(function(a, b) {
+      var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
+      var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
+      return ad - bd;
+    }).slice(0, 4);
 
   var html = '<div class="pa-page">';
 
@@ -3658,6 +3660,16 @@ function rEdHomeSpecialist(D) {
            +    '<button class="pa-btn pa-btn-ghost" style="font-size:12px" onclick="goEd(\'agrupadas\')">' + (tasks.length - 1) + ' ' + esc(LANG === 'pt' ? 'mais pendentes →' : 'pendientes más →') + '</button>'
            + '</div>';
     }
+  }
+
+  // Bloqueadas: línea aparte, clickeable → tracker filtrado por On hold.
+  // Fuera del hero (no son accionables hoy) pero nunca invisibles.
+  if (blocked > 0) {
+    html += '<div class="pa-card" style="margin-top:10px;padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg-2)" onclick="edGoTrackerFiltered(\'blocked\')">'
+         +    '<span>⏸</span>'
+         +    '<span>' + blocked + ' ' + esc(blocked === 1 ? t('bloqueada — revisá si ya se destrabó') : t('bloqueadas — revisá si alguna ya se destrabó')) + '</span>'
+         +    '<span style="margin-left:auto;color:var(--fg-3)">→</span>'
+         + '</div>';
   }
 
   // Grid 2 cols: month + projects
@@ -4412,6 +4424,11 @@ function _edNextUrgent() {
   var roleTasks = _edFilterByRole(D.tasks, role, userName, userCode);
   var filtered = (typeof _edApplyFilter === 'function') ? _edApplyFilter(roleTasks, EDT.filter) : roleTasks;
   filtered = (typeof _edApplySearch === 'function') ? _edApplySearch(filtered, EDT.search) : filtered;
+  // No auto-ofrecer una bloqueada como "siguiente": no se puede trabajar en
+  // ella (salvo que el usuario esté justamente filtrando por bloqueadas).
+  if (EDT.filter !== 'blocked') {
+    filtered = filtered.filter(function(t){ return t.status !== 'Bloqueado'; });
+  }
   var sorted = (typeof _edSortByUrgency === 'function') ? _edSortByUrgency(filtered) : filtered;
   return sorted[0] || null;
 }
