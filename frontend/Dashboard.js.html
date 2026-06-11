@@ -4379,8 +4379,14 @@ function _edFilterByRole(tasks, role, userName, userCode) {
   // corte aunque no cumplan la regla de rol: el backend ya decidió mandarlas
   // en D.tasks; sin esto el chip/filtro "Compartidas" quedaba siempre vacío.
   var visible = _edRoleScopeTasks(tasks, role, userName, userCode);
-  // Filtro por país desde HQ (sólo aplicable cuando el rol no lo restringe ya)
-  if (EDT.country) {
+  // Drill por país (EDT.country) — herramienta de HEAD, que ve todos los países
+  // y elige cuál mirar. Para manager/specialist el scope ya está acotado por rol
+  // (país propio / tareas propias por nombre), así que un EDT.country HEREDADO
+  // —p. ej. el head drilleó "COMP" y después pasó a "Ver app como… specialist"—
+  // sólo puede ESCONDER tareas propias, nunca ampliar, y esos roles ni siquiera
+  // tienen el selector de país para limpiarlo (era head-only): tracker en cero
+  // sin salida. Por eso el drill aplica únicamente cuando el rol es head.
+  if (EDT.country && role === 'head') {
     visible = visible.filter(function(t){ return (t.pais || '') === EDT.country; });
   }
   return visible;
