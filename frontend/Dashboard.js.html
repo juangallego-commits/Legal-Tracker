@@ -11115,11 +11115,20 @@ function _rEdBibDocs(D) {
     }
     chipsHtml += '</div>';
 
-    // Badges en fila propia (sin clasificar / reemplazado) para no romper el
-    // line-clamp del título.
+    // Badges en fila propia (confidencialidad / sin clasificar / reemplazado)
+    // para no romper el line-clamp del título. El nivel de confidencialidad va
+    // EXPLÍCITO (candado + label), no solo como color de borde — es info de
+    // privacidad y debe leerse, no inferirse.
+    var confLevel = (d.confidencialidad || 'estandar');
+    var showConfBadge = (confLevel === 'restringido' || confLevel === 'confidencial');
     var badgesHtml = '';
-    if (d.tipoDocumento === 'Otro' || noVig) {
+    if (showConfBadge || d.tipoDocumento === 'Otro' || noVig) {
       badgesHtml = '<div class="bib-card-badges">';
+      if (showConfBadge) {
+        var confMeta = (ED_CONF_LEVELS && ED_CONF_LEVELS[confLevel]) || { label: confLevel };
+        var confColor = confLevel === 'confidencial' ? 'var(--critical)' : 'var(--warn)';
+        badgesHtml += '<span class="bib-card-badge" style="background:color-mix(in oklab, ' + confColor + ' 16%, transparent);color:' + (confLevel === 'confidencial' ? 'var(--critical-fg)' : 'var(--warn-fg)') + ';display:inline-flex;align-items:center;gap:3px" title="' + esc(confMeta.desc || '') + '">' + paIcon('lock', 9) + ' ' + esc(confMeta.label) + '</span>';
+      }
       if (d.tipoDocumento === 'Otro') badgesHtml += '<span class="bib-card-badge" style="background:color-mix(in oklab, var(--warn) 18%, transparent);color:var(--warn-fg)">Sin clasificar</span>';
       if (noVig) badgesHtml += '<span class="bib-card-badge">Reemplazado</span>';
       badgesHtml += '</div>';

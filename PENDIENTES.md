@@ -98,7 +98,7 @@ Salió de 4 agentes Opus revisando flujos, pantallas, biblioteca y Slack. Ordena
 - **Convergir edición inline** — que prioridad/estado/tipo se editen inline en el panel (hoy abren el modal legacy). Permite retirar el modal viejo del todo.
 
 ### Apuestas grandes
-- **Confidencialidad en Biblioteca** — los docs de Biblioteca **no tienen nivel de confidencialidad** (las tareas sí). Hueco de privacidad real: agregar columna `conf` + filtrado server-side por rol + sharing de Drive acorde. Importante antes de meter docs sensibles.
+- ✅ **Confidencialidad en Biblioteca** — ya implementada (la nota era vieja): el schema tiene columna `confidencialidad`, `_bibValidateMeta` impide que un specialist marque "confidencial", `_filterBibDocsForRole` filtra server-side por rol+país+confidencialidad, y la búsqueda IA lo respeta (intersecta con la lista filtrada). En jun-2026 se agregó el **badge explícito** (candado + nivel) en cada card. *Pendiente real menor:* el **sharing de Drive** del archivo subido no se ajusta automáticamente al nivel (el filtrado de la app sí; pero alguien con el link directo de Drive lo abre). Evaluar permisos de Drive por nivel antes de subir docs muy sensibles.
 - **@menciones en comentarios** → notificación (reusa el roster + el badge de notificaciones).
 - **Modo "Hoy" del specialist** — próxima tarea + reuniones del día (Calendar) + vence-hoy en una sola vista.
 - **Sugerencia de rebalanceo para managers** — cuando alguien está >100% y otro <60%, "sugerir reasignar N tareas" (el scoring ya existe en el home).
