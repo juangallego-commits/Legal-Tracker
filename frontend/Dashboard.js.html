@@ -2884,7 +2884,9 @@ function mountEdShell() {
   // Esconder el FAB legacy: el header editorial ya tiene "+ Nueva".
   var fab = $('fabCreate'); if (fab) fab.style.display = 'none';
   // Lazy: cargar notificaciones (activity sobre tus tareas) y renderear badge.
-  if (typeof edNotifLoad === 'function') setTimeout(edNotifLoad, 400);
+  // Tras la primera carga, arrancar el refresco periódico (60s) para que las
+  // novedades aparezcan en el bell sin recargar.
+  if (typeof edNotifLoad === 'function') setTimeout(function(){ edNotifLoad(); if (typeof _notifStartPolling === 'function') _notifStartPolling(); }, 400);
   // Auto-launch del tour la primera vez (localStorage flag). 800ms delay
   // para que el render de la vista termine y el user vea el shell antes.
   try {
@@ -6229,11 +6231,33 @@ function _markActivitySeen() {
 function edNotifLoad() {
   google.script.run
     .withSuccessHandler(function(items) {
+      var prev = _NOTIF_RECENT.length;
       _NOTIF_RECENT = items || [];
       edNotifRenderBadge();
+      // Si llegaron novedades mientras trabajás (no en la primera carga),
+      // un toast suave avisa sin interrumpir — "generar la notificación
+      // dentro del dash" en vivo, sin recargar.
+      if (_NOTIF_POLL_STARTED && _NOTIF_RECENT.length > prev && typeof toast === 'function') {
+        var n = _NOTIF_RECENT.length - prev;
+        toast('🔔 ' + n + ' ' + (LANG === 'pt'
+          ? (n === 1 ? 'nova notificação' : 'novas notificações')
+          : (n === 1 ? 'notificación nueva' : 'notificaciones nuevas')), 'info');
+      }
     })
     .withFailureHandler(function(){ /* silent */ })
     .getMyRecentActivity(_activitySeenTs());
+}
+// Refresco periódico del inbox (cada 60s) para que las notificaciones
+// aparezcan en vivo sin recargar. Un solo intervalo (guard de re-mount).
+var _NOTIF_POLL_STARTED = false;
+function _notifStartPolling() {
+  if (_NOTIF_POLL_STARTED) return;
+  _NOTIF_POLL_STARTED = true;
+  setInterval(function(){
+    // No pollear con un modal/panel pesado abierto (evita parpadeos y carga).
+    if (document.getElementById('edNotifOv')) return;
+    edNotifLoad();
+  }, 60000);
 }
 function edNotifRenderBadge() {
   // El badge vive en el bell del header (más visible); fallback al avatar
@@ -6293,6 +6317,7 @@ function edNotifOpen() {
         case 'reopen':        actLabel = LANG === 'pt' ? 'reabriu' : 'reabrió'; break;
         case 'block':         actLabel = LANG === 'pt' ? 'pôs em on hold' : 'puso en on hold'; break;
         case 'reassign':      actLabel = (LANG === 'pt' ? 'reatribuiu a você' : 'te asignó'); break;
+        case 'mention':       actLabel = (LANG === 'pt' ? 'mencionou você em' : 'te mencionó en'); break;
         case 'status_change': actLabel = (LANG === 'pt' ? 'mudou status de' : 'cambió estado de'); break;
         case 'colaboradores': actLabel = _notifColabLabel(it); break;
         default:              actLabel = (LANG === 'pt' ? 'atualizou' : 'actualizó');

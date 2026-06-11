@@ -1943,7 +1943,13 @@ function getMyRecentActivity(sinceIso) {
       var rowEmail = (r[3] || '').toString().toLowerCase();
       if (rowEmail === myEmail) continue; // skip mis propias acciones
       var taskId = String(r[2]);
-      if (!myTaskIds[taskId]) continue; // skip tasks que no son mías
+      // Incluir: (a) actividad sobre una tarea mía (resp/colaborador), o
+      // (b) una @mención DIRIGIDA a mí (action='mention', field = mi nombre) —
+      // aunque la tarea no sea mía. Sin (b), una mención en una tarea ajena
+      // solo llegaba por email y el bell no la mostraba.
+      var isMine = !!myTaskIds[taskId];
+      var isMentionForMe = (r[5] === 'mention') && (_normalizeName(r[6]) === _myNorm);
+      if (!isMine && !isMentionForMe) continue;
       var ts = r[1] instanceof Date ? r[1].getTime() : new Date(r[1]).getTime();
       if (sinceMs && ts <= sinceMs) break; // ordenadas desc; cuando entras al ts viejo, frenar
       out.push({
@@ -2006,6 +2012,13 @@ function _addTaskCommentImpl(taskId, body) {
         var hasAccess = (nn === respNorm) || !!colabNorms[nn];
         _notify(ctx, nm, { kind: 'mention', taskId: taskId, taskName: taskNow && taskNow.nombre,
                            conf: taskNow && taskNow.confidencialidad, snippet: trimmed, canSeeName: hasAccess });
+        // In-app: si el mencionado NO es resp/colaborador, el feed "actividad
+        // sobre mis tareas" no lo agarra → logueamos una fila 'mention'
+        // dirigida (field = su nombre) para que su bell la muestre. Si SÍ tiene
+        // acceso, ya verá la fila 'comment' de la tarea — no duplicar.
+        if (!hasAccess) {
+          _logActivity(ctx, taskId, 'mention', nm, '', trimmed.substring(0, 100));
+        }
       });
     }
     return {
