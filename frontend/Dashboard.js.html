@@ -3797,11 +3797,16 @@ function rEdHomeSpecialist(D) {
   }
 
   // Bloqueadas: línea aparte, clickeable → tracker filtrado por On hold.
-  // Fuera del hero (no son accionables hoy) pero nunca invisibles.
+  // Fuera del hero (no son accionables hoy) pero nunca invisibles. Si hay
+  // sello de bloqueo, mostramos la más antigua — el dato que evita que se
+  // pudran en silencio.
   if (blocked > 0) {
+    var _maxBlk = -1;
+    tasks.forEach(function(t){ if (t.status === 'Bloqueado' && typeof t.blockedDays === 'number' && t.blockedDays > _maxBlk) _maxBlk = t.blockedDays; });
+    var _oldestTxt = (_maxBlk >= 0) ? ' · ' + esc(t('la más antigua hace')) + ' ' + _maxBlk + 'd' : '';
     html += '<div class="pa-card" style="margin-top:10px;padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg-2)" onclick="edGoTrackerFiltered(\'blocked\')">'
          +    '<span>⏸</span>'
-         +    '<span>' + blocked + ' ' + esc(blocked === 1 ? t('bloqueada — revisá si ya se destrabó') : t('bloqueadas — revisá si alguna ya se destrabó')) + '</span>'
+         +    '<span>' + blocked + ' ' + esc(blocked === 1 ? t('bloqueada — revisá si ya se destrabó') : t('bloqueadas — revisá si alguna ya se destrabó')) + _oldestTxt + '</span>'
          +    '<span style="margin-left:auto;color:var(--fg-3)">→</span>'
          + '</div>';
   }
@@ -4046,9 +4051,9 @@ function rEdHomeManager(D) {
            +    '<span class="resp">' + paAvatar(t.resp || '?', 18) + '<span style="font-size:12px">' + esc(t.resp || '—') + '</span></span>'
            +    paPriorityPill(t.priority)
            +    paStatusPill(t.status)
-           // On hold: fecha en neutro (el reloj está pausado), no "Vencida" roja.
+           // On hold: cuánto lleva bloqueada (reloj pausado), no "Vencida" roja.
            +    (t.status === 'Bloqueado'
-                ? '<span class="eta" style="color:var(--fg-3)">⏸ ' + esc(t.deadline || '—') + '</span>'
+                ? '<span class="eta" style="color:' + ((typeof t.blockedDays === 'number' && t.blockedDays >= 7) ? 'var(--warn-fg)' : 'var(--fg-3)') + '">⏸ ' + ((typeof t.blockedDays === 'number') ? esc(t('hace')) + ' ' + t.blockedDays + 'd' : esc(t.deadline || '—')) + '</span>'
                 : '<span class="eta' + (_isOverdueTask(t) ? ' overdue' : '') + '">' + esc((typeof t.etaDays === 'number') ? paEtaText(t.etaDays) : (t.eta || '—')) + '</span>')
            + '</div>';
     });
@@ -4492,9 +4497,17 @@ function _edApplySearch(tasks, q) {
 
 function _edSortByUrgency(tasks) {
   return tasks.slice().sort(function(a, b) {
-    var aBlk = a.status === 'Bloqueado' ? -1 : 0;
-    var bBlk = b.status === 'Bloqueado' ? -1 : 0;
+    // On hold al FINAL: el reloj está pausado y no son accionables hoy — iban
+    // primeras y tapaban lo que vence. Su atención la canaliza el chip On hold,
+    // la línea ⏸ del home y el "hace Nd" de la fila. Entre bloqueadas, la más
+    // antigua arriba (la que más urge destrabar).
+    var aBlk = a.status === 'Bloqueado' ? 1 : 0;
+    var bBlk = b.status === 'Bloqueado' ? 1 : 0;
     if (aBlk !== bBlk) return aBlk - bBlk;
+    if (aBlk === 1) {
+      return ((typeof b.blockedDays === 'number') ? b.blockedDays : -1)
+           - ((typeof a.blockedDays === 'number') ? a.blockedDays : -1);
+    }
     var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
     var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;
     return ad - bd;
@@ -6945,9 +6958,15 @@ function _edTkRowHtml(tk, role, sel) {
   // justo el riesgo que la app existe para evitar (el dato falta y se dice).
   var etaCell;
   if (tk.status === 'Bloqueado') {
-    // On hold: el reloj está pausado — la fecha es un dato, no una alarma.
-    // Antes la fila decía "On hold" y "Vencida hace Xd" en rojo a la vez.
-    etaCell = '<span style="color:var(--fg-3)">⏸ ' + esc(tk.deadline || '—') + '</span>';
+    // On hold: el reloj está pausado — mostramos cuánto LLEVA bloqueada (el
+    // dato accionable: ¿ya se destrabó? ¿lleva demasiado?). Warn a partir de
+    // una semana parada. Fallback al deadline si no hay sello (pre-migración).
+    if (typeof tk.blockedDays === 'number') {
+      var _bTone = tk.blockedDays >= 7 ? 'var(--warn-fg)' : 'var(--fg-3)';
+      etaCell = '<span style="color:' + _bTone + '">⏸ ' + esc(t('hace')) + ' ' + tk.blockedDays + 'd</span>';
+    } else {
+      etaCell = '<span style="color:var(--fg-3)">⏸ ' + esc(tk.deadline || '—') + '</span>';
+    }
   } else if (typeof tk.etaDays === 'number') {
     etaCell = esc(paEtaText(tk.etaDays));
   } else if (tk.status !== 'Listo' && tk.status !== 'Cancelado') {
@@ -7079,7 +7098,10 @@ function _renderTkPanel(sel) {
   var blockCls = (sel.status === 'Bloqueado' || (typeof sel.etaDays === 'number' && sel.etaDays < 0)) ? 'crit' : '';
   var stateBody;
   if (sel.status === 'Bloqueado') {
-    stateBody = '<b>' + esc(t('Bloqueada.')) + '</b> ' + esc(sel.blockedReason || sel.accionable || t('Necesita desbloqueo manual.'));
+    var _bLbl = (typeof sel.blockedDays === 'number')
+      ? t('Bloqueada hace') + ' ' + sel.blockedDays + (sel.blockedDays === 1 ? ' ' + t('día.') : ' ' + t('días.'))
+      : t('Bloqueada.');
+    stateBody = '<b>' + esc(_bLbl) + '</b> ' + esc(sel.blockedReason || sel.accionable || t('Necesita desbloqueo manual.'));
   } else if (typeof sel.etaDays === 'number' && sel.etaDays < 0) {
     var _odN = Math.abs(sel.etaDays);
     stateBody = '<b>' + esc(t('Vencida hace')) + ' ' + _odN + ' ' + esc(_odN === 1 ? t('día.') : t('días.')) + '</b> ' + esc(sel.accionable || '');
@@ -7371,7 +7393,7 @@ function _agBuckets(tasks) {
     var t = tasks[i];
     if (t.status === 'Listo') continue;
     // On hold: no va al bucket "Vencidas" (no es accionable hoy) — cae a
-    // "Después", donde el sort interno igual la sube por su estado.
+    // "Después", al final del bucket (mismo criterio que la lista Activas).
     if (t.status === 'Bloqueado') { later.push(t); continue; }
     var d = (typeof t.etaDays === 'number') ? t.etaDays : null;
     if (d == null) { later.push(t); continue; }
@@ -7382,8 +7404,9 @@ function _agBuckets(tasks) {
   }
   // ordenar por urgencia dentro de cada bucket
   function sortAsc(a, b) {
-    var aBlk = a.status === 'Bloqueado' ? -1 : 0;
-    var bBlk = b.status === 'Bloqueado' ? -1 : 0;
+    // On hold al final del bucket (reloj pausado — coherente con _edSortByUrgency).
+    var aBlk = a.status === 'Bloqueado' ? 1 : 0;
+    var bBlk = b.status === 'Bloqueado' ? 1 : 0;
     if (aBlk !== bBlk) return aBlk - bBlk;
     var ad = (typeof a.etaDays === 'number') ? a.etaDays : 9999;
     var bd = (typeof b.etaDays === 'number') ? b.etaDays : 9999;

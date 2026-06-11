@@ -547,3 +547,70 @@ function tidySheets() {
   Logger.log(out);
   return out;
 }
+
+// ════════════════════════════════════════════════════════════════
+// MIGRAR BLOCKED-SINCE · col 22 de Tracking Activo (one-shot, idempotente)
+// ════════════════════════════════════════════════════════════════
+// Agrega el header 'BlockedSince' (col 22, fila 3 — mismo layout que
+// Colaboradores) y rellena el sello de las tareas YA bloqueadas buscando su
+// último cambio a 'Bloqueado' en la hoja Activity. Si una bloqueada no tiene
+// evento en Activity, queda vacía (la UI muestra ⏸ sin antigüedad — no
+// inventamos fechas). Gated por HEAD. Re-correrla no pisa sellos existentes.
+function migrarBlockedSince() {
+  var who = _requireAdminEmail();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var report = [];
+  function log(m) { report.push(m); Logger.log(m); }
+  var tk = ss.getSheetByName(SHEET_ACTIVO);
+  if (!tk) throw new Error('No existe la hoja ' + SHEET_ACTIVO);
+
+  // 1) Header col 22 (fila 3, como las demás columnas opcionales).
+  var hdr = (tk.getRange(3, TASK_BLOCKED_COL).getValue() || '').toString().trim();
+  if (!hdr) {
+    tk.getRange(3, TASK_BLOCKED_COL).setValue('BlockedSince');
+    tk.getRange(3, TASK_BLOCKED_COL).setFontWeight('bold');
+    log('✓ Tracking Activo: agregada columna ' + TASK_BLOCKED_COL + ' = BlockedSince (row 3).');
+  } else if (hdr === 'BlockedSince') {
+    log('· Columna BlockedSince ya existía — skip header');
+  } else {
+    throw new Error('La col ' + TASK_BLOCKED_COL + ' tiene "' + hdr + '" — revisión manual, NO se sobreescribe.');
+  }
+
+  // 2) Backfill: último cambio a 'Bloqueado' por tarea, desde Activity.
+  var lastBlock = {};
+  var act = ss.getSheetByName(SHEET_ACTIVITY);
+  if (act && act.getLastRow() >= 2) {
+    // cols: id, ts, task_id, author_email, author_name, action, field, old, new
+    var rows = act.getRange(2, 1, act.getLastRow() - 1, 9).getValues();
+    rows.forEach(function(r) {
+      if ((r[8] || '').toString().trim() !== 'Bloqueado') return;
+      var ts = r[1] instanceof Date ? r[1] : new Date(r[1]);
+      if (isNaN(ts.getTime())) return;
+      var tid = String(r[2]);
+      if (!lastBlock[tid] || ts > lastBlock[tid]) lastBlock[tid] = ts;
+    });
+  } else {
+    log('· Hoja Activity vacía o inexistente — sin backfill');
+  }
+
+  var lr = tk.getLastRow();
+  var sellados = 0, sinEvento = 0;
+  if (lr >= 4) {
+    var data = tk.getRange(4, 1, lr - 3, TASK_BLOCKED_COL).getValues();
+    var lock = LockService.getScriptLock();
+    try { lock.waitLock(10000); } catch (e) { throw new Error('Servidor ocupado, reintentá.'); }
+    try {
+      for (var i = 0; i < data.length; i++) {
+        if ((data[i][6] || '').toString().trim() !== 'Bloqueado') continue; // col 7 = status
+        if (data[i][TASK_BLOCKED_COL - 1]) continue; // ya sellada — idempotente
+        var hit = lastBlock[String(data[i][0])];
+        if (hit) { tk.getRange(i + 4, TASK_BLOCKED_COL).setValue(hit); sellados++; }
+        else sinEvento++;
+      }
+    } finally { lock.releaseLock(); }
+  }
+  log('✓ Backfill: ' + sellados + ' bloqueada(s) selladas desde Activity; ' + sinEvento + ' sin evento (quedan sin antigüedad).');
+  try { CacheService.getScriptCache().remove(CACHE_KEY); log('✓ Cache invalidada'); } catch (e) {}
+  log('—— migrarBlockedSince terminó (por ' + who + ') ——');
+  return report.join('\n');
+}

@@ -97,9 +97,9 @@ Salió de 4 agentes Opus revisando flujos, pantallas, biblioteca y Slack. Ordena
 - **De-duplicar HQ home vs "Por país"** — son casi la misma tabla. Profundizar una o eliminar la otra del nav.
 - **Convergir edición inline + retirar el modal legacy `editOv`** — ⚠ ojo: `editOv`/`openEdit` **NO es código muerto** (se confirmó jun-2026): el panel lo usa para editar campos de tarea y **todo el flujo de editar proyecto** (`openEditProj`) pasa por ese mismo modal. Retirarlo requiere PRIMERO construir la edición inline de prioridad/estado/tipo/etc. en el panel y un editor de proyecto propio. No es una eliminación segura suelta.
 
-### Semántica de estados (decisiones abiertas tras "On hold ≠ Vencida", jun-2026)
-- **"Bloqueada hace Nd"** — ahora que las On hold no gritan, el riesgo inverso es que se pudran en silencio. Falta un timestamp de bloqueo para mostrar antigüedad ("⏸ hace 12d") y avisar si lleva demasiado. Diseño sugerido: derivarlo del Activity log (status_change → Bloqueado) al armar el snapshot, o anteponer fecha a la razón de bloqueo. Decidir formato antes de implementar.
-- **Orden de bloqueadas en el tracker** — hoy van PRIMERAS en la lista "Activas" (visibilidad). Con la nueva semántica es debatible: tapan lo accionable. Alternativa: al final, con su atención canalizada por el chip On hold. Decisión de producto.
+### Semántica de estados (tras "On hold ≠ Vencida", jun-2026)
+- ✅ **"Bloqueada hace Nd"** — hecho: col 22 `BlockedSince` (sello al bloquear, se limpia al desbloquear; guard anti-drift). La fila muestra "⏸ hace Nd" (warn ≥7d), el panel "Bloqueada hace Nd · razón", el home "la más antigua hace Nd". ⚠ **Requiere correr `migrarBlockedSince()` una vez** (editor, head): agrega el header y rellena las bloqueadas actuales desde Activity. Sin migrar, degrada limpio (⏸ sin antigüedad).
+- ✅ **Orden de bloqueadas** — hecho: van al FINAL de la lista Activas y de cada bucket de "Por urgencia" (antes tapaban lo accionable); entre ellas, la más antigua arriba.
 - **Invariante de Cancelado en tareas** — el enum existe solo para display (no hay flujo UI que cancele tareas; `ALL_STATUSES` no lo ofrece). Si algún día se agrega "Cancelar tarea", DEBE mover la fila a Historial como hace Listo — una Cancelada en Tracking Activo contaría como "activa" en varios conteos (solo filtran `!== 'Listo'`).
 
 ### Apuestas grandes

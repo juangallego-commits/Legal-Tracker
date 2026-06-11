@@ -35,12 +35,13 @@ const DIGEST_SKIP_WEEKENDS = true; // En sáb/dom el trigger corre pero hace ear
 // deben agregarse manualmente al sheet antes de usar; sin la columna se defaultean a vacío.
 // TASK col 21 (Colaboradores, JSON [{name,role}]) se agrega con migrarColaboradores() (admin.gs);
 // sin la columna readTasks defaultea a [] y setTaskColaboradores avisa que falta migrar.
-const TASK_COLS = 21;
+const TASK_COLS = 22;
 const TASK_DOCS_COL = 17; // 1-indexed
 const TASK_CONF_COL = 18; // 1-indexed
 const TASK_CONTRAPARTE_COL = 19; // 1-indexed
 const TASK_AREASOL_COL = 20; // 1-indexed · "Área solicitante" (cliente interno)
 const TASK_COLAB_COL = 21; // 1-indexed · Colaboradores (JSON [{name,role}], role ∈ {ver,editar})
+const TASK_BLOCKED_COL = 22; // 1-indexed · BlockedSince (Date del último bloqueo; vacío si no está bloqueada). Requiere migrarBlockedSince().
 // Projects: 17 cols — ID,Nombre,País,Líder,Responsable,Deadline,Prioridad,Estado,Descripción,Notas,Creado,Semana,Participantes,TipoTrabajo,Riesgo,Documentos,ContrapartesConflicto
 const PROJ_COLS = 17;
 const PROJ_DOCS_COL = 16; // 1-indexed
@@ -551,6 +552,15 @@ function _enrichTaskEditorial(t, todayISO, opts) {
 
   // blockedReason: solo cuando la tarea está bloqueada
   t.blockedReason = (t.status === 'Bloqueado') ? firstNoteLine : '';
+
+  // blockedDays: días (calendario) que lleva bloqueada — para que las On hold
+  // no se pudran en silencio ahora que no cuentan como vencidas. null si no
+  // está bloqueada o no hay sello (col 22 sin migrar / bloqueo pre-migración).
+  t.blockedDays = null;
+  if (t.status === 'Bloqueado' && t.blockedSince) {
+    var _bMs = new Date(t.blockedSince).getTime();
+    if (!isNaN(_bMs)) t.blockedDays = Math.max(0, Math.floor((Date.now() - _bMs) / 86400000));
+  }
 
   // slaTarget por prioridad (derivado de la fuente unica SLA_LIMITS)
   t.slaTarget = (SLA_LIMITS[t.priority] || 5) + 'd';
@@ -1481,7 +1491,10 @@ function readTasks(ws) {
       areaSolicitante: (row[19] || '').toString().trim(),
       // Col 21 (índice 20): Colaboradores (JSON [{name,role}]). Default [] si la
       // columna aún no existe en la hoja (deploy sin migrarColaboradores()).
-      colaboradores: _parseColaboradores(row[20])
+      colaboradores: _parseColaboradores(row[20]),
+      // Col 22 (índice 21): desde cuándo está bloqueada (Date). '' si la columna
+      // no existe (sin migrarBlockedSince) o la tarea no está bloqueada.
+      blockedSince: (row[21] && row[6] === 'Bloqueado') ? new Date(row[21]).toISOString() : ''
     });
   });
   tasks.sort(function(a,b){return (PRIO_ORDER[a.priority]||1)-(PRIO_ORDER[b.priority]||1)||(STATUS_ORDER[a.status]||2)-(STATUS_ORDER[b.status]||2)});
@@ -1589,6 +1602,8 @@ function _addTaskImpl(taskObj) {
       });
       rowVals.push(_stringifyColaboradores(_colabs));
     }
+    // BlockedSince (col 22): solo si nace bloqueada (raro pero posible vía API).
+    if (lc >= TASK_BLOCKED_COL) rowVals.push(taskObj.status === 'Bloqueado' ? new Date() : '');
     ws.appendRow(_sanitizeRow(rowVals));
     _logActivity(ctx, newId, 'create', '', '', taskObj.nombre || '');
     // Avisos de creación: al responsable si NO es el creador ("te asignaron"),
@@ -2103,6 +2118,16 @@ function _updateTaskFieldImpl(taskId, field, value) {
       ws.getRange(current.row, 10).setValue(new Date());
       movedToHistorial = true;
     }
+    // BlockedSince (col 22, opcional): sella el momento del bloqueo para poder
+    // mostrar "bloqueada hace Nd"; se limpia al salir de Bloqueado. Guard
+    // anti-drift: solo si la hoja ya tiene la columna (migrarBlockedSince).
+    if (field === 'status' && ws.getLastColumn() >= TASK_BLOCKED_COL) {
+      if (value === 'Bloqueado' && current.status !== 'Bloqueado') {
+        ws.getRange(current.row, TASK_BLOCKED_COL).setValue(new Date());
+      } else if (value !== 'Bloqueado' && current.status === 'Bloqueado') {
+        ws.getRange(current.row, TASK_BLOCKED_COL).setValue('');
+      }
+    }
   } finally {
     lock.releaseLock();
   }
@@ -2202,6 +2227,14 @@ function _updateTaskFieldsImpl(taskId, fields) {
       if (fields.status === 'Listo') {
         ws.getRange(row, 10).setValue(new Date());
         movedToHistorial = true;
+      }
+      // BlockedSince (col 22, opcional): mismo sello/limpieza que updateTaskField.
+      if (lc >= TASK_BLOCKED_COL) {
+        if (fields.status === 'Bloqueado' && current.status !== 'Bloqueado') {
+          ws.getRange(row, TASK_BLOCKED_COL).setValue(new Date());
+        } else if (fields.status !== 'Bloqueado' && current.status === 'Bloqueado') {
+          ws.getRange(row, TASK_BLOCKED_COL).setValue('');
+        }
       }
     }
   } finally {
