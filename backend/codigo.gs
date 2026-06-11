@@ -327,7 +327,9 @@ function _getEditorialDataImpl() {
       var capByName   = capMap.byName[_normalizeName(member.name)];
       member.capacity = capByName || capMap.def;
       member.capacityEstimated = !capByName; // true = usa el default (no hay Capacidad: <nombre> en Config)
-      member.overdue  = activeTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
+      // "Vencida" = tarde Y accionable. Una bloqueada no se puede cerrar hoy
+      // (espera algo externo) → cuenta en member.blocked, no en overdue.
+      member.overdue  = activeTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Bloqueado'; }).length;
       member.blocked  = activeTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
 
       var memberHist = histByResp[member.name] || [];
@@ -394,7 +396,8 @@ function _getEditorialDataImpl() {
     data.countries.forEach(function(c) {
       var countryTasks = tasksByPais[c.code] || [];
       c.open     = countryTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
-      c.overdue  = countryTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
+      // Vencida = tarde y accionable: las bloqueadas (On hold) no cuentan acá.
+      c.overdue  = countryTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo' && t.status !== 'Bloqueado'; }).length;
       c.dueToday = countryTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; }).length;
       var countryHist = histByPais[c.code] || [];
 
@@ -885,6 +888,10 @@ function _buildViewForRole(raw, role, user, feriadosByCountry) {
   var sla = { onTime: 0, atRisk: 0, overdue: 0 };
   tasks.forEach(function(t) {
     if (t.status === 'Listo') return;
+    // On hold = el reloj de SLA se pausa: una tarea esperando algo externo no
+    // penaliza el cumplimiento del equipo. Queda fuera del denominador y con
+    // slaState propio ('onhold') — el cliente no la cuenta como overdue.
+    if (t.status === 'Bloqueado') { t.slaState = 'onhold'; return; }
     if (!t.creadoRaw) { sla.onTime++; t.slaState = 'onTime'; return; }
     var ferSet = feriadosByCountry[(t.pais || '').toUpperCase()] || null;
     var bizDays = countBizDays(new Date(t.creadoRaw), now, ferSet);
@@ -3616,6 +3623,7 @@ function _buildDigestForMember(memberName, memberEmail, allTasks, todayISO, webU
   var overdue=[], today=[], week=[]; var weekEnd=_isoPlusDays(todayISO,7);
   mine.forEach(function(t){
     if(!t.deadlineISO) return;
+    if(t.status === 'Bloqueado') return; // On hold: no se puede cerrar hoy — fuera del digest accionable
     if(t.deadlineISO < todayISO) overdue.push(t);
     else if(t.deadlineISO === todayISO) today.push(t);
     else if(t.deadlineISO <= weekEnd) week.push(t);
@@ -4545,7 +4553,8 @@ function _blockTaskByIdImpl(taskId, reason, slackUser) {
   }
 }
 function _sendManagerDigest(email, team, teamTasks, originalRecipient) {
-  var nO = teamTasks.filter(function(t){ return t.etaDays < 0; }).length;
+  // Vencidas accionables (las On hold no — el digest las separa en su bucket).
+  var nO = teamTasks.filter(function(t){ return t.etaDays < 0 && t.status !== 'Bloqueado'; }).length;
   var nT = teamTasks.filter(function(t){ return t.etaDays === 0; }).length;
   var nS = teamTasks.filter(function(t){ return t.etaDays > 0; }).length;
 
@@ -4880,7 +4889,7 @@ function _applyExportFilters(tasks, filters) {
   if (filters.status && filters.status !== 'ALL' && filters.status !== 'all') {
     var st = String(filters.status);
     if (st === 'overdue') {
-      out = out.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; });
+      out = out.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo' && t.status !== 'Bloqueado'; });
     } else if (st === 'today') {
       out = out.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; });
     } else if (st === 'blocked') {

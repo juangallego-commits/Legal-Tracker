@@ -291,8 +291,17 @@ function getAllMembers() {
 // Preferir t.slaState del backend: viene calculado con los feriados del país
 // de la tarea. El cálculo local (solo lun–vie) queda como fallback y
 // sobre-cuenta en países con feriados.
+// "Vencida" = el deadline pasó Y la tarea es accionable. Una On hold espera
+// algo externo — no se puede cerrar hoy — así que NO cuenta como vencida en
+// KPIs, chips, filtros ni digest (tiene su propio bucket On hold). Predicado
+// único: si cambia la regla, cambia acá.
+function _isOverdueTask(t) {
+  return typeof t.etaDays === 'number' && t.etaDays < 0
+      && t.status !== 'Listo' && t.status !== 'Cancelado' && t.status !== 'Bloqueado';
+}
+
 function taskOverdueBySLA(t) {
-  if (t.status === 'Listo' || !t.creadoRaw) return false;
+  if (t.status === 'Listo' || t.status === 'Bloqueado' || !t.creadoRaw) return false;
   if (t.slaState) return t.slaState === 'overdue';
   var created = new Date(t.creadoRaw), now = new Date(), bizDays = 0, cur = new Date(created);
   while (cur < now) {
@@ -2154,7 +2163,8 @@ function _priorityLabel(p) {
   return _PRIORITY_LABELS[p] || p || '';
 }
 function _etaToneClass(etaDays, status) {
-  if (status === 'Bloqueado') return 'crit';
+  // On hold: el reloj está pausado — fecha en neutro, no en alarma roja.
+  if (status === 'Bloqueado') return 'dim';
   if (etaDays == null) return 'dim';
   if (etaDays < 0)  return 'crit';
   if (etaDays === 0) return 'crit';
@@ -2303,7 +2313,7 @@ function renderEdSidebar(role, activeViewId) {
         var userC = _effectiveUserCode();
         // El dot de alerta sigue el mismo scope que el badge (rol efectivo).
         alert = _edRoleScopeTasks(D.tasks, navRole, userN, userC).some(function(t) {
-          if (!(typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo')) return false;
+          if (!_isOverdueTask(t)) return false;
           if (it.id === 'mistareas') return t.resp === userN;
           return true;
         });
@@ -3670,7 +3680,7 @@ function rEdHomeSpecialist(D) {
   var name = _effectiveUserName();
   var firstName = name ? name.split(/\s+/)[0] : 'Hola';
   var tasks = (D && D.tasks) ? D.tasks.filter(function(t){ return t.resp === name && t.status !== 'Listo'; }) : [];
-  var overdue   = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
+  var overdue   = tasks.filter(_isOverdueTask).length;
   var dueToday  = tasks.filter(function(t){ return t.etaDays === 0; }).length;
   var thisWeek  = tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays >= 0 && t.etaDays <= ED_WEEK_DAYS; }).length;
   var blocked   = tasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
@@ -3930,7 +3940,7 @@ function rEdHomeManager(D) {
   var allTasks = (D && D.tasks) || [];
   var paisTasks = allTasks.filter(function(t){ return (t.pais || '') === userCode; });
   var active = paisTasks.filter(function(t){ return t.status !== 'Listo'; });
-  var overdue = active.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0; }).length;
+  var overdue = active.filter(_isOverdueTask).length;
   var dueToday = active.filter(function(t){ return t.etaDays === 0; }).length;
   var altaActive = active.filter(function(t){ return t.priority === 'Alta'; }).length;
   var teamMine = (D && D.team || []).filter(function(m){ return m.country === userCode; });
@@ -4034,7 +4044,10 @@ function rEdHomeManager(D) {
            +    '<span class="resp">' + paAvatar(t.resp || '?', 18) + '<span style="font-size:12px">' + esc(t.resp || '—') + '</span></span>'
            +    paPriorityPill(t.priority)
            +    paStatusPill(t.status)
-           +    '<span class="eta' + (t.etaDays != null && t.etaDays < 0 ? ' overdue' : '') + '">' + esc(t.eta || paEtaText(t.etaDays)) + '</span>'
+           // On hold: fecha en neutro (el reloj está pausado), no "Vencida" roja.
+           +    (t.status === 'Bloqueado'
+                ? '<span class="eta" style="color:var(--fg-3)">⏸ ' + esc(t.deadline || '—') + '</span>'
+                : '<span class="eta' + (_isOverdueTask(t) ? ' overdue' : '') + '">' + esc((typeof t.etaDays === 'number') ? paEtaText(t.etaDays) : (t.eta || '—')) + '</span>')
            + '</div>';
     });
     html += '</div></div>';
@@ -4390,7 +4403,7 @@ function edClearCountryFilter() {
 }
 
 function _edApplyFilter(tasks, filter) {
-  if (filter === 'overdue') return tasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; });
+  if (filter === 'overdue') return tasks.filter(_isOverdueTask);
   if (filter === 'today')   return tasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; });
   if (filter === 'blocked') return tasks.filter(function(t){ return t.status === 'Bloqueado'; });
   if (filter === 'alta')    return tasks.filter(function(t){ return t.priority === 'Alta' && t.status !== 'Listo'; });
@@ -6403,7 +6416,7 @@ function edPanelSubmitComment(taskId) {
 function _buildEdTimeline(t) {
   // Timeline sintética desde campos disponibles. No tocamos backend en Fase 1.
   var items = [];
-  if (typeof t.etaDays === 'number' && t.etaDays < 0) {
+  if (_isOverdueTask(t)) {
     items.push({ when: 'Hoy', what: 'Marcada como <b>vencida</b>. Revisá la siguiente acción.', dot: 'crit' });
   } else if (t.etaDays === 0) {
     items.push({ when: 'Hoy', what: '<b>Vence hoy.</b> Cerrar antes de fin de día.', dot: 'crit' });
@@ -6548,7 +6561,7 @@ function rEdTracker(D) {
   var cClosed = roleHist.length;
 
   var cAll      = roleTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
-  var cOverdue  = roleTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
+  var cOverdue  = roleTasks.filter(_isOverdueTask).length;
   var cToday    = roleTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo'; }).length;
   var cBlocked  = roleTasks.filter(function(t){ return t.status === 'Bloqueado'; }).length;
   var cMine     = roleTasks.filter(function(t){ return t.resp === userName && t.status !== 'Listo'; }).length;
@@ -6927,7 +6940,11 @@ function _edTkRowHtml(tk, role, sel) {
   // del '—' invisible — en legal, una tarea sin plazo que sale del radar es
   // justo el riesgo que la app existe para evitar (el dato falta y se dice).
   var etaCell;
-  if (typeof tk.etaDays === 'number') {
+  if (tk.status === 'Bloqueado') {
+    // On hold: el reloj está pausado — la fecha es un dato, no una alarma.
+    // Antes la fila decía "On hold" y "Vencida hace Xd" en rojo a la vez.
+    etaCell = '<span style="color:var(--fg-3)">⏸ ' + esc(tk.deadline || '—') + '</span>';
+  } else if (typeof tk.etaDays === 'number') {
     etaCell = esc(paEtaText(tk.etaDays));
   } else if (tk.status !== 'Listo' && tk.status !== 'Cancelado') {
     etaCell = '<span class="pa-pill pa-pill-warn" style="height:18px;font-size:10px">' + esc(t('Sin plazo')) + '</span>';
@@ -6958,7 +6975,7 @@ function _edTkRowHtml(tk, role, sel) {
   }
   h += paPriorityPill(tk.priority)
     +  paStatusPill(tk.status)
-    +  '<span class="eta' + (tk.etaDays != null && tk.etaDays < 0 ? ' overdue' : '') + '">' + etaCell + '</span>'
+    +  '<span class="eta' + (_isOverdueTask(tk) ? ' overdue' : '') + '">' + etaCell + '</span>'
     + '</div>';
   return h;
 }
@@ -7125,7 +7142,7 @@ function _renderTkPanel(sel) {
   var fields = [
     { l: 'Responsable', v: sel.resp || '—', icon: 'users', editable: true, key: 'resp' },
     { l: 'Líder', v: sel.lider || '—', icon: 'users' },
-    { l: 'Plazo', v: (sel.deadline || '—') + (sel.eta ? ' · ' + sel.eta : ''), icon: 'calendar', editable: true, key: 'deadline', warn: typeof sel.etaDays === 'number' && sel.etaDays < 0 },
+    { l: 'Plazo', v: (sel.deadline || '—') + (sel.eta ? ' · ' + sel.eta : ''), icon: 'calendar', editable: true, key: 'deadline', warn: _isOverdueTask(sel) },
     { l: 'SLA objetivo', v: sel.slaTarget || '—', icon: 'flag' },
     { l: 'Riesgo', v: sel.riesgo || '—', icon: 'alert', editable: true, key: 'riesgo' },
     { l: 'Proyecto', v: pn, icon: 'folder', editable: true, key: 'proyectoId' },
@@ -7349,6 +7366,9 @@ function _agBuckets(tasks) {
   for (var i = 0; i < tasks.length; i++) {
     var t = tasks[i];
     if (t.status === 'Listo') continue;
+    // On hold: no va al bucket "Vencidas" (no es accionable hoy) — cae a
+    // "Después", donde el sort interno igual la sube por su estado.
+    if (t.status === 'Bloqueado') { later.push(t); continue; }
     var d = (typeof t.etaDays === 'number') ? t.etaDays : null;
     if (d == null) { later.push(t); continue; }
     if (d < 0) overdue.push(t);
@@ -8698,7 +8718,7 @@ function _piEnrichProject(p, D, userName) {
   var pTasks = tasks.filter(function(t){ return t.proyectoId == p.id; });
   var pHist  = hist.filter(function(t){ return t.proyectoId == p.id; });
   var mine    = pTasks.filter(function(t){ return t.resp === userName; }).length;
-  var overdue = pTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo'; }).length;
+  var overdue = pTasks.filter(_isOverdueTask).length;
   // Progreso/total del proyecto: usar p.taskStats/p.pctDone del backend,
   // calculados sobre TODAS las tareas del proyecto. Recalcular acá desde
   // D.tasks/D.historial (filtrados por rol) hacía que un specialist viera
@@ -9587,7 +9607,7 @@ function _edaHQRiskSection(D) {
   var byProject = {};
   tasks.forEach(function(t) {
     if (!t.proyectoId) return;
-    if (!(typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo')) return;
+    if (!_isOverdueTask(t)) return;
     byProject[t.proyectoId] = (byProject[t.proyectoId] || 0) + 1;
   });
   var ranked = projects.map(function(p) {
