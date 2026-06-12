@@ -1568,8 +1568,10 @@ document.addEventListener('keydown', function(e) {
     // Búsqueda global (Cmd+K): overlay top-level. Sin esto, Esc con el foco
     // fuera del input cerraba lo que estuviera DETRÁS del cmdk.
     if ($('edSearchOv') && $('edSearchOv').classList.contains('show')) { if (typeof edSearchClose === 'function') edSearchClose(); return; }
-    // Help y Notificaciones — overlays top-level, cierran antes que el resto.
+    // Help, detalle de integración y Notificaciones — overlays top-level,
+    // cierran antes que el resto.
     if ($('edHelpOv') && $('edHelpOv').classList.contains('show')) { if (typeof edHelpClose === 'function') edHelpClose(); return; }
+    if ($('edIntOv')) { if (typeof edIntCloseDetail === 'function') edIntCloseDetail(); return; }
     if (document.getElementById('edNotifOv')) { if (typeof edNotifClose === 'function') edNotifClose(); return; }
     // Editoriales (más nuevos / más prominentes visualmente)
     if ($('uaHost') && $('uaHost').innerHTML) { if (typeof edUClose === 'function') edUClose(); return; }
@@ -3701,15 +3703,13 @@ function rEdHomeSpecialist(D) {
 
   var html = '<div class="pa-page">';
 
-  // Greeting con eyebrow contextual + nombre destacado en accent. En modo demo
-  // (head viendo "como Specialist") el saludo por nombre confunde — neutralizamos.
+  // Greeting con eyebrow contextual + nombre destacado en accent.
+  // (Se probó un encabezado neutro "Vista de Specialist" en modo demo y el
+  // feedback fue claro: el "Hola, {nombre}" se queda para todos.)
   var todayLabel = todayLine ? todayLine.split(' ').slice(0, 2).join(' ') : '';
-  var specH1 = _demoRole()
-    ? '<span class="pa-greet-name">' + esc(t('Vista de Specialist')) + '</span>'
-    : esc(t('Hola')) + ', <span class="pa-greet-name">' + esc(firstName) + '</span>';
   html += '<div class="pa-greet">'
        +    '<div class="pa-greet-eye">' + esc(todayLabel ? t('— Tu') + ' ' + todayLabel : t('Hoy')) + '</div>'
-       +    '<h1>' + specH1 + '</h1>'
+       +    '<h1>' + esc(t('Hola')) + ', <span class="pa-greet-name">' + esc(firstName) + '</span></h1>'
        +    (todayLine ? '<span class="pa-greet-meta">' + esc(todayLine) + '</span>' : '')
        + '</div>';
 
@@ -3989,15 +3989,12 @@ function rEdHomeManager(D) {
 
   var html = '<div class="pa-page">';
 
-  // Greeting con eyebrow + nombre destacado. En modo demo (head viendo "como
-  // Manager") el saludo "Hola, Juan" confunde — mostramos un encabezado neutral.
+  // Greeting con eyebrow + nombre destacado. (Se probó un encabezado neutro
+  // "Vista de Manager" en modo demo; feedback: "Hola, {nombre}" para todos.)
   var mgrTodayLabel = todayLine ? todayLine.split(' ').slice(0, 2).join(' ') : '';
-  var mgrH1 = _demoRole()
-    ? esc(t('Vista de Manager')) + ' <span class="pa-greet-name">' + esc(userCode || 'LATAM') + '</span>'
-    : esc(t('Hola')) + ', <span class="pa-greet-name">' + esc(firstName) + '</span>';
   html += '<div class="pa-greet">'
        +    '<div class="pa-greet-eye">' + esc(mgrTodayLabel ? t('— Tu') + ' ' + mgrTodayLabel : t('Hoy')) + ' · ' + esc((userCode || '—') + ' · ' + teamMine.filter(function(m){ return !m.isLead; }).length + ' ' + t('specialists')) + '</div>'
-       +    '<h1>' + mgrH1 + '</h1>'
+       +    '<h1>' + esc(t('Hola')) + ', <span class="pa-greet-name">' + esc(firstName) + '</span></h1>'
        +    (todayLine ? '<span class="pa-greet-meta">' + esc(todayLine) + '</span>' : '')
        + '</div>';
 
@@ -12106,7 +12103,7 @@ function _recRenderIntegracionesTab(v) {
       ? '<div style="font-size:11px;color:var(--fg-3);line-height:1.4;margin:0 0 6px">' + esc(comoActivar) + '</div>'
       : '';
 
-    html += '<div class="bib-card">'
+    html += '<div class="bib-card" onclick="edIntOpenDetail(' + Number(it.id || 0) + ')" style="cursor:pointer" title="' + esc(t('Click para ver qué es y cómo activarla')) + '">'
          +    '<div class="bib-card-h">'
          +      '<span class="bib-card-icon" style="font-size:16px;line-height:1">' + esc(icono) + '</span>'
          +      '<div class="bib-card-title">' + esc(titulo) + '</div>'
@@ -12114,7 +12111,7 @@ function _recRenderIntegracionesTab(v) {
          +    queHaceHtml
          +    comoHtml
          +    chipHtml
-         +    (ctaHtml ? '<div class="bib-card-f"><span></span>' + ctaHtml + '</div>' : '')
+         +    (ctaHtml ? '<div class="bib-card-f" onclick="event.stopPropagation()"><span></span>' + ctaHtml + '</div>' : '')
          + '</div>';
   });
   html += '</div>';
@@ -12124,6 +12121,219 @@ function _recRenderIntegracionesTab(v) {
 
 // Filtro por estado de la pestaña integraciones → re-render.
 function edRecursoSetIntFilter(estado) { _INTEGRACIONES_FILTER = estado; rEdRecursos(D); }
+
+// ════════════════════════════════════════════════════════════════
+// Detalle de integración (modal) — "qué es, estado, cómo instalarla".
+// El catálogo del sheet trae el RESUMEN (una línea); los pasos detallados
+// viven acá, keyed por `key`, versionados con el código (igual que el help
+// modal: bilingüe con ternario LANG, NO pasa por t() — son párrafos largos).
+// Items custom del sheet sin entrada acá caen al fallback (comoActivar).
+// ════════════════════════════════════════════════════════════════
+function _intDetailContent(key) {
+  var pt = LANG === 'pt';
+  var C = {
+    gmail_addon: {
+      que: pt
+        ? 'Ao abrir um e-mail no Gmail, aparece um card do Legal Tracker no painel direito: cria a tarefa pré-preenchida (assunto → nome; remetente + link da thread → notas), com IA sugerindo tipo/prioridade/cliente quando configurada. Anexos do e-mail sobem ao Drive (até 5 arquivos / 15 MB no total). Detecta duplicados pela thread. As permissões por papel são as mesmas do app.'
+        : 'Al abrir un correo en Gmail aparece una card del Legal Tracker en el panel derecho: crea la tarea pre-llenada (asunto → nombre; remitente + link al hilo → notas), con IA sugiriendo tipo/prioridad/cliente cuando está configurada. Los adjuntos del correo suben a Drive (hasta 5 archivos / 15 MB en total). Detecta duplicados por hilo. Los permisos por rol son los mismos de la app.',
+      pasos: pt ? [
+        'Peça ao head o LINK DE INSTALAÇÃO do add-on (veja abaixo como ele o gera).',
+        'Abra o link com sua conta @rappi.com e clique em "Install" / "Instalar".',
+        'Aceite as permissões (Gmail somente leitura do e-mail aberto + executar o add-on).',
+        'Abra qualquer e-mail no Gmail → ícone do Legal Tracker no painel direito → revise os campos → "Crear tarea". A tarefa aparece no tracker como qualquer outra.'
+      ] : [
+        'Pedile al head el LINK DE INSTALACIÓN del add-on (abajo está cómo lo genera).',
+        'Abrí el link con tu cuenta @rappi.com y tocá "Install" / "Instalar".',
+        'Aceptá los permisos (Gmail solo-lectura del correo abierto + ejecutar el add-on).',
+        'Abrí cualquier correo en Gmail → icono del Legal Tracker en el panel derecho → revisá los campos → "Crear tarea". La tarea aparece en el tracker como cualquier otra.'
+      ],
+      pasosHead: pt ? [
+        'Editor do Apps Script → Implantar → Implantações de teste → Instalar — isso gera o link de instalação para compartilhar com a equipe.',
+        'Org-wide (sem link): publicar no Marketplace privado do Workspace (via admin de TI).'
+      ] : [
+        'Editor de Apps Script → Implementar → Implementaciones de prueba → Instalar — eso genera el link de instalación para compartir con el equipo.',
+        'Org-wide (sin link): publicarlo en el Marketplace privado del Workspace (vía admin de IT).'
+      ]
+    },
+    digest_diario: {
+      que: pt
+        ? 'Todos os dias às 8h, cada pessoa recebe um e-mail com SUAS tarefas: vencidas, vencem hoje e próximas (com deep-links ao tracker), mais as reuniões do dia. Managers recebem também o resumo da equipe. Tarefas em on hold não entram (não são acionáveis).'
+        : 'Todos los días a las 8am cada persona recibe un email con SUS tareas: vencidas, vencen hoy y próximas (con deep-links al tracker), más las reuniones del día. Los managers reciben además el resumen del equipo. Las tareas en on hold no entran (no son accionables).',
+      pasos: pt ? [
+        'Não requer nada seu: uma vez ativado pelo admin, chega sozinho ao seu e-mail.',
+        'Se não chega: confirme com o head que seu e-mail está na aba Equipos.'
+      ] : [
+        'No requiere nada tuyo: una vez activado por el admin, llega solo a tu correo.',
+        'Si no te llega: confirmá con el head que tu email esté en la hoja Equipos.'
+      ],
+      pasosHead: pt ? [
+        'Editor do Apps Script → executar installDigestTrigger() uma vez (cria o gatilho diário das 8h).'
+      ] : [
+        'Editor de Apps Script → ejecutar installDigestTrigger() una vez (crea el trigger diario de 8am).'
+      ]
+    },
+    contract_intel: {
+      que: pt
+        ? 'Botão ✨ nos PDFs (Biblioteca e tarefas): a IA extrai partes, vigência, vencimento, obrigações e riscos do contrato, e pode criar o lembrete de renovação como tarefa.'
+        : 'Botón ✨ en los PDFs (Biblioteca y tareas): la IA extrae partes, vigencia, vencimiento, obligaciones y riesgos del contrato, y puede crear el recordatorio de renovación como tarea.',
+      pasos: pt ? [
+        'Quando o admin configurar a chave, o botão ✨ aparece sozinho nos PDFs — sem instalação individual.'
+      ] : [
+        'Cuando el admin configure la key, el botón ✨ aparece solo en los PDFs — sin instalación individual.'
+      ],
+      pasosHead: pt ? [
+        'Editor do Apps Script → Configurações do projeto → Propriedades do script → adicionar GEMINI_API_KEY com uma chave do Google AI Studio.'
+      ] : [
+        'Editor de Apps Script → Configuración del proyecto → Propiedades del script → agregar GEMINI_API_KEY con una key de Google AI Studio.'
+      ]
+    },
+    busqueda_semantica: {
+      que: pt
+        ? 'Busca na Biblioteca por significado, não por palavra exata ("rescisão antecipada" encontra "término unilateral"). Usa embeddings da IA sobre os documentos indexados.'
+        : 'Busca en la Biblioteca por significado, no por palabra exacta ("rescisión anticipada" encuentra "terminación unilateral"). Usa embeddings de IA sobre los documentos indexados.',
+      pasos: pt ? [
+        'Quando estiver ativa, é usada da própria busca da Biblioteca — sem instalação individual.'
+      ] : [
+        'Cuando esté activa, se usa desde la misma búsqueda de la Biblioteca — sin instalación individual.'
+      ],
+      pasosHead: pt ? [
+        'Requer GEMINI_API_KEY (mesma do Contract Intelligence).',
+        'Editor do Apps Script → executar backfillBiblioEmbeddings() uma vez para indexar o existente (os novos docs se indexam sozinhos).'
+      ] : [
+        'Requiere GEMINI_API_KEY (la misma de Contract Intelligence).',
+        'Editor de Apps Script → ejecutar backfillBiblioEmbeddings() una vez para indexar lo existente (los docs nuevos se indexan solos).'
+      ]
+    },
+    slack: {
+      que: pt
+        ? 'Notificações do bot ao canal da equipe (criações, mudanças relevantes). Sem comandos de entrada por enquanto.'
+        : 'Notificaciones salientes del bot al canal del equipo (creaciones, cambios relevantes). Sin comandos de entrada por ahora.',
+      pasos: pt ? [
+        'Nada individual: quando o admin conectar o bot, as notificações chegam ao canal da equipe.'
+      ] : [
+        'Nada individual: cuando el admin conecte el bot, las notificaciones llegan al canal del equipo.'
+      ],
+      pasosHead: pt ? [
+        'Configurar o token do bot nas Propriedades do script e o canal por equipe na aba Equipos (coluna slackChannel).',
+        'Pendente de aprovação de SecOps para o workspace corporativo.'
+      ] : [
+        'Configurar el token del bot en Propiedades del script y el canal por equipo en la hoja Equipos (columna slackChannel).',
+        'Pendiente de aprobación de SecOps para el workspace corporativo.'
+      ]
+    },
+    calendario: {
+      que: pt
+        ? 'Cruza suas reuniões com os deadlines (em "Tu semana" e no digest) e permite criar tarefa de follow-up a partir de um evento.'
+        : 'Cruza tus reuniones con los deadlines (en "Tu semana" y el digest) y permite crear tarea de seguimiento desde un evento.',
+      pasos: pt ? [
+        'Compartilhe seu Google Calendar (permissão "ver detalhes") com a conta dona do Legal Tracker, OU peça à TI habilitar a visibilidade interna do calendário no domínio.'
+      ] : [
+        'Compartí tu Google Calendar (permiso "ver detalles") con la cuenta dueña del Legal Tracker, O pedile a IT habilitar la visibilidad interna de calendarios en el dominio.'
+      ]
+    },
+    drive: {
+      que: pt
+        ? 'Os anexos que você sobe (wizard, painel da tarefa, add-on do Gmail) se organizam sozinhos em pastas por taxonomia: ano / país / cliente / tipo.'
+        : 'Los adjuntos que subís (wizard, panel de la tarea, add-on de Gmail) se organizan solos en carpetas por taxonomía: año / país / cliente / tipo.',
+      pasos: pt ? [
+        'Já está ativo: basta anexar arquivos de qualquer tarefa — não há nada para instalar.'
+      ] : [
+        'Ya está activo: con adjuntar archivos desde cualquier tarea alcanza — no hay nada que instalar.'
+      ]
+    },
+    exports: {
+      que: pt
+        ? 'Exporta a visão atual do tracker como XLSX (respeita filtros) e gera o PDF mensal por país para reportar.'
+        : 'Exporta la vista actual del tracker como XLSX (respeta los filtros) y genera el PDF mensual por país para reportar.',
+      pasos: pt ? [
+        'Já está ativo: Tracker → botão "Exportar" (canto superior direito) → Excel da visão atual ou PDF mensal.'
+      ] : [
+        'Ya está activo: Tracker → botón "Exportar" (arriba a la derecha) → Excel de la vista actual o PDF mensual.'
+      ]
+    }
+  };
+  return C[key] || null;
+}
+
+// Abre el modal de detalle de una integración. Reusa el chrome del help
+// modal (ed-help-overlay/-modal) para heredar estilos y el Esc global.
+function edIntOpenDetail(id) {
+  var it = (_INTEGRACIONES_CACHE || []).filter(function(x){ return Number(x.id) === Number(id); })[0];
+  if (!it) return;
+  var titulo = _intLang(it, 'titulo');
+  var queHace = _intLang(it, 'queHace');
+  var comoActivar = _intLang(it, 'comoActivar');
+  var estado = it.estado || 'owner_centrico';
+  var meta = _intEstadoMeta(estado);
+  var detail = _intDetailContent(it.key);
+  var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
+  var href = _recursoSafeHref(it.ctaUrl);
+  var pt = LANG === 'pt';
+
+  // Explicación humana de cada estado (qué significa el chip para MÍ).
+  var estadoDesc = ({
+    'activa':         pt ? 'Disponível para toda a equipe agora — não requer instalação.' : 'Disponible para todo el equipo ya — no requiere instalación.',
+    'instala_addon':  pt ? 'Cada pessoa a instala por conta própria (passos abaixo).' : 'Cada persona la instala por su cuenta (pasos abajo).',
+    'setup_admin':    pt ? 'Requer configuração única do admin; depois fica disponível para todos.' : 'Requiere configuración única del admin; después queda disponible para todos.',
+    'owner_centrico': pt ? 'Hoje funciona limitada ao dono do app / requer TI.' : 'Hoy funciona limitada al dueño de la app / requiere IT.'
+  })[estado] || '';
+
+  function stepsHtml(steps) {
+    if (!steps || !steps.length) return '';
+    var h = '<ol style="margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px">';
+    steps.forEach(function(s){ h += '<li style="font-size:12.5px;color:var(--fg-2);line-height:1.5">' + esc(s) + '</li>'; });
+    return h + '</ol>';
+  }
+  function sectionH(txt) {
+    return '<div class="ed-help-h" style="margin-top:14px">' + esc(txt) + '</div>';
+  }
+
+  var body = '';
+  // Qué es
+  body += sectionH(pt ? 'O que é' : 'Qué es');
+  body += '<div style="font-size:12.5px;color:var(--fg-2);line-height:1.55">' + esc((detail && detail.que) || queHace || '—') + '</div>';
+  // Estado actual
+  body += sectionH(pt ? 'Status atual' : 'Estado actual');
+  body += '<div style="display:flex;align-items:center;gap:8px;margin-top:4px">'
+       +    '<span class="pa-pill ' + meta.pill + '">' + esc(meta.label()) + '</span>'
+       +    '<span style="font-size:12px;color:var(--fg-3)">' + esc(estadoDesc) + '</span>'
+       + '</div>';
+  // Cómo usarla / instalarla (pasos del dict; fallback a la línea del sheet)
+  body += sectionH(estado === 'activa' ? (pt ? 'Como usá-la' : 'Cómo usarla') : (pt ? 'Como instalá-la / ativá-la' : 'Cómo instalarla / activarla'));
+  body += (detail && detail.pasos) ? stepsHtml(detail.pasos)
+        : '<div style="font-size:12.5px;color:var(--fg-2);line-height:1.5">' + esc(comoActivar || '—') + '</div>';
+  // Pasos del admin/head: solo visibles para manager/head (al specialist le basta "pedíselo").
+  if (detail && detail.pasosHead && (role === 'manager' || role === 'head')) {
+    body += sectionH(pt ? 'Para o head / admin' : 'Para el head / admin');
+    body += stepsHtml(detail.pasosHead);
+  }
+  if (href) {
+    body += '<div style="margin-top:14px"><a href="' + esc(href) + '" target="_blank" rel="noopener" class="pa-btn pa-btn-outline" style="text-decoration:none">' + esc(_intLang(it, 'ctaTexto') || (pt ? 'Abrir guia' : 'Abrir guía')) + ' ↗</a></div>';
+  }
+
+  var existing = $('edIntOv');
+  if (existing) existing.remove();
+  var ov = document.createElement('div');
+  ov.className = 'ed-help-overlay';
+  ov.id = 'edIntOv';
+  ov.onclick = function(e) { if (e.target === ov) edIntCloseDetail(); };
+  ov.innerHTML = '<div class="ed-help-modal" role="dialog" aria-modal="true" aria-label="' + esc(titulo) + '">'
+    +   '<div class="ed-help-head">'
+    +     '<div>'
+    +       '<div class="ed-help-eye">— ' + esc(t('Qué puede hacer MyDash')) + '</div>'
+    +       '<div class="ed-help-title">' + esc((it.icono || '🔧') + ' ' + titulo) + '</div>'
+    +     '</div>'
+    +     '<button class="ed-help-x" type="button" onclick="edIntCloseDetail()" aria-label="' + esc(t('Cerrar')) + '">×</button>'
+    +   '</div>'
+    +   '<div class="ed-help-body">' + body + '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  ov.classList.add('show');
+}
+function edIntCloseDetail() {
+  var ov = $('edIntOv');
+  if (ov) ov.remove();
+}
 
 // Select de "Área" del recurso: usa la MISMA lista de clientes internos /
 // áreas que tareas y biblioteca (Config!ClientesInternos vía _clientesInternos)
