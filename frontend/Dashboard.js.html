@@ -12137,22 +12137,30 @@ function _intDetailContent(key) {
         ? 'Ao abrir um e-mail no Gmail, aparece um card do Legal Tracker no painel direito: cria a tarefa pré-preenchida (assunto → nome; remetente + link da thread → notas), com IA sugerindo tipo/prioridade/cliente quando configurada. Anexos do e-mail sobem ao Drive (até 5 arquivos / 15 MB no total). Detecta duplicados pela thread. As permissões por papel são as mesmas do app.'
         : 'Al abrir un correo en Gmail aparece una card del Legal Tracker en el panel derecho: crea la tarea pre-llenada (asunto → nombre; remitente + link al hilo → notas), con IA sugiriendo tipo/prioridad/cliente cuando está configurada. Los adjuntos del correo suben a Drive (hasta 5 archivos / 15 MB en total). Detecta duplicados por hilo. Los permisos por rol son los mismos de la app.',
       pasos: pt ? [
-        'Peça ao head o LINK DE INSTALAÇÃO do add-on (veja abaixo como ele o gera).',
-        'Abra o link com sua conta @rappi.com e clique em "Install" / "Instalar".',
-        'Aceite as permissões (Gmail somente leitura do e-mail aberto + executar o add-on).',
-        'Abra qualquer e-mail no Gmail → ícone do Legal Tracker no painel direito → revise os campos → "Crear tarea". A tarefa aparece no tracker como qualquer outra.'
+        'O head compartilha com você o projeto do Legal Tracker (chega um e-mail do Google, igual a quando compartilham um Doc). Se não recebeu, peça a ele.',
+        'Abra o projeto por esse e-mail (ou pelo link que te passarem) com sua conta @rappi.com. Vai abrir uma página de código — não precisa tocar em nada.',
+        'No canto superior direito tem um botão azul "Implantar" — clique e escolha "Testar implantações".',
+        'Na janela que abre, clique em "Instalar" e depois em "Concluído". É só isso nessa página.',
+        'Volte ao Gmail e recarregue a aba (F5). Abra qualquer e-mail: na barra de ícones da DIREITA aparece o do Legal Tracker (⚖).',
+        'Na primeira vez, clique no ícone e autorize as permissões com sua conta @rappi.com. Daí em diante: abrir e-mail → clicar no ícone → revisar os campos pré-preenchidos → "Crear tarea".'
       ] : [
-        'Pedile al head el LINK DE INSTALACIÓN del add-on (abajo está cómo lo genera).',
-        'Abrí el link con tu cuenta @rappi.com y tocá "Install" / "Instalar".',
-        'Aceptá los permisos (Gmail solo-lectura del correo abierto + ejecutar el add-on).',
-        'Abrí cualquier correo en Gmail → icono del Legal Tracker en el panel derecho → revisá los campos → "Crear tarea". La tarea aparece en el tracker como cualquier otra.'
+        'El head te comparte el proyecto del Legal Tracker (te llega un email de Google, igual que cuando te comparten un Doc). Si no te llegó, pedíselo.',
+        'Abrí el proyecto desde ese email (o el link que te pasen) con tu cuenta @rappi.com. Se abre una página con código — no hay que tocar nada ahí.',
+        'Arriba a la derecha hay un botón azul "Implementar" — tocalo y elegí "Probar implementaciones".',
+        'En el cuadro que se abre tocá "Instalar" y después "Listo". Eso es todo en esa página.',
+        'Volvé a Gmail y recargá la pestaña (F5). Abrí cualquier correo: en la barra de iconos de la DERECHA aparece el del Legal Tracker (⚖).',
+        'La primera vez tocá el icono y autorizá los permisos con tu cuenta @rappi.com. De ahí en más: abrís un correo → tocás el icono → revisás los campos pre-llenados → "Crear tarea".'
       ],
       pasosHead: pt ? [
-        'Editor do Apps Script → Implantar → Implantações de teste → Instalar — isso gera o link de instalação para compartilhar com a equipe.',
-        'Org-wide (sem link): publicar no Marketplace privado do Workspace (via admin de TI).'
+        'UMA VEZ SÓ — compartilhe o projeto: abra o editor do Apps Script do Legal Tracker → botão "Compartilhar" no canto superior direito (igual ao Drive) → adicione os e-mails da equipe com permissão "Leitor". Com isso, cada um já consegue instalar sozinho seguindo os passos acima.',
+        'Passe o link do projeto (a URL do editor) pelo Slack — e cole-o também na planilha, aba "Integraciones", coluna ctaUrl da linha gmail_addon: o botão deste card passa a levar direto ao projeto.',
+        'Vantagem deste método: instala sempre a última versão — quando fizermos deploy de mudanças, ninguém precisa reinstalar.',
+        'Caminho definitivo (quando TI puder): Implantar → Nova implantação → tipo "Complemento", e pedir ao admin do Workspace publicá-lo como add-on privado do domínio — aí se instala org-wide do Marketplace, sem compartilhar o projeto.'
       ] : [
-        'Editor de Apps Script → Implementar → Implementaciones de prueba → Instalar — eso genera el link de instalación para compartir con el equipo.',
-        'Org-wide (sin link): publicarlo en el Marketplace privado del Workspace (vía admin de IT).'
+        'UNA SOLA VEZ — compartí el proyecto: abrí el editor de Apps Script del Legal Tracker → botón "Compartir" arriba a la derecha (igual que en Drive) → agregá los emails del equipo con permiso "Lector". Con eso cada uno ya puede instalárselo solo siguiendo los pasos de arriba.',
+        'Pasales el link del proyecto (la URL del editor) por Slack — y pegalo también en el sheet, hoja "Integraciones", columna ctaUrl de la fila gmail_addon: el botón de esta card va a llevar directo al proyecto.',
+        'Ventaja de este método: instala siempre la última versión — cuando deployemos cambios, nadie reinstala nada.',
+        'Camino definitivo (cuando IT pueda): Implementar → Nueva implementación → tipo "Complemento", y pedirle al admin de Workspace publicarlo como add-on privado del dominio — ahí se instala org-wide desde el Marketplace, sin compartir el proyecto.'
       ]
     },
     digest_diario: {
