@@ -496,10 +496,14 @@ function _getEditorialDataImpl() {
 
     data.countries.forEach(function(c) {
       var countryTasks = tasksByPais[c.code] || [];
-      c.open     = countryTasks.filter(function(t){ return t.status !== 'Listo'; }).length;
+      // Cancelado se excluye igual que en member.* (activeTasks) y en el cliente
+      // (_isOverdueTask): una Cancelada queda en Tracking Activo (solo Listo migra a
+      // Historial), así que sin este filtro inflaba "abiertas"/"vencidas" del país y
+      // de LATAM, divergiendo del tracker y de las stats por persona.
+      c.open     = countryTasks.filter(function(t){ return t.status !== 'Listo' && t.status !== 'Cancelado'; }).length;
       // Vencida = tarde y accionable: las bloqueadas (On hold) no cuentan acá.
-      c.overdue  = countryTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo' && t.status !== 'Bloqueado'; }).length;
-      c.dueToday = countryTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo' && t.status !== 'Bloqueado'; }).length;
+      c.overdue  = countryTasks.filter(function(t){ return typeof t.etaDays === 'number' && t.etaDays < 0 && t.status !== 'Listo' && t.status !== 'Bloqueado' && t.status !== 'Cancelado'; }).length;
+      c.dueToday = countryTasks.filter(function(t){ return t.etaDays === 0 && t.status !== 'Listo' && t.status !== 'Bloqueado' && t.status !== 'Cancelado'; }).length;
       var countryHist = histByPais[c.code] || [];
 
       // slaPct: % de cierres dentro de SLA en los últimos 30 días.

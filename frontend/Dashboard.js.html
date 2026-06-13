@@ -536,7 +536,11 @@ function reopenEditWithFreshData() {
       }
     })
     .withFailureHandler(function(e){ hideLoader(); toast('Error al refrescar: ' + e.message, 'error'); })
-    .getTrackerData();
+    // getEditorialData (no getTrackerData): el payload enriquecido trae etaDays/
+    // slaState/blockedDays, load/overdue por miembro y open/overdue/trend por país.
+    // Con getTrackerData (sin enrichment) toda la UI degradaba en silencio tras
+    // tocar documentos (Vencidas a 0, cargas vacías) hasta el próximo reload.
+    .getEditorialData();
 }
 
 function openEdit(id) {
