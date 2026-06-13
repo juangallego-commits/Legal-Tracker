@@ -88,9 +88,19 @@ function doGet(e) {
   // 2) Determinar rol (head / manager / specialist) contra hoja Config
   var role = determineRole(authResult.email, authResult.user, config);
 
-  // 3) Render normal, con el usuario ya resuelto y rol determinado
+  // 3) Render normal, con el usuario ya resuelto y rol determinado.
+  // getEditorialData() lee todo el Sheet; una sola celda mal tipeada (p.ej. una
+  // fecha como texto) podía tirar acá y voltear la app para TODOS con la pantalla
+  // genérica de Apps Script. La envolvemos para dar un error accionable.
+  var data;
+  try {
+    data = getEditorialData();
+  } catch (err) {
+    Logger.log('doGet: getEditorialData() fallo: ' + ((err && err.stack) || err));
+    return renderServerError(err);
+  }
   var html = HtmlService.createTemplateFromFile('frontend/Dashboard');
-  html.data = JSON.stringify(getEditorialData());
+  html.data = JSON.stringify(data);
   html.currentUser = JSON.stringify({
     email: authResult.email,
     name:  authResult.user.name,
@@ -126,17 +136,50 @@ function buildEmailAllowlist(equipos) {
         map[le] = { name: eq.leader, code: eq.code, isLeader: true };
       }
     }
-    for (var i = 0; i < (eq.members || []).length; i++) {
-      var email = (eq.emails || [])[i];
-      if (email) {
-        var em = email.toString().toLowerCase().trim();
-        if (em && !map[em]) {
-          map[em] = { name: eq.members[i], code: eq.code, isLeader: false };
+    // Mapeo posicional members[i] ↔ emails[i]. Si los largos no coinciden (un email
+    // omitido/desfasado en la hoja), NO adivinamos por posición: mapear mal le daría
+    // a una persona la identidad —y las tareas, incluidas las confidenciales— de
+    // otra. Fail-closed: salteamos el mapeo de miembros de ese equipo (el líder sí
+    // se mapea arriba) y logueamos. La persona queda "sin acceso" (visible y
+    // recuperable) en vez de entrar como otro (silencioso y peligroso).
+    var members = eq.members || [];
+    var emails  = eq.emails  || [];
+    if (emails.length > 0 && emails.length !== members.length) {
+      Logger.log('buildEmailAllowlist: equipo "' + eq.code + '" con desfase members(' +
+        members.length + ') vs emails(' + emails.length + ') — se omite el mapeo posicional. Revisá la hoja Equipos.');
+    } else {
+      for (var i = 0; i < members.length; i++) {
+        var email = emails[i];
+        if (email) {
+          var em = email.toString().toLowerCase().trim();
+          if (em && !map[em]) {
+            map[em] = { name: members[i], code: eq.code, isLeader: false };
+          }
         }
       }
     }
   });
   return map;
+}
+
+// Valida la hoja Equipos para el alta de país. Devuelve {ok, errors[], warnings[]}.
+// El check clave es la PARIDAD members↔emails: es el origen del riesgo de identidad
+// cruzada (un email desfasado hace entrar a alguien con el nombre de otro). Pensado
+// para correr en runPilotSmokeTest antes de invitar a un equipo nuevo.
+function validateEquipos(equipos) {
+  var errors = [], warnings = [];
+  (equipos || []).forEach(function(eq) {
+    var members = eq.members || [], emails = eq.emails || [];
+    if (emails.length > 0 && emails.length !== members.length) {
+      errors.push('Equipo "' + eq.code + '": ' + members.length + ' miembros pero ' +
+        emails.length + ' emails. Deben ser paralelos (mismo orden, mismo largo).');
+    }
+    if (emails.length === 0 && members.length > 0) {
+      warnings.push('Equipo "' + eq.code + '": ' + members.length +
+        ' miembros sin emails (col F) — ninguno tendrá acceso ni recibirá digest.');
+    }
+  });
+  return { ok: errors.length === 0, errors: errors, warnings: warnings };
 }
 
 // Retorna {ok:true, email, user} si el visitante tiene acceso; caso contrario
@@ -199,6 +242,46 @@ function renderAccessDenied(authResult) {
   return HtmlService.createHtmlOutput(body)
     .setTitle('Legal Tracker · Sin acceso')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// Página de error accionable cuando la carga de datos falla (típicamente una celda
+// mal tipeada en el Sheet). Evita la pantalla genérica de Apps Script y le dice al
+// equipo qué revisar. El detalle del error se escapa antes de interpolar.
+function renderServerError(err) {
+  var detail = ((err && err.message) || err || 'Error desconocido').toString().replace(/</g, '&lt;');
+  var body = ''
+    + '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>Legal Tracker · Error</title>'
+    + '<style>'
+    +   'body{background:#0C0E14;color:#F0F2F8;font-family:system-ui,sans-serif;'
+    +        'margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}'
+    +   '.box{max-width:520px;background:#151820;border:1px solid rgba(255,255,255,.08);'
+    +        'border-radius:16px;padding:40px;text-align:center}'
+    +   '.logo{width:56px;height:56px;border-radius:16px;background:#FFB938;display:flex;'
+    +         'align-items:center;justify-content:center;font-size:26px;margin:0 auto 20px}'
+    +   'h1{font-size:20px;font-weight:800;margin:0 0 12px}'
+    +   'p{color:#9099B0;font-size:13px;line-height:1.55;margin:0 0 8px}'
+    +   '.detail{font-family:ui-monospace,monospace;color:#FFB938;font-size:12px;word-break:break-word;'
+    +           'background:rgba(0,0,0,.25);padding:10px 12px;border-radius:8px;margin-top:8px}'
+    +   '.actions{margin-top:24px}'
+    +   '.btn{padding:10px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;'
+    +        'border:0;background:#FF4940;color:#fff;text-decoration:none;display:inline-block}'
+    +   '.hint{margin-top:18px;padding-top:18px;border-top:1px solid rgba(255,255,255,.06);'
+    +         'font-size:12px;color:#6a6a72;line-height:1.55}'
+    + '</style></head><body>'
+    + '<div class="box">'
+    +   '<div class="logo">⚠️</div>'
+    +   '<h1>No pudimos cargar el tracker</h1>'
+    +   '<p>Hubo un problema al leer los datos. Suele deberse a una celda con formato '
+    +     'inesperado en la hoja (por ejemplo, una fecha escrita como texto).</p>'
+    +   '<div class="detail">' + detail + '</div>'
+    +   '<div class="actions"><a class="btn" href="javascript:location.reload()">Reintentar</a></div>'
+    +   '<div class="hint">Si persiste, avisale al admin del tracker: revisá las columnas de fecha '
+    +     '(<b>Creado</b>, <b>Cerrado</b>, <b>Plazo</b>) en <b>Tracking Activo</b> e <b>Historial</b>; '
+    +     'una celda en texto en vez de fecha es la causa más común.</div>'
+    + '</div></body></html>';
+  return HtmlService.createHtmlOutput(body).setTitle('Legal Tracker · Error');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1476,6 +1559,17 @@ function _readHistorialDataRows(ws) {
   return ws.getRange(4, 1, lastRow - 3, ws.getLastColumn()).getValues();
 }
 
+// Convierte un valor de celda a Date de forma segura. Devuelve null si el valor no
+// es una fecha válida (p.ej. una celda de fecha editada a mano que quedó como texto
+// "25/06/2026"). new Date(textoInvalido).toISOString() tira RangeError; sin este
+// guard una sola celda mal tipeada en el Sheet voltea readTasks → getTrackerData →
+// doGet para TODOS los usuarios.
+function _safeDate(v) {
+  if (v === null || v === undefined || v === '') return null;
+  var d = (v instanceof Date) ? v : new Date(v);
+  return (d instanceof Date && !isNaN(d.getTime())) ? d : null;
+}
+
 function readTasks(ws) {
   if (!ws) return [];
   var lastRow = ws.getLastRow(); if (lastRow < 4) return [];
@@ -1485,14 +1579,19 @@ function readTasks(ws) {
   data.forEach(function(row) {
     if (!row[1]) return;
     var proyVal = (row[11]||'').toString().trim();
+    var _cre = _safeDate(row[8]);
+    var _cer = _safeDate(row[9]);
+    var _blk = (row[6] === 'Bloqueado') ? _safeDate(row[21]) : null;
+    if (row[8] && !_cre) Logger.log('readTasks: fecha "Creado" invalida en tarea #' + row[0] + ' -> ignorada (valor: "' + row[8] + '")');
+    if (row[9] && !_cer) Logger.log('readTasks: fecha "Cerrado" invalida en tarea #' + row[0] + ' -> ignorada (valor: "' + row[9] + '")');
     tasks.push({
       id:row[0], nombre:row[1]||'', resp:row[2]||'', acc:row[3]||'',
       deadline:row[4]?(row[4] instanceof Date?Utilities.formatDate(row[4],'America/Bogota','dd/MM/yyyy'):row[4].toString()):'',
       deadlineISO:row[4]?(row[4] instanceof Date?Utilities.formatDate(row[4],'America/Bogota','yyyy-MM-dd'):''):'', priority:row[5]||'Media', status:row[6]||'Pendiente',
       semana:row[7]||'',
-      creado:row[8]?Utilities.formatDate(new Date(row[8]),'America/Bogota','dd/MM/yyyy'):'',
-      creadoRaw:row[8]?new Date(row[8]).toISOString():null,
-      cerrado:row[9]?Utilities.formatDate(new Date(row[9]),'America/Bogota','dd/MM/yyyy'):'',
+      creado:_cre?Utilities.formatDate(_cre,'America/Bogota','dd/MM/yyyy'):'',
+      creadoRaw:_cre?_cre.toISOString():null,
+      cerrado:_cer?Utilities.formatDate(_cer,'America/Bogota','dd/MM/yyyy'):'',
       notas:row[10]||'',
       proyectoId: isNaN(parseInt(proyVal, 10)) ? '' : parseInt(proyVal, 10),
       proyecto: proyVal, // keep raw for backward compat
@@ -1511,7 +1610,7 @@ function readTasks(ws) {
       colaboradores: _parseColaboradores(row[20]),
       // Col 22 (índice 21): desde cuándo está bloqueada (Date). '' si la columna
       // no existe (sin migrarBlockedSince) o la tarea no está bloqueada.
-      blockedSince: (row[21] && row[6] === 'Bloqueado') ? new Date(row[21]).toISOString() : ''
+      blockedSince: _blk ? _blk.toISOString() : ''
     });
   });
   tasks.sort(function(a,b){return (PRIO_ORDER[a.priority]||1)-(PRIO_ORDER[b.priority]||1)||(STATUS_ORDER[a.status]||2)-(STATUS_ORDER[b.status]||2)});
@@ -1709,6 +1808,18 @@ function _canUserSeeTask(ctx, taskId) {
   var visible = (typeof filterTasksForRole === 'function')
     ? filterTasksForRole([task], ctx.role, ctx.user, ctx.equipos)
     : [task];
+  return visible.length > 0;
+}
+
+// Espejo de _canUserSeeTask para proyectos: ¿el visitante podría ver este proyecto
+// en la UI con su rol? Usado por los endpoints de IA para no filtrar insights de
+// proyectos fuera del alcance del usuario.
+function _canUserSeeProject(ctx, projId) {
+  var proj = _readProjectById(ctx.ss, projId);
+  if (!proj) return false;
+  var visible = (typeof filterProjectsForRole === 'function')
+    ? filterProjectsForRole([proj], ctx.role, ctx.user)
+    : [proj];
   return visible.length > 0;
 }
 

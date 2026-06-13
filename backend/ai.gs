@@ -213,10 +213,22 @@ function _aiStoreInsights(ctx, kind, itemId, doc, clean) {
   else ws.appendRow(row);
 }
 
+// Visibilidad por rol/confidencialidad: un visitante solo puede leer insights de
+// items que ya podría ver en la UI. Sin esto, cualquiera del allowlist podía leer
+// el análisis IA (partes, montos, penalidades, riesgos) de un contrato confidencial
+// de otro país vía google.script.run desde la consola del navegador.
+function _aiCanSeeItem(ctx, kind, itemId) {
+  if (kind === 'project') {
+    return (typeof _canUserSeeProject === 'function') ? _canUserSeeProject(ctx, itemId) : false;
+  }
+  return (typeof _canUserSeeTask === 'function') ? _canUserSeeTask(ctx, itemId) : false;
+}
+
 // Lee los insights guardados de un item (para mostrar en el panel sin re-analizar).
 function getContractInsights(kind, itemId) {
   return _telemetry('getContractInsights', function() {
     var ctx = _getAuthContext();
+    if (!_aiCanSeeItem(ctx, kind, itemId)) return { items: [] };
     var ws = ctx.ss.getSheetByName(_AI_INSIGHTS_SHEET);
     if (!ws) return { items: [] };
     var lr = ws.getLastRow();
@@ -239,6 +251,7 @@ function getContractInsights(kind, itemId) {
 function createRenewalReminder(kind, itemId, docId) {
   return _telemetry('createRenewalReminder', function() {
     var ctx = _getAuthContext();
+    if (!_aiCanSeeItem(ctx, kind, itemId)) return _err('FORBIDDEN', 'No tenés acceso a este ítem.');
     var ws = ctx.ss.getSheetByName(_AI_INSIGHTS_SHEET);
     if (!ws) return _err('NOT_FOUND', 'No hay análisis guardado para este documento.');
     var lr = ws.getLastRow();

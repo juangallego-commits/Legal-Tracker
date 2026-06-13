@@ -75,6 +75,13 @@ function runPilotSmokeTest() {
   _assert(heads.length > 0, 'Config!Heads tiene al menos un email');
   _assert(hasDriveFolder, 'Config!DriveFolder está presente');
 
+  // Paridad members↔emails: el origen del riesgo de identidad cruzada al dar de
+  // alta un país (un email desfasado hace que alguien entre como otra persona).
+  var eqVal = validateEquipos(equipos);
+  eqVal.warnings.forEach(function(w){ Logger.log('  ⚠ ' + w); });
+  eqVal.errors.forEach(function(e){ Logger.log('  ✗ ' + e); });
+  _assert(eqVal.ok, 'Equipos: members↔emails paralelos en todos los equipos (sin identidad cruzada)');
+
   // 2) Snapshot raw — verificación de shape
   var raw = _cachedRawData();
   _assert(raw != null, '_cachedRawData() no es null');
