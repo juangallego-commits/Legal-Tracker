@@ -8404,6 +8404,7 @@ function _crRender(step) {
   } else {
     footBtns = cancelBtn
              + '<button type="button" class="ed-btn" onclick="edCrearGoStep(2)">' + esc(t('← Editar')) + '</button>'
+             + '<button type="button" class="ed-btn" onclick="edCrearSubmit(true)">' + esc(t('Crear y cerrar')) + '</button>'
              + '<button type="button" class="ed-btn accent" id="crSubmit" onclick="edCrearSubmit()">' + esc(t('Publicar tarea')) + '</button>';
   }
 
@@ -8583,7 +8584,8 @@ function edCrearGoStep(n) {
   _crMount();
 }
 
-function edCrearSubmit() {
+function edCrearSubmit(closeOnCreate) {
+  closeOnCreate = !!closeOnCreate;
   var v = EDC.values;
   if (!v.titulo || !v.titulo.trim()) { toast('Falta el título', 'error'); return; }
   if (!v.resp) { toast('Falta el responsable', 'error'); return; }
@@ -8603,7 +8605,10 @@ function edCrearSubmit() {
     confidencialidad: v.confidencialidad || 'estandar',
     areaSolicitante: v.areaSolicitante || '',
     contraparte: v.contraparte || '',
-    colaboradores: Array.isArray(v.colaboradores) ? v.colaboradores : []
+    colaboradores: Array.isArray(v.colaboradores) ? v.colaboradores : [],
+    // "Crear y cerrar": la tarea nace ya finalizada (caso "ya la había hecho").
+    // El backend la crea y la mueve a Historial en la misma llamada.
+    closeOnCreate: closeOnCreate
   };
   // Crear es la mutación más frecuente del specialist y era la única que
   // bloqueaba la UI de punta a punta: loader fullscreen + reload() completo
@@ -8622,7 +8627,7 @@ function edCrearSubmit() {
     .withSuccessHandler(function(res) {
       console.log('[create-task] response', res);
       if (res && res.success) {
-        toast('✅ Tarea #' + res.id + ' creada', 'success');
+        toast('✅ Tarea #' + res.id + (closeOnCreate ? ' creada y cerrada' : ' creada'), 'success');
         try { localStorage.removeItem('lt-edc-draft'); } catch(e){}
         _reloadSilent();
       } else {

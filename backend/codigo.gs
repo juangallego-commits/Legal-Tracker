@@ -1624,7 +1624,7 @@ function readTasks(ws) {
 function addTask(taskObj) {
   return _telemetry('addTask', function() {
     return _safeMutation(function() { return _addTaskImpl(taskObj); });
-  }, { hasResp: !!(taskObj && taskObj.resp), hasProyecto: !!(taskObj && (taskObj.proyectoId || taskObj.proyecto)) });
+  }, { hasResp: !!(taskObj && taskObj.resp), hasProyecto: !!(taskObj && (taskObj.proyectoId || taskObj.proyecto)), closed: !!(taskObj && taskObj.closeOnCreate) });
 }
 function _addTaskImpl(taskObj) {
   var ctx = _getAuthContext();
@@ -1648,7 +1648,9 @@ function _addTaskImpl(taskObj) {
   // Defensa en profundidad: el frontend tiene min=today en el input date, pero
   // un cliente bugueado o curl directo podría mandar fecha pasada. Rechazamos
   // server-side. Acepta hoy mismo (mismo día = deadline EOD).
-  if (taskObj.deadline) {
+  // Excepción: closeOnCreate ("ya realizada") puede traer un plazo pasado legítimo
+  // (venció y ya se hizo); el guard solo aplica a tareas que nacen abiertas.
+  if (taskObj.deadline && !taskObj.closeOnCreate) {
     var dlRaw = String(taskObj.deadline).trim();
     var m = dlRaw.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (m) {
@@ -1664,6 +1666,7 @@ function _addTaskImpl(taskObj) {
   // Lock para que nextTaskId + appendRow sean atómicos frente a creaciones concurrentes.
   var lock = LockService.getScriptLock();
   try { lock.waitLock(10000); } catch(e) { throw new Error('Servidor ocupado, reintenta en un momento.'); }
+  var created = null;
   try {
     var newId = nextTaskId(ss);
     var pais  = proposedPais;
@@ -1727,18 +1730,36 @@ function _addTaskImpl(taskObj) {
     ws.appendRow(_sanitizeRow(rowVals));
     _logActivity(ctx, newId, 'create', '', '', taskObj.nombre || '');
     // Avisos de creación: al responsable si NO es el creador ("te asignaron"),
-    // y a cada colaborador inicial. canSeeName: ambos ya tienen acceso.
-    if (taskObj.resp && _normalizeName(taskObj.resp) !== _normalizeName((ctx.user && ctx.user.name) || '')) {
-      _notify(ctx, taskObj.resp, { kind: 'reassign', taskId: newId, taskName: taskObj.nombre, conf: conf, canSeeName: true });
+    // y a cada colaborador inicial. canSeeName: ambos ya tienen acceso. Si nace
+    // cerrada (closeOnCreate), no avisamos: notificar "te asignaron" una tarea ya
+    // finalizada confunde.
+    if (!taskObj.closeOnCreate) {
+      if (taskObj.resp && _normalizeName(taskObj.resp) !== _normalizeName((ctx.user && ctx.user.name) || '')) {
+        _notify(ctx, taskObj.resp, { kind: 'reassign', taskId: newId, taskName: taskObj.nombre, conf: conf, canSeeName: true });
+      }
+      _colabs.forEach(function(c){
+        _notify(ctx, c.name, { kind: 'colaborador', role: c.role, taskId: newId, taskName: taskObj.nombre, conf: conf, canSeeName: true });
+      });
     }
-    _colabs.forEach(function(c){
-      _notify(ctx, c.name, { kind: 'colaborador', role: c.role, taskId: newId, taskName: taskObj.nombre, conf: conf, canSeeName: true });
-    });
-    return {success:true, id:newId};
+    created = { success: true, id: newId };
   } finally {
     lock.releaseLock();
     // invalidateCache() lo dispara _safeMutation; no llamar acá (doble call).
   }
+  // closeOnCreate ("ya estaba hecha"): cerrar de una vez. Reutiliza el flujo de
+  // cierre estándar (_closeTaskByIdImpl: Listo + fecha de cierre + moveToHistorial
+  // + log 'close'), llamado FUERA del lock de creación porque el script lock no es
+  // reentrante. Si el cierre falla, la tarea queda creada y abierta (recuperable).
+  if (taskObj.closeOnCreate && created && created.success) {
+    try {
+      var cres = _closeTaskByIdImpl(newId);
+      created.closed = !!(cres && cres.success);
+    } catch (e) {
+      Logger.log('addTask closeOnCreate: no se pudo cerrar #' + newId + ': ' + ((e && e.message) || e));
+      created.closeError = true;
+    }
+  }
+  return created;
 }
 
 // ── COMMENTS THREAD ───────────────────────────────────────────
