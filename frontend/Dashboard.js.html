@@ -8,6 +8,13 @@
   var HOST_ID = '__errhost__';
   var LOG_KEY = 'mydash-errors';
   var MAX_LOG = 5;
+  // Además del localStorage local, mandamos los errores al backend (hoja ErrorLog)
+  // para revisión central — así el admin ve "qué falló" sin pedirle a cada usuario
+  // que abra DevTools. Acotado por sesión + dedup para que un loop de errores no
+  // martille el servidor; best-effort (nunca rompe el handler de errores).
+  var MAX_SENT = 25;
+  var _sentCount = 0;
+  var _sentMsgs = {};
 
   // PII redactor: stack traces y msg pueden incluir nombres de tarea,
   // contrapartes o emails si un error se thrown con esos datos en el
@@ -42,6 +49,22 @@
       if (arr.length > MAX_LOG) arr = arr.slice(0, MAX_LOG);
       localStorage.setItem(LOG_KEY, JSON.stringify(arr));
     } catch(e) { /* localStorage puede estar lleno o blockeado, ignorar */ }
+  }
+
+  // Fire-and-forget al backend (hoja ErrorLog). Acotado por sesión + dedup +
+  // guardas para no romper nunca el handler de errores ni entrar en loop.
+  function sendToServer(rec) {
+    try {
+      if (typeof google === 'undefined' || !google.script || !google.script.run) return;
+      if (_sentCount >= MAX_SENT) return;
+      var key = (rec.kind || '') + '|' + (rec.msg || '') + '|' + (rec.src || '');
+      if (_sentMsgs[key]) return; // no repetir el mismo error
+      _sentMsgs[key] = 1;
+      _sentCount++;
+      var noop = function(){};
+      google.script.run.withSuccessHandler(noop).withFailureHandler(noop)
+        .logClientError({ where: rec.src || '', message: rec.msg || '', stack: rec.stack || '', kind: rec.kind || '' });
+    } catch (e) { /* nunca romper el handler por intentar loguear */ }
   }
 
   function showError(label, msg, detail) {
@@ -82,6 +105,7 @@
     // (queda solo en DevTools del dev que abrió la consola, no en localStorage).
     var rec = { t: Date.now(), kind: 'error', msg: _redact(msg), src: src, stack: _redact(stack) };
     persist(rec);
+    sendToServer(rec);
     console.error('[GlobalError]', { msg: msg, src: src, stack: stack });
     showError('JS Error', msg, src);
   });
@@ -92,6 +116,7 @@
     var stack = (reason && reason.stack) || '';
     var rec = { t: Date.now(), kind: 'rejection', msg: _redact(msg), stack: _redact(stack) };
     persist(rec);
+    sendToServer(rec);
     console.error('[UnhandledRejection]', { msg: msg, stack: stack });
     showError('Promise', msg, '');
   });
