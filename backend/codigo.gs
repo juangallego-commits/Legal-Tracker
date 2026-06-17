@@ -1548,6 +1548,7 @@ function _updateProjectFieldsImpl(projId, fields) {
   var ws = ctx.ss.getSheetByName(SHEET_PROYECTOS);
   var fieldMap = {'nombre':2,'pais':3,'lider':4,'responsable':5,'deadline':6,'priority':7,'status':8,'descripcion':9,'notas':10,'participantes':13,'tipoTrabajo':14,'riesgo':15,'contrapartesConflicto':17};
   var row = current.row;
+  var lc = ws ? ws.getLastColumn() : 0;
 
   // Lock para serializar mutaciones concurrentes en hoja Proyectos.
   var lock = LockService.getScriptLock();
@@ -1555,7 +1556,10 @@ function _updateProjectFieldsImpl(projId, fields) {
   try {
     Object.keys(fields).forEach(function(k) {
       var col = fieldMap[k];
-      if (!col) return;
+      // Anti-drift: no escribir columnas opcionales que la hoja aún no tiene
+      // (p.ej. contrapartesConflicto col 17 sin migrar) — evita auto-expandir la
+      // grilla sin header. Espeja el guard de _updateTaskFieldsImpl.
+      if (!col || col > lc) return;
       var v = fields[k];
       // deadline puede llegar como ISO 'yyyy-MM-dd'; lo guardamos como Date real
       // para que readProjects lo lea como fecha y el countdown funcione siempre.

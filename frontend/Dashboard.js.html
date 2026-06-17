@@ -276,7 +276,9 @@ function renderStatusBadge(s, taskId, small) {
 
 function renderProjStatusBadge(s) {
   var cls = BADGE_PSTATUS[s] || 'ps-activo';
-  return '<span class="badge ' + cls + '" style="font-size:10px;padding:2px 8px;cursor:default">' + (s || '') + '</span>';
+  // Vocabulario propio de PROYECTOS (Activo/En pausa/Completado/Cancelado), traducido.
+  // No reciclar los pills de TAREAS (On hold/Listo/En curso): son conceptos distintos.
+  return '<span class="badge ' + cls + '" style="font-size:10px;padding:2px 8px;cursor:default">' + (s ? esc(t(s)) : '') + '</span>';
 }
 
 // Parses deadline, returns { html, overdue, diff } for the table cell.
@@ -9092,7 +9094,7 @@ function _piRenderDetail(p, D) {
     +   '<h1 class="pi-detail-name">' + esc(p.nombre || '') + '</h1>'
     +   '<div class="pi-detail-pills">'
     +     '<span class="ed-pill ' + (p.priority || '').toLowerCase() + '">' + esc(_priorityLabel(p.priority)) + '</span>'
-    +     '<span class="ed-pill">' + esc(t(p.status || 'Activo')) + '</span>'
+    +     renderProjStatusBadge(p.status || 'Activo')
     +   '</div>'
     +   '<div class="pi-detail-meta">'
     +     '<span><span class="lbl">' + t('Responsable') + '</span>' + esc(p.responsable || '—') + '</span>'
@@ -9287,10 +9289,14 @@ function rEdProyectosIndex(D) {
     enriched.forEach(function(w, i) {
       var p = w.p; // 'enriched' trae wrappers {p, role, ...}; usar el proyecto crudo
       var color = paletteByIdx[i % paletteByIdx.length];
-      var open = (D.tasks || []).filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; }).length;
-      var done = (D.historial || []).filter(function(t){ return t.proyectoId == p.id; }).length;
-      var total = open + done;
-      var pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      // Usar las stats del backend (p.taskStats, sobre TODAS las tareas del proyecto)
+      // y los valores ya enriquecidos (w.pctNum/w.tasks), no recalcular sobre D.tasks
+      // filtrado por rol — así el % y el conteo del card no divergen del detalle.
+      var _ts = p.taskStats || null;
+      var done  = (_ts && typeof _ts.listo === 'number') ? _ts.listo : (D.historial || []).filter(function(t){ return t.proyectoId == p.id; }).length;
+      var total = (_ts && typeof _ts.total === 'number') ? _ts.total : done + (D.tasks || []).filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; }).length;
+      var open  = (typeof w.tasks === 'number') ? w.tasks : Math.max(0, total - done);
+      var pct   = (typeof w.pctNum === 'number') ? w.pctNum : (total > 0 ? Math.round((done / total) * 100) : 0);
       // Eyebrow con el rol REAL (w.role viene de _piRoleOf, predicado único).
       // Antes era un binario responsable/participante: todo proyecto ajeno
       // decía "PARTICIPANTE" aunque solo fuera visible por país.
@@ -9300,10 +9306,7 @@ function rEdProyectosIndex(D) {
       html += '<div class="pa-card" style="padding:16px;cursor:pointer" onclick="edPiOpen(\'' + esc(p.id) + '\')">'
            +    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">'
            +      '<span style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.04em">' + esc(role) + (p.pais ? ' · ' + esc(p.pais) : '') + '</span>'
-           +      paStatusPill(p.status === 'Activo' ? 'En curso'
-                              : p.status === 'En pausa' ? 'Bloqueado'
-                              : p.status === 'Cancelado' ? 'Cancelado'
-                              : 'Listo')
+           +      renderProjStatusBadge(p.status || 'Activo')
            +    '</div>'
            +    '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px">'
            +      '<span style="width:3px;height:32px;background:' + color + ';border-radius:2px;flex-shrink:0;margin-top:2px"></span>'
