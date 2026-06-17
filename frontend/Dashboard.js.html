@@ -583,7 +583,7 @@ function openEdit(id) {
   // pero si el field es visible y editable, el specialist guarda y recibe
   // toast de error post-roundtrip. Mejor disabled visible.
   var editRole = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
-  var canReassign = _canAssignToOthers(); // capacidad real (no demo): ver _canAssignToOthers
+  var canReassign = _canReassignTask(t); // rol (manager/head) o dueño del proyecto de la tarea
 
   var members   = getAllMembers();
   var rOpts     = buildOptions(members, t.resp);
@@ -2051,6 +2051,20 @@ function _effectiveRole() {
 function _canAssignToOthers() {
   var r = _realRole();
   return r === 'manager' || r === 'head';
+}
+// ¿El usuario es el creador (responsable) del proyecto dado? Espeja _isProjectOwner
+// del backend: el dueño de un proyecto puede asignar/reasignar sus tareas a quien sea,
+// sin importar su rol global.
+function _isProjectOwnerClient(projId) {
+  if (!projId) return false;
+  var p = ((D && D.projects) || []).find(function(x){ return String(x.id) === String(projId); });
+  return !!(p && p.responsable && (typeof _colabNameEq === 'function'
+    ? _colabNameEq(p.responsable, (USER && USER.name) || '')
+    : p.responsable === ((USER && USER.name) || '')));
+}
+// Puede (re)asignar ESTA tarea: por rol (manager/head) o por ser dueño de su proyecto.
+function _canReassignTask(task) {
+  return _canAssignToOthers() || !!(task && _isProjectOwnerClient(task.proyectoId));
 }
 function edSetDemoRole(role) {
   if (_realRole() !== 'head') return;
@@ -5276,12 +5290,12 @@ function _edReasignarCandidates(role, userCode) {
 function _edReasignarRender() {
   var host = $('crHost'); if (!host) return;
   var role = _effectiveRole();
-  if (!_canAssignToOthers()) {
+  var task = (D && D.tasks || []).find(function(t){ return t.id == EDR.taskId; });
+  if (!task) { host.innerHTML = ''; return; }
+  if (!_canReassignTask(task)) { // rol (manager/head) o dueño del proyecto de la tarea
     host.innerHTML = '';
     return;
   }
-  var task = (D && D.tasks || []).find(function(t){ return t.id == EDR.taskId; });
-  if (!task) { host.innerHTML = ''; return; }
 
   var candidates = _edReasignarCandidates(role, _effectiveUserCode());
   var currentResp = task.resp || '';
@@ -5387,7 +5401,8 @@ function _edReasignarRender() {
 
 function edReasignarOpen(taskId) {
   var role = _effectiveRole();
-  if (!_canAssignToOthers()) {
+  var task = (D && D.tasks || []).find(function(x){ return x.id == taskId; });
+  if (!_canReassignTask(task)) { // rol (manager/head) o dueño del proyecto de la tarea
     if (typeof toast === 'function') toast(t('No tenés permiso para reasignar.'), 'error');
     return;
   }
@@ -7276,7 +7291,7 @@ function _renderTkPanel(sel) {
   });
   var selCfLvl = _confLevel(sel);
   var selCfMeta = ED_CONF_LEVELS[selCfLvl] || { label: 'Estándar', desc: '' };
-  var canReassign = _canAssignToOthers(); // rol real, no demo
+  var canReassign = _canReassignTask(sel); // rol (manager/head) o dueño del proyecto de la tarea
   // Gestión de colaboradores (resp / manager-de-su-país / head). Espeja backend.
   var canManageColab = _canManageColab(sel);
   // Modo lectura para colaborador con rol 'ver': no es responsable ni
@@ -8237,7 +8252,7 @@ function edCrearUseSLA() {
 function _crRenderStep2() {
   var v = EDC.values;
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
-  var canAssignOthers = _canAssignToOthers(); // rol real, no demo: un head puede asignar aunque esté "viendo como specialist"
+  var canAssignOthers = _canAssignToOthers() || _isProjectOwnerClient(v.proyectoId); // rol real, o dueño del proyecto de la tarea
   var resp = _crResponsables().map(function(n){ return { value: n, label: n }; });
   var projs = _crProjects().map(function(p){ return { value: p.id, label: p.nombre }; });
   var confLvl = v.confidencialidad || 'estandar';
@@ -8776,7 +8791,13 @@ function edPiNewTaskInProject(id) {
   setTimeout(function() {
     var s = $('crProj');
     if (s) { s.value = String(id); }
-    if (typeof edCrearSetField === 'function') edCrearSetField('proyectoId', String(id));
+    if (typeof edCrearSetField === 'function') {
+      edCrearSetField('proyectoId', String(id));
+      // Prefill del país del proyecto: sin esto el head queda trabado en el paso 1
+      // ("País requerido"), porque su prefill de país es vacío.
+      var p = ((D && D.projects) || []).find(function(x){ return String(x.id) === String(id); });
+      if (p && p.pais) edCrearSetField('pais', p.pais);
+    }
   }, 120);
 }
 

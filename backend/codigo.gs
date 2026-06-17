@@ -1249,8 +1249,25 @@ function _getAuthContext() {
 
 // Valida que el visitante pueda modificar una tarea específica.
 // target = {resp, pais} (al menos estos campos). Lanza si no puede.
+// ¿El visitante es el creador (responsable) de este proyecto? El dueño de un
+// proyecto puede asignar/reasignar las tareas de ESE proyecto a quien sea, sin
+// importar su rol global (un specialist dueño de su proyecto delega sus tareas).
+function _isProjectOwner(ctx, projId) {
+  if (!projId) return false;
+  try {
+    var proj = _readProjectById(ctx.ss, projId);
+    return !!(proj && proj.responsable &&
+      _normalizeName(proj.responsable) === _normalizeName((ctx.user && ctx.user.name) || ''));
+  } catch (e) { return false; }
+}
+
 function _authorizeTaskWrite(ctx, target) {
   if (ctx.role === 'head') return;
+  // El creador (responsable) de un proyecto puede asignar/reasignar las tareas de
+  // ESE proyecto a quien sea — es el dueño del trabajo del proyecto. Va antes de
+  // las reglas de manager/specialist (aplica a cualquier rol). Requiere que el
+  // target traiga proyectoId (lo trae _readTaskById y el create lo pasa explícito).
+  if (target && _isProjectOwner(ctx, target.proyectoId)) return;
   if (ctx.role === 'manager') {
     var cc = (target && target.pais) || (target ? getCountryForMember(target.resp, ctx.equipos) : '');
     if (cc && cc !== ctx.user.code) {
@@ -1691,7 +1708,7 @@ function _addTaskImpl(taskObj) {
   var proposedPais = taskObj.pais || getCountryForMember(proposedResp, equipos);
   // Validar permisos antes de escribir. Specialist solo puede asignarse a sí mismo;
   // manager solo dentro de su país; head sin restricción.
-  _authorizeTaskWrite(ctx, { resp: proposedResp, pais: proposedPais });
+  _authorizeTaskWrite(ctx, { resp: proposedResp, pais: proposedPais, proyectoId: (taskObj.proyectoId || taskObj.proyecto || '') });
 
   // Validar enums: si el cliente manda valores fuera del dominio (string arbitrario),
   // los normalizamos al default. Previene contaminar el sheet con valores raros que
