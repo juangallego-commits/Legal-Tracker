@@ -8,6 +8,13 @@
   var HOST_ID = '__errhost__';
   var LOG_KEY = 'mydash-errors';
   var MAX_LOG = 5;
+  // Además del localStorage local, mandamos los errores al backend (hoja ErrorLog)
+  // para revisión central — así el admin ve "qué falló" sin pedirle a cada usuario
+  // que abra DevTools. Acotado por sesión + dedup para que un loop de errores no
+  // martille el servidor; best-effort (nunca rompe el handler de errores).
+  var MAX_SENT = 25;
+  var _sentCount = 0;
+  var _sentMsgs = {};
 
   // PII redactor: stack traces y msg pueden incluir nombres de tarea,
   // contrapartes o emails si un error se thrown con esos datos en el
@@ -42,6 +49,22 @@
       if (arr.length > MAX_LOG) arr = arr.slice(0, MAX_LOG);
       localStorage.setItem(LOG_KEY, JSON.stringify(arr));
     } catch(e) { /* localStorage puede estar lleno o blockeado, ignorar */ }
+  }
+
+  // Fire-and-forget al backend (hoja ErrorLog). Acotado por sesión + dedup +
+  // guardas para no romper nunca el handler de errores ni entrar en loop.
+  function sendToServer(rec) {
+    try {
+      if (typeof google === 'undefined' || !google.script || !google.script.run) return;
+      if (_sentCount >= MAX_SENT) return;
+      var key = (rec.kind || '') + '|' + (rec.msg || '') + '|' + (rec.src || '');
+      if (_sentMsgs[key]) return; // no repetir el mismo error
+      _sentMsgs[key] = 1;
+      _sentCount++;
+      var noop = function(){};
+      google.script.run.withSuccessHandler(noop).withFailureHandler(noop)
+        .logClientError({ where: rec.src || '', message: rec.msg || '', stack: rec.stack || '', kind: rec.kind || '' });
+    } catch (e) { /* nunca romper el handler por intentar loguear */ }
   }
 
   function showError(label, msg, detail) {
@@ -82,6 +105,7 @@
     // (queda solo en DevTools del dev que abrió la consola, no en localStorage).
     var rec = { t: Date.now(), kind: 'error', msg: _redact(msg), src: src, stack: _redact(stack) };
     persist(rec);
+    sendToServer(rec);
     console.error('[GlobalError]', { msg: msg, src: src, stack: stack });
     showError('JS Error', msg, src);
   });
@@ -92,6 +116,7 @@
     var stack = (reason && reason.stack) || '';
     var rec = { t: Date.now(), kind: 'rejection', msg: _redact(msg), stack: _redact(stack) };
     persist(rec);
+    sendToServer(rec);
     console.error('[UnhandledRejection]', { msg: msg, stack: stack });
     showError('Promise', msg, '');
   });
@@ -558,7 +583,7 @@ function openEdit(id) {
   // pero si el field es visible y editable, el specialist guarda y recibe
   // toast de error post-roundtrip. Mejor disabled visible.
   var editRole = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
-  var canReassign = (editRole === 'manager' || editRole === 'head');
+  var canReassign = _canAssignToOthers(); // capacidad real (no demo): ver _canAssignToOthers
 
   var members   = getAllMembers();
   var rOpts     = buildOptions(members, t.resp);
@@ -2017,6 +2042,15 @@ function _demoRole() {
 }
 function _effectiveRole() {
   return _demoRole() || _realRole();
+}
+// Capacidad REAL de asignar/reasignar tareas a otros. Usa _realRole(), NO
+// _effectiveRole(): el demo-switcher es cosmético (cambia qué VE un head, no lo
+// que PUEDE hacer), y el backend (_authorizeTaskWrite) autoriza por rol real. Sin
+// esto, un head "viendo como specialist" perdía la capacidad de asignar en la UI
+// aunque el server se la concede. Convención del proyecto: gates de MUTACIÓN → rol real.
+function _canAssignToOthers() {
+  var r = _realRole();
+  return r === 'manager' || r === 'head';
 }
 function edSetDemoRole(role) {
   if (_realRole() !== 'head') return;
@@ -4930,15 +4964,16 @@ function _edTkBulkReasignPickPerson(name) {
 
 function edTkBulkReasignOpen(ids) {
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
-  if (role !== 'manager' && role !== 'head') {
+  if (!_canAssignToOthers()) {
     toast(t('No tenés permiso para reasignar.'), 'error');
     return;
   }
-  var team = (D && D.team) || [];
   var userCode = (typeof _effectiveUserCode === 'function') ? _effectiveUserCode() : '';
-  var candidates;
-  if (role === 'manager') candidates = team.filter(function(m){ return m && m.country === userCode; });
-  else candidates = team.slice();
+  // Roster completo (incl. líderes/managers), igual que el reasignar individual.
+  var roster = _reassignRosterObjects();
+  var candidates = (role === 'manager')
+    ? roster.filter(function(m){ return m && m.country === userCode; })
+    : roster.slice();
   if (!candidates.length) {
     toast(t('No hay miembros del equipo a quien reasignar.'), 'error');
     return;
@@ -5200,10 +5235,32 @@ function edTkUploadFile(input) {
 // El backend (updateTaskField) ya valida permisos.
 var EDR = { taskId: null, value: '' };
 
-function _edReasignarCandidates(role, userCode) {
-  // Manager: sólo equipo de su país. Head: todo el roster.
+// Roster COMPLETO de candidatos a responsable, como objetos con load/capacity
+// (para sugerir el menos cargado). Usa getAllMembers() — que incluye LÍDERES y
+// miembros sin tareas — y reusa el objeto de D.team cuando existe; a los que
+// faltan los crea mínimos (load/capacity 0). Sin esto el modal de reasignar salía
+// de D.team y omitía a quien no tuviera tareas: un head no podía reasignar a un
+// líder/manager. Espeja el roster que ya usan crear/editar (getAllMembers).
+function _reassignRosterObjects() {
   var team = (D && D.team) || [];
-  var pool = team.filter(function(m){ return m && m.name; });
+  var byName = {};
+  team.forEach(function(m){ if (m && m.name) byName[m.name] = m; });
+  var countryOf = {};
+  ((D && D.equipos) || []).forEach(function(eq){
+    if (eq.leader && countryOf[eq.leader] == null) countryOf[eq.leader] = eq.code;
+    (eq.members || []).forEach(function(m){ if (countryOf[m] == null) countryOf[m] = eq.code; });
+  });
+  var out = [];
+  ((typeof getAllMembers === 'function' ? getAllMembers() : []) || []).forEach(function(name){
+    if (!name) return;
+    out.push(byName[name] || { name: name, country: countryOf[name] || '', load: 0, capacity: 0, overdue: 0 });
+  });
+  return out;
+}
+
+function _edReasignarCandidates(role, userCode) {
+  // Manager: sólo equipo de su país. Head: todo el roster (incl. líderes).
+  var pool = _reassignRosterObjects();
   if (role === 'manager') {
     pool = pool.filter(function(m){ return (m.country || '') === userCode; });
   }
@@ -5219,7 +5276,7 @@ function _edReasignarCandidates(role, userCode) {
 function _edReasignarRender() {
   var host = $('crHost'); if (!host) return;
   var role = _effectiveRole();
-  if (role !== 'manager' && role !== 'head') {
+  if (!_canAssignToOthers()) {
     host.innerHTML = '';
     return;
   }
@@ -5330,7 +5387,7 @@ function _edReasignarRender() {
 
 function edReasignarOpen(taskId) {
   var role = _effectiveRole();
-  if (role !== 'manager' && role !== 'head') {
+  if (!_canAssignToOthers()) {
     if (typeof toast === 'function') toast(t('No tenés permiso para reasignar.'), 'error');
     return;
   }
@@ -6839,7 +6896,7 @@ function rEdTracker(D) {
 
   // Bulk action bar
   var bulkCount = (EDT.selectedIds || []).length;
-  var canReassign = (role === 'manager' || role === 'head');
+  var canReassign = _canAssignToOthers(); // rol real, no demo
   // Bulk actions no aplican a tareas cerradas (Listo) — el backend espera
   // tasks activas. Si filter === 'closed' ocultamos la barra para no
   // exponer botones que tirarian 404 silenciosos al ejecutarse.
@@ -7219,7 +7276,7 @@ function _renderTkPanel(sel) {
   });
   var selCfLvl = _confLevel(sel);
   var selCfMeta = ED_CONF_LEVELS[selCfLvl] || { label: 'Estándar', desc: '' };
-  var canReassign = (role === 'manager' || role === 'head');
+  var canReassign = _canAssignToOthers(); // rol real, no demo
   // Gestión de colaboradores (resp / manager-de-su-país / head). Espeja backend.
   var canManageColab = _canManageColab(sel);
   // Modo lectura para colaborador con rol 'ver': no es responsable ni
@@ -8180,7 +8237,7 @@ function edCrearUseSLA() {
 function _crRenderStep2() {
   var v = EDC.values;
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
-  var canAssignOthers = (role === 'manager' || role === 'head');
+  var canAssignOthers = _canAssignToOthers(); // rol real, no demo: un head puede asignar aunque esté "viendo como specialist"
   var resp = _crResponsables().map(function(n){ return { value: n, label: n }; });
   var projs = _crProjects().map(function(p){ return { value: p.id, label: p.nombre }; });
   var confLvl = v.confidencialidad || 'estandar';

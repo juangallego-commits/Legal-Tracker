@@ -97,6 +97,7 @@ function doGet(e) {
     data = getEditorialData();
   } catch (err) {
     Logger.log('doGet: getEditorialData() fallo: ' + ((err && err.stack) || err));
+    try { _logError('server', 'doGet', (err && err.message) || String(err), (err && err.stack) || ''); } catch (e) {}
     return renderServerError(err);
   }
   var html = HtmlService.createTemplateFromFile('frontend/Dashboard');
@@ -1160,6 +1161,11 @@ function _telemetry(fnName, fn, meta) {
   try { console.info(JSON.stringify(record)); } catch (e) {}
   // 2) Hoja Telemetry (si existe). NO crearla automáticamente; el dueño la crea cuando quiera.
   try { _appendTelemetryRow(record); } catch (e) {}
+  // 3) ErrorLog (SOLO en fallo): hoja dedicada y acotada que se auto-crea, para
+  //    revisar después qué falló. Acotada por frecuencia de errores, no de llamadas.
+  if (!success) {
+    try { _logError('server', fnName, record.error, record.meta ? JSON.stringify(record.meta) : ''); } catch (e) {}
+  }
   if (err) throw err;
   return result;
 }
@@ -1176,6 +1182,58 @@ function _appendTelemetryRow(record) {
     record.success ? 'OK' : 'ERR',
     record.error || '', record.meta ? JSON.stringify(record.meta) : ''
   ]);
+}
+
+// ── REGISTRO DE ERRORES (ErrorLog) ──────────────────────────────────
+// Hoja dedicada SOLO a errores (a diferencia de Telemetry, que loguea toda
+// llamada). Se AUTO-crea en el primer error, se CAPEA para no crecer sin
+// límite, y junta errores de backend (vía _telemetry/doGet) y de cliente
+// (vía logClientError, desde el handler global del frontend). Objetivo: que
+// el admin abra una hoja y vea "qué falló" sin DevTools ni Stackdriver.
+var _ERRORLOG_SHEET = 'ErrorLog';
+var _ERRORLOG_CAP = 1000; // filas máx (sin header); recorta las más viejas
+
+function _errorLogSheet(ss) {
+  var ws = ss.getSheetByName(_ERRORLOG_SHEET);
+  if (!ws) {
+    ws = ss.insertSheet(_ERRORLOG_SHEET);
+    ws.getRange(1, 1, 1, 6).setValues([['ts', 'source', 'email', 'where', 'message', 'detail']]);
+    ws.getRange(1, 1, 1, 6).setFontWeight('bold');
+    ws.setFrozenRows(1);
+  }
+  return ws;
+}
+
+// Best-effort: NUNCA tira (un fallo al loguear no debe romper el flujo real).
+function _logError(source, where, message, detail) {
+  try {
+    function clip(s, n) { s = (s == null ? '' : String(s)); return s.length > n ? s.slice(0, n) : s; }
+    var email = '';
+    try { email = Session.getActiveUser().getEmail() || ''; } catch (e) {}
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ws = _errorLogSheet(ss);
+    ws.appendRow([
+      new Date().toISOString(), clip(source, 20), clip(email, 120),
+      clip(where, 200), clip(message, 1000), clip(detail, 4000)
+    ]);
+    // Recorte: si superó el cap, borra las filas más viejas (debajo del header).
+    var over = ws.getLastRow() - 1 - _ERRORLOG_CAP;
+    if (over > 0) ws.deleteRows(2, over);
+  } catch (e) {
+    try { console.error('logError fallo: ' + ((e && e.message) || e)); } catch (e2) {}
+  }
+}
+
+// Endpoint callable desde el frontend: el handler global de errores manda acá
+// los errores de cliente (JS error / promise rejection). Best-effort y acotado;
+// nunca tira (devuelve siempre un envelope para no disparar withFailureHandler).
+function logClientError(payload) {
+  try {
+    payload = payload || {};
+    var where = (payload.kind ? '[' + payload.kind + '] ' : '') + (payload.where || payload.src || '');
+    _logError('client', where, payload.message || payload.msg || '', payload.stack || '');
+  } catch (e) {}
+  return { success: true };
 }
 
 // Contexto actual del visitante + su rol. Se usa en cada mutation.
