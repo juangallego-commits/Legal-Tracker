@@ -276,7 +276,9 @@ function renderStatusBadge(s, taskId, small) {
 
 function renderProjStatusBadge(s) {
   var cls = BADGE_PSTATUS[s] || 'ps-activo';
-  return '<span class="badge ' + cls + '" style="font-size:10px;padding:2px 8px;cursor:default">' + (s || '') + '</span>';
+  // Vocabulario propio de PROYECTOS (Activo/En pausa/Completado/Cancelado), traducido.
+  // No reciclar los pills de TAREAS (On hold/Listo/En curso): son conceptos distintos.
+  return '<span class="badge ' + cls + '" style="font-size:10px;padding:2px 8px;cursor:default">' + (s ? esc(t(s)) : '') + '</span>';
 }
 
 // Parses deadline, returns { html, overdue, diff } for the table cell.
@@ -583,7 +585,7 @@ function openEdit(id) {
   // pero si el field es visible y editable, el specialist guarda y recibe
   // toast de error post-roundtrip. Mejor disabled visible.
   var editRole = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
-  var canReassign = _canAssignToOthers(); // capacidad real (no demo): ver _canAssignToOthers
+  var canReassign = _canReassignTask(t); // rol (manager/head) o dueño del proyecto de la tarea
 
   var members   = getAllMembers();
   var rOpts     = buildOptions(members, t.resp);
@@ -2051,6 +2053,20 @@ function _effectiveRole() {
 function _canAssignToOthers() {
   var r = _realRole();
   return r === 'manager' || r === 'head';
+}
+// ¿El usuario es el creador (responsable) del proyecto dado? Espeja _isProjectOwner
+// del backend: el dueño de un proyecto puede asignar/reasignar sus tareas a quien sea,
+// sin importar su rol global.
+function _isProjectOwnerClient(projId) {
+  if (!projId) return false;
+  var p = ((D && D.projects) || []).find(function(x){ return String(x.id) === String(projId); });
+  return !!(p && p.responsable && (typeof _colabNameEq === 'function'
+    ? _colabNameEq(p.responsable, (USER && USER.name) || '')
+    : p.responsable === ((USER && USER.name) || '')));
+}
+// Puede (re)asignar ESTA tarea: por rol (manager/head) o por ser dueño de su proyecto.
+function _canReassignTask(task) {
+  return _canAssignToOthers() || !!(task && _isProjectOwnerClient(task.proyectoId));
 }
 function edSetDemoRole(role) {
   if (_realRole() !== 'head') return;
@@ -5276,12 +5292,12 @@ function _edReasignarCandidates(role, userCode) {
 function _edReasignarRender() {
   var host = $('crHost'); if (!host) return;
   var role = _effectiveRole();
-  if (!_canAssignToOthers()) {
+  var task = (D && D.tasks || []).find(function(t){ return t.id == EDR.taskId; });
+  if (!task) { host.innerHTML = ''; return; }
+  if (!_canReassignTask(task)) { // rol (manager/head) o dueño del proyecto de la tarea
     host.innerHTML = '';
     return;
   }
-  var task = (D && D.tasks || []).find(function(t){ return t.id == EDR.taskId; });
-  if (!task) { host.innerHTML = ''; return; }
 
   var candidates = _edReasignarCandidates(role, _effectiveUserCode());
   var currentResp = task.resp || '';
@@ -5387,7 +5403,8 @@ function _edReasignarRender() {
 
 function edReasignarOpen(taskId) {
   var role = _effectiveRole();
-  if (!_canAssignToOthers()) {
+  var task = (D && D.tasks || []).find(function(x){ return x.id == taskId; });
+  if (!_canReassignTask(task)) { // rol (manager/head) o dueño del proyecto de la tarea
     if (typeof toast === 'function') toast(t('No tenés permiso para reasignar.'), 'error');
     return;
   }
@@ -7276,7 +7293,7 @@ function _renderTkPanel(sel) {
   });
   var selCfLvl = _confLevel(sel);
   var selCfMeta = ED_CONF_LEVELS[selCfLvl] || { label: 'Estándar', desc: '' };
-  var canReassign = _canAssignToOthers(); // rol real, no demo
+  var canReassign = _canReassignTask(sel); // rol (manager/head) o dueño del proyecto de la tarea
   // Gestión de colaboradores (resp / manager-de-su-país / head). Espeja backend.
   var canManageColab = _canManageColab(sel);
   // Modo lectura para colaborador con rol 'ver': no es responsable ni
@@ -8237,7 +8254,7 @@ function edCrearUseSLA() {
 function _crRenderStep2() {
   var v = EDC.values;
   var role = (typeof _effectiveRole === 'function') ? _effectiveRole() : 'specialist';
-  var canAssignOthers = _canAssignToOthers(); // rol real, no demo: un head puede asignar aunque esté "viendo como specialist"
+  var canAssignOthers = _canAssignToOthers() || _isProjectOwnerClient(v.proyectoId); // rol real, o dueño del proyecto de la tarea
   var resp = _crResponsables().map(function(n){ return { value: n, label: n }; });
   var projs = _crProjects().map(function(p){ return { value: p.id, label: p.nombre }; });
   var confLvl = v.confidencialidad || 'estandar';
@@ -8776,7 +8793,13 @@ function edPiNewTaskInProject(id) {
   setTimeout(function() {
     var s = $('crProj');
     if (s) { s.value = String(id); }
-    if (typeof edCrearSetField === 'function') edCrearSetField('proyectoId', String(id));
+    if (typeof edCrearSetField === 'function') {
+      edCrearSetField('proyectoId', String(id));
+      // Prefill del país del proyecto: sin esto el head queda trabado en el paso 1
+      // ("País requerido"), porque su prefill de país es vacío.
+      var p = ((D && D.projects) || []).find(function(x){ return String(x.id) === String(id); });
+      if (p && p.pais) edCrearSetField('pais', p.pais);
+    }
   }, 120);
 }
 
@@ -9071,7 +9094,7 @@ function _piRenderDetail(p, D) {
     +   '<h1 class="pi-detail-name">' + esc(p.nombre || '') + '</h1>'
     +   '<div class="pi-detail-pills">'
     +     '<span class="ed-pill ' + (p.priority || '').toLowerCase() + '">' + esc(_priorityLabel(p.priority)) + '</span>'
-    +     '<span class="ed-pill">' + esc(t(p.status || 'Activo')) + '</span>'
+    +     renderProjStatusBadge(p.status || 'Activo')
     +   '</div>'
     +   '<div class="pi-detail-meta">'
     +     '<span><span class="lbl">' + t('Responsable') + '</span>' + esc(p.responsable || '—') + '</span>'
@@ -9266,10 +9289,14 @@ function rEdProyectosIndex(D) {
     enriched.forEach(function(w, i) {
       var p = w.p; // 'enriched' trae wrappers {p, role, ...}; usar el proyecto crudo
       var color = paletteByIdx[i % paletteByIdx.length];
-      var open = (D.tasks || []).filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; }).length;
-      var done = (D.historial || []).filter(function(t){ return t.proyectoId == p.id; }).length;
-      var total = open + done;
-      var pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      // Usar las stats del backend (p.taskStats, sobre TODAS las tareas del proyecto)
+      // y los valores ya enriquecidos (w.pctNum/w.tasks), no recalcular sobre D.tasks
+      // filtrado por rol — así el % y el conteo del card no divergen del detalle.
+      var _ts = p.taskStats || null;
+      var done  = (_ts && typeof _ts.listo === 'number') ? _ts.listo : (D.historial || []).filter(function(t){ return t.proyectoId == p.id; }).length;
+      var total = (_ts && typeof _ts.total === 'number') ? _ts.total : done + (D.tasks || []).filter(function(t){ return t.proyectoId == p.id && t.status !== 'Listo'; }).length;
+      var open  = (typeof w.tasks === 'number') ? w.tasks : Math.max(0, total - done);
+      var pct   = (typeof w.pctNum === 'number') ? w.pctNum : (total > 0 ? Math.round((done / total) * 100) : 0);
       // Eyebrow con el rol REAL (w.role viene de _piRoleOf, predicado único).
       // Antes era un binario responsable/participante: todo proyecto ajeno
       // decía "PARTICIPANTE" aunque solo fuera visible por país.
@@ -9279,10 +9306,7 @@ function rEdProyectosIndex(D) {
       html += '<div class="pa-card" style="padding:16px;cursor:pointer" onclick="edPiOpen(\'' + esc(p.id) + '\')">'
            +    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">'
            +      '<span style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.04em">' + esc(role) + (p.pais ? ' · ' + esc(p.pais) : '') + '</span>'
-           +      paStatusPill(p.status === 'Activo' ? 'En curso'
-                              : p.status === 'En pausa' ? 'Bloqueado'
-                              : p.status === 'Cancelado' ? 'Cancelado'
-                              : 'Listo')
+           +      renderProjStatusBadge(p.status || 'Activo')
            +    '</div>'
            +    '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px">'
            +      '<span style="width:3px;height:32px;background:' + color + ';border-radius:2px;flex-shrink:0;margin-top:2px"></span>'
