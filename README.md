@@ -47,7 +47,7 @@ Las columnas 17–21 se agregan por migración y el backend solo las escribe si 
 | 20 | Área solicitante | `TASK_AREASOL_COL` |
 | 21 | Colaboradores (JSON `[{name,role}]`) | requiere correr `migrarColaboradores()` |
 
-**Confidencialidad**: 3 niveles — `estandar`, `restringido`, `confidencial` (`ED_CONF_LEVELS`). Solo manager/head puede subir el nivel.
+**Confidencialidad**: 2 niveles unificados — **Normal** (`estandar`, todo el equipo del país) y **Confidencial** (`confidencial`; el legacy `restringido` es idéntico). Confidencial = responsable + líder/manager + head + colaboradores; los pares no la ven (manager === líder del país). Solo manager/head sube el nivel (en crear, al cerrar/bloquear, o en Edición avanzada). Los adjuntos de una tarea Confidencial se bloquean en Drive (privado + acceso explícito). Detalle en `ARCHITECTURE.md` §8 y `PENDIENTES.md` #17.
 
 ## Roles y permisos
 

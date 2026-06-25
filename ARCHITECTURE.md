@@ -193,12 +193,25 @@ Resolución en `resolveVisitor()` → `determineRole()` consultando hoja `Equipo
 
 **Backend valida en cada write** (`_authorizeTaskWrite`): specialist no puede reasignar `resp`, manager no puede mover de país, solo manager/head cambian `confidencialidad`.
 
-**Confidentiality levels** (display layer reducido a 2 niveles, backend acepta los 3 legacy):
-- `estandar` (UI: "Normal") — visible al equipo del rol
-- `restringido` (UI: "Confidencial", upgrade-to display) — solo resp / líder / head / manager del país
-- `confidencial` (UI: "Confidencial") — solo resp / líder / head
+**Confidentiality levels** — modelo **unificado de 2 niveles**. Clave: `manager` y `líder`
+son la **misma persona** (el jefe del país: el rol `manager` se deriva de ser líder en
+`Equipos`, y el campo `líder` de la tarea se autocompleta con el líder del país vía
+`getLeaderForCountry`). Por eso:
+- `estandar` (UI: "Normal") — visible para **todo el equipo del país**.
+- `confidencial` (UI: "Confidencial") — **responsable + líder/manager + head + colaboradores**;
+  los **pares** specialists **no** la ven. El manager del país **sí** (es el líder).
+- `restringido` — **legacy**: tratado **idéntico** a `confidencial` (mismo nivel). El display
+  ya lo muestra como "Confidencial"; `migrarConfidencialidad()` colapsa el valor en la hoja.
 
-`filterTasksForRole()` aplica este filtro antes de devolver tasks.
+`filterTasksForRole()` aplica el filtro server-side (fail-closed: un valor desconocido se trata
+como sensible) antes de devolver tasks. Se puede cambiar el nivel de una tarea **activa** desde
+"Edición avanzada" (manager/head), además del flujo de cerrar/bloquear.
+
+**Bloqueo por archivo en Drive** — los adjuntos de una tarea sensible se vuelven privados +
+lectura explícita a los autorizados (mismo set que el filtro), mirroreando el patrón de
+Biblioteca (`_applyTaskFileSharing` / `_taskFileAuthorizedEmails` / re-lock en los setters).
+⚠ Solo es efectivo si la carpeta raíz `Config!DriveFolder` **no** está compartida con todo el
+equipo (Drive no quita permisos heredados de la carpeta). Ver `PENDIENTES.md` #17.
 
 ---
 

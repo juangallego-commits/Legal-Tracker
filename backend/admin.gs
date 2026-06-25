@@ -497,6 +497,94 @@ function migrarColaboradores() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// MIGRAR CONFIDENCIALIDAD · colapsa 'restringido' (legacy) → 'confidencial'
+// ════════════════════════════════════════════════════════════════
+// El modelo pasó a 2 niveles unificados (estandar / confidencial); el valor
+// legacy 'restringido' ya se comporta idéntico a 'confidencial' en el filtro,
+// así que esta migración es COSMÉTICA (deja la celda coherente con el badge).
+// Segura e idempotente. Gated por HEAD. No toca Drive — para re-bloquear
+// archivos existentes correr relockSensitiveTaskFiles().
+function migrarConfidencialidad() {
+  var who = _requireAdminEmail();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var report = [];
+  var log = function(msg) { report.push(msg); Logger.log(msg); };
+  log('▶ migrarConfidencialidad ejecutado por ' + who);
+
+  [{ name: SHEET_ACTIVO, start: 4 }, { name: SHEET_HISTORIAL, start: 2 }].forEach(function(spec) {
+    var ws = ss.getSheetByName(spec.name);
+    if (!ws) { log('· ' + spec.name + ' no encontrada — skip'); return; }
+    var lr = ws.getLastColumn() >= TASK_CONF_COL ? ws.getLastRow() : 0;
+    if (lr < spec.start) { log('· ' + spec.name + ' sin columna Confidencialidad o sin datos — skip'); return; }
+    var rng = ws.getRange(spec.start, TASK_CONF_COL, lr - spec.start + 1, 1);
+    var vals = rng.getValues();
+    var changed = 0;
+    for (var i = 0; i < vals.length; i++) {
+      if ((vals[i][0] || '').toString().trim().toLowerCase() === 'restringido') {
+        vals[i][0] = 'confidencial';
+        changed++;
+      }
+    }
+    if (changed) { rng.setValues(vals); log('✓ ' + spec.name + ': ' + changed + ' fila(s) restringido → confidencial'); }
+    else { log('· ' + spec.name + ': nada para migrar'); }
+  });
+
+  try { CacheService.getScriptCache().remove(CACHE_KEY); log('✓ Cache invalidada (' + CACHE_KEY + ')'); }
+  catch (e) { log('⚠ Cache flush falló: ' + e.message); }
+
+  log('—— migrarConfidencialidad terminó ——');
+  return report;
+}
+
+// ════════════════════════════════════════════════════════════════
+// RELOCK SENSITIVE TASK FILES · backfill del "bloqueo por archivo"
+// ════════════════════════════════════════════════════════════════
+// Re-aplica el sharing de Drive a los archivos YA subidos de tareas ACTIVAS
+// sensibles (confidencial / restringido): privado + lectores explícitos. Los
+// 'estandar' quedan con lectura por enlace del dominio. Gated por HEAD.
+// Best-effort y potencialmente LENTO (≥1 llamada a Drive por archivo) → con
+// muchos adjuntos puede acercarse al límite de 6 min; correr desde el editor.
+function relockSensitiveTaskFiles() {
+  var who = _requireAdminEmail();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var report = [];
+  var log = function(msg) { report.push(msg); Logger.log(msg); };
+  log('▶ relockSensitiveTaskFiles ejecutado por ' + who);
+
+  var ws = ss.getSheetByName(SHEET_ACTIVO);
+  if (!ws) { log('⚠ Tracking Activo no encontrada'); return report; }
+  var lr = ws.getLastRow();
+  if (lr < 4) { log('· sin tareas activas'); return report; }
+  var lc = Math.min(ws.getLastColumn(), TASK_COLS);
+  if (lc < TASK_DOCS_COL) { log('· la hoja no tiene columna Documentos — nada que bloquear'); return report; }
+  var data = ws.getRange(4, 1, lr - 3, lc).getValues();
+  var ctx = { ss: ss, email: who };
+  var tasks = 0, files = 0, locked = 0;
+  for (var i = 0; i < data.length; i++) {
+    var conf = (lc > 17 ? (data[i][17] || '') : '').toString().trim().toLowerCase();
+    if (!conf || conf === 'estandar') continue;
+    var docs = _parseDocs(data[i][TASK_DOCS_COL - 1]);
+    if (!docs || !docs.length) continue;
+    var target = { resp: data[i][2], pais: (data[i][12] || '').toString().trim(),
+                   lider: (data[i][13] || '').toString().trim(), conf: conf,
+                   colaboradores: (lc > 20 ? _parseColaboradores(data[i][20]) : []) };
+    var emails = _taskFileAuthorizedEmails(ctx, target);
+    tasks++;
+    docs.forEach(function(d){
+      if (!d || !d.id) return;
+      files++;
+      try {
+        var r = _applyTaskFileSharing(DriveApp.getFileById(d.id), conf, emails);
+        if (r && r.locked) locked++;
+      } catch (e) { log('  ⚠ archivo ' + d.id + ': ' + ((e && e.message) || e)); }
+    });
+  }
+  log('✓ tareas sensibles: ' + tasks + ' · archivos vistos: ' + files + ' · bloqueados: ' + locked);
+  log('—— relockSensitiveTaskFiles terminó ——');
+  return report;
+}
+
+// ════════════════════════════════════════════════════════════════
 // TIDY SHEETS · ordena el spreadsheet para humanos
 // ════════════════════════════════════════════════════════════════
 // El spreadsheet acumuló ~15 hojas y la mayoría son TABLAS INTERNAS de la

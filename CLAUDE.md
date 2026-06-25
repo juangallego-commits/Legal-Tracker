@@ -50,6 +50,11 @@ HTML con `sed '1d;$d'`). El gate de i18n corre también en CI (`check-i18n.yml`)
   (cliente). En días hábiles, con los feriados de cada país.
 - **Demo-switcher** ("Ver app como…", solo head): es filtrado **cosmético del lado del cliente** — el
   browser ya tiene toda la data confidencial cargada. No es un control de seguridad.
+- **Confidencialidad** (tareas): modelo **2 niveles unificado** — `manager`≡`líder` (el jefe del país).
+  `estandar`=todo el país; `confidencial`=resp/líder-manager/head/colaboradores (los pares no la ven);
+  `restringido`=legacy idéntico a confidencial. Regla en `filterTasksForRole` (fail-closed). El
+  **bloqueo por archivo** en Drive (`_applyTaskFileSharing`) solo es efectivo si `Config!DriveFolder`
+  NO está compartida con todo el equipo. Admin: `migrarConfidencialidad()`, `relockSensitiveTaskFiles()`.
 - **Columnas opcionales** (tareas col 17–21, proyectos 16–17): el backend solo las escribe si la hoja
   ya las tiene (`if (lc >= TASK_*_COL)`). Col 21 `Colaboradores` requiere correr `migrarColaboradores()`
   una vez desde el editor de Apps Script.

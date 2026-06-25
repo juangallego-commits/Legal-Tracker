@@ -780,9 +780,12 @@ function determineRole(email, user, config) {
 //   manager   → las de su país (pais === user.code, o resp en ese equipo)
 //   specialist→ solo donde resp === user.name
 // Después aplica un segundo filtro por confidencialidad de la tarea:
-//   estandar     → visible para todo el equipo (rol OK actual)
-//   restringido  → solo resp / lider / head / manager del país
-//   confidencial → solo resp / lider / head
+//   estandar     → visible para todo el equipo del país (rol OK actual)
+//   confidencial → solo resp / líder / head / colaboradores; los pares
+//                  specialists NO la ven. El manager del país SÍ la ve, porque
+//                  en este modelo manager === líder del país (un solo concepto).
+//   restringido  → LEGACY: tratado idéntico a 'confidencial' (mismo nivel).
+// (Modelo "2 niveles, unificado" — ver CLAUDE.md / ARCHITECTURE.md.)
 function filterTasksForRole(tasks, role, user, equipos) {
   // ¿el visitante es colaborador de la tarea (cualquier rol)? Da visibilidad.
   // task.colaboradores puede no existir en lecturas viejas → _isColaborador devuelve false.
@@ -817,18 +820,15 @@ function filterTasksForRole(tasks, role, user, equipos) {
     if (_userIsColab(t)) return true;
     var conf = (t.confidencialidad || 'estandar').toString().trim().toLowerCase() || 'estandar';
     if (conf === 'estandar') return true;
-    if (conf === 'restringido') {
-      return user.name === t.resp
-          || user.name === t.lider
-          || role === 'head'
-          || (role === 'manager' && t.pais === user.code);
-    }
-    if (conf === 'confidencial') {
-      return user.name === t.resp
-          || user.name === t.lider
-          || role === 'head';
-    }
-    return true;
+    // Cualquier nivel sensible ('confidencial' y el legacy 'restringido') se
+    // trata igual: oculto para los pares; visible para responsable, líder /
+    // manager del país, head y colaboradores. Fail-closed: un valor desconocido
+    // también cae acá (no se asume público). Nombres normalizados (#5).
+    var un = _normalizeName(user.name);
+    return un === _normalizeName(t.resp)
+        || un === _normalizeName(t.lider)
+        || role === 'head'
+        || (role === 'manager' && t.pais === user.code);
   });
 }
 
@@ -2365,6 +2365,11 @@ function _updateTaskFieldImpl(taskId, field, value) {
   }
   // Activity log (best-effort, no aborta mutation)
   _logActivity(ctx, taskId, field === 'status' ? 'status_change' : (field === 'resp' ? 'reassign' : 'update'), field, oldValue, value);
+  // Re-aplicar el bloqueo por archivo si cambió la confidencialidad (best-effort).
+  if (field === 'confidencialidad' &&
+      (value || '').toString().toLowerCase() !== (current.confidencialidad || '').toString().toLowerCase()) {
+    _relockTaskFiles(ctx, taskId, value);
+  }
   // Aviso al nuevo responsable (cubre reasignación individual y bulk — el bulk
   // llama updateTaskField por id). Solo si el resp realmente cambió a otra
   // persona. canSeeName: ya es el responsable, ve la tarea.
@@ -2471,6 +2476,11 @@ function _updateTaskFieldsImpl(taskId, fields) {
     }
   } finally {
     lock.releaseLock();
+  }
+  // Re-aplicar el bloqueo por archivo si cambió la confidencialidad (best-effort).
+  if (fields.confidencialidad !== undefined &&
+      (fields.confidencialidad || '').toString().toLowerCase() !== (current.confidencialidad || '').toString().toLowerCase()) {
+    _relockTaskFiles(ctx, taskId, fields.confidencialidad);
   }
   // Aviso al nuevo responsable si la reasignación vino en el batch.
   if (fields.resp !== undefined && fields.resp && _normalizeName(fields.resp) !== _normalizeName(current.resp)) {
@@ -4389,7 +4399,10 @@ function _readDocsFor(kind, itemId) {
     for (var i = 0; i < data.length; i++) {
       if (data[i][0] == itemId) {
         return { ss: ss, ws: ws, row: i + 4, col: TASK_DOCS_COL, docs: _parseDocs(data[i][TASK_DOCS_COL - 1]),
-                 target: { resp: data[i][2], pais: (data[i][12] || '').toString().trim() } };
+                 target: { resp: data[i][2], pais: (data[i][12] || '').toString().trim(),
+                           lider: (data[i][13] || '').toString().trim(),
+                           conf: (data[i].length > 17 ? (data[i][17] || '') : '').toString().trim().toLowerCase(),
+                           colaboradores: (data[i].length > 20 ? _parseColaboradores(data[i][20]) : []) } };
       }
     }
   } else if (kind === 'project') {
@@ -4408,6 +4421,89 @@ function _readDocsFor(kind, itemId) {
     }
   }
   return null;
+}
+
+// ── Confidencialidad de archivos en Drive ("bloqueo por archivo") ───────────
+// Modelo (ver CLAUDE.md / ARCHITECTURE.md): una tarea 'estandar' deja sus
+// archivos visibles por enlace para el dominio (igual que Biblioteca); una tarea
+// sensible (confidencial / legacy restringido) vuelve el archivo PRIVADO y
+// concede lectura explícita SOLO a los autorizados, espejando filterTasksForRole:
+// responsable, líder / manager del país, head(s), colaboradores y quien sube.
+//
+// ⚠ LÍMITE DE DRIVE: setSharing(PRIVATE) quita el enlace del ARCHIVO pero NO
+// remueve permisos HEREDADOS de la carpeta. El bloqueo solo es efectivo si la
+// carpeta raíz (Config!DriveFolder) NO está compartida con todo el equipo.
+// Ver PENDIENTES.md (#17).
+function _taskFileAuthorizedEmails(ctx, target) {
+  var ss = (ctx && ctx.ss) || SpreadsheetApp.openById(SHEET_ID);
+  var equipos = readEquipos(ss);
+  var config = readConfig(ss);
+  var set = {};
+  function add(email) {
+    var e = (email || '').toString().trim().toLowerCase();
+    if (e && e.indexOf('@') > 0) set[e] = true;
+  }
+  // Uploader: siempre (actúa sobre una tarea que puede escribir).
+  if (ctx && ctx.email) add(ctx.email);
+  // Responsable.
+  if (target && target.resp) { var mr = getMemberByName(target.resp, equipos); if (mr) add(mr.email); }
+  // Líder / manager del país (el de la tarea o, si falta, el líder del país).
+  var liderName = (target && target.lider) ? target.lider
+                : (target ? getLeaderForCountry(target.pais, equipos) : '');
+  if (liderName) { var ml = getMemberByName(liderName, equipos); if (ml) add(ml.email); }
+  // Head(s): Config!Heads es CSV de emails directos.
+  var headsRaw = (config && config.Heads) ? config.Heads.toString() : '';
+  headsRaw.split(',').forEach(function(h){ add(h); });
+  // Colaboradores.
+  ((target && target.colaboradores) || []).forEach(function(c){
+    if (c && c.name) { var mc = getMemberByName(c.name, equipos); if (mc) add(mc.email); }
+  });
+  return Object.keys(set);
+}
+
+// Aplica el sharing correcto a UN archivo de Drive según el nivel de la tarea.
+// Best-effort: cualquier fallo (archivo no-propio, email externo, cuota) se
+// loggea y no rompe el flujo. Retorna { ok, locked, granted, missing }.
+function _applyTaskFileSharing(file, conf, emails) {
+  var out = { ok: false, locked: false, granted: 0, missing: 0 };
+  try {
+    var sensitive = ((conf || 'estandar').toString().trim().toLowerCase() || 'estandar') !== 'estandar';
+    if (!sensitive) {
+      // Igual que Biblioteca: lectura por enlace para el dominio.
+      file.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW);
+      out.ok = true;
+      return out;
+    }
+    // Sensible: privado + lectores explícitos.
+    file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
+    out.locked = true;
+    (emails || []).forEach(function(e){
+      try { file.addViewer(e); out.granted++; }
+      catch (ev) { out.missing++; Logger.log('_applyTaskFileSharing addViewer skip ' + e + ': ' + ((ev && ev.message) || ev)); }
+    });
+    out.ok = true;
+  } catch (e) {
+    Logger.log('_applyTaskFileSharing skipped: ' + ((e && e.message) || e));
+  }
+  return out;
+}
+
+// Re-aplica el sharing a TODOS los archivos subidos de una tarea (los 'link'
+// adjuntos no se tocan: no somos owners). Se usa al elevar/bajar el nivel de
+// confidencialidad de una tarea existente. Best-effort, fuera del lock.
+function _relockTaskFiles(ctx, taskId, conf) {
+  try {
+    var info = _readDocsFor('task', taskId);
+    if (!info || !info.docs || !info.docs.length) return;
+    var emails = _taskFileAuthorizedEmails(ctx, info.target);
+    info.docs.forEach(function(d){
+      var fid = d && d.id ? d.id : '';
+      if (!fid) return; // solo archivos subidos (con id propio); los 'link' externos no.
+      try {
+        _applyTaskFileSharing(DriveApp.getFileById(fid), conf, emails);
+      } catch (e) { Logger.log('_relockTaskFiles file ' + fid + ' skip: ' + ((e && e.message) || e)); }
+    });
+  } catch (e) { Logger.log('_relockTaskFiles skipped: ' + ((e && e.message) || e)); }
 }
 
 // Sube un archivo (base64) a Drive y lo vincula al item. Retorna el doc descriptor.
@@ -4466,6 +4562,14 @@ function _uploadDocumentImpl(kind, itemId, fileData) {
   }
   var blob = Utilities.newBlob(bytes, mime, fileData.name);
   var file = folder.createFile(blob);
+
+  // Bloqueo por archivo según el nivel de la tarea (los proyectos no manejan
+  // confidencialidad → conservan el sharing heredado de la carpeta).
+  if (kind === 'task') {
+    try {
+      _applyTaskFileSharing(file, info.target.conf, _taskFileAuthorizedEmails(ctx, info.target));
+    } catch (eShare) { Logger.log('upload sharing skip: ' + ((eShare && eShare.message) || eShare)); }
+  }
 
   var doc = { name: file.getName(), url: file.getUrl(), id: file.getId(),
               uploadedBy: ctx.user.name, uploadedAt: new Date().toISOString() };

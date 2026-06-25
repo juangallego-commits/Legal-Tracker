@@ -37,6 +37,9 @@ siempre**. Ya no hay que hacer "Versión nueva" a mano. (Secret
 | 12 | **Activar el Gmail Add-on** | Editor de Apps Script → **Deploy → Test deployments → Install** (te lo instala a vos para probar). Para todo el equipo: Deploy → New deployment → tipo **Add-on**, y pedir a IT/Workspace admin que lo despliegue org-wide a Legal. | El `clasp push` (CI) sube el **código** del add-on, pero Gmail no lo muestra hasta que exista un deployment de tipo add-on. Tras instalar, abrí cualquier correo → ícono de Legal Tracker en la barra lateral derecha de Gmail → "Crear tarea". La primera vez Gmail pide autorizar los scopes nuevos (lectura del correo abierto). |
 | 15 | ⚠️ **Poblar la columna de emails en `Equipos`** | Hoja `Equipos`, col **F** (`emails`) = CSV **paralelo** a `members` (col E): mismo orden, mismo largo. La col D (`leaderEmail`) para el líder. | **Prerrequisito de las notificaciones por email** (te-asignaron / te-sumaron / te-mencionaron). El aviso resuelve el email del destinatario por su nombre contra esta columna; si está vacía o desalineada, el aviso **no sale** (silencioso, no rompe nada). Sin esto, las notis quedan solo in-app (la campana). |
 | 16 | **(Opcional) Apagar las notificaciones por email** | Hoja `Config`, key `NotificacionesEmail` = `off` | Kill-switch global de los avisos por email, sin tocar código. Cualquier otro valor (o ausente) = encendidas. La campana in-app no se afecta. |
+| 17 | 🔒 **Bloqueo por archivo en Drive (confidencialidad de tareas)** | Automático al subir / al elevar el nivel. Para que sea **efectivo**: la carpeta raíz (`Config!DriveFolder`) **NO** debe estar compartida con todo el equipo (ver nota abajo). Backfill de adjuntos viejos: `relockSensitiveTaskFiles()` (head). Limpieza cosmética del valor legacy `restringido`: `migrarConfidencialidad()` (head). | Una tarea **Confidencial** vuelve sus archivos **privados** + lectura explícita solo a **responsable / líder-manager / head / colaboradores** (espeja `filterTasksForRole`). **Depende de #15** (col F de emails): a quien no tenga email cargado **no** se le puede conceder acceso → queda fuera (se loggea, no rompe). |
+
+> **⚠ Confidencialidad de archivos — límite de Drive (clave):** el bloqueo por archivo (#17) hace `setSharing(PRIVATE)` + lectores explícitos, pero Drive **NO** quita los permisos **heredados de la carpeta**. Si `Config!DriveFolder` está compartida con todo el equipo legal, los archivos siguen siendo accesibles por herencia y el bloqueo **no muerde**. Para que sea real: la carpeta raíz debe ser **privada** (no compartida con el equipo); el acceso del equipo se da **por archivo** — `estandar` → lectura por enlace del dominio (igual que Biblioteca), `confidencial` → privado + lectores explícitos. **Antes de confiar en el control, confirmá cómo está compartida hoy la carpeta raíz.** (Los adjuntos que son *enlace* externo no se pueden bloquear: no somos owners.)
 
 > **Nota logo del add-on:** el `logoUrl` en `appsscript.json` (`addOns.common.logoUrl`) usa la balanza ⚖ de Noto Emoji (a color, visible en claro/oscuro) como placeholder. Reemplazar por el logo real de Legal Tracker / Rappi (URL https pública, PNG/JPEG) cuando esté.
 
@@ -116,6 +119,22 @@ Salió de 4 agentes Opus revisando flujos, pantallas, biblioteca y Slack. Ordena
 - **Documentos requeridos por tipo de trabajo** + **documentos que vencen** (NDAs, poderes) alimentando el digest.
 - **Búsqueda full-text del contenido de los docs** (extraer texto de PDFs al subir).
 - **Mobile real** — las tablas por rol usan grid fijo que desborda en celular; fallback a cards en anchos chicos.
+
+---
+
+## ✅ Confidencialidad de tareas — rehecha (jun-2026)
+
+**Modelo unificado, 2 niveles.** `manager` y `líder` son la **misma persona** (el jefe del país: el rol `manager` se deriva de ser líder en `Equipos`, y el campo `líder` de la tarea se autocompleta con el líder del país). Por eso el modelo quedó:
+- **Normal** (`estandar`) → todo el equipo del país.
+- **Confidencial** (`confidencial`; legacy `restringido` ≡ idéntico) → **responsable + líder/manager + head + colaboradores**; los **pares** specialists **no** la ven.
+
+**Qué cambió (código):**
+- `filterTasksForRole`: `restringido` y `confidencial` colapsan a una sola regla (oculto a pares, visible a resp/líder-manager/head/colaboradores), con nombres **normalizados** y **fail-closed** (un valor desconocido se trata como sensible). El badge "Confidencial" pasó a ser **honesto**.
+- **Cambiar el nivel en una tarea activa**: el modal de **Edición avanzada** ahora tiene el selector de Confidencialidad (manager/head). Antes solo se podía al cerrar/bloquear; ese picker se redujo de 3→2 niveles para igualar al wizard de crear.
+- **Bloqueo por archivo en Drive** (ver #17 arriba): subir un adjunto a una tarea Confidencial lo vuelve privado + lectores explícitos; al elevar/bajar el nivel se **re-aplica** a los adjuntos existentes. `estandar` → lectura por enlace del dominio (como Biblioteca).
+- Admin: `migrarConfidencialidad()` (colapso cosmético `restringido→confidencial`) y `relockSensitiveTaskFiles()` (backfill del bloqueo en Drive).
+
+**Pendiente de config (no código):** confirmar que `Config!DriveFolder` no esté compartida con todo el equipo (si lo está, el bloqueo por archivo no es efectivo — ver nota del límite de Drive en #17) y completar la col F de emails en `Equipos` (#15).
 
 ---
 

@@ -599,6 +599,13 @@ function openEdit(id) {
   var areaList = _clientesInternos();
   if (t.areaSolicitante && areaList.indexOf(t.areaSolicitante) < 0) areaList = [t.areaSolicitante].concat(areaList);
   var areaOpts  = buildOptions(areaList, t.areaSolicitante, 'Sin definir');
+  // Confidencialidad: solo manager/head pueden cambiarla (el backend rechaza al
+  // specialist). 2 niveles unificados (Normal / Confidencial).
+  var canConf  = (editRole === 'manager' || editRole === 'head');
+  var confOpts = buildOptions(_CR_CONF_OPTS, _confLevel(t));
+  var confRow  = canConf
+    ? '<div class="form-grid" style="margin-bottom:14px"><div class="form-group"><label>Confidencialidad</label><select id="eConf">' + confOpts + '</select></div></div>'
+    : '';
 
   var respField = canReassign
     ? '<div class="form-group"><label>Responsable</label><select id="eResp">' + rOpts + '</select></div>'
@@ -633,6 +640,7 @@ function openEdit(id) {
         '<input type="text" id="eContraparte" value="' + esc(t.contraparte || '') + '" maxlength="120" placeholder="Contraparte (opcional)"></div>' +
       '<div class="form-group"><label>Área solicitante</label><select id="eAreaSol">' + areaOpts + '</select></div>' +
     '</div>' +
+    confRow +
     renderDocsSection('task', id, t.documentos || []);
   $('editOv').classList.add('show');
   // Validación en vivo: el nombre de la tarea es obligatorio.
@@ -727,6 +735,9 @@ function saveEditTask() {
     contraparte: ($('eContraparte') ? $('eContraparte').value : ''),
     areaSolicitante: ($('eAreaSol') ? $('eAreaSol').value : '')
   };
+  // Confidencialidad solo si el campo está presente (manager/head). El backend
+  // re-aplica el bloqueo por archivo a los adjuntos si el nivel cambió.
+  if ($('eConf')) fields.confidencialidad = $('eConf').value;
   var id = EDIT_ID;
   // "Listo" dispara confirmación y mueve al historial — cerramos el modal
   // antes del confirm para no apilar dos overlays.
@@ -2278,13 +2289,13 @@ var ED_CONF_LEVELS = {
   restringido: {
     label: 'Confidencial',
     short: 'Conf.',
-    desc: 'Visible solo para responsable, lider y manager.',
+    desc: 'Visible para responsable, líder/manager, head y colaboradores. Los pares no la ven.',
     cls: 'confidencial'
   },
   confidencial: {
     label: 'Confidencial',
     short: 'Conf.',
-    desc: 'Visible solo para responsable y autorizados explícitos.',
+    desc: 'Visible para responsable, líder/manager, head y colaboradores. Los pares no la ven.',
     cls: 'confidencial'
   }
 };
@@ -7708,7 +7719,7 @@ function _uaRenderConfField(task) {
     : 'Actual: <b>' + esc(ED_CONF_LEVELS[current].label) + '</b>. Click un nivel para cambiarlo.';
   return '<div class="ua-field">'
        +   '<div class="ua-label">Cambiar confidencialidad <span class="opt">(opcional)</span></div>'
-       +   '<div class="cr-pills-row">' + pill('estandar') + pill('restringido') + pill('confidencial') + '</div>'
+       +   '<div class="cr-pills-row">' + pill('estandar') + pill('confidencial') + '</div>'
        +   '<div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.45">' + hint + '</div>'
        + '</div>';
 }
