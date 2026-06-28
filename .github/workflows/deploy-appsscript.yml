@@ -50,3 +50,20 @@ jobs:
           fi
           clasp deploy --deploymentId "$DEPLOY_ID" --description "CI ${GITHUB_SHA::7} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+      # Igual que el redeploy de la web app, pero para la implementación del Gmail
+      # add-on publicada en el Workspace Marketplace (ver docs/GMAIL-ADDON-MARKETPLACE.md).
+      # Mantiene la MISMA deploymentId (no cambia lo que el admin instaló) y solo
+      # crea una versión nueva con el código actual → los cambios del add-on llegan
+      # a los usuarios sin re-publicar ni re-instalar. No-op si el secret no está
+      # (ej. antes de publicar). OJO: si CAMBIAN los scopes, los usuarios deben
+      # re-consentir.
+      - name: Redeploy del Gmail add-on (Marketplace)
+        env:
+          ADDON_DEPLOY_ID: ${{ secrets.ADDON_DEPLOYMENT_ID }}
+        run: |
+          if [ -z "$ADDON_DEPLOY_ID" ]; then
+            echo "ADDON_DEPLOYMENT_ID no seteado — se omite el redeploy del add-on."
+            exit 0
+          fi
+          clasp deploy --deploymentId "$ADDON_DEPLOY_ID" --description "CI add-on ${GITHUB_SHA::7} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
